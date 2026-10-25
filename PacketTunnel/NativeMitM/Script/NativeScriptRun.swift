@@ -230,7 +230,7 @@ final class NativeScriptRun: JSCRun {
             guard parts.count == 2, let id = Int64(parts[1]), let input = useBlob(id),
                   let out = go.bytes(op: "compress", arg: String(parts[0]), input: input) else { return "-1" }
             return String(addBlob(out, temp: true))
-        case "log", "sread", "swrite", "sclear", "notify", "geo", "btoa", "atob":
+        case "log", "sread", "swrite", "sclear", "notify", "geo", "btoa", "atob", "apisync":
             return go.host(gen: gen, rule: rule, op: op, arg: arg)
         default:
             return ""
@@ -394,6 +394,8 @@ final class NativeScriptRun: JSCRun {
     }
 
     private var isDone: Bool { hmu.lock(); defer { hmu.unlock() }; return done }
+    /// The raw $done descriptor (task runs read its exported `value`; gap C3). "" when $done was not called.
+    var doneJSON: String { hmu.lock(); defer { hmu.unlock() }; return done ? doneRaw : "" }
     private var pendingNow: Int { hmu.lock(); defer { hmu.unlock() }; return pending }
 
     private var lastFailNote = ""

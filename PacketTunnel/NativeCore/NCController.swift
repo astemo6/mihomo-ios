@@ -184,6 +184,20 @@ final class NCController {
                 ["seq": $0.seq, "time": $0.time, "type": $0.type, "payload": $0.payload]
             }
             respond(conn, status: 200, json: ["seq": seq, "logs": logs] as [String: Any])
+        // gap C3: task scripts and panels (NativeTaskRunner)
+        case ("GET", "/mitm/tasks"):
+            respond(conn, status: 200, json: NativeTaskRunner.shared.listJSON())
+        case ("PUT", "/mitm/tasks-prefs"):
+            NativeTaskRunner.shared.setPrefs(req.body)
+            respond(conn, status: 204, json: nil)
+        case ("GET", "/mitm/panels"):
+            respond(conn, status: 200, json: NativeTaskRunner.shared.panelsJSON(markViewed: true))
+        case ("PUT", "/mitm/panels-home"):
+            if NativeTaskRunner.shared.setHome(req.body) {
+                respond(conn, status: 200, json: NativeTaskRunner.shared.panelsJSON(markViewed: false))
+            } else {
+                respond(conn, status: 400, json: ["message": "invalid body"])
+            }
         case ("DELETE", "/hark/logs"):
             NativeLogRing.shared.clearGeneral()
             respond(conn, status: 204, json: nil)
@@ -241,6 +255,34 @@ final class NCController {
                     self.respond(conn, status: 504, json: ["message": "all timed out"])
                 } else {
                     self.respond(conn, status: 200, json: results)
+                }
+            }
+            return
+        }
+        // /mitm/tasks/{id}/run POST, /mitm/tasks/{id}/history GET, /mitm/panels/{id}/refresh POST (gap C3) — script
+        // runs block, so they answer from a background queue
+        if comps.count == 4, comps[0] == "mitm", comps[1] == "tasks", comps[3] == "run", req.method == "POST" {
+            let id = comps[2]
+            let params = ((try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any])?["params"] as? String
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let r = NativeTaskRunner.shared.run(id: id, params: params)
+                var o: [String: Any] = ["ok": r.ok]
+                if let e = r.error { o["error"] = e }
+                if let v = r.result as? [String: Any], JSONSerialization.isValidJSONObject(v) { o["result"] = v }
+                self?.queue.async { self?.respond(conn, status: 200, json: o) }
+            }
+            return
+        }
+        if comps.count == 4, comps[0] == "mitm", comps[1] == "tasks", comps[3] == "history", req.method == "GET" {
+            respondRaw(conn, NativeTaskRunner.shared.history(id: comps[2]))
+            return
+        }
+        if comps.count == 4, comps[0] == "mitm", comps[1] == "panels", comps[3] == "refresh", req.method == "POST" {
+            let id = comps[2]
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let p = NativeTaskRunner.shared.refreshPanel(id)
+                self?.queue.async {
+                    if let p { self?.respond(conn, status: 200, json: p) } else { self?.respond(conn, status: 404, json: ["message": "面板不存在"]) }
                 }
             }
             return
@@ -562,7 +604,10 @@ final class NCController {
     // MARK: Responses
 
     private func respondEncodable<T: Encodable>(_ conn: NWConnection, _ value: T) {
-        let body = (try? JSONEncoder().encode(value)) ?? Data("null".utf8)
+        respondRaw(conn, (try? JSONEncoder().encode(value)) ?? Data("null".utf8))
+    }
+
+    private func respondRaw(_ conn: NWConnection, _ body: Data) {
         var out = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
         out.append(body)
         conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })

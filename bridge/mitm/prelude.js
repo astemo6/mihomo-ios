@@ -451,6 +451,44 @@
     };
     G.$task = { fetch: taskFetch };
 
+    // Loon $config (NativeCore gap C3): synchronous answers from the host's $httpAPI ("apisync" — the Go-free
+    // tunnel answers; elsewhere it returns "" and these return null / false).
+    function apiSync(m, p, b) {
+      var d = { m: m, p: p };
+      if (b !== undefined) { d.hasB = true; d.b = b; }
+      var r = host('apisync', JSON.stringify(d));
+      if (r === '') return null;
+      try { return JSON.parse(r); } catch (e) { return null; }
+    }
+    function qname(g) { return encodeURIComponent(argStr(g)); }
+    G.$config = {
+      getConfig: function () { var r = apiSync('GET', '/loon/config'); return r && !r.error ? JSON.stringify(r) : null; },
+      getSelectedPolicy: function (g) {
+        var r = apiSync('GET', '/v1/policy_groups/select?group_name=' + qname(g));
+        return r && typeof r.policy === 'string' ? r.policy : null;
+      },
+      setSelectPolicy: function (g, p) {
+        var r = apiSync('POST', '/v1/policy_groups/select', { group_name: argStr(g), policy: argStr(p) });
+        return !!r && !r.error;
+      },
+      getSubPolicys: function (g, cb) {
+        var r = apiSync('GET', '/loon/sub_policies?group_name=' + qname(g));
+        var s = JSON.stringify(r && !r.error ? r : []);
+        if (typeof cb === 'function') cb(s);
+        return s;
+      },
+      getRunningModel: function () {
+        var r = apiSync('GET', '/v1/outbound');
+        var m = r && r.mode;
+        return m === 'direct' ? 0 : (m === 'proxy' ? 2 : 1);
+      },
+      setRunningModel: function (n) {
+        var v = +n;
+        var r = apiSync('POST', '/v1/outbound', { mode: v === 0 ? 'direct' : (v === 2 ? 'proxy' : 'rule') });
+        return !!r && !r.error;
+      }
+    };
+
     // small helpers JavaScriptCore apps / browsers have and bundled scripts expect
     G.TextEncoder = function TextEncoder() {
       this.encoding = 'utf-8';

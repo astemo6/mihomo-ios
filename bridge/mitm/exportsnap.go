@@ -53,32 +53,46 @@ type ScriptManifestEntry struct {
 	MaxSize   int             `json:"maxSize,omitempty"` // the script's max-size (bytes; scriptBodyLimit)
 	Setup     json.RawMessage `json:"setup,omitempty"` // runCtx.setupJSON(nil, nil): __tern_begin's base
 	Err       string          `json:"err,omitempty"`   // load / adapt error, reported as the script's run error
+	// gap C3 (astemo6/Muse NativeCore): cron / event / generic / interaction tasks (I = -1 - task index)
+	TaskID string `json:"taskId,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	Cron   string `json:"cron,omitempty"`
+	Event  string `json:"event,omitempty"`
+	Off    bool   `json:"off,omitempty"` // DisabledByLine (task-prefs.json can turn it on)
+	Format string `json:"format,omitempty"`
+	Source string `json:"source,omitempty"`
+	Line   string `json:"line,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Icon   string `json:"icon,omitempty"`
 }
 
 type scriptManifest struct {
 	Version int                   `json:"version"`
 	Scripts []ScriptManifestEntry `json:"scripts"`
+	Tasks   []ScriptManifestEntry `json:"tasks"`
+	Panels  []*Panel              `json:"panels"`
 }
 
 // ExportScriptManifest writes ScriptManifestFile + the code files for rs (removing code files no rule uses any
 // more). Returns the number of scripts and of scripts that could not be loaded.
 func ExportScriptManifest(home string, cfg *Config, rs *Ruleset) (int, int, error) {
 	dir := filepath.Join(home, ScriptManifestDir)
-	man := scriptManifest{Version: 1, Scripts: []ScriptManifestEntry{}}
+	man := scriptManifest{Version: 1, Scripts: []ScriptManifestEntry{}, Tasks: []ScriptManifestEntry{}, Panels: []*Panel{}}
 	keep := map[string]bool{}
 	bad := 0
 	if cfg != nil && rs != nil {
 		e := &Engine{home: home}
 		e.res = NewResources(home, e)
 		e.st.Store(&state{cfg: cfg, rs: rs})
-		for i, r := range rs.Rules {
-			if r.Kind != KindScript || r.Script == nil {
-				continue
-			}
-			sc := r.Script
+		var werr error
+		build := func(i int, sc *Script, task bool) ScriptManifestEntry {
 			ent := ScriptManifestEntry{I: i, Name: sc.Name, Type: sc.Type, MaxSize: sc.MaxSize,
 				TimeoutMs: scriptTimeout(sc, 120*time.Second, 10*time.Second).Milliseconds()}
-			rc := &runCtx{script: sc, name: sc.Name, e: e}
+			if task {
+				// RunTask: 300 s ceiling, 30 s default
+				ent.TimeoutMs = scriptTimeout(sc, 300*time.Second, 30*time.Second).Milliseconds()
+			}
+			rc := &runCtx{script: sc, name: sc.Name, e: e, wantExport: task}
 			if setup, err := rc.setupJSON(nil, nil); err == nil {
 				ent.Setup = json.RawMessage(setup)
 			} else {
@@ -102,15 +116,18 @@ func ExportScriptManifest(home string, cfg *Config, rs *Ruleset) (int, int, erro
 					ent.File = filepath.Join(ScriptManifestDir, ent.Key+".js")
 					if !keep[ent.Key] {
 						if err := os.MkdirAll(dir, 0o755); err != nil {
-							return 0, 0, err
+							werr = err
+							return ent
 						}
 						p := filepath.Join(home, ent.File)
 						if _, err := os.Stat(p); err != nil {
 							if err := os.WriteFile(p+".tmp", []byte(code), 0o644); err != nil {
-								return 0, 0, err
+								werr = err
+								return ent
 							}
 							if err := os.Rename(p+".tmp", p); err != nil {
-								return 0, 0, err
+								werr = err
+								return ent
 							}
 						}
 						keep[ent.Key] = true
@@ -120,7 +137,34 @@ func ExportScriptManifest(home string, cfg *Config, rs *Ruleset) (int, int, erro
 			if ent.Err != "" {
 				bad++
 			}
-			man.Scripts = append(man.Scripts, ent)
+			return ent
+		}
+		for i, r := range rs.Rules {
+			if r.Kind != KindScript || r.Script == nil {
+				continue
+			}
+			man.Scripts = append(man.Scripts, build(i, r.Script, false))
+			if werr != nil {
+				return 0, 0, werr
+			}
+		}
+		for k, tk := range rs.Tasks {
+			if tk == nil || tk.Script == nil {
+				continue
+			}
+			ent := build(-1-k, tk.Script, true)
+			if werr != nil {
+				return 0, 0, werr
+			}
+			ent.TaskID, ent.Kind, ent.Cron, ent.Event = tk.ID, tk.Kind, tk.Cron, tk.Event
+			ent.Off, ent.Format, ent.Source = tk.DisabledByLine, tk.Format, tk.Source
+			ent.Line, ent.Path, ent.Icon = tk.Line, tk.Script.Path, tk.Icon
+			man.Tasks = append(man.Tasks, ent)
+		}
+		for _, p := range rs.Panels {
+			if p != nil {
+				man.Panels = append(man.Panels, p)
+			}
 		}
 	}
 	if des, err := os.ReadDir(dir); err == nil {

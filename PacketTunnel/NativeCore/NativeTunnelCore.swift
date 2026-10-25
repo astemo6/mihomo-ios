@@ -100,6 +100,7 @@ final class NativeTunnelCore {
         p?.stop()
         e?.stop()
         NativeCoreEngine.active = nil
+        NativeTaskRunner.shared.stop()
         NCPersistentStore.shared.flush() // $persistentStore writes still waiting for their coalesced flush
     }
 
@@ -138,6 +139,8 @@ final class NativeTunnelCore {
     private func loadRewriteSnapshot(home: String, engine: NativeCoreEngine) {
         // Scripts: the prelude once per process, the app's script manifest (code files + run setup) every load.
         StartupLog.write("native scripts: " + NativeScriptHost.shared.load(home: home))
+        // gap C3: cron / event / generic tasks and panels from the same manifest
+        StartupLog.write("native tasks: " + NativeTaskRunner.shared.load(home: home))
         let url = URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json")
         if let text = try? String(contentsOf: url, encoding: .utf8), let snap = RWSnapshot.decode(text) {
             NativeRewriteSnapshotSource.shared.setSnapshot(snap, json: text)
@@ -246,8 +249,12 @@ final class NativeTunnelCore {
     /// LibmihomoFlushDNSCache: NativeCore keeps no resolver cache beyond the fake-IP pool (which must survive).
     func flushDNSCache() {}
 
-    /// LibmihomoNotifyNetworkChanged: network-changed event scripts are not run by the native core yet.
-    func notifyNetworkChanged(_ json: String) -> Int { 0 }
+    /// LibmihomoNotifyNetworkChanged: infoJSON becomes $network; every enabled network-changed event script runs
+    /// (gap C3, NativeTaskRunner). Returns how many were started.
+    func notifyNetworkChanged(_ json: String) -> Int {
+        let info = ((try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]) ?? [:]
+        return NativeTaskRunner.shared.networkChanged(info)
+    }
 
     /// LibmihomoShedConnections: close the oldest `percent` % of connections.
     func shedConnections(percent: Int) -> Int {

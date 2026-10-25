@@ -252,7 +252,8 @@ final class NativeScriptHost: ScriptGoHost {
         if let data = try? Data(contentsOf: url),
            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
            let list = obj["scripts"] as? [[String: Any]] {
-            for raw in list {
+            // gap C3: task scripts (cron / event / generic / interaction) share the manifest at i = -1 - task index
+            for raw in list + ((obj["tasks"] as? [[String: Any]]) ?? []) {
                 guard let d = try? JSONSerialization.data(withJSONObject: raw),
                       var e = try? JSONDecoder().decode(ManifestEntry.self, from: d) else { continue }
                 if let setup = raw["setup"], let sd = try? JSONSerialization.data(withJSONObject: setup),
@@ -267,6 +268,7 @@ final class NativeScriptHost: ScriptGoHost {
         lock.lock()
         self.home = home
         manifest = entries
+        geoDBs = nil // ASN.mmdb may have been downloaded since
         let pState = preludeState ?? ""
         lock.unlock()
         let bad = entries.values.filter { $0.err != nil }.count
@@ -584,13 +586,10 @@ final class NativeScriptHost: ScriptGoHost {
             }
             return "false"
         case "geo":
-            if arg.hasPrefix("c") {
-                let ip = String(arg.dropFirst())
-                if let country = Self.geoLookup?(ip) {
-                    return country
-                }
-            }
-            return "{}"
+            guard let k = arg.first else { return "" }
+            return geoLookupFull(k, String(arg.dropFirst()))
+        case "apisync":
+            return NativeHTTPAPI.sync(arg)
         default:
             return ""
         }
@@ -605,7 +604,48 @@ final class NativeScriptHost: ScriptGoHost {
         return nil
     }
 
-    func api(gen: Int64, rule: Int, arg: String) -> String { "{}" }
+    /// $httpAPI (gap C3): answered by NativeHTTPAPI against NativeCore's engine; {"id","v"} for __tern_deliver.
+    func api(gen: Int64, rule: Int, arg: String) -> String {
+        NativeHTTPAPI.async(arg, script: entry(rule)?.name ?? "script #\(rule)")
+    }
+
+    // $utils.geoip / ipasn / ipaso (gap C3): country, ASN number and AS organisation, like bridge/engine.go
+    // geoLookup. The databases are mapped (not read into memory) on first use.
+    private var geoDBs: (country: NCMMDB?, asn: NCMMDB?)?
+
+    private func geoDatabases() -> (country: NCMMDB?, asn: NCMMDB?) {
+        lock.lock()
+        if let g = geoDBs { lock.unlock(); return g }
+        let h = home
+        lock.unlock()
+        let base = URL(fileURLWithPath: h)
+        func open(_ name: String) -> NCMMDB? {
+            guard let d = try? Data(contentsOf: base.appendingPathComponent(name), options: .alwaysMapped), d.count > 1024 else { return nil }
+            return NCMMDB(data: d)
+        }
+        let g = (country: open("geoip.metadb") ?? open("Country.mmdb"), asn: open("ASN.mmdb"))
+        lock.lock(); geoDBs = g; lock.unlock()
+        return g
+    }
+
+    func geoLookupFull(_ kind: Character, _ ipStr: String) -> String {
+        let s = ipStr.trimmingCharacters(in: .whitespaces)
+        guard let ip = NCIP(s) else { return "" }
+        let dbs = geoDatabases()
+        switch kind {
+        case "c":
+            if let c = Self.geoLookup?(s) ?? dbs.country?.countryCode(for: ip) { return c.uppercased() }
+            return ""
+        case "a", "o":
+            guard let rec = dbs.asn?.lookup(ip), let m = rec.object else { return "" }
+            if kind == "o" { return m["autonomous_system_organization"]?.string ?? m["as_name"]?.string ?? "" }
+            var asn = m["autonomous_system_number"]?.int.map(String.init) ?? m["asn"]?.string ?? ""
+            if asn.hasPrefix("AS") || asn.hasPrefix("as") { asn = String(asn.dropFirst(2)) }
+            return asn == "0" ? "" : asn
+        default:
+            return ""
+        }
+    }
 
     /// $httpClient (NativeCore): NCScriptHTTPClient on NCUpstreamConnector — the request follows the tunnel's rules
     /// (direct / reject / proxy with origin TLS over the relay), not the extension's own URLSession sockets. Meta
