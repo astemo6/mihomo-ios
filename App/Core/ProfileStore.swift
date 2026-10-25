@@ -152,7 +152,7 @@ final class ProfileStore: ObservableObject {
         OverrideScriptStore.shared.forget(profile: p) // v0.19 覆写脚本
         // Per-profile settings (策略组编辑 / order, 前置代理, 订阅规则, 网络策略) and side files (.bak, .gen,
         // .selected.json) of the deleted profile.
-        let err = LibmihomoForgetProfile(AppShared.homeURL.path, p.id, p.fileURL.path)
+        let err = ImportTools.forgetProfile(home: AppShared.homeURL.path, profileID: p.id, profilePath: p.fileURL.path)
         if !err.isEmpty { StartupLog.write("forget profile: \(err)", tag: "app") }
         // 自定义 copies of a deleted source become plain local profiles (they no longer follow a subscription).
         for i in profiles.indices where profiles[i].sourceID == p.id {
