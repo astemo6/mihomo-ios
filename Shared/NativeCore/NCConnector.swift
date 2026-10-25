@@ -425,11 +425,32 @@ enum NCConnector {
                 socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
         case "http", "https":
-            if transport != nil && proxy.type == "https" {
+            let isHTTPS = proxy.type == "https" || (proxy.fields["tls"]?.bool ?? false)
+            if transport != nil && isHTTPS {
                 queue.async { completion(nil, Failure.unsupported("https proxy over a chain transport")) }
                 return
             }
-            obtainStream(transport: transport, make: { NCStream(to: server, port: port, tls: proxy.type == "https", queue: queue) }) { raw, err in
+            if isHTTPS && isECHEnabled(proxy) && realityParams(proxy) != nil {
+                queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                return
+            }
+            if isHTTPS && needsNativeTLS(proxy) {
+                dialNativeTLS(proxy: proxy, server: server, port: port, defaultALPN: ["http/1.1"], queue: queue) { raw, err in
+                    guard let raw else { completion(nil, err); return }
+                    httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
+                }
+                return
+            }
+            obtainStream(transport: transport, make: {
+                if isHTTPS {
+                    return NCStream(to: server, port: port,
+                                    tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                                    allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                                    queue: queue)
+                } else {
+                    return NCStream(to: server, port: port, queue: queue)
+                }
+            }) { raw, err in
                 guard let raw else { completion(nil, err); return }
                 httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
@@ -538,6 +559,10 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("trojan over a chain transport (TLS termination needs its own socket)")) }
                 return
             }
+            if isECHEnabled(proxy) && realityParams(proxy) != nil {
+                queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                return
+            }
             if realityParams(proxy) != nil {
                 dialReality(proxy: proxy, server: server, port: port, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
@@ -546,8 +571,16 @@ enum NCConnector {
                 }
                 return
             }
+            if needsNativeTLS(proxy) {
+                dialNativeTLS(proxy: proxy, server: server, port: port, queue: queue) { base, err in
+                    guard let base else { completion(nil, err); return }
+                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    completion(base, nil)
+                }
+                return
+            }
             let raw = NCStream(to: server, port: port,
-                               tlsServerName: proxy.fields["sni"]?.string ?? server,
+                               tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                                queue: queue)
             raw.start { err in
