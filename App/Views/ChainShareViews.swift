@@ -201,19 +201,27 @@ struct ShareTarget: Identifiable {
 enum NodeShare {
     /// Link for a node dictionary (manual nodes); error text on failure.
     static func link(node: [String: Any]) -> Result<String, ShareError> {
-        guard let d = try? JSONSerialization.data(withJSONObject: node), let json = String(data: d, encoding: .utf8) else {
-            return .failure(ShareError(message: String(localized: "节点数据无效")))
+        do {
+            let s = try NCShareLink.encode(node)
+            return .success(s)
+        } catch {
+            return .failure(ShareError(message: error.localizedDescription))
         }
-        let s = LibmihomoNodeShareLink(json)
-        return s.isEmpty ? .failure(ShareError(message: LibmihomoLastError())) : .success(s)
     }
 
     /// Link for a node of the active profile, by name (策略 page).
     static func link(named name: String) async -> Result<String, ShareError> {
         guard let path = AppShared.activeProfileURL?.path else { return .failure(ShareError(message: String(localized: "没有当前配置"))) }
         let home = AppShared.homeURL.path
-        let r = await Task.detached { (LibmihomoNodeShareLinkByName(home, path, name), LibmihomoLastError()) }.value
-        return r.0.isEmpty ? .failure(ShareError(message: r.1)) : .success(r.0)
+        let r = await Task.detached { () -> Result<String, ShareError> in
+            do {
+                let s = try NCShareLink.encodeByName(homeDir: home, profilePath: path, name: name)
+                return .success(s)
+            } catch {
+                return .failure(ShareError(message: error.localizedDescription))
+            }
+        }.value
+        return r
     }
 
     struct ShareError: Error { let message: String }
