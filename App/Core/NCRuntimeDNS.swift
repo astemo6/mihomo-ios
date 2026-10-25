@@ -194,7 +194,7 @@ extension NCRuntimeSteps {
                 let s: String
                 switch e {
                 case .string(let str): s = str.trimmingCharacters(in: .whitespaces)
-                case .number(let n): s = n == floor(n) ? String(Int64(n)) : String(n)
+                case .number: s = NCValueCoercion.sprint(e) // was String(Int64(n)): traps on 1e30 / inf
                 default: continue
                 }
                 if s.isEmpty || seen.contains(s) || !plainNameserver(s) { continue }
