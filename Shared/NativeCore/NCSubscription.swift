@@ -308,8 +308,15 @@ enum NCSubscriptionParser {
             ("cipher", str(s("scy").isEmpty ? "auto" : s("scy"))),
             ("udp", .bool(true)),
         ])
-        let net = s("net")
+        let net = xhttpAlias(s("net"))
         if !net.isEmpty, net != "tcp" { f["network"] = .string(net) }
+        if net == "xhttp" {
+            // v2rayN vmess JSON: the xhttp mode rides in "type" (bridge/share.go writes it there too).
+            let t = s("type")
+            let mode = ["auto", "packet-up", "stream-up", "stream-one"].contains(t) ? t : ""
+            f["xhttp-opts"] = .object(xhttpOpts(path: s("path"), host: s("host"), mode: mode,
+                                                extra: s("extra").isEmpty ? nil : s("extra")))
+        }
         if s("tls") == "tls" {
             f["tls"] = .bool(true)
             if !s("sni").isEmpty { f["servername"] = .string(s("sni")) }
@@ -371,8 +378,9 @@ enum NCSubscriptionParser {
             if let sid = q["sid"] { opts["short-id"] = .string(sid) }
             f["reality-opts"] = .object(opts)
         }
-        let net = q["type"] ?? "tcp"
+        let net = xhttpAlias(q["type"] ?? "tcp")
         if net != "tcp" { f["network"] = .string(net) }
+        if net == "xhttp" { f["xhttp-opts"] = .object(xhttpOpts(path: q["path"], host: q["host"], mode: q["mode"], extra: q["extra"])) }
         if net == "ws" || net == "httpupgrade" {
             var opts: [String: NCJSONValue] = [:]
             if let path = q["path"] { opts["path"] = .string(path) }
@@ -420,8 +428,9 @@ enum NCSubscriptionParser {
             if let sid = q["sid"] { opts["short-id"] = .string(sid) }
             f["reality-opts"] = .object(opts)
         }
-        let net = q["type"] ?? "tcp"
+        let net = xhttpAlias(q["type"] ?? "tcp")
         if net != "tcp" { f["network"] = .string(net) }
+        if net == "xhttp" { f["xhttp-opts"] = .object(xhttpOpts(path: q["path"], host: q["host"], mode: q["mode"], extra: q["extra"])) }
         if net == "ws" || net == "httpupgrade" {
             var opts: [String: NCJSONValue] = [:]
             if let path = q["path"] { opts["path"] = .string(path) }
@@ -439,6 +448,111 @@ enum NCSubscriptionParser {
         }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "trojan", fields: f)
+    }
+
+    // MARK: XHTTP share-link options (feat/nc-xhttp; mihomo common/convert/v.go)
+
+    /// Xray's former name for the transport.
+    private static func xhttpAlias(_ net: String) -> String {
+        net.lowercased() == "splithttp" ? "xhttp" : net
+    }
+
+    /// xhttp-opts from a share link: path / host / mode, plus Xray's `extra` JSON mapped like mihomo's
+    /// parseXHTTPExtra (headers, padding, placements, post sizing, xmux → reuse-settings, downloadSettings).
+    static func xhttpOpts(path: String?, host: String?, mode: String?, extra: String?) -> [String: NCJSONValue] {
+        var o: [String: NCJSONValue] = [:]
+        if let path, !path.isEmpty { o["path"] = .string(path) }
+        if let host, !host.isEmpty { o["host"] = .string(host) }
+        if let mode, !mode.isEmpty { o["mode"] = .string(mode) }
+        if let extra, !extra.isEmpty, let data = extra.data(using: .utf8),
+           let m = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            applyXHTTPExtra(m, into: &o)
+        }
+        return o
+    }
+
+    private static func xhttpReuse(_ x: [String: Any]) -> [String: NCJSONValue] {
+        var r: [String: NCJSONValue] = [:]
+        for (src, dst) in [("maxConnections", "max-connections"), ("maxConcurrency", "max-concurrency"),
+                           ("cMaxReuseTimes", "c-max-reuse-times"), ("hMaxRequestTimes", "h-max-request-times"),
+                           ("hMaxReusableSecs", "h-max-reusable-secs")] {
+            if let v = x[src] as? String, !v.isEmpty { r[dst] = .string(v) }
+            else if let n = x[src] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { r[dst] = .string(String(n.int64Value)) }
+        }
+        if let n = x["hKeepAlivePeriod"] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
+            r["h-keep-alive-period"] = .number(Double(n.intValue))
+        }
+        return r
+    }
+
+    private static func applyXHTTPExtra(_ e: [String: Any], into o: inout [String: NCJSONValue]) {
+        func str(_ k: String) -> String? { (e[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        func num(_ k: String) -> Int? {
+            guard let n = e[k] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+            return n.intValue
+        }
+        func flag(_ k: String) -> Bool? {
+            guard let n = e[k] as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+            return n.boolValue
+        }
+        if let h = e["headers"] as? [String: Any], !h.isEmpty { o["headers"] = .object(h.mapValues { NCJSONValue($0) }) }
+        if flag("noGRPCHeader") == true { o["no-grpc-header"] = .bool(true) }
+        if let v = str("xPaddingBytes") { o["x-padding-bytes"] = .string(v) }
+        if let v = flag("xPaddingObfsMode") { o["x-padding-obfs-mode"] = .bool(v) }
+        for (src, dst) in [("xPaddingKey", "x-padding-key"), ("xPaddingHeader", "x-padding-header"),
+                           ("xPaddingPlacement", "x-padding-placement"), ("xPaddingMethod", "x-padding-method"),
+                           ("uplinkHTTPMethod", "uplink-http-method"), ("sessionIDTable", "session-table"),
+                           ("seqPlacement", "seq-placement"), ("seqKey", "seq-key"),
+                           ("uplinkDataPlacement", "uplink-data-placement"), ("uplinkDataKey", "uplink-data-key")] {
+            if let v = str(src) { o[dst] = .string(v) }
+        }
+        if let v = str("sessionIDPlacement") ?? str("sessionPlacement") { o["session-placement"] = .string(v) }
+        if let v = str("sessionIDKey") ?? str("sessionKey") { o["session-key"] = .string(v) }
+        if let v = str("sessionIDLength") { o["session-length"] = .string(v) }
+        else if let n = num("sessionIDLength") { o["session-length"] = .string(String(n)) }
+        if let n = num("uplinkChunkSize") { o["uplink-chunk-size"] = .number(Double(n)) }
+        if let n = num("scMaxEachPostBytes") { o["sc-max-each-post-bytes"] = .number(Double(n)) }
+        if let n = num("scMinPostsIntervalMs") { o["sc-min-posts-interval-ms"] = .number(Double(n)) }
+        if let x = e["xmux"] as? [String: Any], !x.isEmpty {
+            let r = xhttpReuse(x)
+            if !r.isEmpty { o["reuse-settings"] = .object(r) }
+        }
+        if let d = e["downloadSettings"] as? [String: Any] {
+            var ds: [String: NCJSONValue] = [:]
+            if let a = d["address"] as? String, !a.isEmpty { ds["server"] = .string(a) }
+            if let p = d["port"] as? NSNumber, CFGetTypeID(p) != CFBooleanGetTypeID() { ds["port"] = .number(Double(p.intValue)) }
+            let sec = (d["security"] as? String ?? "").lowercased()
+            if sec == "tls" || sec == "reality" {
+                ds["tls"] = .bool(true)
+                if let t = d["tlsSettings"] as? [String: Any] {
+                    if let sn = t["serverName"] as? String, !sn.isEmpty { ds["servername"] = .string(sn) }
+                    if let fp = t["fingerprint"] as? String, !fp.isEmpty { ds["client-fingerprint"] = .string(fp) }
+                    if let a = t["alpn"] as? [Any] {
+                        let l = a.compactMap { $0 as? String }
+                        if !l.isEmpty { ds["alpn"] = .array(l.map { .string($0) }) }
+                    }
+                    if let b = t["allowInsecure"] as? NSNumber, CFGetTypeID(b) == CFBooleanGetTypeID(), b.boolValue {
+                        ds["skip-cert-verify"] = .bool(true)
+                    }
+                }
+                if sec == "reality", let r = d["realitySettings"] as? [String: Any] {
+                    var ro: [String: NCJSONValue] = [:]
+                    if let pk = r["publicKey"] as? String, !pk.isEmpty { ro["public-key"] = .string(pk) }
+                    if let sid = r["shortId"] as? String, !sid.isEmpty { ro["short-id"] = .string(sid) }
+                    if !ro.isEmpty { ds["reality-opts"] = .object(ro) }
+                }
+            }
+            if let x = d["xhttpSettings"] as? [String: Any] {
+                if let p = x["path"] as? String, !p.isEmpty { ds["path"] = .string(p) }
+                if let h = x["host"] as? String, !h.isEmpty { ds["host"] = .string(h) }
+                if let h = x["headers"] as? [String: Any], !h.isEmpty { ds["headers"] = .object(h.mapValues { NCJSONValue($0) }) }
+                if let ex = x["extra"] as? [String: Any], let xm = ex["xmux"] as? [String: Any], !xm.isEmpty {
+                    let r = xhttpReuse(xm)
+                    if !r.isEmpty { ds["reuse-settings"] = .object(r) }
+                }
+            }
+            if !ds.isEmpty { o["download-settings"] = .object(ds) }
+        }
     }
 
     /// The raw port token of a URI authority (splitParts only keeps the Int,

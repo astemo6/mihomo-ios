@@ -97,6 +97,14 @@ enum NCShareLink {
                 v["path"] = sStr(o, "path")
                 let h = sList(o, "host")
                 if let first = h.first { v["host"] = first }
+            case "xhttp":
+                // feat/nc-xhttp: v2rayN vmess JSON carries the xhttp mode in "type" (NCSubscription reads it back).
+                let o = sMap(m, "xhttp-opts")
+                v["net"] = "xhttp"
+                v["path"] = sStr(o, "path")
+                v["host"] = sStr(o, "host")
+                let mode = sStr(o, "mode")
+                if !mode.isEmpty { v["type"] = mode }
             case "http":
                 let o = sMap(m, "http-opts")
                 v["type"] = "http"
