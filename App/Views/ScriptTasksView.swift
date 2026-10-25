@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 // MARK: - Models (/mitm/tasks, /mitm/panels, /mitm/notifications, replay)
 
@@ -491,13 +490,19 @@ struct ScriptTasksView: View {
     }
 }
 
-/// The task list while disconnected: parsed from the scripts and enabled modules by the Go core (the same
-/// parser the tunnel uses), last results from the run log.
+/// The task list while disconnected: parsed from the scripts and enabled modules by NCEngineTaskList (the
+/// Swift module parser, ids as the tunnel's script manifest has them), last results from the run log.
 enum TaskCatalog {
     static func offline() async -> [ScriptTaskState] {
-        let home = EnginePaths.dir.path
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoEngineTaskList(home) }.value
-        guard var list = try? JSONDecoder().decode([ScriptTaskState].self, from: Data(json.utf8)) else { return [] }
+        let home = AppShared.homeURL.path
+        let order = TaskPrefs.load().order ?? []
+        let parsed = await Task.detached(priority: .userInitiated) { NCEngineTaskList.tasks(home: home, order: order) }.value
+        var list = parsed.map { t in
+            ScriptTaskState(id: t.id, kind: t.kind, cron: t.cron, event: t.event,
+                            script: .init(name: t.name, path: t.path, timeout: t.timeout),
+                            source: t.source, line: t.line, format: t.format.isEmpty ? nil : t.format,
+                            icon: t.icon, disabledByLine: t.disabledByLine ? true : nil)
+        }
         for i in list.indices {
             if let last = TaskHistory.load(list[i].id).first {
                 list[i].lastRun = last.time

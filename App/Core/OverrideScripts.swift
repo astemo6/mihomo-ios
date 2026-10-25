@@ -2,7 +2,6 @@ import Foundation
 import JavaScriptCore
 import CryptoKit
 import Darwin
-import Libmihomo
 
 // v0.19 覆写脚本 (override scripts), the Clash Verge / FlClash / Bettbox convention:
 // `function main(config, profileName) { …; return config }` runs in JavaScriptCore in the app whenever the
@@ -432,7 +431,7 @@ final class OverrideScriptStore: ObservableObject {
         for s in scripts(p.id) { try? FileManager.default.removeItem(at: Self.contentURL(s.id)) }
         byProfile[p.id] = nil
         persist()
-        LibmihomoScriptOutputClear(AppShared.homeURL.path, p.fileURL.path)
+        NCOverrideOutput.clear(home: AppShared.homeURL.path, profilePath: p.fileURL.path)
     }
 
     // MARK: remote
@@ -533,7 +532,7 @@ final class OverrideScriptStore: ObservableObject {
         let list = scripts(p.id).filter(\.enabled)
         let home = AppShared.homeURL.path, path = p.fileURL.path
         if list.isEmpty {
-            LibmihomoScriptOutputClear(home, path)
+            NCOverrideOutput.clear(home: home, profilePath: path)
             fingerprints[p.id] = nil
             let r = OverrideChainResult(ok: true, message: "")
             lastResult[p.id] = nil
@@ -566,16 +565,13 @@ final class OverrideScriptStore: ObservableObject {
     }
 
     nonisolated static func outputFresh(_ p: Profile) -> Bool {
-        let st = LibmihomoScriptOutputStatus(AppShared.homeURL.path, p.fileURL.path)
-        guard let o = try? JSONSerialization.jsonObject(with: Data(st.utf8)) as? [String: Any] else { return false }
-        return (o["exists"] as? Bool ?? false) && (o["fresh"] as? Bool ?? false)
+        let st = NCOverrideOutput.status(home: AppShared.homeURL.path, profilePath: p.fileURL.path)
+        return st.exists && st.fresh
     }
 
     nonisolated static func status(_ p: Profile) -> (exists: Bool, fresh: Bool, at: Date?) {
-        let st = LibmihomoScriptOutputStatus(AppShared.homeURL.path, p.fileURL.path)
-        guard let o = try? JSONSerialization.jsonObject(with: Data(st.utf8)) as? [String: Any] else { return (false, false, nil) }
-        let at = (o["at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
-        return (o["exists"] as? Bool ?? false, o["fresh"] as? Bool ?? false, at)
+        let st = NCOverrideOutput.status(home: AppShared.homeURL.path, profilePath: p.fileURL.path)
+        return (st.exists, st.fresh, st.at)
     }
 
     /// The chain itself (off the main actor). Per script: millis, error, error line, console output.
@@ -595,22 +591,20 @@ final class OverrideScriptStore: ObservableObject {
         -> (OverrideChainResult, [String: (Int?, String?, Int?, [String])], Bool) {
         var stats: [String: (Int?, String?, Int?, [String])] = [:]
         let started = Date()
-        var err: NSError?
-        let snap = LibmihomoScriptInputSnapshot(path, &err)
-        if let err {
-            LibmihomoScriptOutputClear(home, path)
-            return (OverrideChainResult(ok: false, message: GoText.localize(err.localizedDescription)), stats, false)
+        // The sha256 of the bytes read: the output is stored only if the file still has that content.
+        let snap: (sha: String, json: String)
+        do {
+            snap = try NCOverrideOutput.inputSnapshot(profilePath: path)
+        } catch {
+            NCOverrideOutput.clear(home: home, profilePath: path)
+            return (OverrideChainResult(ok: false, message: error.localizedDescription), stats, false)
         }
-        // "<sha256 of the bytes read>\n<json>": the output is stored only if the file still has that content.
-        var sourceSHA = "", config = snap
-        if let nl = snap.firstIndex(of: "\n") {
-            sourceSHA = String(snap[..<nl])
-            config = String(snap[snap.index(after: nl)...])
-        }
+        let sourceSHA = snap.sha
+        var config = snap.json
         for (s, source) in scripts {
             if source.isEmpty {
                 stats[s.id] = (nil, String(localized: "脚本内容为空"), nil, [])
-                LibmihomoScriptOutputClear(home, path)
+                NCOverrideOutput.clear(home: home, profilePath: path)
                 return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本「\(s.name)」：脚本内容为空"), failedScriptID: s.id), stats, false)
             }
             // Only the switch values the script declares now (a renamed key is not passed on).
@@ -625,16 +619,16 @@ final class OverrideScriptStore: ObservableObject {
                 config = out.json
             case .failure(let e):
                 stats[s.id] = (nil, e.text, e.line, logs)
-                LibmihomoScriptOutputClear(home, path)
+                NCOverrideOutput.clear(home: home, profilePath: path)
                 return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本「\(s.name)」：\(e.text)"), failedScriptID: s.id), stats, false)
             }
         }
-        let names = (try? JSONSerialization.data(withJSONObject: scripts.map { $0.0.name })).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
-        let msg = LibmihomoScriptOutputApplyFor(home, path, config, names, sourceSHA)
+        let msg = NCOverrideOutput.applyFor(home: home, profilePath: path, outputJSON: config,
+                                            scripts: scripts.map { $0.0.name }, sourceSHA: sourceSHA)
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         if !msg.isEmpty {
             return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本的结果无法使用：\(GoText.localize(msg))"), millis: ms), stats,
-                    msg == "配置在脚本运行期间已改变，请重新运行")
+                    msg == NCOverrideOutput.errSourceChanged)
         }
         var res = OverrideChainResult(ok: true, message: "", millis: ms)
         if let o = try? JSONSerialization.jsonObject(with: Data(config.utf8)) as? [String: Any] {

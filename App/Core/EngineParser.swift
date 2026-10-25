@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Pure Swift port of the bridge's module / rewrite text parser
 /// (bridge/mitm/parse.go + rules.go + tasks.go, driven by
@@ -83,6 +84,13 @@ struct NCEngineTask {
     var path = ""
     var format = ""
     var line = ""
+    // nc-dego-rest (EngineTaskList): the rest of mitm.Task — stableID(source, kind, name, path, cron), the
+    // module name / "用户" that produced it, the script timeout (default 30 s), QX img-url, enabled=false lines.
+    var id = ""
+    var source = ""
+    var timeout = 30
+    var icon: String? = nil
+    var disabledByLine = false
 }
 
 struct NCEnginePanel {
@@ -971,8 +979,8 @@ extension NCEngineRuleset {
     }
 
     /// mitm addTask (projection-relevant parts).
-    func addTask(kind: String, cron: String, event: String, sc: NCEngineScript,
-                 line: String, format: String) {
+    func addTask(kind: String, cron cron0: String, event: String, sc: NCEngineScript,
+                 line: String, format: String, source: String = "", p: [String: String] = [:]) {
         if sc.path.isEmpty {
             errors.append("脚本缺少 script-path：" + Self.clip(line, 120))
             return
@@ -983,13 +991,20 @@ extension NCEngineRuleset {
         t.path = sc.path
         t.format = format
         t.line = line
+        t.source = source
+        t.timeout = sc.timeout > 0 ? sc.timeout : 30
+        // mitm withLineOpts
+        if let ic = p["img-url"], ic.hasPrefix("http://") || ic.hasPrefix("https://") { t.icon = ic }
+        t.disabledByLine = Self.disabledByParam(p)
+        // mitm ParseCron's expression: quotes trimmed, @macros expanded, fields joined by one space
+        let cron = kind == "cron" ? Self.normCron(cron0) : cron0
         switch kind {
         case "cron":
             guard Self.cronValid(cron) else {
                 errors.append("cron 表达式无效：" + Self.clip(line, 120))
                 return
             }
-            t.cron = cron.split(whereSeparator: { $0 == " " || $0 == "\t" }).joined(separator: " ")
+            t.cron = cron
         case "event":
             let ev = event.isEmpty ? "network-changed" : event
             guard ev == "network-changed" else {
@@ -1002,10 +1017,43 @@ extension NCEngineRuleset {
         default:
             break
         }
-        if tasks.contains(where: { $0.kind == t.kind && $0.name == t.name && $0.path == t.path && $0.cron == t.cron }) {
+        t.id = Self.stableID([source, kind, sc.name, sc.path, t.cron ?? ""])
+        if tasks.contains(where: { $0.id == t.id }) {
             return
         }
         tasks.append(t)
+    }
+
+    /// mitm stableID: hex of the first 6 bytes of SHA-1 over the parts joined by NUL.
+    static func stableID(_ parts: [String]) -> String {
+        Insecure.SHA1.hash(data: Data(parts.joined(separator: "\u{0}").utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static let cronMacros: [String: String] = [
+        "@yearly": "0 0 1 1 *", "@annually": "0 0 1 1 *", "@monthly": "0 0 1 * *", "@weekly": "0 0 * * 0",
+        "@daily": "0 0 * * *", "@midnight": "0 0 * * *", "@hourly": "0 * * * *",
+    ]
+
+    /// mitm ParseCron's normalisation (Cron.String()).
+    static func normCron(_ expr: String) -> String {
+        var e = expr.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let m = cronMacros[e.lowercased()] { e = m }
+        return e.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// mitm disabledByParam: enable= / enabled= present and not truthy.
+    static func disabledByParam(_ p: [String: String]) -> Bool {
+        for k in ["enable", "enabled"] {
+            if let v = p[k] {
+                switch v.trimmingCharacters(in: .whitespaces).lowercased() {
+                case "1", "true", "yes", "on": continue
+                default: return true
+                }
+            }
+        }
+        return false
     }
 
     static let loonCronRe = regex(#"^cron\s+"([^"]+)"\s+(script-path\s*=.*)$"#, options: [.caseInsensitive])
@@ -1018,7 +1066,7 @@ extension NCEngineRuleset {
     static let coreLineRe = regex(#"^(url-regex|domain|domain-suffix|domain-keyword|domain-wildcard|domain-regex|ip-cidr6?|geoip|ip-asn|dst-port|host|host-suffix|host-keyword|host-wildcard|ip6-cidr)\s*,[^,]+,"#, options: [.caseInsensitive])
 
     /// mitm parseTaskLine: returns true when the line was consumed.
-    func parseTaskLine(_ line: String, section: String) -> Bool {
+    func parseTaskLine(_ line: String, section: String, source: String = "") -> Bool {
         if let m = Self.firstMatch(Self.surgeScriptRe, line) {
             let p = Self.splitParams(m[2], keys: Self.scriptKeys)
             let typ = (p["type"] ?? "").trimmingCharacters(in: .whitespaces).lowercased()
@@ -1033,7 +1081,7 @@ extension NCEngineRuleset {
             }
             let sc = Self.scriptFromParams(name: m[1], p: p)
             let cron = !(p["cronexp"] ?? "").isEmpty ? p["cronexp"]! : (p["cron"] ?? "")
-            addTask(kind: typ, cron: cron, event: p["event-name"] ?? "", sc: sc, line: line, format: "surge")
+            addTask(kind: typ, cron: cron, event: p["event-name"] ?? "", sc: sc, line: line, format: "surge", source: source, p: p)
             return true
         }
         var lm = Self.firstMatch(Self.loonCronRe, line)
@@ -1043,14 +1091,14 @@ extension NCEngineRuleset {
         if let m = lm {
             let p = Self.splitParams(m[2], keys: Self.scriptKeys)
             addTask(kind: "cron", cron: m[1], event: "", sc: Self.scriptFromParams(name: p["tag"] ?? "", p: p),
-                    line: line, format: "loon")
+                    line: line, format: "loon", source: source, p: p)
             return true
         }
         if let m = Self.firstMatch(Self.loonEventRe, line) {
             let p = Self.splitParams(m[2], keys: Self.scriptKeys)
             let kind = m[1].lowercased() == "network-changed" ? "event" : "generic"
             addTask(kind: kind, cron: "", event: "network-changed", sc: Self.scriptFromParams(name: p["tag"] ?? "", p: p),
-                    line: line, format: "loon")
+                    line: line, format: "loon", source: source, p: p)
             return true
         }
         if let m = Self.firstMatch(Self.qxEventRe, line) {
@@ -1058,7 +1106,7 @@ extension NCEngineRuleset {
             p["script-path"] = m[2]
             let kind = m[1].lowercased() == "network" ? "event" : "interaction"
             addTask(kind: kind, cron: "", event: "network-changed", sc: Self.scriptFromParams(name: p["tag"] ?? "", p: p),
-                    line: line, format: "qx")
+                    line: line, format: "qx", source: source, p: p)
             return true
         }
         let low = line.lowercased()
@@ -1069,7 +1117,7 @@ extension NCEngineRuleset {
                 var p = Self.splitParams(String(m[3].dropFirst(m[3].hasPrefix(",") ? 1 : 0)), keys: Self.scriptKeys)
                 p["script-path"] = m[2]
                 addTask(kind: "cron", cron: m[1], event: "", sc: Self.scriptFromParams(name: p["tag"] ?? "", p: p),
-                        line: line, format: "qx")
+                        line: line, format: "qx", source: source, p: p)
                 return true
             }
         }
@@ -1128,7 +1176,7 @@ extension NCEngineRuleset {
         if section == "general" || section == "host" || section == "proxy" || section == "proxy group" { return }
         // Loon .lpx expression lines are not ported; they fall through and
         // normally land in unsupported below.
-        if parseTaskLine(line, section: section) { return }
+        if parseTaskLine(line, section: section, source: source) { return }
         // Surge script line: name = type=..., pattern=...
         if let m = Self.firstMatch(Self.surgeScriptRe, line), !m[1].contains(" url ") {
             let p = Self.splitParams(m[2], keys: Self.scriptKeys)

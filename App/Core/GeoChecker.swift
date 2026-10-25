@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// 出口信息查询 (v0.12, QX geo_location_checker). Settings live in the App Group under the same keys as
 /// qx/rebuild's 出口位置查询 (IPInfoFetcher.checkerKey / checkerURLKey: "" auto, an endpoint name = preferred,
@@ -94,7 +93,7 @@ enum GeoChecker {
     /// Script source: cached copy (≤ 1 day), else downloaded; local file names under Scripts are accepted too.
     private static func loadScript(_ ref: String, session: URLSession) async -> String? {
         if !ref.hasPrefix("http") {
-            let s = LibmihomoScriptSource(AppShared.homeURL.path, ref)
+            let s = NCScriptSource.codeAndError(home: AppShared.homeURL.path, path: ref).0
             return s.isEmpty ? nil : s
         }
         let fm = FileManager.default

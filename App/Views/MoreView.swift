@@ -1,7 +1,6 @@
 import SwiftUI
 import Combine
 import NetworkExtension
-import Libmihomo
 
 struct MoreView: View {
     @EnvironmentObject var vpn: VPNManager
@@ -785,7 +784,7 @@ struct AboutView: View {
         List {
             Section {
                 LabeledContent("应用版本", value: appVersion)
-                LabeledContent("内核", value: LibmihomoVersion())
+                LabeledContent("内核", value: CoreVersion.label)
             }
             .listRowBackground(Theme.card)
             Section {

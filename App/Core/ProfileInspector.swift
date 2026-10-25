@@ -229,7 +229,7 @@ final class ProfileInspector: ObservableObject {
     /// Saves group → node for the active profile; applied by the core on the next connect.
     func select(group: String, node: String) {
         guard let path = profilePath ?? AppShared.activeProfileURL?.path else { return }
-        let err = LibmihomoSaveSelection(path, group, node)
+        let err = NCProfileSelections.save(path, group: group, node: node)
         guard err.isEmpty else { return }
         if let i = result.groups.firstIndex(where: { $0.name == group }) { result.groups[i].selected = node }
         result.selected[group] = node // v0.19.8: also the synthesized GLOBAL
@@ -286,7 +286,6 @@ final class ProfileInspector: ObservableObject {
         // normal routing when the bind fails.
         let iface = await PhysicalInterface.current() ?? ""
         NCDelayTester.setOfflineInterface(iface)
-        LibmihomoSetOfflineTestInterface(iface)
         let tcp = ControllerClient.tcpHandshake
         var idx = 0
         while idx < names.count {
@@ -311,7 +310,7 @@ final class ProfileInspector: ObservableObject {
     /// Saves the live selection too, so the offline view and the next connect agree with it.
     static func rememberLiveSelection(group: String, node: String) {
         guard let path = AppShared.activeProfileURL?.path else { return }
-        _ = LibmihomoSaveSelection(path, group, node)
+        NCProfileSelections.save(path, group: group, node: node)
     }
 }
 

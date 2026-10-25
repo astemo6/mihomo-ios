@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// 智能选择 option for url-test / fallback groups, stored per profile in <home>/groups.json
 /// ({"<profile id>": {"smart": [names]}}); the Go side scores members and pins the best (bridge/smart.go).
@@ -7,7 +6,7 @@ import Libmihomo
 final class SmartGroups: ObservableObject {
     static let shared = SmartGroups()
 
-    /// groups.json entry; `dialer` (group → 前置代理) is written by the Go side (SetGroupChain) and kept here.
+    /// groups.json entry; `dialer` (group → 前置代理) is written by NCChainCandidates.setGroupChain and kept here.
     struct Settings: Codable { var smart: [String]?; var dialer: [String: String]? }
     struct Member: Decodable, Hashable { var name: String; var score: Double; var avg: Int; var fails: Int; var count: Int; var alive: Bool }
     struct Status: Decodable, Hashable {
@@ -44,7 +43,7 @@ final class SmartGroups: ObservableObject {
         var list = all[id]?.smart ?? []
         list.removeAll { $0 == group }
         if on { list.append(group) }
-        load() // pick up chain changes written by Go
+        load() // pick up chain changes written by setGroupChain
         var st = all[id] ?? Settings()
         st.smart = list.isEmpty ? nil : list
         all[id] = st
@@ -63,11 +62,11 @@ final class SmartGroups: ObservableObject {
         return all[id]?.dialer?[group]
     }
 
-    /// Stores (or clears) a group's 前置代理 through Go (validates against loops), then reloads.
+    /// Stores (or clears) a group's 前置代理 (NCChainCandidates.setGroupChain validates against loops), then reloads.
     func setVia(_ group: String, _ via: String?) async -> String? {
         guard let path = AppShared.activeProfileURL?.path else { return String(localized: "没有当前配置") }
         let home = AppShared.homeURL.path
-        let err = await Task.detached { LibmihomoSetGroupChain(home, path, group, via ?? "") }.value
+        let err = await Task.detached { NCChainCandidates.setGroupChain(home: home, profilePath: path, group: group, via: via ?? "") }.value
         load()
         if !err.isEmpty { return err }
         if VPNManager.shared.isConnected { return await VPNManager.shared.reload() }

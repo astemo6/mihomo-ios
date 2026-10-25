@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 // 策略组编辑 (v0.9). Edits live in <home>/group-edits.json per profile (bridge/groupedits.go applies them
 // when the runtime config is built); the profile file is never rewritten. 恢复原始 removes the edit.
