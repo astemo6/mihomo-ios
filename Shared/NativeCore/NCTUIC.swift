@@ -227,10 +227,10 @@ final class NCTUICConnection {
     private func openAuthStream() {
         guard !authOpened, state == .connecting, let group else { return }
         authOpened = true
-        // Same ALPN/TLS as the group parameters (quicStreamOptions) — a bare
-        // options object here negotiates without ALPN and sing-box refuses it.
-        let uniOptions = quicStreamOptions()
-        uniOptions.direction = .unidirectional
+        // Derived from the group's own QUIC options (NCQUICStreamOptions): a freshly built
+        // options object — bare or a matching quicStreamOptions() — fails to clone onto the
+        // established connection ("could not find protocol to join", ENETDOWN).
+        let uniOptions = NCQUICStreamOptions.unidirectional(from: group, fallback: quicStreamOptions)
         guard let auth = group.extract(connectionTo: nil, using: uniOptions) else {
             finish(NCConnector.Failure.handshake("tuic: cannot open auth stream"))
             return

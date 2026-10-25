@@ -90,13 +90,18 @@ jobs:
           exit "$RC"
       - name: Stop loopback servers
         if: always()
-        run: tools/loopback/start-servers.sh stop || true
+        run: |
+          tools/loopback/start-servers.sh stop || true
+          cp /tmp/nc-loopback/sing-box.log results/sing-box.log 2>/dev/null || true
+          echo "--- sing-box.log (hy2/tuic/quic lines, last 200) ---"
+          grep -i -E "hy2|hysteria|tuic|quic|error|warn" /tmp/nc-loopback/sing-box.log | tail -n 200 || true
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: loopback-results
           path: |
             results/loopback.log
+            results/sing-box.log
             build-loop.log
           if-no-files-found: warn
           retention-days: 14

@@ -360,10 +360,12 @@ extension NCHysteria1Connection {
     /// started on the session queue too, so `datagramFlow` never leaves it.
     private func ensureDatagramFlow() -> NWConnection? {
         if let datagramFlow { return datagramFlow }
-        let opts = NWProtocolQUIC.Options()
-        opts.isDatagram = true
+        // Derived from the group's own QUIC options (NCQUICStreamOptions): bare fresh
+        // options fail to clone onto the established connection (ENETDOWN).
+        guard let g = group else { return nil }
+        let opts = NCQUICStreamOptions.datagram(from: g, fallback: { NWProtocolQUIC.Options() })
         opts.maxDatagramFrameSize = 1400
-        guard let g = group, let c = g.extract(connectionTo: nil, using: opts) else { return nil }
+        guard let c = g.extract(connectionTo: nil, using: opts) else { return nil }
         datagramFlow = c
         c.stateUpdateHandler = { [weak self] st in
             guard let self else { return }
