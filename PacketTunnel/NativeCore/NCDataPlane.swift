@@ -13,7 +13,8 @@ final class NCDataPlane {
     private let stack = NCTunStack()
     private weak var flow: NEPacketTunnelFlow?
     private let mtu: UInt16
-    let queue = DispatchQueue(label: "nc.dataplane", qos: .userInitiated)
+    /// feat/nc-wg: the shared lwIP queue — WireGuard netifs (NCWireGuard.swift) live in the same lwIP instance.
+    let queue = NCLwIP.queue
 
     private var timer: DispatchSourceTimer?
     private var sessions: [UInt: TCPSession] = [:]
@@ -466,6 +467,9 @@ final class NCDataPlane {
             session = ssr
         case .proxy(let proxy) where proxy.type == "anytls":
             session = NCUDPAnyTLSSession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "wireguard":
+            // feat/nc-wg: UDP from the node's lwIP netif (NCUDPWireGuardSession).
+            session = NCUDPWireGuardSession(proxy: proxy, queue: queue)
         case .proxy(let proxy) where proxy.type == "snell":
             guard let sn = NCUDPSnellSession(proxy: proxy, queue: queue) else {
                 udpDropped += 1

@@ -286,6 +286,15 @@ enum NCConnector {
                                         allowMux: Bool = true,
                                         transport: NCRelayStream? = nil,
                                         completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        // feat/nc-wg: WireGuard (several peers may carry their own server/port, so before the guard below).
+        if proxy.type == "wireguard" {
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("wireguard over a chain transport")) }
+                return
+            }
+            wireguardStream(proxy: proxy, target: target, queue: queue, completion: completion)
+            return
+        }
         guard let server = proxy.server, let port = proxy.port else {
             queue.async { completion(nil, Failure.handshake("proxy \(proxy.name) missing server/port")) }
             return
