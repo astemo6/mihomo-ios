@@ -49,13 +49,14 @@ final class NativeCoreRuleSetTests: XCTestCase {
         idx.addText("""
         // ads list
         ads.com
-        .subonly.net
+        .dotted.net
         +.clashstyle.org
         """, flavor: .domainSet)
+        // Surge DOMAIN-SET: plain line = exact host; leading dot = self + subdomains.
         XCTAssertTrue(idx.contains(ctx(domain: "ads.com")))          // bare: self
-        XCTAssertTrue(idx.contains(ctx(domain: "x.ads.com")))        // bare: subdomain
-        XCTAssertFalse(idx.contains(ctx(domain: "subonly.net")))     // dot: self excluded
-        XCTAssertTrue(idx.contains(ctx(domain: "a.subonly.net")))    // dot: subdomain
+        XCTAssertFalse(idx.contains(ctx(domain: "x.ads.com")))       // bare: exact only
+        XCTAssertTrue(idx.contains(ctx(domain: "dotted.net")))       // dot: self included
+        XCTAssertTrue(idx.contains(ctx(domain: "a.dotted.net")))     // dot: subdomain
         XCTAssertTrue(idx.contains(ctx(domain: "clashstyle.org")))   // +. prefix = suffix incl self
         XCTAssertTrue(idx.contains(ctx(domain: "www.clashstyle.org")))
         XCTAssertFalse(idx.contains(ctx(domain: "notads.com")))

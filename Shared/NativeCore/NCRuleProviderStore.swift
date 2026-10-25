@@ -23,6 +23,12 @@ final class NCRuleProviderStore {
         var filePath: String? = nil // local file (type=file), absolute or home-relative
         var inlinePayload: [String] = []
         var interval: Int = 86400
+        /// Other keys this provider answers to: a RULE-SET / DOMAIN-SET line
+        /// whose payload is the URL of a declared provider shares that
+        /// provider's index instead of downloading and indexing the same
+        /// list twice (the .conf importers declare a named provider AND keep
+        /// the URL in the rule line).
+        var aliases: [String] = []
 
         init(
             name: String,
@@ -60,6 +66,7 @@ final class NCRuleProviderStore {
     private let dir: URL
     private let lock = NSLock()
     private var indexes: [String: NCRuleSetIndex] = [:]
+    private var aliasMap: [String: String] = [:]
     private var fetchedAt: [String: TimeInterval] = [:]
 
     /// (urlString, completion) — completion gets the body or nil on failure.
@@ -87,7 +94,10 @@ final class NCRuleProviderStore {
             for name in providers.keys.sorted() {
                 guard let o = providers[name]?.object else { continue }
                 var p = Provider(name: name)
-                p.behavior = o["behavior"]?.string ?? "classical"
+                // No behavior (QX filter_remote / Loon remote rules lowered
+                // without one): per-line dialect detection, which also
+                // handles classical lines and YAML payload documents.
+                p.behavior = o["behavior"]?.string?.lowercased() ?? "auto"
                 p.url = o["url"]?.string
                 p.filePath = o["path"]?.string
                 p.format = o["format"]?.string ?? (
@@ -100,15 +110,28 @@ final class NCRuleProviderStore {
                 out.append(p)
             }
         }
-        let declared = Set(out.map { $0.name })
-        for rule in cfg.rules {
-            let fields = NCRule.splitTopLevel(rule)
-            guard fields.count >= 2, fields[0].uppercased() == "RULE-SET" else { continue }
-            let payload = fields[1]
-            if payload.hasPrefix("http://") || payload.hasPrefix("https://"), !declared.contains(payload) {
-                let fmt = payload.hasSuffix(".mrs") ? "mrs" : "auto"
-                out.append(Provider(name: payload, behavior: "auto", format: fmt, url: payload))
+        var declared = Set(out.map { $0.name })
+        var declaredByURL: [String: Int] = [:]
+        for (i, p) in out.enumerated() { if let u = p.url, declaredByURL[u] == nil { declaredByURL[u] = i } }
+        // URL payloads of RULE-SET / DOMAIN-SET lines (top level, inside
+        // logic rules and in sub-rule sets).
+        var refs: [(kind: String, payload: String)] = []
+        func collect(_ r: NCRule) {
+            if r.kind == "RULE-SET" || r.kind == "DOMAIN-SET" { refs.append((r.kind, r.payload)) }
+            for sub in r.subRules { collect(sub) }
+        }
+        for line in cfg.rules { if let r = NCRule.parse(line) { collect(r) } }
+        for name in cfg.subRules.keys.sorted() { for r in cfg.subRules[name] ?? [] { collect(r) } }
+        for (kind, payload) in refs {
+            guard payload.hasPrefix("http://") || payload.hasPrefix("https://"), !declared.contains(payload) else { continue }
+            if let i = declaredByURL[payload] {
+                if !out[i].aliases.contains(payload) { out[i].aliases.append(payload) }
+                continue
             }
+            let fmt = payload.hasSuffix(".mrs") ? "mrs" : (kind == "DOMAIN-SET" ? "text" : "auto")
+            out.append(Provider(name: payload, behavior: kind == "DOMAIN-SET" ? "domain" : "auto",
+                                format: fmt, url: payload))
+            declared.insert(payload)
         }
         return out
     }
@@ -138,6 +161,10 @@ final class NCRuleProviderStore {
     @discardableResult
     func loadCached(providers: [Provider], home: String) -> [Provider] {
         var stale: [Provider] = []
+        lock.lock()
+        aliasMap = [:]
+        for p in providers { for a in p.aliases { aliasMap[a] = p.name } }
+        lock.unlock()
         for p in providers {
             var idx = NCRuleSetIndex()
             var loaded = false
@@ -216,8 +243,27 @@ final class NCRuleProviderStore {
     // MARK: matching
 
     func contains(name: String, ctx: NCMatchContext) -> Bool {
-        lock.lock(); let idx = indexes[name]; lock.unlock()
+        lock.lock(); let idx = indexes[aliasMap[name] ?? name]; lock.unlock()
         return idx?.contains(ctx) ?? false
+    }
+
+    /// Domain-only membership (DNS nameserver-policy `rule-set:` keys,
+    /// fake-ip-filter `rule-set:` entries): mihomo matches only the
+    /// provider's domain entries there.
+    func containsDomain(name: String, domain: String) -> Bool {
+        contains(name: name, ctx: NCMatchContext(domain: domain))
+    }
+
+    /// mihomo RuleSet.ShouldResolveIP: the set holds IP entries.
+    func needsIP(name: String) -> Bool {
+        lock.lock(); let idx = indexes[aliasMap[name] ?? name]; lock.unlock()
+        return idx?.needsIP ?? false
+    }
+
+    /// Whether a provider (or alias) by this key is configured and loaded.
+    func isLoaded(name: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return indexes[aliasMap[name] ?? name] != nil
     }
 
     func loadedNames() -> [String] {

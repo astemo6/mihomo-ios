@@ -19,10 +19,15 @@ import Foundation
 /// "does this context hit any entry?" — exposed via `contains(_ ctx:)`,
 /// which the engine injects as `NCMatchContext.ruleSetContains`.
 ///
-/// DOMAIN-SET suffix semantics (Surge-compatible): a bare entry matches
-/// itself and its subdomains; a leading-dot entry matches subdomains only.
-/// Both live in a reversed-label trie, so a 50k-entry list costs one walk
-/// of the queried hostname's labels, not a linear scan.
+/// DOMAIN-SET semantics (Surge manual, "DOMAIN-SET File Format"): a plain
+/// line matches the hostname exactly (like DOMAIN); a line starting with `.`
+/// matches the domain itself and all subdomains (like DOMAIN-SUFFIX). The
+/// clash spelling `+.d` means the same as `.d`; `*.d` (mihomo one-level
+/// wildcard) is approximated as subdomains-only. Exact entries live in a
+/// Set, suffix entries in a reversed-label trie, so a 50k-entry list costs
+/// one hash lookup plus one walk of the queried hostname's labels.
+/// (mihomo's `.d` excludes `d` itself; the leaner Surge reading is used for
+/// both — a mihomo list gains at most the bare parent domain.)
 
 enum NCRuleSetFlavor {
     case classical   // TYPE,payload[,policy] lines (mihomo / Surge RULE-SET / Loon)
@@ -38,6 +43,11 @@ struct NCRuleSetIndex {
     private(set) var mrsIPCIDRSet: NCMRSIPCIDRSet? = nil
     private(set) var others: [NCRule] = [] // keywords, wildcards, regex, CIDRs, GEOIP, ASN, ports…
     private(set) var entryCount = 0
+    /// Whether any entry reads the destination IP (CIDR sets, IP-CIDR /
+    /// GEOIP / IP-ASN lines): mihomo RuleSet.ShouldResolveIP.
+    var needsIP: Bool {
+        mrsIPCIDRSet != nil || others.contains { NCRuleMatcher.ipKinds.contains($0.kind) }
+    }
 
     // MARK: building
 
@@ -113,15 +123,21 @@ struct NCRuleSetIndex {
 
     private mutating func addDomainSetEntry(_ line0: String) {
         var line = line0
-        if line.hasPrefix("+.") { line = String(line.dropFirst(2)) } // clash-style suffix marker
-        var subOnly = false
-        if line.hasPrefix(".") { subOnly = true; line = String(line.dropFirst()) }
+        var suffix = false   // domain itself + subdomains
+        var subOnly = false  // subdomains only
+        if line.hasPrefix("+.") { suffix = true; line = String(line.dropFirst(2)) } // clash-style suffix marker
+        else if line.hasPrefix("*.") { subOnly = true; line = String(line.dropFirst(2)) }
+        else if line.hasPrefix(".") { suffix = true; line = String(line.dropFirst()) } // Surge: self + subdomains
         // DOMAIN-SET files sometimes carry full URLs; keep just the host.
         if let scheme = line.range(of: "://") { line = String(line[scheme.upperBound...]) }
         if let slash = line.firstIndex(of: "/") { line = String(line[..<slash]) }
         let host = line.lowercased()
-        guard !host.isEmpty, host.contains(".") || subOnly else { return }
-        suffixRoot.insert(domain: host, matchSelf: !subOnly, subOnly: subOnly)
+        guard !host.isEmpty, host.contains(".") || suffix || subOnly else { return }
+        if suffix || subOnly {
+            suffixRoot.insert(domain: host, matchSelf: suffix, subOnly: subOnly)
+        } else {
+            exactDomains.insert(host)
+        }
         entryCount += 1
     }
 
