@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -17,13 +17,12 @@ enum NCSupport {
         let t = p.type.lowercased()
         guard types.contains(t) else {
             switch t {
-            case "wireguard": return "WireGuard 尚未接入"
             case "tailscale": return "Tailscale 尚未接入"
             case "mieru": return "Mieru 尚未接入"
             default: return "类型 \(t) 尚未接入"
             }
         }
-        if let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
+        if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
         switch t {
@@ -37,6 +36,8 @@ enum NCSupport {
             if let why = hysteriaUnsupported(p) { return why + " 尚未接入" }
         case "ssh":
             if let why = sshUnsupported(p) { return why }
+        case "wireguard":
+            if let why = wireguardUnsupported(p) { return why }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
@@ -111,6 +112,31 @@ enum NCSupport {
             return "SSH 私钥文件路径尚未接入（请内联 PEM）"
         }
         if let pp = p.fields["private-key-passphrase"]?.string, !pp.isEmpty { return "SSH 加密私钥尚未接入" }
+        return nil
+    }
+
+    /// WireGuard (NCWireGuard, feat/nc-wg): same checks as NCWGConfig.parse in the tunnel. AmneziaWG 1.0
+    /// (jc/jmin/jmax/s1/s2/h1–h4) is supported; AWG 2.0 header ranges and s3/s4 are not (i1–i5 are ignored).
+    static func wireguardUnsupported(_ p: NCProxy) -> String? {
+        let f = p.fields
+        if (f["private-key"]?.string ?? "").isEmpty { return "WireGuard 缺少 private-key" }
+        if (f["ip"]?.string ?? "").isEmpty && (f["ipv6"]?.string ?? "").isEmpty { return "WireGuard 缺少 ip / ipv6" }
+        if let peers = f["peers"]?.array, !peers.isEmpty {
+            for (i, pv) in peers.enumerated() {
+                let o = pv.object ?? [:]
+                if (o["server"]?.string ?? "").isEmpty || o["port"]?.int == nil || (o["public-key"]?.string ?? "").isEmpty {
+                    return "WireGuard peers[\(i)] 缺少 server / port / public-key"
+                }
+            }
+        } else if p.server == nil || p.port == nil || (f["public-key"]?.string ?? "").isEmpty {
+            return "WireGuard 缺少 server / port / public-key"
+        }
+        if let o = f["amnezia-wg-option"]?.object {
+            for k in ["h1", "h2", "h3", "h4"] where (o[k]?.string ?? "").contains("-") {
+                return "AmneziaWG 2.0 头部范围 \(k) 尚未接入"
+            }
+            if (o["s3"]?.int ?? 0) != 0 || (o["s4"]?.int ?? 0) != 0 { return "AmneziaWG 2.0 s3 / s4 尚未接入" }
+        }
         return nil
     }
 
