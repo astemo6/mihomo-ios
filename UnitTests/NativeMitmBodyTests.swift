@@ -396,8 +396,9 @@ final class NativeMitmBodyTests: XCTestCase {
         XCTAssertEqual(rep.mismatch, 0, rep.failures.prefix(5).joined(separator: "\n"))
         XCTAssertGreaterThan(rep.native, 0)
         // lane regexp2: body ops on regexp2's path (look-around, \b, $) and Go's RE2 nested repeats run natively —
-        // before it 297 exchanges skipped such a rule (the rest are jq forms and scripts next to body rules)
-        XCTAssertLessThan(rep.goFreeSkipped, 297)
+        // 297 skipped exchanges before, 166 after (run 40196702919): what remains is jq forms outside the native
+        // subset (3 rules × 53) and chunked request bodies (7), no regex rule
+        XCTAssertLessThanOrEqual(rep.goFreeSkipped, 166)
     }
 
     /// Go's encoding/json output for the corner cases the corpus may not hold.
