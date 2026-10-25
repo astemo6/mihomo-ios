@@ -101523,6 +101523,210 @@
           }
         }
       }
+    },
+    "主机密钥": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機金鑰"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストキー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 키"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ хоста"
+          }
+        }
+      }
+    },
+    "尚未信任": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未信任"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Trusted Yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未信頼"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 신뢰하지 않음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока не доверяется"
+          }
+        }
+      }
+    },
+    "忘记主机密钥": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忘記主機金鑰"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget Host Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストキーを削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 키 삭제"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Забыть ключ хоста"
+          }
+        }
+      }
+    },
+    "主机密钥指纹": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機金鑰指紋"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host Key Fingerprint"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストキーのフィンガープリント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 키 지문"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отпечаток ключа хоста"
+          }
+        }
+      }
+    },
+    "首次连接时自动信任并记录主机密钥（TOFU）。服务器更换密钥后，先忘记旧记录才能重新信任。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次連接時自動信任並記錄主機金鑰（TOFU）。伺服器更換金鑰後，先忘記舊記錄才能重新信任。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host key is trusted and recorded on the first connection (TOFU). If the server replaces its key, forget the old record before it can be trusted again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初回接続時にホストキーを自動的に信頼し、記録します（TOFU）。サーバーがキーを交換した場合は、古い記録を削除してからでないと再び信頼できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 연결 시 호스트 키를 자동으로 신뢰하고 기록합니다(TOFU). 서버가 키를 교체한 경우 이전 기록을 삭제해야 다시 신뢰할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ хоста автоматически доверяется и сохраняется при первом подключении (TOFU). Если сервер заменит ключ, сначала удалите старую запись, чтобы снова ему доверять."
+          }
+        }
+      }
+    },
+    "已设置 host-key 固定指纹，首次信任记录不生效。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已設定 host-key 固定指紋，首次信任記錄不生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A host-key pin is set, so the first-trust record does not apply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host-key のピン留めが設定されているため、初回信頼の記録は適用されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host-key 핀이 설정되어 있어 최초 신뢰 기록이 적용되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задан закреплённый host-key, поэтому запись первого доверия не применяется."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
