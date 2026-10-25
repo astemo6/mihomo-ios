@@ -467,8 +467,8 @@ final class NCLocalProxy {
             let finished = isComplete || error != nil
             if let data, !data.isEmpty, let relay = c.relay {
                 self.count(c, up: data.count)
-                // rv2-life: back-pressure, symmetric with pumpDown — the next client read waits until the relay took
-                // this chunk (real for NCStream relays; protocol wrappers without NCRelayFlowControl yield one turn).
+                // rv2-life: back-pressure, symmetric with pumpDown — the next client read waits until the
+                // relay's send completion fires for this chunk (nc-sessions-flow: every NCRelayStream has one).
                 NCRelayFlow.send(relay, data, queue: self.queue) { [weak self, weak c] in
                     guard let self, let c, !c.closed else { return }
                     if finished { self.close(c) } else { self.pumpUp(c) }

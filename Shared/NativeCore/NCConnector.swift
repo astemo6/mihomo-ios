@@ -5,8 +5,55 @@ import Network
 /// transform happens inside; callers never see wire bytes.
 protocol NCRelayStream: AnyObject {
     func send(_ data: Data)
+    /// nc-sessions-flow: send with a completion that fires exactly once, when this chunk has been handed
+    /// on (encoded and accepted by the layer below / the peer's window) — the uplink back-pressure signal
+    /// the relay pumps wait on before reading more. Must fire on every path: success, failure, cancel,
+    /// teardown; never twice (wrap it in NCCallOnce).
+    func send(_ data: Data, completion: @escaping () -> Void)
     func receive(_ handler: @escaping (Data?, Error?) -> Void)
     func cancel()
+}
+
+/// Exactly-once wrapper for relay send completions: a second call is a programming error (asserted in
+/// DEBUG) and is ignored in release, so a buggy path can stall a pump but never double-fire it.
+final class NCCallOnce {
+    private let lock = NSLock()
+    private var fired = false
+    private let body: () -> Void
+    init(_ body: @escaping () -> Void) { self.body = body }
+    func call() {
+        lock.lock()
+        if fired {
+            lock.unlock()
+            assertionFailure("NCCallOnce fired twice")
+            return
+        }
+        fired = true
+        lock.unlock()
+        body()
+    }
+}
+
+extension NCRelayStream {
+    /// Transitional default (no back-pressure: completes on the spot). Every conformer is being migrated
+    /// to an explicit implementation; the integrator removes this default once the last one lands, so
+    /// the compiler flags any stream that was missed.
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        send(data)
+        completion()
+    }
+
+    /// Sends wire segments in order, firing `completion` after the last segment's own completion
+    /// (earlier segments get none). For encoders that turn one chunk into several records.
+    func ncSendSequentially(_ wires: [Data], completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        let wires = wires.filter { !$0.isEmpty }
+        guard let first = wires.first else { once.call(); return }
+        if wires.count == 1 { send(first, completion: once.call); return }
+        // Strong self capture is deliberate: the chain must not lose the completion if the caller
+        // drops the stream mid-send; it ends when the last segment completes.
+        send(first) { ncSendSequentially(Array(wires.dropFirst()), completion: once.call) }
+    }
 }
 
 extension NCStream: NCRelayStream {}
@@ -28,9 +75,11 @@ final class NCSSRelayStream: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
-        if let wire = encoder.encode(data) { raw.send(wire) }
-        else { raw.cancel() }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
+        if let wire = encoder.encode(data) { raw.send(wire, completion: once.call) }
+        else { raw.cancel(); once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -69,9 +118,11 @@ final class NCSS2022RelayStream: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
-        if let wire = encoder.encode(data) { raw.send(wire) }
-        else { raw.cancel() }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
+        if let wire = encoder.encode(data) { raw.send(wire, completion: once.call) }
+        else { raw.cancel(); once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -137,9 +188,11 @@ final class NCSnellStreamRelay: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
-        if let wire = encoder.encode(data) { raw.send(wire) }
-        else { raw.cancel() }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
+        if let wire = encoder.encode(data) { raw.send(wire, completion: once.call) }
+        else { raw.cancel(); once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -183,9 +236,11 @@ final class NCSnellV4Relay: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
-        if let wire = writer.write(data) { raw.send(wire) }
-        else { raw.cancel() }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
+        if let wire = writer.write(data) { raw.send(wire, completion: once.call) }
+        else { raw.cancel(); once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -1188,7 +1243,7 @@ final class NCBufferedStream: NCRelayStream {
         self.prefix = prefix
     }
 
-    func send(_ data: Data) { inner.send(data) }
+    func send(_ data: Data, completion: @escaping () -> Void) { inner.send(data, completion: completion) }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         if !prefix.isEmpty {
@@ -1225,11 +1280,13 @@ final class NCVMessRelayStream: NCRelayStream {
         raw.send(sealedHeader)
     }
 
-    func send(_ data: Data) {
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
         if let encoder {
-            raw.send(encoder.encode(data))
+            raw.send(encoder.encode(data), completion: once.call)
         } else {
-            raw.send(data) // security none over TCP is a plain stream
+            raw.send(data, completion: once.call) // security none over TCP is a plain stream
         }
     }
 

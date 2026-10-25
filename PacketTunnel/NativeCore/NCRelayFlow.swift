@@ -1,18 +1,12 @@
 import Foundation
 import os
 
-/// rv2-life: send-side flow control for relays. `send(_:completion:)` calls `completion` once the bytes left our
-/// hands (handed to the kernel socket for an NWConnection), so a pump can wait for it before reading more from the
-/// other side — the back-pressure that keeps a fast sender from piling megabytes into NWConnection's send queue.
-///
-/// NCStream (DIRECT and MitM-front relays) conforms here. Protocol wrappers (SS / VMess / Trojan / … relay streams,
-/// Shared/NativeCore) do not yet: for them `NCRelayFlow.send` completes on the next queue turn, i.e. the old
-/// unbounded behaviour. A wrapper adopts it by encoding and forwarding its raw stream's completion.
-protocol NCRelayFlowControl: AnyObject {
-    func send(_ data: Data, completion: @escaping () -> Void)
-}
-
-extension NCStream: NCRelayFlowControl {
+/// Send-side flow control for relays (rv2-life, merged into NCRelayStream by nc-sessions-flow):
+/// `send(_:completion:)` calls `completion` once the bytes left our hands (handed to the kernel socket
+/// for an NWConnection, encoded and accepted by the layer below for a protocol wrapper), so a pump can
+/// wait for it before reading more from the other side — the back-pressure that keeps a fast sender
+/// from piling megabytes into NWConnection's send queue.
+extension NCStream {
     func send(_ data: Data, completion: @escaping () -> Void) {
         guard !data.isEmpty else { queue.async(execute: completion); return }
         // After cancel() NWConnection completes the send with an error at once: the caller still gets its callback.
@@ -21,18 +15,11 @@ extension NCStream: NCRelayFlowControl {
 }
 
 enum NCRelayFlow {
-    /// Sends `data` on `relay`; `done` runs on `queue` once the relay accepted it (see NCRelayFlowControl).
+    /// Sends `data` on `relay`; `done` runs on `queue` once the relay's send completion fires
+    /// (every NCRelayStream now reports one — see the protocol in NCConnector.swift).
     static func send(_ relay: NCRelayStream, _ data: Data, queue: DispatchQueue, done: @escaping () -> Void) {
-        if let fc = relay as? NCRelayFlowControl {
-            fc.send(data) { queue.async(execute: done) }
-        } else {
-            relay.send(data)
-            queue.async(execute: done)
-        }
+        relay.send(data) { queue.async(execute: done) }
     }
-
-    /// Whether `relay` really pushes back (false: the fallback above, which only yields a queue turn).
-    static func hasFlowControl(_ relay: NCRelayStream?) -> Bool { relay is NCRelayFlowControl }
 }
 
 /// rv2-life: the global budget for bytes the data plane / local proxy hold for slow peers (TUN outboxes + pre-connect
