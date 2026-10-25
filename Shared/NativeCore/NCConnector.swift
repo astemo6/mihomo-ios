@@ -569,7 +569,7 @@ enum NCConnector {
                         completion(NCVLESSRelayStream(raw: vision), nil)
                         return
                     }
-                    transportStream(raw: base0, proxy: proxy, server: server) { base, terr in
+                    transportStream(raw: base0, proxy: proxy, server: server, queue: queue) { base, terr in
                         guard let tbase = base else { completion(nil, terr); return }
                         vlessEncrypt(tbase, proxy: proxy, queue: queue) { base, eerr in
                             guard let base else { completion(nil, eerr); return }
@@ -591,7 +591,7 @@ enum NCConnector {
                     queue.async { completion(nil, Failure.unsupported("vless tls/vision/reality over a chain transport")) }
                     return
                 }
-                transportStream(raw: transport, proxy: proxy, server: server) { base, terr in
+                transportStream(raw: transport, proxy: proxy, server: server, queue: queue) { base, terr in
                     guard let tbase = base else { completion(nil, terr); return }
                     vlessEncrypt(tbase, proxy: proxy, queue: queue) { base, eerr in
                         guard let base else { completion(nil, eerr); return }
@@ -636,7 +636,7 @@ enum NCConnector {
                     }
                     return
                 }
-                transportStream(raw: raw, proxy: proxy, server: server) { base, terr in
+                transportStream(raw: raw, proxy: proxy, server: server, queue: queue) { base, terr in
                     guard let tbase = base else { completion(nil, terr); return }
                     vlessEncrypt(tbase, proxy: proxy, queue: queue) { base, eerr in
                         guard let base else { completion(nil, eerr); return }
@@ -651,7 +651,7 @@ enum NCConnector {
                 return
             }
             sharedHysteria2(proxy: proxy, server: server, port: port, queue: queue) { conn, err in
-                guard let conn, let stream = conn.openTCP(target: target) else {
+                guard let conn, let stream = conn.openTCP(target: target, callerQueue: queue) else {
                     completion(nil, err ?? Failure.handshake("hysteria2 open stream failed"))
                     return
                 }
@@ -767,7 +767,7 @@ enum NCConnector {
 
     /// Wrap the connected raw stream with the configured transport
     /// (ws / grpc / h2), or pass it through for plain tcp.
-    static func transportStream(raw: NCRelayStream, proxy: NCProxy, server: String,
+    static func transportStream(raw: NCRelayStream, proxy: NCProxy, server: String, queue: DispatchQueue,
                                 completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let network = proxy.fields["network"]?.string ?? "tcp"
         switch network {
@@ -781,7 +781,7 @@ enum NCConnector {
         case "grpc":
             let service = proxy.fields["grpc-opts"]?.object?["grpc-service-name"]?.string ?? "GunService"
             let authority = proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server
-            let tunnel = NCH2TunnelStream(raw: raw, grpc: true)
+            let tunnel = NCH2TunnelStream(raw: raw, grpc: true, callerQueue: queue)
             tunnel.startHandshake(headers: [
                 (":method", "POST"),
                 (":path", "/\(service)/Tun"),
@@ -798,7 +798,7 @@ enum NCConnector {
             let path = opts?["path"]?.string ?? "/"
             let authority = opts?["host"]?.array?.first?.string
                 ?? proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server
-            let tunnel = NCH2TunnelStream(raw: raw, grpc: false)
+            let tunnel = NCH2TunnelStream(raw: raw, grpc: false, callerQueue: queue)
             tunnel.startHandshake(headers: [
                 (":method", "POST"),
                 (":path", path),
@@ -957,7 +957,27 @@ enum NCConnector {
         hy2Lock.lock()
         if let existing = hy2Registry[key] {
             hy2Lock.unlock()
-            waitHy2Ready(existing, queue: queue, attempts: 60, completion: completion)
+            if existing.isAlive {
+                completion(existing, nil)
+            } else if existing.state == .connecting || existing.state == .authenticating {
+                // nc-races: readiness is a one-shot waiter on the connection (no 0.25 s polling, the
+                // shape #116 set for mux/anytls); the registry cleanup on failure stays here.
+                existing.whenReady(callerQueue: queue) { err in
+                    if let err {
+                        hy2Lock.lock()
+                        if hy2Registry[key] === existing { hy2Registry.removeValue(forKey: key) }
+                        hy2Lock.unlock()
+                        completion(nil, err)
+                    } else {
+                        completion(existing, nil)
+                    }
+                }
+            } else {
+                hy2Lock.lock()
+                hy2Registry.removeValue(forKey: key)
+                hy2Lock.unlock()
+                sharedHysteria2(proxy: proxy, server: server, port: port, queue: queue, completion: completion)
+            }
             return
         }
         guard let conn = NCHysteria2Connection(proxy: proxy, queue: queue) else {
@@ -972,27 +992,9 @@ enum NCConnector {
                 completion(conn, nil)
             } else {
                 hy2Lock.lock()
-                hy2Registry.removeValue(forKey: key)
+                if hy2Registry[key] === conn { hy2Registry.removeValue(forKey: key) }
                 hy2Lock.unlock()
                 completion(nil, err)
-            }
-        }
-    }
-
-    private static func waitHy2Ready(_ conn: NCHysteria2Connection, queue: DispatchQueue, attempts: Int,
-                                     completion: @escaping (NCHysteria2Connection?, Error?) -> Void) {
-        switch conn.state {
-        case .ready:
-            completion(conn, nil)
-        case .failed, .closed:
-            completion(nil, Failure.handshake("hysteria2 connection failed"))
-        default:
-            guard attempts > 0 else {
-                completion(nil, Failure.handshake("hysteria2 connect timeout"))
-                return
-            }
-            queue.asyncAfter(deadline: .now() + 0.25) {
-                waitHy2Ready(conn, queue: queue, attempts: attempts - 1, completion: completion)
             }
         }
     }
@@ -1034,7 +1036,7 @@ enum NCConnector {
             }
             dialReality(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
                 guard let base0 else { completion(nil, err); return }
-                transportStream(raw: base0, proxy: proxy, server: server) { base, terr in
+                transportStream(raw: base0, proxy: proxy, server: server, queue: queue) { base, terr in
                     guard let base else { completion(nil, terr); return }
                     finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
                 }
@@ -1046,7 +1048,7 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("vmess tls over a chain transport")) }
                 return
             }
-            transportStream(raw: transport, proxy: proxy, server: server) { base, terr in
+            transportStream(raw: transport, proxy: proxy, server: server, queue: queue) { base, terr in
                 guard let base else { completion(nil, terr); return }
                 finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
             }
@@ -1063,7 +1065,7 @@ enum NCConnector {
         }
         raw.start { err in
             guard err == nil else { completion(nil, err); return }
-            transportStream(raw: raw, proxy: proxy, server: server) { base, terr in
+            transportStream(raw: raw, proxy: proxy, server: server, queue: queue) { base, terr in
                 guard let base else { completion(nil, terr); return }
                 finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
             }
