@@ -59,7 +59,11 @@ final class NativeCoreCaseIndexAuditTests: XCTestCase {
     // SettingsSearch.normalize / textRange: folding + Hant→Hans transforms
     // feed comparisons and ranges measured on the searched string itself.
     func testSettingsSearchFoldChars() {
-        XCTAssertEqual(SettingsSearchIndex.normalize("\u{130}"), "i\u{307}")
+        // normalize folds with .diacriticInsensitive, so İ's combining dot (U+0307) is dropped:
+        // İ, i̇ and i all normalize to plain "i" (a search for "istanbul" finds "İstanbul").
+        // The old expectation "i\u{307}" was lowercased() semantics, not this normalizer's.
+        XCTAssertEqual(SettingsSearchIndex.normalize("\u{130}"), "i")
+        XCTAssertEqual(SettingsSearchIndex.normalize("i\u{307}"), "i")
         XCTAssertEqual(SettingsSearchIndex.normalize("ß"), "ss")
         XCTAssertFalse(SettingsSearchIndex.normalize("  🎉 A ").isEmpty)
         // ß case-folds to "ss": a two-letter query matches the one Character.

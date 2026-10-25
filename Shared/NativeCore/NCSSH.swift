@@ -192,8 +192,12 @@ enum NCSSHKey {
             }
         }
         var p = NCSSHWire.Reader(priv)
-        guard let c1 = p.u32(), let c2 = p.u32(), let type = p.str() else { return (nil, "OpenSSH 私钥无效") }
+        // Compare the checkints before reading anything else: with a wrong passphrase the rest is
+        // random bytes, so the key-type string's length prefix is garbage and would fail first,
+        // reporting "私钥无效" instead of the passphrase error.
+        guard let c1 = p.u32(), let c2 = p.u32() else { return (nil, "OpenSSH 私钥无效") }
         guard c1 == c2 else { return (nil, cipher == "none" ? "OpenSSH 私钥无效" : "OpenSSH 私钥口令错误") }
+        guard let type = p.str() else { return (nil, "OpenSSH 私钥无效") }
         switch type {
         case "ssh-ed25519":
             guard let _ = p.bytes(), let sk = p.bytes(), sk.count == 64,
