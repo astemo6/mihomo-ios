@@ -25,10 +25,18 @@ final class NCGeoSiteDB {
     /// Parsed categories, bounded (rv2: geosite:cn alone is ~100k entries;
     /// nameserver-policy / fake-ip-filter / fallback-filter now consult the
     /// store on every DNS query, so the cache must not grow per category
-    /// forever). Least-recently-used category is dropped past the cap.
+    /// forever). Least-recently-used category is dropped past the caps.
+    /// nc-memory: the count cap alone does not bound bytes — 8 large categories
+    /// (50–100k entries each) could pin tens of MB of Sets/Strings against the
+    /// extension's 50 MB budget. An estimated-byte cap now sits alongside it:
+    /// ~72 B per entry (Swift String + Set slot, estimate), 8 MB total, LRU
+    /// eviction; the just-parsed category is always kept.
     private var cache: [String: Category] = [:]
     private var cacheOrder: [String] = []
+    private var cacheBytes: [String: Int] = [:]
+    private var cacheBytesTotal = 0
     private let maxCachedCategories = 8
+    private let maxCachedBytes = 8 << 20
     private let lock = NSLock()
 
     /// One category, indexed for O(labels) lookups: exact and root-domain
@@ -179,12 +187,19 @@ final class NCGeoSiteDB {
             case .regex: if let re = try? NSRegularExpression(pattern: e.value) { cat.regex.append(re) }
             }
         }
+        let entryCount = cat.full.count + cat.root.count + cat.plain.count + cat.regex.count + cat.attributed.count
+        let estBytes = entryCount * 72
         lock.lock()
         if cache[code] == nil {
             cache[code] = cat
             cacheOrder.append(code)
-            while cacheOrder.count > maxCachedCategories {
-                cache.removeValue(forKey: cacheOrder.removeFirst())
+            cacheBytes[code] = estBytes
+            cacheBytesTotal += estBytes
+            while cacheOrder.count > 1,
+                  cacheOrder.count > maxCachedCategories || cacheBytesTotal > maxCachedBytes {
+                let victim = cacheOrder.removeFirst()
+                cache.removeValue(forKey: victim)
+                cacheBytesTotal -= cacheBytes.removeValue(forKey: victim) ?? 0
             }
         }
         lock.unlock()
