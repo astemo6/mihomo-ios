@@ -30,9 +30,18 @@ enum NCBlake3 {
         return finalize(keyWords: words(from: key), flags: flagKeyed, data: data)
     }
 
+    /// derive_key with an arbitrary byte context (Go `blake3.DeriveKey(out, string(ctx), key)` passes binary
+    /// contexts — VLESS encryption derives AEAD keys from public keys / record bytes; feat/nc-proto A6).
+    static func deriveKey(contextBytes: [UInt8], material: [UInt8]) -> [UInt8] {
+        // The context key is the context's ROOT hash (flags DERIVE_KEY_CONTEXT | ROOT).
+        let contextKey = words(from: finalize(keyWords: iv, flags: flagDeriveContext, data: contextBytes))
+        return finalize(keyWords: contextKey, flags: flagDeriveMaterial, data: material)
+    }
+
     static func deriveKey(context: String, material: [UInt8]) -> [UInt8] {
-        let contextKey = chainingValue(keyWords: iv, flags: flagDeriveContext,
-                                       data: [UInt8](context.utf8))
+        // feat/nc-proto: the context key is the context string's ROOT hash (DERIVE_KEY_CONTEXT | ROOT), as in the
+        // reference implementation; the previous non-root chaining value gave wrong keys (SS2022 subkeys included).
+        let contextKey = words(from: finalize(keyWords: iv, flags: flagDeriveContext, data: [UInt8](context.utf8)))
         return finalize(keyWords: contextKey, flags: flagDeriveMaterial, data: material)
     }
 

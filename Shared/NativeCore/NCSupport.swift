@@ -39,8 +39,14 @@ enum NCSupport {
         case "ssh":
             if let why = sshUnsupported(p) { return why }
         case "vless":
-            if let enc = p.fields["encryption"]?.string?.lowercased(), !enc.isEmpty, enc != "none" {
-                return "VLESS encryption 尚未接入"
+            if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
+                // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).
+                let parts = enc.split(separator: ".").map(String.init)
+                guard parts.count >= 4, parts[0] == "mlkem768x25519plus",
+                      ["native", "xorpub", "random"].contains(parts[1]), ["1rtt", "0rtt"].contains(parts[2]) else {
+                    return "VLESS encryption \(enc.prefix(24)) 不是有效的 mlkem768x25519plus 值"
+                }
+                if p.fields["flow"]?.string == "xtls-rprx-vision" { return "VLESS encryption + Vision 尚未接入" }
             }
         default:
             break

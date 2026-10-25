@@ -438,6 +438,10 @@ enum NCConnector {
                 completion(raw, nil)
             }
         case "vless":
+            if vlessEncryption(proxy) != nil && visionFlow(proxy) {
+                queue.async { completion(nil, Failure.unsupported("vless encryption + xtls-rprx-vision")) }
+                return
+            }
             guard let uuid = proxy.uuid else {
                 queue.async { completion(nil, Failure.handshake("vless missing uuid")) }
                 return
@@ -462,9 +466,12 @@ enum NCConnector {
                         return
                     }
                     transportStream(raw: base0, proxy: proxy, server: server) { base, terr in
-                        guard let base else { completion(nil, terr); return }
-                        base.send(head)
-                        completion(NCVLESSRelayStream(raw: base), nil)
+                        guard let tbase = base else { completion(nil, terr); return }
+                        vlessEncrypt(tbase, proxy: proxy, queue: queue) { base, eerr in
+                            guard let base else { completion(nil, eerr); return }
+                            base.send(head)
+                            completion(NCVLESSRelayStream(raw: base), nil)
+                        }
                     }
                 }
                 return
@@ -481,9 +488,12 @@ enum NCConnector {
                     return
                 }
                 transportStream(raw: transport, proxy: proxy, server: server) { base, terr in
-                    guard let base else { completion(nil, terr); return }
-                    base.send(head)
-                    completion(NCVLESSRelayStream(raw: base), nil)
+                    guard let tbase = base else { completion(nil, terr); return }
+                    vlessEncrypt(tbase, proxy: proxy, queue: queue) { base, eerr in
+                        guard let base else { completion(nil, eerr); return }
+                        base.send(head)
+                        completion(NCVLESSRelayStream(raw: base), nil)
+                    }
                 }
                 return
             }
@@ -519,9 +529,12 @@ enum NCConnector {
                     return
                 }
                 transportStream(raw: raw, proxy: proxy, server: server) { base, terr in
-                    guard let base else { completion(nil, terr); return }
-                    base.send(head)
-                    completion(NCVLESSRelayStream(raw: base), nil)
+                    guard let tbase = base else { completion(nil, terr); return }
+                    vlessEncrypt(tbase, proxy: proxy, queue: queue) { base, eerr in
+                        guard let base else { completion(nil, eerr); return }
+                        base.send(head)
+                        completion(NCVLESSRelayStream(raw: base), nil)
+                    }
                 }
             }
         case "hysteria2", "hy2":
