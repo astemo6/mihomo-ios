@@ -89,6 +89,7 @@ struct NCConfig: Equatable {
     var groups: [NCProxyGroup]
     var rules: [String]
     var dns: NCDNSConfig
+    var sniffer: NCSnifferConfig
     var raw: [String: NCJSONValue]
 
     var proxyMap: [String: NCProxy] { Dictionary(proxies.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }) }
@@ -125,6 +126,7 @@ struct NCConfig: Equatable {
             groups: groups,
             rules: rules,
             dns: dns,
+            sniffer: NCSnifferConfig(fields: root["sniffer"]?.object ?? [:]),
             raw: root)
     }
 }

@@ -220,7 +220,7 @@ final class NativeCoreEngine {
         }
         return NCConfig(mode: cfg.mode, logLevel: cfg.logLevel, ipv6: cfg.ipv6,
                         proxies: proxies, groups: groups, rules: cfg.rules,
-                        dns: cfg.dns, raw: cfg.raw)
+                        dns: cfg.dns, sniffer: cfg.sniffer, raw: cfg.raw)
     }
 
     /// Build a match context with this engine's GeoIP/ASN lookups injected.
@@ -267,6 +267,11 @@ final class NativeCoreEngine {
     var effectiveConfig: NCConfig? {
         guard let cfg = config else { return nil }
         return groups != nil ? mergedConfig(base: cfg) : cfg
+    }
+
+    /// The loaded config's sniffer settings (disabled when no config).
+    var snifferConfig: NCSnifferConfig {
+        config?.sniffer ?? NCSnifferConfig(fields: [:])
     }
 
     /// Controller-driven mode override (PATCH /configs); nil = config's mode.
@@ -335,13 +340,45 @@ final class NativeCoreEngine {
     /// per-domain assignment (nameserver-policy / [Host] server: / QX
     /// server=/) when one exists, else the first configured default.
     func dnsUpstream(for query: Data) -> NCDNSUpstream? {
+        dnsRoute(for: query).primary
+    }
+
+    /// Full DNS routing for a forwarded query (mihomo dns.fallback /
+    /// fallback-filter): the primary upstream as dnsUpstream picks it,
+    /// plus the first fallback server when dns.fallback is configured.
+    /// `fallbackFirst` is set when the query name itself matches the
+    /// fallback filter (domain/geosite) and no per-domain assignment
+    /// governs the name — per-domain assignments always win, as in
+    /// mihomo, where nameserver-policy bypasses the fallback logic.
+    func dnsRoute(for query: Data) -> (primary: NCDNSUpstream?, fallback: NCDNSUpstream?, fallbackFirst: Bool) {
+        var primary: NCDNSUpstream? = nil
+        var assigned = false
+        var qname: String? = nil
         if let policy = dnsPolicy, let msg = NCDNSMessage.parse(query),
            let name = msg.questions.first?.name {
-            for ref in policy.servers(for: name) {
-                if let up = NCDNSUpstream(ref) { return up }
+            qname = name
+            let refs = policy.servers(for: name)
+            assigned = !refs.isEmpty
+            for ref in refs {
+                if let up = NCDNSUpstream(ref) { primary = up; break }
             }
         }
-        return firstDNSUpstream
+        if primary == nil { primary = firstDNSUpstream }
+        var fallback: NCDNSUpstream? = nil
+        if let policy = dnsPolicy {
+            for ref in policy.fallbackServers {
+                if let up = NCDNSUpstream(ref) { fallback = up; break }
+            }
+        }
+        let first = fallback != nil && !assigned && qname != nil
+            && (dnsPolicy?.useFallbackFirst(forDomain: qname!) ?? false)
+        return (primary, fallback, first)
+    }
+
+    /// Whether a primary upstream's answer is polluted per
+    /// fallback-filter ipcidr and the fallback servers should be asked.
+    func dnsAnswerTriggersFallback(_ response: Data) -> Bool {
+        dnsPolicy?.answerTriggersFallback(response) ?? false
     }
 
     /// Answers a raw DNS query in fake-IP mode (A -> fake IP, AAAA -> fake

@@ -288,7 +288,8 @@ struct NCCanonicalConfig: Equatable {
         if !servers.isEmpty { dnsFields["nameserver"] = .array(servers) }
         return NCConfig(mode: mode, logLevel: logLevel, ipv6: ipv6,
                         proxies: nodes, groups: groups.map { $0.legacy() }, rules: rules,
-                        dns: NCDNSConfig(fields: dnsFields), raw: [:])
+                        dns: NCDNSConfig(fields: dnsFields),
+                        sniffer: NCSnifferConfig(fields: [:]), raw: [:])
     }
 }
 
