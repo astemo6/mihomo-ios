@@ -201,7 +201,11 @@ final class NativeCoreEngine {
                                 filter: cfg.dns.fakeIPFilter,
                                 whitelist: cfg.dns.fakeIPFilterMode == "whitelist")
         redirHostMode = cfg.dns.enhancedMode.lowercased() == "redir-host"
-        if redirHostMode { realIPMap = NCRealIPMap() }
+        // nc-lifecycle: a reload that leaves redir-host mode must drop the old
+        // mode's map with it — derefFakeIP consults realIPMap in every mode,
+        // so a stale map would keep rewriting this config's targets to hosts
+        // learned under the previous one.
+        if redirHostMode { realIPMap = NCRealIPMap() } else { realIPMap = nil }
         if let data = try? Data(contentsOf: fakeIPFile) {
             pool.restore(data: data)
         }
@@ -231,7 +235,10 @@ final class NativeCoreEngine {
         if let geo { policy.geositeContains = { cat, name in geo.matches(payload: cat, domain: name) } }
         policy.ruleSetContainsDomain = { name, domain in store.containsDomain(name: name, domain: domain) }
         dnsPolicy = policy
-        resolveLock.lock(); resolveCache = [:]; resolveLock.unlock()
+        // nc-lifecycle: a new resolve generation — lookups still in flight
+        // from the previous config complete their waiters, but their answers
+        // may no longer enter the cache (fetched under the old DNS policy).
+        resolveLock.lock(); resolveCache = [:]; resolveGeneration += 1; resolveLock.unlock()
         ruleDiagnostics = Self.diagnose(cfg: cfg, rules: parsed, providers: preProviders, policy: policy,
                                         pool: pool, geoSite: geo, geoIP: geoIPDB != nil, asn: asnDB != nil)
         // Node subscriptions: cached nodes merge into the effective config;
@@ -360,12 +367,27 @@ final class NativeCoreEngine {
         smartTimer = nil
         smart = nil
         persistFakeIP()
+        // nc-lifecycle: drain the rule-resolve state — pending lookups finish
+        // with nil at once instead of completing into the stopped engine,
+        // and the generation bump keeps a late upstream answer out of any
+        // future cache. Waiters fire outside resolveLock (finishResolve's
+        // shape); stateLock is recursive and the route completions hop to
+        // their own queues from here.
+        resolveLock.lock()
+        resolveGeneration += 1
+        resolveCache = [:]
+        let stranded = resolveWaiters.values.flatMap { $0 }
+        resolveWaiters = [:]
+        resolveLock.unlock()
+        for w in stranded { w(nil) }
         isRunning = false
         _config = nil
         rules = []
         groups = nil
         fakeIP = nil
         dnsResponder = nil
+        realIPMap = nil
+        loadedCanonical = nil
         ruleProviders = nil
         dnsPolicy = nil
         nodeSubStore = nil
@@ -690,6 +712,9 @@ final class NativeCoreEngine {
     private let resolveLock = NSLock()
     private var resolveCache: [String: (ip: NCIP?, expires: Date)] = [:]
     private var resolveWaiters: [String: [(NCIP?) -> Void]] = [:]
+    /// Bumped on every load and on stop (under resolveLock): finishResolve
+    /// only caches answers from the current generation.
+    private var resolveGeneration = 0
 
     /// One A lookup for rule matching (AAAA when the answer has no A and
     /// ipv6 is on is not attempted — mihomo prefers v4 too). Hosts first,
@@ -717,6 +742,7 @@ final class NativeCoreEngine {
             return
         }
         resolveWaiters[host] = [completion]
+        let gen = resolveGeneration
         resolveLock.unlock()
         var q = NCDNSMessage()
         q.id = UInt16.random(in: 1...0xffff)
@@ -724,24 +750,29 @@ final class NativeCoreEngine {
         q.questions = [NCDNSQuestion(name: host, type: NCDNSMessage.typeA, klass: NCDNSMessage.classIN)]
         let query = q.serialized()
         guard let upstream = dnsRoute(for: query).primary else {
-            finishResolve(host, ip: nil, ttl: 30)
+            finishResolve(host, ip: nil, ttl: 30, gen: gen)
             return
         }
         resolveForwarder.forward(query, upstream: upstream) { [weak self] resp in
             let answers = resp.flatMap { NCDNSMessage.parse($0) }?.addressAnswers ?? []
             let hit = answers.first(where: { $0.0.isV4 }) ?? answers.first
-            self?.finishResolve(host, ip: hit?.0, ttl: hit.map { min(max(Double($0.1), 60), 600) } ?? 30)
+            self?.finishResolve(host, ip: hit?.0, ttl: hit.map { min(max(Double($0.1), 60), 600) } ?? 30, gen: gen)
         }
     }
 
-    private func finishResolve(_ host: String, ip: NCIP?, ttl: Double) {
+    private func finishResolve(_ host: String, ip: NCIP?, ttl: Double, gen: Int) {
         resolveLock.lock()
-        if resolveCache.count >= 512 {
-            let now = Date()
-            resolveCache = resolveCache.filter { $0.value.expires > now }
-            if resolveCache.count >= 512 { resolveCache.removeAll() }
+        // Only the current generation caches: an answer fetched under a
+        // previous config (or before stop) still completes its waiters — the
+        // flows that asked — but must not seed the new config's cache.
+        if gen == resolveGeneration {
+            if resolveCache.count >= 512 {
+                let now = Date()
+                resolveCache = resolveCache.filter { $0.value.expires > now }
+                if resolveCache.count >= 512 { resolveCache.removeAll() }
+            }
+            resolveCache[host] = (ip, Date().addingTimeInterval(ttl))
         }
-        resolveCache[host] = (ip, Date().addingTimeInterval(ttl))
         let waiters = resolveWaiters.removeValue(forKey: host) ?? []
         resolveLock.unlock()
         for w in waiters { w(ip) }

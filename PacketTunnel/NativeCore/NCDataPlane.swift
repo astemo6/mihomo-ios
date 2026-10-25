@@ -159,7 +159,13 @@ final class NCDataPlane {
             sessions.removeAll()
             for e in udpSessions.values { e.session.cancel() }
             udpSessions.removeAll()
+            udpPending.removeAll()
             bufferedTotal = 0
+            // nc-lifecycle: WireGuard devices hold their own timers and peer
+            // connections into the lwIP stack — tear them down (this queue
+            // IS NCLwIP.queue) before the stack itself stops, or they keep
+            // believing `alive` with device ids the next stack never had.
+            NCWGStack.shared.teardownAll()
             stack.stop()
             isRunning = false
         }
@@ -195,6 +201,7 @@ final class NCDataPlane {
     }
 
     private var tickCount = 0
+    private var memSampleTick = 0
     private static let isoFormatter = ISO8601DateFormatter()
 
     private func tick() {
@@ -205,6 +212,11 @@ final class NCDataPlane {
         if tickCount % 4 == 0 {
             refreshStats()
             budget = NCBufferBudget.current()
+            // nc-lifecycle: footprint on the stats cadence, thinned to every
+            // 60th refresh (~60 s on the fast tick, ~20 min idle) — a trend
+            // line for jetsam headroom, never per packet.
+            memSampleTick &+= 1
+            if memSampleTick % 60 == 0 { NCMemorySampler.sample("tick") }
         }
         let now = Date()
         for s in sessions.values {

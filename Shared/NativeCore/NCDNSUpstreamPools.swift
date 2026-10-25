@@ -109,6 +109,29 @@ final class NCDNSUpstreamCoordinator {
         }
     }
 
+    /// nc-lifecycle: how much work the coordinator still holds (stop log /
+    /// lifecycle self-test; read on the coordinator queue).
+    func inFlightCounts() -> (entries: Int, active: Int, pending: Int) {
+        queue.sync { (self.entries.count, self.active, self.pending.count) }
+    }
+
+    /// nc-lifecycle: tunnel stop — fail every waiter at once with nil (the
+    /// failure shape callers already handle) instead of letting in-flight
+    /// exchanges and queued entries drain through their upstream timeouts
+    /// into a core that is already gone. Entries are removed first, so a
+    /// late upstream answer finds no entry (start's callback identity-checks
+    /// the entry before touching `active`) and is dropped; the coordinator
+    /// is immediately reusable by the next core.
+    func cancelAll() {
+        queue.async {
+            let all = Array(self.entries.values)
+            self.entries.removeAll()
+            self.pending.removeAll()
+            self.active = 0
+            for e in all { self.deliver(e, nil) }
+        }
+    }
+
     private func start(_ e: Entry) {
         e.started = true
         active += 1
@@ -193,6 +216,39 @@ final class NCDNSDoTPool {
             }
             c.pending.append((query, callerQueue, completion))
             self.pump(key: key, conn: c, host: host, port: port)
+        }
+    }
+
+    /// nc-lifecycle: how many upstream connections the pool currently holds
+    /// (stop log / lifecycle self-test; read on the pool queue).
+    func pooledConnectionCount() -> Int {
+        queue.sync { self.conns.count }
+    }
+
+    /// nc-lifecycle: tunnel stop — drop every pooled stream and fail the
+    /// queries on it at once with nil. Before this, an idle pooled TLS
+    /// stream survived the core that created it indefinitely, and up to 64
+    /// queued queries per upstream waited out the 5 s in-flight timeout one
+    /// after another behind a hung stream. A connection still being
+    /// established is abandoned together with its Conn (its start callback
+    /// holds the Conn weakly and no-ops).
+    func reset() {
+        queue.async {
+            let all = Array(self.conns.values)
+            self.conns.removeAll()
+            for c in all {
+                if let cur = c.current {
+                    cur.timeout.cancel()
+                    c.current = nil
+                    cur.callerQueue.async { cur.completion(nil) }
+                }
+                for p in c.pending {
+                    p.callerQueue.async { p.completion(nil) }
+                }
+                c.pending.removeAll()
+                c.stream?.cancel()
+                c.stream = nil
+            }
         }
     }
 
@@ -313,6 +369,36 @@ final class NCDNSDoHPool {
             }
             c.pending.append((query, callerQueue, completion))
             self.pump(key: urlString, conn: c, host: host, port: port, path: path)
+        }
+    }
+
+    /// nc-lifecycle: how many endpoint connections the pool currently holds
+    /// (stop log / lifecycle self-test; read on the pool queue).
+    func pooledConnectionCount() -> Int {
+        queue.sync { self.conns.count }
+    }
+
+    /// nc-lifecycle: tunnel stop — same contract as NCDNSDoTPool.reset():
+    /// drop every pooled connection and fail the queries on it at once with
+    /// nil, instead of leaving a keep-alive stream (and its queued queries)
+    /// behind for the stopped core.
+    func reset() {
+        queue.async {
+            let all = Array(self.conns.values)
+            self.conns.removeAll()
+            for c in all {
+                if let cur = c.current {
+                    cur.timeout.cancel()
+                    c.current = nil
+                    cur.callerQueue.async { cur.completion(nil) }
+                }
+                for p in c.pending {
+                    p.callerQueue.async { p.completion(nil) }
+                }
+                c.pending.removeAll()
+                c.stream?.cancel()
+                c.stream = nil
+            }
         }
     }
 

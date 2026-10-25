@@ -999,6 +999,49 @@ enum NCConnector {
         }
     }
 
+    // MARK: Shared session lifecycle (nc-lifecycle)
+
+    /// Live shared-session counts per registry (mux / anytls / hy2 live here;
+    /// hy1 / tuic / ssh in their own files' extensions). Read by the tunnel
+    /// core's stop log and the lifecycle self-test: after a stop these must
+    /// all be zero.
+    static func sharedSessionCounts() -> [String: Int] {
+        muxLock.lock(); let mux = muxRegistry.count; muxLock.unlock()
+        anytlsLock.lock(); let anytls = anytlsRegistry.count; anytlsLock.unlock()
+        hy2Lock.lock(); let hy2 = hy2Registry.count; hy2Lock.unlock()
+        return ["mux": mux, "anytls": anytls, "hy2": hy2,
+                "hy1": hy1SessionCount, "tuic": tuicSessionCount, "ssh": sshSessionCount]
+    }
+
+    /// Tunnel stop: drain every shared-session registry and close what it
+    /// held. Before this, the registries were only ever pruned lazily (a
+    /// dead entry on its next use), so a stopped core left live QUIC groups,
+    /// TLS sockets and SSH clients — plus their buffers — in the extension
+    /// for its remaining life, and a restart could even be vended a session
+    /// dialed with the previous config's credentials (the keys carry name /
+    /// server / port, not the secret). Entries are removed under the locks
+    /// first (nothing new is vended), then closed outside them: each close
+    /// fails its streams and notifies its waiters, whose registry-cleanup
+    /// callbacks then find nothing to remove. Reload deliberately does NOT
+    /// do this: live flows ride these sessions, and tearing them down would
+    /// kill the flows a reload is supposed to keep (see the PR audit notes).
+    /// Returns how many sessions were closed per registry.
+    @discardableResult
+    static func closeAllSharedSessions() -> [String: Int] {
+        muxLock.lock(); let mux = Array(muxRegistry.values); muxRegistry.removeAll(); muxLock.unlock()
+        anytlsLock.lock(); let anytls = Array(anytlsRegistry.values); anytlsRegistry.removeAll(); anytlsLock.unlock()
+        hy2Lock.lock(); let hy2 = Array(hy2Registry.values); hy2Registry.removeAll(); hy2Lock.unlock()
+        ssrAuthLock.lock(); ssrAuthRegistry.removeAll(); ssrAuthLock.unlock()
+        for s in mux { s.close() }
+        for s in anytls { s.close() }
+        for c in hy2 { c.close() }
+        let closed = ["mux": mux.count, "anytls": anytls.count, "hy2": hy2.count,
+                      "hy1": closeAllHy1Sessions(), "tuic": closeAllTUICSessions(),
+                      "ssh": closeAllSSHSessions()]
+        clearSharedSSRState()
+        return closed
+    }
+
     // MARK: VMess (AEAD, alterId 0)
 
     private static func connectVMess(target: NCTarget, proxy: NCProxy, server: String, port: Int,

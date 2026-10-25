@@ -308,6 +308,143 @@ final class NativeCoreDNSCoordinatorTests: XCTestCase {
         wait(for: [exp3], timeout: 3)
         XCTAssertEqual(resp3, r3)
     }
+
+    // MARK: - Lifecycle teardown (nc-lifecycle)
+
+    func testCoordinatorCancelAllFailsEveryWaiterAndStaysUsable() {
+        let coord = NCDNSUpstreamCoordinator(maxInFlight: 1, maxQueueWait: 30, maxPendingEntries: 512)
+        let rec = ExecuteRecorder()
+        let expA = expectation(description: "in-flight a fails nil")
+        let expB = expectation(description: "coalesced waiter fails nil")
+        let expC = expectation(description: "queued c fails nil")
+        let nilLock = NSLock()
+        var nilCount = 0
+        func nilCompletion(_ exp: XCTestExpectation) -> (Data?) -> Void {
+            { r in
+                XCTAssertNil(r)
+                nilLock.lock()
+                nilCount += 1
+                nilLock.unlock()
+                exp.fulfill()
+            }
+        }
+        coord.submit(key: "a", id: 0x0001, callerQueue: callerQueue, execute: rec.execute(tag: "a"), completion: nilCompletion(expA))
+        // Same key while a is in flight: coalesces onto a's entry.
+        coord.submit(key: "a", id: 0x0002, callerQueue: callerQueue, execute: rec.execute(tag: "a2"), completion: nilCompletion(expB))
+        // Different key with the single slot busy: stays queued.
+        coord.submit(key: "c", id: 0x0003, callerQueue: callerQueue, execute: rec.execute(tag: "c"), completion: nilCompletion(expC))
+        eventually { rec.tags == ["a"] }
+        eventually {
+            let c = coord.inFlightCounts()
+            return c.entries == 2 && c.active == 1 && c.pending == 1
+        }
+        coord.cancelAll()
+        wait(for: [expA, expB, expC], timeout: 3)
+        XCTAssertEqual(nilCount, 3)
+        let after = coord.inFlightCounts()
+        XCTAssertEqual(after.entries, 0)
+        XCTAssertEqual(after.active, 0)
+        XCTAssertEqual(after.pending, 0)
+        // The cancelled entry's late upstream answer is dropped (the entry
+        // is gone), and the coordinator immediately serves a fresh query.
+        rec.complete(tag: "a", with: Data([0x00, 0x01, 0xFF]))
+        let expD = expectation(description: "fresh query completes after cancelAll")
+        var respD: Data?
+        coord.submit(key: "d", id: 0x0004, callerQueue: callerQueue, execute: rec.execute(tag: "d")) { r in
+            respD = r
+            expD.fulfill()
+        }
+        eventually { rec.tags.contains("d") }
+        rec.complete(tag: "d", with: Data([0x00, 0x04, 0x2A]))
+        wait(for: [expD], timeout: 3)
+        XCTAssertEqual(respD, Data([0x00, 0x04, 0x2A]))
+    }
+
+    func testDoTPoolResetFailsInFlightAndPendingThenPoolReusable() {
+        let maker = FakeStreamMaker()
+        let pool = NCDNSDoTPool(streamFactory: maker.factory)
+        let q1 = Data([0x01, 0x01, 0x01, 0x00])
+        let q2 = Data([0x02, 0x02, 0x01, 0x00])
+        let q3 = Data([0x03, 0x03, 0x01, 0x00])
+        let r3 = Data([0x03, 0x03, 0x81, 0x80])
+        let exp1 = expectation(description: "q1 fails nil on reset")
+        let exp2 = expectation(description: "q2 fails nil on reset")
+        pool.forward(q1, host: "dot.test", port: 853, callerQueue: callerQueue) { r in
+            XCTAssertNil(r)
+            exp1.fulfill()
+        }
+        eventually { maker.count == 1 }
+        let s0 = maker.streams[0]
+        eventually { s0.sent == [self.framed(q1)] }
+        // q2 queues behind the in-flight q1 on the same stream. The
+        // pooledConnectionCount() round-trip is enqueued after q2's forward
+        // on the pool queue, so q2 is definitely pending before reset().
+        pool.forward(q2, host: "dot.test", port: 853, callerQueue: callerQueue) { r in
+            XCTAssertNil(r)
+            exp2.fulfill()
+        }
+        XCTAssertEqual(pool.pooledConnectionCount(), 1)
+        pool.reset()
+        wait(for: [exp1, exp2], timeout: 3)
+        eventually { s0.cancelled }
+        eventually { pool.pooledConnectionCount() == 0 }
+        // Reusable: the next query opens a fresh stream and completes.
+        let exp3 = expectation(description: "q3 answered on a new stream")
+        var resp3: Data?
+        pool.forward(q3, host: "dot.test", port: 853, callerQueue: callerQueue) { r in
+            resp3 = r
+            exp3.fulfill()
+        }
+        eventually { maker.count == 2 }
+        let s1 = maker.streams[1]
+        eventually { s1.sent == [self.framed(q3)] }
+        s1.deliver(framed(r3))
+        wait(for: [exp3], timeout: 3)
+        XCTAssertEqual(resp3, r3)
+    }
+
+    func testDoHPoolResetDropsPooledConnectionAndPoolReusable() {
+        let maker = FakeStreamMaker()
+        let pool = NCDNSDoHPool(streamFactory: maker.factory)
+        let url = "https://doh.test/dns-query"
+        let q1 = Data([0x01, 0x01, 0x01, 0x00])
+        let q2 = Data([0x02, 0x02, 0x01, 0x00])
+        let r1 = Data([0x01, 0x01, 0x81, 0x80])
+        let r2 = Data([0x02, 0x02, 0x81, 0x80])
+        func httpResponse(_ body: Data) -> Data {
+            var d = Data("HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: \(body.count)\r\n\r\n".utf8)
+            d.append(body)
+            return d
+        }
+        let exp1 = expectation(description: "q1 answered")
+        var resp1: Data?
+        pool.forward(q1, urlString: url, host: "doh.test", port: 443, path: "/dns-query", callerQueue: callerQueue) { r in
+            resp1 = r
+            exp1.fulfill()
+        }
+        eventually { maker.count == 1 }
+        let s0 = maker.streams[0]
+        eventually { s0.sent.count == 1 }
+        s0.deliver(httpResponse(r1))
+        wait(for: [exp1], timeout: 3)
+        XCTAssertEqual(resp1, r1)
+        XCTAssertEqual(pool.pooledConnectionCount(), 1)
+        pool.reset()
+        eventually { pool.pooledConnectionCount() == 0 }
+        XCTAssertTrue(s0.cancelled)
+        let exp2 = expectation(description: "q2 answered on a new connection")
+        var resp2: Data?
+        pool.forward(q2, urlString: url, host: "doh.test", port: 443, path: "/dns-query", callerQueue: callerQueue) { r in
+            resp2 = r
+            exp2.fulfill()
+        }
+        eventually { maker.count == 2 }
+        let s1 = maker.streams[1]
+        eventually { s1.sent.count == 1 }
+        s1.deliver(httpResponse(r2))
+        wait(for: [exp2], timeout: 3)
+        XCTAssertEqual(resp2, r2)
+    }
 }
 
 // MARK: - Test doubles

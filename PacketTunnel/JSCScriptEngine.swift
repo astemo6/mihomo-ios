@@ -382,6 +382,34 @@ final class JSCScriptEngine: NSObject, JSCEngineBinding {
         scheduleGC(full: true)
     }
 
+    /// nc-lifecycle: tunnel stop — drop every cached script (up to
+    /// maxCachedScripts entries, each with its compiled context and prelude
+    /// heap) instead of carrying them through the stopped core's remaining
+    /// life. Queued on the engine thread like drop(). The shared GC context
+    /// deliberately stays: the prelude is prepared into it once per process,
+    /// so dropping it would break scripts after a restart — the cached
+    /// entries dropped here are rebuilt lazily on the next load.
+    func dropAll() {
+        js.async { [self] in dropAllOnJS() }
+    }
+
+    private func dropAllOnJS() {
+        lock.lock()
+        let all = Array(entries.values)
+        entries.removeAll()
+        for e in all {
+            e.dropped = true
+            if let p = e.primary, !p.busy {
+                forget(p)
+                trash.append(p)
+                e.primary = nil
+            }
+            trash.append(e)
+        }
+        unlockAndEmpty()
+        scheduleGC(full: true)
+    }
+
 
     /// Starts a run on key's context: "" ok, "missing" (key not loaded), else error JSON {kind, message} — Go's Begin,
     /// also called by the native script dispatcher (lane s3-script) with its own run. `call` / `end` take its runID.

@@ -86,6 +86,17 @@ final class NCAnyTLSSession {
         }
     }
 
+    /// nc-lifecycle: deliberate close (the tunnel-stop registry drain in
+    /// NCConnector.closeAllSharedSessions): fail every stream and drop the
+    /// TLS connection — teardown() alone leaves the socket open. Idempotent.
+    func close() {
+        ncOnSessionQueue(queue) {
+            self.teardown()
+            self.tls?.cancel()
+            self.tls = nil
+        }
+    }
+
     func openStream(target: NCTarget?, callerQueue: DispatchQueue) -> NCAnyTLSStream {
         if NCSessionQueues.isCurrent(queue) { return openStreamOnQueue(target: target, callerQueue: callerQueue) }
         return queue.sync { openStreamOnQueue(target: target, callerQueue: callerQueue) }
