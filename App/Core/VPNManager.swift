@@ -23,6 +23,10 @@ final class VPNManager: ObservableObject {
 
     private var manager: NETunnelProviderManager?
     private var observer: NSObjectProtocol?
+    /// fix/nc-start-empty: iOS changed a VPN configuration (another VPN app enabled its own → ours is disabled, stop
+    /// reason 9; the user picked another VPN in Settings). The cached manager kept `isEnabled == true`, so the next
+    /// 启动 skipped re-enabling it and iOS ignored startVPNTunnel: the switch did nothing.
+    private var configObserver: NSObjectProtocol?
 
     var isConnected: Bool { status == .connected }
     var isTransitioning: Bool { [.connecting, .disconnecting, .reasserting].contains(status) }
@@ -49,14 +53,48 @@ final class VPNManager: ObservableObject {
             guard let conn = note.object as? NEVPNConnection else { return }
             Task { @MainActor in self?.update(from: conn) }
         }
+        configObserver = NotificationCenter.default.addObserver(forName: .NEVPNConfigurationChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.reloadManagerAfterConfigurationChange() }
+        }
         Task { await load() }
+    }
+
+    /// fix/nc-start-empty: re-reads the cached manager from the preferences (isEnabled / on-demand flags as iOS has
+    /// them now). Never while a start is preparing: start() refreshes it itself right before deciding.
+    private func reloadManagerAfterConfigurationChange() async {
+        guard !startInFlight else { return }
+        if let m = manager {
+            do { try await m.loadFromPreferences() } catch { NSLog("[Tern] reload VPN configuration failed: %@", error.localizedDescription) }
+            update(from: m.connection)
+        } else {
+            await load()
+        }
+    }
+
+    /// fix/nc-start-empty: one line per start decision in the shared startup log (tag "app"), so 诊断 shows why a
+    /// tap on 启动 ended without a tunnel (it used to return silently on several paths).
+    nonisolated static func trace(_ msg: String) {
+        NSLog("[Tern] start: %@", msg)
+        StartupLog.write("vpn start: " + msg, tag: "app", mirror: false)
+    }
+
+    /// fix/nc-start-empty: a start still marked in flight after this long is stuck (an await that never returned);
+    /// the next tap proceeds instead of being ignored forever with the switch doing nothing.
+    nonisolated static let startStuckAfter: TimeInterval = 60
+
+    /// fix/nc-start-empty (pure, unit-tested): whether a new start may run while `startInFlightSince` is set.
+    nonisolated static func mayStart(inFlightSince: Date?, now: Date = Date()) -> Bool {
+        guard let since = inFlightSince else { return true }
+        return now.timeIntervalSince(since) >= startStuckAfter
     }
 
     private var userStopped = false
     /// rv2-life: start() suspends at several awaits (scripts, preferences, runtime prep); a second toggle / restart /
     /// intent in that window used to run a second start and call startVPNTunnel twice. One start at a time; a stop()
     /// meanwhile bumps `stopSeq`, and the in-flight start then gives up before startVPNTunnel.
-    private var startInFlight = false
+    private var startInFlight: Bool { startInFlightSince != nil }
+    private var startInFlightSince: Date?
+    private var startToken = 0
     private var stopSeq = 0
 
     /// The extension's alive marker exists and was refreshed recently (it is rewritten every couple of minutes).
@@ -218,12 +256,18 @@ final class VPNManager: ObservableObject {
     /// Starts the tunnel. safeMode: this connection runs the profile without modules / scripts / MitM /
     /// custom rules (offered after a failed start); every normal start clears it again.
     func start(safeMode: Bool = false) async {
-        guard !startInFlight else {
-            NSLog("[Mihomo] start ignored: another start is still in progress")
+        guard Self.mayStart(inFlightSince: startInFlightSince) else {
+            Self.trace("ignored: another start is still in progress (since \(Int(Date().timeIntervalSince(startInFlightSince ?? Date()))) s)")
             return
         }
-        startInFlight = true
-        defer { startInFlight = false }
+        if let since = startInFlightSince {
+            Self.trace("previous start stuck for \(Int(Date().timeIntervalSince(since))) s — starting again")
+        }
+        startToken &+= 1
+        let token = startToken
+        startInFlightSince = Date()
+        defer { if startToken == token { startInFlightSince = nil } }
+        Self.trace("requested (status \(status.rawValue), safeMode \(safeMode))")
         let seq = stopSeq
         lastError = nil
         canOfferSafeMode = false
@@ -259,6 +303,9 @@ final class VPNManager: ObservableObject {
                 return
             }
             let m = try await ensureManager()
+            // fix/nc-start-empty: what iOS has now (another VPN may have disabled ours since we loaded it).
+            do { try await m.loadFromPreferences() } catch { Self.trace("loadFromPreferences failed: \(error.localizedDescription)") }
+            if !m.isEnabled { Self.trace("configuration is disabled in iOS (another VPN was enabled?) — enabling it again") }
             // r7 (review7 R7A-2): the scope in overrides.json (restored backup / snapshot / sync, a page that
             // short-circuited) must be what iOS enforces — re-applied before every start when it differs.
             var scopeStale = false
@@ -286,18 +333,44 @@ final class VPNManager: ObservableObject {
             TunnelErrorLog.clear()
             // rv2-life: the user stopped while we were preparing, or iOS is already bringing it up (on-demand)
             guard seq == stopSeq else {
-                NSLog("[Mihomo] start abandoned: stop() arrived while preparing")
+                Self.trace("abandoned: stop() arrived while preparing")
                 return
             }
             if [.connected, .connecting, .reasserting].contains(m.connection.status) {
-                NSLog("[Mihomo] start: tunnel already %d, not starting again", m.connection.status.rawValue)
+                Self.trace("tunnel already \(m.connection.status.rawValue), not starting again")
+                update(from: m.connection)
                 return
             }
-            try m.connection.startVPNTunnel(options: TunnelStartOption.options)
+            do {
+                try m.connection.startVPNTunnel(options: TunnelStartOption.options)
+            } catch let e as NSError where e.domain == NEVPNErrorDomain && e.code == NEVPNError.Code.configurationDisabled.rawValue {
+                // fix/nc-start-empty: disabled behind our back (stale cached flag): enable, save, try once more.
+                Self.trace("startVPNTunnel: configuration disabled — re-enabling and retrying once")
+                m.isEnabled = true
+                try await m.saveToPreferences()
+                try await m.loadFromPreferences()
+                try m.connection.startVPNTunnel(options: TunnelStartOption.options)
+            }
+            Self.trace("startVPNTunnel accepted (status \(m.connection.status.rawValue))")
+            await verifyStartTookEffect(m)
         } catch {
+            Self.trace("failed: \(Self.describe(error))")
             lastError = String(localized: "启动失败：") + Self.describe(error)
             NSLog("[Mihomo] start failed: %@", error.localizedDescription)
         }
+    }
+
+    /// fix/nc-start-empty: startVPNTunnel returned without error but iOS never left 未连接 (a disabled or stale
+    /// configuration is ignored silently on some iOS versions). Say so instead of a switch that does nothing.
+    private func verifyStartTookEffect(_ m: NETunnelProviderManager) async {
+        for _ in 0..<25 { // ≤ 5 s
+            if m.connection.status != .disconnected && m.connection.status != .invalid { return }
+            if status != .disconnected && status != .invalid { return }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        guard m.connection.status == .disconnected || m.connection.status == .invalid, lastError == nil else { return }
+        Self.trace("iOS did not start the tunnel within 5 s (status \(m.connection.status.rawValue), enabled \(m.isEnabled))")
+        lastError = String(localized: "系统没有启动 VPN（5 秒内仍为未连接）。请到 设置 → VPN 选中 Tern 后再试；若仍无效，在 更多 → 诊断 重置 VPN 配置。")
     }
 
     /// Reconnects normally after a safe-mode connection (or in safe mode after a failure).

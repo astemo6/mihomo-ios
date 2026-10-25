@@ -87,6 +87,9 @@ struct NCDNSConfig: Equatable {
     /// Fallback nameservers (mihomo dns.fallback).
     var fallbackServers: [String] { fields["fallback"]?.array?.compactMap { $0.string } ?? [] }
     var nameservers: [String] { fields["nameserver"]?.array?.compactMap { $0.string } ?? [] }
+    /// fix/nc-start-empty: bootstrap lists, used as the default upstream when `nameserver` has nothing forwardable.
+    var defaultNameservers: [String] { fields["default-nameserver"]?.array?.compactMap { $0.string } ?? [] }
+    var proxyServerNameservers: [String] { fields["proxy-server-nameserver"]?.array?.compactMap { $0.string } ?? [] }
     var enhancedMode: String { fields["enhanced-mode"]?.string ?? "fake-ip" }
 }
 

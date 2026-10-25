@@ -20,6 +20,7 @@ final class NativeTunnelCore {
     var controller: NCController? { lock.lock(); defer { lock.unlock() }; return _controller }
     var localProxy: NCLocalProxy? { lock.lock(); defer { lock.unlock() }; return _localProxy }
     private var home = ""
+    private var watchdog: NCQueueWatchdog?
 
     // reload status (bridge/reloadstatus.go shape: running, seq, done, kind, lastError, lastMs, lastDoneAgoMs, runningMs)
     private var reloadRunning = 0
@@ -115,6 +116,14 @@ final class NativeTunnelCore {
         _localProxy = localProxy
         lock.unlock()
         NativeCoreEngine.active = engine
+        // fix/nc-start-empty: logs (once per queue) when the lwIP / controller queue stops running blocks.
+        watchdog?.stop()
+        var watched: [(String, DispatchQueue)] = [("lwIP data plane (nc.dataplane)", plane.queue)]
+        if let controller { watched.append(("controller (nc.controller)", controller.watchQueue)) }
+        watched.append(("script hooks (nc.script-hooks)", NCScriptHookRunner.shared.watchQueue))
+        let wd = NCQueueWatchdog(queues: watched)
+        wd.start()
+        watchdog = wd
         loadRewriteSnapshot(home: home, engine: engine)
         StartupLog.write("native core up (gen \(gen)): \(engine.statsLine)")
         NCMemorySampler.sample("start")
@@ -130,6 +139,8 @@ final class NativeTunnelCore {
 
     /// Caller holds `lifecycle`.
     private func stopLocked() {
+        watchdog?.stop()
+        watchdog = nil
         lock.lock()
         let (c, lp, p, e) = (_controller, _localProxy, _plane, _engine)
         _controller = nil; _localProxy = nil; _plane = nil; _engine = nil
@@ -418,5 +429,72 @@ final class NativeTunnelCore {
 
     static func json(_ o: Any) -> String {
         (try? JSONSerialization.data(withJSONObject: o)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+}
+
+
+/// fix/nc-start-empty (build 382 "connected, nothing moves, controller hangs"): every 1 s each watched serial queue
+/// gets a no-op block; one that has not run it within 2 s is logged ONCE (which queue, how long), and again when it
+/// recovers. Tells a blocked lwIP / controller queue apart from a quiet one in the 诊断包 startup log.
+final class NCQueueWatchdog {
+    private final class Watched {
+        let name: String
+        let queue: DispatchQueue
+        var pendingSince: Date?
+        var reported = false
+        var recoveryLogged = false
+        init(name: String, queue: DispatchQueue) { self.name = name; self.queue = queue }
+    }
+    private let lock = NSLock()
+    private let items: [Watched]
+    private var timer: DispatchSourceTimer?
+    static let stallAfter: TimeInterval = 2
+
+    init(queues: [(String, DispatchQueue)]) {
+        items = queues.map { Watched(name: $0.0, queue: $0.1) }
+    }
+
+    func start() {
+        let t = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        t.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(200))
+        t.setEventHandler { [weak self] in self?.tick() }
+        t.resume()
+        timer = t
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+    }
+
+    private func tick() {
+        let now = Date()
+        for w in items {
+            lock.lock()
+            if let since = w.pendingSince {
+                let waited = now.timeIntervalSince(since)
+                let report = waited >= Self.stallAfter && !w.reported
+                if report { w.reported = true }
+                lock.unlock()
+                if report {
+                    StartupLog.write("WATCHDOG: queue \(w.name) has not run a block for \(String(format: "%.1f", waited)) s — it is blocked (packets / controller requests on it are stuck)")
+                }
+                continue
+            }
+            w.pendingSince = now
+            lock.unlock()
+            w.queue.async { [weak self, w] in
+                guard let self else { return }
+                self.lock.lock()
+                let since = w.pendingSince
+                let logRecovery = w.reported && !w.recoveryLogged
+                if logRecovery { w.recoveryLogged = true }
+                w.pendingSince = nil
+                self.lock.unlock()
+                if logRecovery, let since {
+                    StartupLog.write("WATCHDOG: queue \(w.name) ran again after \(String(format: "%.1f", Date().timeIntervalSince(since))) s")
+                }
+            }
+        }
     }
 }

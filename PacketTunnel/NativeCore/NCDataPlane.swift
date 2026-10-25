@@ -11,7 +11,8 @@ enum NCDataPlaneError: Error {
 final class NCDataPlane {
     private let engine: NativeCoreEngine
     private let stack = NCTunStack()
-    private weak var flow: NEPacketTunnelFlow?
+    // fix/nc-start-empty: strong (was weak) — the plane must never lose the flow it reads from; stop() drops it.
+    private var flow: NEPacketTunnelFlow?
     private let mtu: UInt16
     /// feat/nc-wg: the shared lwIP queue — WireGuard netifs (NCWireGuard.swift) live in the same lwIP instance.
     let queue = NCLwIP.queue
@@ -33,6 +34,35 @@ final class NCDataPlane {
     }
     private var dnsReplies = 0
     private var udpDropped = 0
+    // fix/nc-start-empty: what the plane saw, for 诊断 (startup log +15 s / +60 s). Written on `queue`; read racily
+    // for the log line only, like `sessions.count` in statsLine.
+    private var packetsIn = 0
+    private var tcpAccepted = 0
+    private var dnsQueries = 0
+    private var dnsNoUpstream = 0
+    private var dnsForwardFailed = 0
+    private var loggedNoUpstream = false
+    private var loggedFirstPacket = false
+    private var loggedReadArmed = false
+    private var loggedFirstPacketCallback = false
+
+    /// "v4 tcp 198.18.0.1 → 17.x.x.x" for the first-packet log line (addresses are the device's own flows).
+    static func describe(_ p: Data) -> String {
+        guard let b = p.first else { return "empty" }
+        let v = b >> 4
+        if v == 4, p.count >= 20 {
+            let a = [UInt8](p.prefix(20))
+            let proto = a[9] == 6 ? "tcp" : a[9] == 17 ? "udp" : a[9] == 1 ? "icmp" : "proto \(a[9])"
+            return "v4 \(proto) → \(a[16]).\(a[17]).\(a[18]).\(a[19]), \(p.count) B"
+        }
+        if v == 6, p.count >= 40 {
+            let nh = p[p.startIndex + 6]
+            return "v6 \(nh == 6 ? "tcp" : nh == 17 ? "udp" : nh == 58 ? "icmp6" : "nh \(nh)"), \(p.count) B"
+        }
+        return "version \(v), \(p.count) B"
+    }
+    private var loggedFirstAccept = false
+    private var loggedFirstDNSReply = false
     private(set) var totalUp: Int64 = 0
     private(set) var totalDown: Int64 = 0
     private(set) var totalProxyUp: Int64 = 0
@@ -169,21 +199,42 @@ final class NCDataPlane {
             stack.stop()
             isRunning = false
         }
+        flow = nil
     }
 
     var statsLine: String {
-        "native: sessions \(sessions.count), dns replies \(dnsReplies), udp dropped \(udpDropped)"
+        "native: packets in \(packetsIn), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped)"
     }
 
     // MARK: Packet flow
 
     private func readLoop() {
-        flow?.readPackets { [weak self] packets, _ in
-            guard let self else { return }
+        guard let flow else {
+            StartupLog.write("data plane: no packet flow — readPackets NOT armed")
+            return
+        }
+        if !loggedReadArmed {
+            loggedReadArmed = true
+            StartupLog.write("data plane: readPackets armed (mtu \(mtu))")
+        }
+        flow.readPackets { [weak self] packets, _ in
+            guard let self else {
+                StartupLog.write("data plane: packets arrived after the plane was released — dropped, reading stops")
+                return
+            }
+            if !self.loggedFirstPacketCallback {
+                self.loggedFirstPacketCallback = true
+                StartupLog.write("data plane: first readPackets callback (\(packets.count) packet(s), \(packets.first?.count ?? 0) bytes) — hopping to the lwIP queue")
+            }
             self.queue.async {
                 // rv2-life: a stopped plane stops reading (a restarted core's new plane owns the flow now)
                 guard self.isRunning else { return }
                 if !self.tickFast { self.setTickFast(true) }
+                self.packetsIn &+= packets.count
+                if !self.loggedFirstPacket {
+                    self.loggedFirstPacket = true
+                    StartupLog.write("data plane: first packet processed on the lwIP queue (\(Self.describe(packets.first ?? Data())))")
+                }
                 for p in packets {
                     // ICMP echo to fake-IP / tunnel addresses: answer in
                     // place (those destinations aren't stack addresses).
@@ -251,6 +302,11 @@ final class NCDataPlane {
         let fakeDomain = derefed.host != conn.dst.host ? derefed.host : nil
         let s = TCPSession(conn: conn, target: derefed, ruleDomain: fakeDomain)
         sessions[s.key] = s
+        tcpAccepted &+= 1
+        if !loggedFirstAccept {
+            loggedFirstAccept = true
+            StartupLog.write("data plane: first TCP flow accepted (port \(conn.dst.port), \(fakeDomain != nil ? "fake-ip domain" : "ip"))")
+        }
         let sniff = engine.snifferConfig
         if !sniff.enable {
             connect(s) // sniffer off (config / user toggle): no first-packet inspection
@@ -620,6 +676,7 @@ final class NCDataPlane {
 
     private func udp(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
         if info.dst.port == 53 {
+            dnsQueries &+= 1
             if let reply = engine.dnsHostsReply(data) ?? engine.handleDNSQuery(data) {
                 // nc-script-runtime: registered type=dns scripts may rewrite the finished reply before
                 // it is written back (async, on the hook queue; fail-open). No dns scripts: direct send.
@@ -641,6 +698,12 @@ final class NCDataPlane {
             let route = engine.dnsRoute(for: data)
             guard let primary = route.primary else {
                 udpDropped += 1
+                dnsNoUpstream &+= 1
+                if !loggedNoUpstream {
+                    // fix/nc-start-empty: used to be silent — every lookup failed and nothing said why.
+                    loggedNoUpstream = true
+                    StartupLog.write("DNS: no usable upstream (dns.nameserver / default-nameserver have nothing forwardable) — queries are dropped")
+                }
                 return
             }
             forwardDNS(data, session: info.id, primary: primary,
@@ -659,6 +722,11 @@ final class NCDataPlane {
                             fallback: NCDNSUpstream?, fallbackFirst: Bool) {
         let deliver: (Data) -> Void = { [weak self] resp in
             guard let self else { return }
+            self.dnsReplies &+= 1
+            if !self.loggedFirstDNSReply {
+                self.loggedFirstDNSReply = true
+                StartupLog.write("data plane: first upstream DNS reply delivered (\(resp.count) B)")
+            }
             self.engine.recordDNSResponse(query: query, response: resp)
             // nc-script-runtime: type=dns scripts see the upstream reply (recorded above, pre-hook, so
             // redir-host learning keeps the resolver's real answer) and may rewrite what the client gets.
@@ -684,7 +752,7 @@ final class NCDataPlane {
             guard let self else { return }
             if let resp, !self.engine.dnsAnswerTriggersFallback(resp) { deliver(resp); return }
             guard let fallback else {
-                if let resp { deliver(resp) }
+                if let resp { deliver(resp) } else { self.dnsForwardFailed &+= 1 }
                 return
             }
             self.dnsForwarder.forward(query, upstream: fallback) { resp2 in

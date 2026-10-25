@@ -23,6 +23,45 @@ final class NCController {
     private var stopped = false
     private static let queueKey = DispatchSpecificKey<UInt8>()
     private var statusURL: URL?
+    /// fix/nc-start-empty: requests seen / answered (on `queue`), for 诊断: tells "the App never reached the
+    /// controller" apart from "it reached it and the answers were slow / failed".
+    private var accepted = 0
+    private var routed = 0
+    private var unauthorized = 0
+    private var slowest: (path: String, ms: Int) = ("-", 0)
+    private var loggedFirst = false
+
+    /// fix/nc-start-empty: the controller's serial queue, for the stall watchdog (NativeTunnelCore).
+    var watchQueue: DispatchQueue { queue }
+
+    /// Racy read (log line only).
+    var statsLine: String {
+        "controller: accepted \(accepted), routed \(routed), 401 \(unauthorized), slowest \(slowest.path) \(slowest.ms) ms"
+    }
+
+    /// fix/nc-start-empty: the extension asks its own controller GET /version (same secret the App uses) and
+    /// reports what happened — proves the loopback API answers inside the tunnel process.
+    func selfProbe(timeout: TimeInterval = 3, completion: @escaping (String) -> Void) {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/version") else { completion("bad url"); return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = timeout
+        req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.connectionProxyDictionary = [:]
+        cfg.timeoutIntervalForRequest = timeout
+        let session = URLSession(configuration: cfg)
+        let started = Date()
+        session.dataTask(with: req) { data, resp, err in
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            if let err {
+                completion("self-probe /version failed after \(ms) ms: \((err as NSError).domain) \((err as NSError).code) \(err.localizedDescription)")
+            } else {
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+                completion("self-probe /version HTTP \(code) in \(ms) ms (\(data?.count ?? 0) bytes)")
+            }
+            session.finishTasksAndInvalidate()
+        }.resume()
+    }
 
     init(engine: NativeCoreEngine, plane: NCDataPlane, port: Int, secret: String) {
         self.engine = engine
@@ -145,6 +184,7 @@ final class NCController {
 
     private func handle(_ conn: NWConnection) {
         guard !stopped else { conn.cancel(); return }
+        accepted &+= 1
         let id = ObjectIdentifier(conn)
         conns[id] = conn
         // rv2-life: one handler for every connection: forget it and stop its stream timer when it ends (.failed
@@ -221,10 +261,25 @@ final class NCController {
     // MARK: Routing
 
     private func route(_ conn: NWConnection, _ req: Request) {
+        routed &+= 1
+        if !loggedFirst {
+            loggedFirst = true
+            StartupLog.write("controller: first request \(req.method) \(req.path)")
+        }
         // The app's websocket streams pass the secret as ?token= (mihomo accepts both).
         if !secret.isEmpty, req.headers["authorization"] != "Bearer \(secret)", req.query["token"] != secret {
+            unauthorized &+= 1
+            if unauthorized == 1 { StartupLog.write("controller: 401 for \(req.path) — the App's secret differs from the tunnel's") }
             respond(conn, status: 401, json: ["message": "Unauthorized"])
             return
+        }
+        let t0 = DispatchTime.now()
+        defer {
+            let ms = Int((DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000)
+            if ms > slowest.ms {
+                slowest = (req.path, ms)
+                if ms >= 1000 { StartupLog.write("controller: \(req.method) \(req.path) took \(ms) ms on the controller queue") }
+            }
         }
         let path = req.path
         if req.headers["upgrade"]?.lowercased() == "websocket", let key = req.headers["sec-websocket-key"] {

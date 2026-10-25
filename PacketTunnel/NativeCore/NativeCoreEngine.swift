@@ -550,7 +550,10 @@ final class NativeCoreEngine {
     /// Every configured nameserver (plain UDP, tcp://, tls:// DoT,
     /// https:// DoH, quic:// DoQ) as one sequential-failover group.
     var firstDNSUpstream: NCDNSUpstream? {
-        NCDNSUpstream.of((config?.dns.nameservers ?? []).compactMap { NCDNSUpstream.parse($0) })
+        // fix/nc-start-empty: nameserver first; when it holds nothing forwardable (only system / dhcp), the
+        // bootstrap lists instead of dropping every query.
+        guard let dns = config?.dns else { return nil }
+        return NCDNSUpstream.firstUsable([dns.nameservers, dns.defaultNameservers, dns.proxyServerNameservers])
     }
 
     /// Hosts-table answer for a query, if any (checked before fake-IP:
