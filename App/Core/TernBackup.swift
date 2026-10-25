@@ -737,7 +737,7 @@ public enum TernBackup {
         )
     }
 
-    // MARK: - apply (stub for build/parse commit)
+    // MARK: - apply
 
     @discardableResult
     public static func apply(
@@ -746,7 +746,163 @@ public enum TernBackup {
         root: URL,
         defaults: UserDefaults
     ) throws -> Int {
-        // Will be implemented in the next commit
-        return 0
+        let fm = FileManager.default
+        var writtenCount = 0
+
+        // 1. Overwrite cleanup: delete existing files not in package for selected categories
+        for (catId, mode) in selection where mode == .overwrite {
+            let packageFiles = Set(parsed.categoryFiles[catId] ?? [])
+
+            switch catId {
+            case "profiles":
+                let profilesJsonURL = root.appendingPathComponent("profiles.json")
+                if fm.fileExists(atPath: profilesJsonURL.path) && !packageFiles.contains("profiles.json") {
+                    try? fm.removeItem(at: profilesJsonURL)
+                }
+                let profilesDir = root.appendingPathComponent("profiles")
+                if let names = try? fm.contentsOfDirectory(atPath: profilesDir.path) {
+                    for n in names where !n.hasPrefix(".") {
+                        let rel = "profiles/" + n
+                        if !packageFiles.contains(rel) {
+                            try? fm.removeItem(at: root.appendingPathComponent(rel))
+                        }
+                    }
+                }
+
+            case "subscriptions":
+                for rel in subscriptionsPaths {
+                    if !packageFiles.contains(rel) {
+                        let u = root.appendingPathComponent(rel)
+                        if fm.fileExists(atPath: u.path) {
+                            try? fm.removeItem(at: u)
+                        }
+                    }
+                }
+
+            case "overrides":
+                for rel in overridesPaths {
+                    if !packageFiles.contains(rel) {
+                        let u = root.appendingPathComponent(rel)
+                        if fm.fileExists(atPath: u.path) {
+                            try? fm.removeItem(at: u)
+                        }
+                    }
+                }
+
+            case "engine":
+                if !packageFiles.contains(engineConfigPath) {
+                    let u = root.appendingPathComponent(engineConfigPath)
+                    if fm.fileExists(atPath: u.path) {
+                        try? fm.removeItem(at: u)
+                    }
+                }
+
+            case "resources":
+                for prefix in resourceDirectoryPrefixes {
+                    let dir = root.appendingPathComponent(prefix)
+                    if let names = try? fm.contentsOfDirectory(atPath: dir.path) {
+                        for n in names where !n.hasPrefix(".") {
+                            let rel = prefix + n
+                            if !packageFiles.contains(rel) {
+                                try? fm.removeItem(at: root.appendingPathComponent(rel))
+                            }
+                        }
+                    }
+                }
+
+            case "ca":
+                let dir = root.appendingPathComponent(caDirectoryPrefix)
+                if let names = try? fm.contentsOfDirectory(atPath: dir.path) {
+                    for n in names where !n.hasPrefix(".") {
+                        let rel = caDirectoryPrefix + n
+                        if !packageFiles.contains(rel) {
+                            try? fm.removeItem(at: root.appendingPathComponent(rel))
+                        }
+                    }
+                }
+
+            default:
+                break
+            }
+        }
+
+        // 2. Write profiles category
+        if selection["profiles"] != nil {
+            if let pData = parsed.files["profiles.json"] {
+                let u = root.appendingPathComponent("profiles.json")
+                AppShared.ensureDir(u.deletingLastPathComponent())
+                try pData.write(to: u, options: .atomic)
+                writtenCount += 1
+            }
+
+            if let pText = parsed.profileText, let textData = pText.data(using: .utf8) {
+                var activeFileName: String?
+                if let pData = parsed.files["profiles.json"],
+                   let pList = try? JSONDecoder().decode([Profile].self, from: pData) {
+                    let targetID = parsed.defaults["activeProfileID"] ?? defaults.string(forKey: "activeProfileID")
+                    if let found = pList.first(where: { $0.id == targetID }) {
+                        activeFileName = found.fileURL.lastPathComponent
+                    }
+                }
+                if let fileName = activeFileName {
+                    let u = root.appendingPathComponent("profiles/" + fileName)
+                    AppShared.ensureDir(u.deletingLastPathComponent())
+                    try textData.write(to: u, options: .atomic)
+                    writtenCount += 1
+                }
+            }
+
+            for item in parsed.otherProfiles {
+                if let textData = item.text.data(using: .utf8) {
+                    let u = root.appendingPathComponent("profiles/" + item.fileName)
+                    AppShared.ensureDir(u.deletingLastPathComponent())
+                    try textData.write(to: u, options: .atomic)
+                    writtenCount += 1
+                }
+            }
+        }
+
+        // 3. Write non-profile file categories
+        for (relPath, data) in parsed.files {
+            guard let cat = category(forPath: relPath) else { continue }
+            if cat == "profiles" { continue }
+            if selection[cat] != nil {
+                let u = root.appendingPathComponent(relPath)
+                AppShared.ensureDir(u.deletingLastPathComponent())
+                try data.write(to: u, options: .atomic)
+                if relPath.hasSuffix("ca.key") {
+                    try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: u.path)
+                }
+                writtenCount += 1
+            }
+        }
+
+        // 4. Apply settings category
+        if selection["settings"] != nil {
+            for (k, v) in parsed.defaults where BackupManager.defaultsKeys.contains(k) {
+                defaults.set(v, forKey: k)
+            }
+            if let prefs = parsed.prefs {
+                for (tagged, val) in prefs {
+                    let tag = tagged.prefix(2)
+                    let key = (tagged.hasPrefix("g:") || tagged.hasPrefix("s:")) ? String(tagged.dropFirst(2)) : tagged
+                    guard BackupManager.isBackedUpPref(key) else { continue }
+                    let unwrapped = unwrapJSONValue(val)
+                    if defaults == AppShared.defaults {
+                        if tag == "g:" {
+                            defaults.set(unwrapped, forKey: key)
+                        } else if tag == "s:" {
+                            UserDefaults.standard.set(unwrapped, forKey: key)
+                        } else {
+                            defaults.set(unwrapped, forKey: key)
+                        }
+                    } else {
+                        defaults.set(unwrapped, forKey: key)
+                    }
+                }
+            }
+        }
+
+        return writtenCount
     }
 }
