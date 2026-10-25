@@ -215,6 +215,29 @@ final class NCDNSForwarder {
     }
 
     func forward(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) {
+        // nc-dns: identical in-flight queries coalesce and the global upstream cap applies
+        // (see NCDNSUpstreamCoordinator); the one-shot UDP exchange is forwardUDPOnce.
+        NCDNSUpstreamCoordinator.shared.submit(
+            key: "udp://\(server):\(port)|" + Self.mergeKeySuffix(query),
+            id: Self.transactionID(query), callerQueue: queue,
+            execute: { [weak self] done in
+                guard let self else { done(nil); return }
+                self.forwardUDPOnce(query, server: server, port: port, completion: done)
+            }, completion: completion)
+    }
+
+    static func transactionID(_ query: Data) -> UInt16? {
+        guard query.count >= 2 else { return nil }
+        return UInt16(query[0]) << 8 | UInt16(query[1])
+    }
+
+    /// Coalescing key material: the whole wire query minus its transaction ID — two queries
+    /// merge only when flags, question and additional (EDNS) bytes are all identical.
+    static func mergeKeySuffix(_ query: Data) -> String {
+        Data(query.dropFirst(min(2, query.count))).base64EncodedString()
+    }
+
+    private func forwardUDPOnce(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) {
         let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
         let conn = NWConnection(host: NWEndpoint.Host(server), port: nwPort, using: NCOutboundBinding.params(.udp, host: server))
         var done = false
@@ -280,6 +303,351 @@ final class NCDNSForwarder {
         }
         conn.start(queue: queue)
         queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
+    }
+}
+
+/// nc-dns: coalescing + a global cap for upstream DNS queries, shared by every
+/// NCDNSForwarder instance (data plane, rule resolver). Identical in-flight queries —
+/// same destination and same wire bytes apart from the transaction ID — are sent upstream
+/// once; the answer fans out with each waiter's own transaction ID written back (the ID is
+/// the only per-waiter byte: flags/question/additional were part of the merge key, so the
+/// rest of the response is valid for every waiter).
+///
+/// Concurrency: at most `maxInFlight` upstream exchanges run at once. 32 matches the
+/// resolver behaviour of mainstream clients and bounds sockets/tasks in the memory-tight
+/// extension while staying far above what a page load bursts (a few dozen distinct names,
+/// most of which coalesce). Excess distinct queries wait FIFO for up to `maxQueueWait`,
+/// then fail as nil — the same failure the callers already handle for a dead upstream.
+final class NCDNSUpstreamCoordinator {
+    static let shared = NCDNSUpstreamCoordinator()
+    static let maxInFlight = 32
+    static let maxQueueWait: TimeInterval = 6
+
+    private final class Entry {
+        let key: String
+        let execute: (@escaping (Data?) -> Void) -> Void
+        var waiters: [(id: UInt16?, queue: DispatchQueue, completion: (Data?) -> Void)] = []
+        var started = false
+        init(key: String, execute: @escaping (@escaping (Data?) -> Void) -> Void) {
+            self.key = key
+            self.execute = execute
+        }
+    }
+
+    private let queue = DispatchQueue(label: "nc.dns.coordinator")
+    private var entries: [String: Entry] = [:]
+    private var pending: [Entry] = []
+    private var active = 0
+
+    func submit(key: String, id: UInt16?, callerQueue: DispatchQueue,
+                execute: @escaping (@escaping (Data?) -> Void) -> Void,
+                completion: @escaping (Data?) -> Void) {
+        queue.async {
+            if let e = self.entries[key] {
+                e.waiters.append((id, callerQueue, completion))
+                return
+            }
+            let e = Entry(key: key, execute: execute)
+            e.waiters.append((id, callerQueue, completion))
+            self.entries[key] = e
+            if self.active < Self.maxInFlight {
+                self.start(e)
+            } else {
+                self.pending.append(e)
+                self.queue.asyncAfter(deadline: .now() + Self.maxQueueWait) { [weak self, weak e] in
+                    guard let self, let e, !e.started, self.entries[e.key] === e else { return }
+                    self.entries.removeValue(forKey: e.key)
+                    self.pending.removeAll { $0 === e }
+                    self.deliver(e, nil)
+                }
+            }
+        }
+    }
+
+    private func start(_ e: Entry) {
+        e.started = true
+        active += 1
+        e.execute { [weak self, weak e] resp in
+            guard let self, let e else { return }
+            self.queue.async {
+                guard self.entries[e.key] === e else { return }
+                self.entries.removeValue(forKey: e.key)
+                self.active -= 1
+                self.deliver(e, resp)
+                while self.active < Self.maxInFlight, let next = self.pending.first {
+                    self.pending.removeFirst()
+                    if self.entries[next.key] === next { self.start(next) }
+                }
+            }
+        }
+    }
+
+    /// Fan the (single) upstream answer out to every waiter, restoring each waiter's own
+    /// transaction ID — the coalescing correctness key: a waiter must never see another
+    /// query's ID, or resolvers will discard the answer as mismatched.
+    private func deliver(_ e: Entry, _ resp: Data?) {
+        for w in e.waiters {
+            var out = resp
+            if var r = resp, let id = w.id, r.count >= 2 {
+                r[r.startIndex] = UInt8(id >> 8)
+                r[r.startIndex + 1] = UInt8(id & 0xff)
+                out = r
+            }
+            let c = w.completion
+            w.queue.async { c(out) }
+        }
+    }
+}
+
+/// nc-dns: one reused TLS stream per DoT upstream (host, port). Queries run strictly
+/// sequentially over the stream (length-framed, no pipelining — every mainstream DoT
+/// server accepts this, and ordering makes response matching trivial). Any error or the
+/// per-query timeout discards the stream; queued queries retry on a fresh one. All state
+/// lives on the pool queue (the NCStream is created with it, so its callbacks land here).
+final class NCDNSDoTPool {
+    static let shared = NCDNSDoTPool()
+    private let queue = DispatchQueue(label: "nc.dns.dot")
+
+    private struct Current {
+        let callerQueue: DispatchQueue
+        let completion: (Data?) -> Void
+        var buffer = Data()
+        let timeout: DispatchWorkItem
+    }
+    private final class Conn {
+        var stream: NCStream?
+        var connecting = false
+        var pending: [(query: Data, callerQueue: DispatchQueue, completion: (Data?) -> Void)] = []
+        var current: Current?
+    }
+    private var conns: [String: Conn] = [:]
+
+    func forward(_ query: Data, host: String, port: Int, callerQueue: DispatchQueue,
+                 completion: @escaping (Data?) -> Void) {
+        let key = "\(host):\(port)"
+        queue.async {
+            let c: Conn
+            if let existing = self.conns[key] { c = existing } else { c = Conn(); self.conns[key] = c }
+            c.pending.append((query, callerQueue, completion))
+            self.pump(key: key, conn: c, host: host, port: port)
+        }
+    }
+
+    private func pump(key: String, conn c: Conn, host: String, port: Int) {
+        guard c.current == nil, !c.pending.isEmpty else { return }
+        guard let stream = c.stream else {
+            guard !c.connecting else { return }
+            c.connecting = true
+            let s = NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
+            s.start { [weak self, weak c] err in
+                guard let self, let c else { return }
+                c.connecting = false
+                guard err == nil else {
+                    if !c.pending.isEmpty {
+                        let head = c.pending.removeFirst()
+                        head.callerQueue.async { head.completion(nil) }
+                    }
+                    if c.pending.isEmpty { self.conns.removeValue(forKey: key) }
+                    else { self.pump(key: key, conn: c, host: host, port: port) }
+                    return
+                }
+                c.stream = s
+                self.pump(key: key, conn: c, host: host, port: port)
+            }
+            return
+        }
+        let req = c.pending.removeFirst()
+        var framed = Data()
+        framed.appendBE16(UInt16(req.query.count))
+        framed.append(req.query)
+        stream.send(framed)
+        let timeout = DispatchWorkItem { [weak self, weak c] in
+            guard let self, let c, c.current != nil else { return }
+            self.failCurrent(key: key, conn: c, host: host, port: port)
+        }
+        c.current = Current(callerQueue: req.callerQueue, completion: req.completion, timeout: timeout)
+        queue.asyncAfter(deadline: .now() + 5, execute: timeout)
+        receiveNext(key: key, conn: c, host: host, port: port)
+    }
+
+    private func receiveNext(key: String, conn c: Conn, host: String, port: Int) {
+        guard let stream = c.stream, c.current != nil else { return }
+        stream.receive { [weak self, weak c] data, _ in
+            guard let self, let c, var cur = c.current else { return }
+            guard let data else { self.failCurrent(key: key, conn: c, host: host, port: port); return }
+            cur.buffer.append(data)
+            c.current = cur
+            if cur.buffer.count >= 2 {
+                let len = Int(cur.buffer[cur.buffer.startIndex]) << 8 | Int(cur.buffer[cur.buffer.startIndex + 1])
+                if cur.buffer.count >= 2 + len {
+                    let resp = Data(cur.buffer.dropFirst(2).prefix(len))
+                    cur.timeout.cancel()
+                    c.current = nil
+                    cur.callerQueue.async { cur.completion(resp) }
+                    self.pump(key: key, conn: c, host: host, port: port)
+                    return
+                }
+            }
+            self.receiveNext(key: key, conn: c, host: host, port: port)
+        }
+    }
+
+    private func failCurrent(key: String, conn c: Conn, host: String, port: Int) {
+        guard let cur = c.current else { return }
+        cur.timeout.cancel()
+        c.current = nil
+        c.stream?.cancel()
+        c.stream = nil
+        cur.callerQueue.async { cur.completion(nil) }
+        if c.pending.isEmpty { conns.removeValue(forKey: key) }
+        else { pump(key: key, conn: c, host: host, port: port) }
+    }
+}
+
+/// nc-dns: one reused HTTPS connection per DoH endpoint. Requests are sent one at a time
+/// with `Connection: keep-alive`; each response is consumed exactly (Content-Length or
+/// chunked framing), so leftover bytes belong to the next response. A response that says
+/// `Connection: close`, any error, or the per-query timeout discards the stream; queued
+/// queries retry on a fresh one. All state lives on the pool queue.
+final class NCDNSDoHPool {
+    static let shared = NCDNSDoHPool()
+    private let queue = DispatchQueue(label: "nc.dns.doh")
+
+    private struct Current {
+        let callerQueue: DispatchQueue
+        let completion: (Data?) -> Void
+        var buffer = Data()
+        let timeout: DispatchWorkItem
+    }
+    private final class Conn {
+        var stream: NCStream?
+        var connecting = false
+        var pending: [(query: Data, callerQueue: DispatchQueue, completion: (Data?) -> Void)] = []
+        var current: Current?
+    }
+    private var conns: [String: Conn] = [:]
+
+    func forward(_ query: Data, urlString: String, host: String, port: Int, path: String,
+                 callerQueue: DispatchQueue, completion: @escaping (Data?) -> Void) {
+        queue.async {
+            let c: Conn
+            if let existing = self.conns[urlString] { c = existing } else { c = Conn(); self.conns[urlString] = c }
+            c.pending.append((query, callerQueue, completion))
+            self.pump(key: urlString, conn: c, host: host, port: port, path: path)
+        }
+    }
+
+    private func pump(key: String, conn c: Conn, host: String, port: Int, path: String) {
+        guard c.current == nil, !c.pending.isEmpty else { return }
+        guard let stream = c.stream else {
+            guard !c.connecting else { return }
+            c.connecting = true
+            let s = NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
+            s.start { [weak self, weak c] err in
+                guard let self, let c else { return }
+                c.connecting = false
+                guard err == nil else {
+                    if !c.pending.isEmpty {
+                        let head = c.pending.removeFirst()
+                        head.callerQueue.async { head.completion(nil) }
+                    }
+                    if c.pending.isEmpty { self.conns.removeValue(forKey: key) }
+                    else { self.pump(key: key, conn: c, host: host, port: port, path: path) }
+                    return
+                }
+                c.stream = s
+                self.pump(key: key, conn: c, host: host, port: port, path: path)
+            }
+            return
+        }
+        let req = c.pending.removeFirst()
+        let head = "POST \(path) HTTP/1.1\r\nHost: \(host)\r\nContent-Type: application/dns-message\r\nAccept: application/dns-message\r\nContent-Length: \(req.query.count)\r\nConnection: keep-alive\r\n\r\n"
+        var request = Data(head.utf8)
+        request.append(req.query)
+        stream.send(request)
+        let timeout = DispatchWorkItem { [weak self, weak c] in
+            guard let self, let c, c.current != nil else { return }
+            self.failCurrent(key: key, conn: c, host: host, port: port, path: path)
+        }
+        c.current = Current(callerQueue: req.callerQueue, completion: req.completion, timeout: timeout)
+        queue.asyncAfter(deadline: .now() + 6, execute: timeout)
+        receiveNext(key: key, conn: c, host: host, port: port, path: path)
+    }
+
+    private func receiveNext(key: String, conn c: Conn, host: String, port: Int, path: String) {
+        guard let stream = c.stream, c.current != nil else { return }
+        stream.receive { [weak self, weak c] data, _ in
+            guard let self, let c, var cur = c.current else { return }
+            guard let data else { self.failCurrent(key: key, conn: c, host: host, port: port, path: path); return }
+            cur.buffer.append(data)
+            if let (body, consumed, keepAlive) = Self.parseResponse(cur.buffer) {
+                cur.timeout.cancel()
+                c.current = nil
+                if !keepAlive {
+                    c.stream?.cancel()
+                    c.stream = nil
+                }
+                cur.callerQueue.async { cur.completion(body) }
+                if c.pending.isEmpty, c.stream == nil { self.conns.removeValue(forKey: key) }
+                else { self.pump(key: key, conn: c, host: host, port: port, path: path) }
+                return
+            }
+            c.current = cur
+            self.receiveNext(key: key, conn: c, host: host, port: port, path: path)
+        }
+    }
+
+    private func failCurrent(key: String, conn c: Conn, host: String, port: Int, path: String) {
+        guard let cur = c.current else { return }
+        cur.timeout.cancel()
+        c.current = nil
+        c.stream?.cancel()
+        c.stream = nil
+        cur.callerQueue.async { cur.completion(nil) }
+        if c.pending.isEmpty { conns.removeValue(forKey: key) }
+        else { pump(key: key, conn: c, host: host, port: port, path: path) }
+    }
+
+    /// One complete HTTP response at the head of `buffer`: its body, how many bytes it
+    /// consumed (so the stream stays in sync for the next response), and whether the
+    /// connection may be reused. nil = more bytes needed.
+    private static func parseResponse(_ buffer: Data) -> (body: Data, consumed: Int, keepAlive: Bool)? {
+        guard let headEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+        let head = String(decoding: buffer[buffer.startIndex..<headEnd.lowerBound], as: UTF8.self).lowercased()
+        let keepAlive = !head.contains("connection: close")
+        let bodyStart = headEnd.upperBound
+        if head.contains("transfer-encoding: chunked") {
+            var out = Data()
+            var pos = bodyStart
+            while true {
+                guard let lineEnd = buffer.range(of: Data("\r\n".utf8), range: pos..<buffer.endIndex) else { return nil }
+                let sizeText = String(decoding: buffer[pos..<lineEnd.lowerBound], as: UTF8.self)
+                guard let size = Int(sizeText.trimmingCharacters(in: .whitespaces), radix: 16) else { return nil }
+                let chunkStart = lineEnd.upperBound
+                if size == 0 {
+                    // Terminal chunk: optional trailers end at the first empty line.
+                    if buffer.distance(from: chunkStart, to: buffer.endIndex) >= 2,
+                       buffer[chunkStart] == 0x0d, buffer[chunkStart + 1] == 0x0a {
+                        return (out, buffer.distance(from: buffer.startIndex, to: chunkStart) + 2, keepAlive)
+                    }
+                    guard let tailEnd = buffer.range(of: Data("\r\n\r\n".utf8), range: chunkStart..<buffer.endIndex) else { return nil }
+                    return (out, buffer.distance(from: buffer.startIndex, to: tailEnd.upperBound), keepAlive)
+                }
+                guard buffer.distance(from: chunkStart, to: buffer.endIndex) >= size + 2 else { return nil }
+                out.append(Data(buffer[chunkStart..<(chunkStart + size)]))
+                pos = chunkStart + size + 2
+            }
+        }
+        if let match = head.range(of: "content-length:"),
+           let end = head[match.upperBound...].range(of: "\r\n") {
+            let lenText = head[match.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespaces)
+            if let len = Int(lenText) {
+                let bodyOff = buffer.distance(from: buffer.startIndex, to: bodyStart)
+                guard buffer.count >= bodyOff + len else { return nil }
+                return (Data(buffer[bodyStart..<(bodyStart + len)]), bodyOff + len, keepAlive)
+            }
+        }
+        return nil
     }
 }
 
@@ -653,11 +1021,29 @@ final class NCUDPTrojanSession: NCUDPSession {
 // NCDNSUpstream moved to Shared/NativeCore/NCDNSUpstream.swift (pure logic; the app unit tests use it).
 
 extension NCDNSForwarder {
-    /// Forward via any upstream kind.
+    /// Forward via any upstream kind. nc-dns: single upstreams go through the shared
+    /// coordinator (identical in-flight queries coalesce, the global in-flight cap
+    /// applies — DoQ included, it just does not reuse connections yet). Groups keep
+    /// their own sequential failover; each attempt is a separate coordinated query.
     func forward(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
+        if case .group(let list) = upstream {
+            forwardGroup(query, list: list, completion: completion)
+            return
+        }
+        NCDNSUpstreamCoordinator.shared.submit(
+            key: "\(upstream)|" + Self.mergeKeySuffix(query),
+            id: Self.transactionID(query), callerQueue: queue,
+            execute: { [weak self] done in
+                guard let self else { done(nil); return }
+                self.dispatchOnce(query, upstream: upstream, completion: done)
+            }, completion: completion)
+    }
+
+    /// One real upstream exchange (the coordinator's execute step; no coalescing here).
+    private func dispatchOnce(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
         switch upstream {
         case .udp(let host, let port):
-            forward(query, server: host, port: port, completion: completion)
+            forwardUDPOnce(query, server: host, port: port, completion: completion)
         case .tcp(let host, let port):
             Self.forwardTCP(query, server: host, port: port, queue: queue, completion: completion)
         case .dot(let host, let port):
@@ -666,8 +1052,8 @@ extension NCDNSForwarder {
             Self.forwardDoH(query, urlString: url, queue: queue, completion: completion)
         case .doq(let host, let port):
             Self.forwardDoQ(query, host: host, port: port, queue: queue, completion: completion)
-        case .group(let list):
-            forwardGroup(query, list: list, completion: completion)
+        case .group:
+            completion(nil) // unreachable: groups are handled in forward()
         }
     }
 
@@ -763,45 +1149,15 @@ extension NCDNSForwarder {
         queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
     }
 
-    /// DoT (RFC 7858): TLS stream, 2-byte length framing both ways.
+    /// DoT (RFC 7858): length-framed queries over the pooled per-upstream TLS stream
+    /// (NCDNSDoTPool: connection reuse, strict sequencing, discard on error/timeout).
     private static func forwardDoT(_ query: Data, host: String, port: Int, queue: DispatchQueue,
                                    completion: @escaping (Data?) -> Void) {
-        let stream = NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
-        var done = false
-        func finish(_ data: Data?) {
-            guard !done else { return }
-            done = true
-            stream.cancel()
-            completion(data)
-        }
-        stream.start { err in
-            guard err == nil else { finish(nil); return }
-            var framed = Data()
-            framed.appendBE16(UInt16(query.count))
-            framed.append(query)
-            stream.send(framed)
-            var buffer = Data()
-            func pump() {
-                stream.receive { data, _ in
-                    guard let data else { finish(nil); return }
-                    buffer.append(data)
-                    if buffer.count >= 2 {
-                        let len = Int(buffer[0]) << 8 | Int(buffer[1])
-                        if buffer.count >= 2 + len {
-                            finish(Data(buffer[2..<(2 + len)]))
-                            return
-                        }
-                    }
-                    pump()
-                }
-            }
-            pump()
-        }
-        queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
+        NCDNSDoTPool.shared.forward(query, host: host, port: port, callerQueue: queue, completion: completion)
     }
 
-    /// DoH (RFC 8484): POST the wire query to the HTTPS endpoint, read the
-    /// wire answer (Content-Length or chunked body).
+    /// DoH (RFC 8484): POST the wire query over the pooled per-endpoint HTTPS connection
+    /// (NCDNSDoHPool: keep-alive reuse, one query at a time, exact response framing).
     private static func forwardDoH(_ query: Data, urlString: String, queue: DispatchQueue,
                                    completion: @escaping (Data?) -> Void) {
         guard let url = URL(string: urlString), let host = url.host else {
@@ -810,70 +1166,10 @@ extension NCDNSForwarder {
         }
         let port = url.port ?? 443
         let path = url.path.isEmpty ? "/dns-query" : url.path
-        let stream = NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
-        var done = false
-        func finish(_ data: Data?) {
-            guard !done else { return }
-            done = true
-            stream.cancel()
-            completion(data)
-        }
-        stream.start { err in
-            guard err == nil else { finish(nil); return }
-            var head = "POST \(path) HTTP/1.1\r\nHost: \(host)\r\nContent-Type: application/dns-message\r\nAccept: application/dns-message\r\nContent-Length: \(query.count)\r\nConnection: close\r\n\r\n"
-            var request = Data(head.utf8)
-            head = ""
-            request.append(query)
-            stream.send(request)
-            var buffer = Data()
-            func pump() {
-                stream.receive { data, error in
-                    if let data { buffer.append(data) }
-                    if let body = Self.dohBody(buffer) {
-                        finish(body)
-                        return
-                    }
-                    if data == nil {
-                        finish(nil)
-                        return
-                    }
-                    if error == nil { pump() }
-                }
-            }
-            pump()
-        }
-        queue.asyncAfter(deadline: .now() + 6) { finish(nil) }
+        NCDNSDoHPool.shared.forward(query, urlString: urlString, host: host, port: port, path: path,
+                                    callerQueue: queue, completion: completion)
     }
 
-    /// Extract the body once the full HTTP response has arrived.
-    private static func dohBody(_ data: Data) -> Data? {
-        guard let headEnd = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
-        let head = String(decoding: data[data.startIndex..<headEnd.lowerBound], as: UTF8.self).lowercased()
-        let body = Data(data[headEnd.upperBound...])
-        if head.contains("transfer-encoding: chunked") {
-            var out = Data()
-            var rest = body
-            while true {
-                guard let lineEnd = rest.range(of: Data("\r\n".utf8)) else { return nil }
-                let sizeText = String(decoding: rest[rest.startIndex..<lineEnd.lowerBound], as: UTF8.self)
-                guard let size = Int(sizeText.trimmingCharacters(in: .whitespaces), radix: 16) else { return nil }
-                if size == 0 { return out }
-                let chunkStart = lineEnd.upperBound
-                guard rest.count - chunkStart >= size + 2 else { return nil }
-                out.append(Data(rest[chunkStart..<(chunkStart + size)]))
-                rest = Data(rest[(chunkStart + size + 2)...])
-            }
-        }
-        if let match = head.range(of: "content-length:"),
-           let end = head[match.upperBound...].range(of: "\r\n") {
-            let lenText = head[match.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespaces)
-            if let len = Int(lenText), body.count >= len {
-                return Data(body.prefix(len))
-            }
-            return nil
-        }
-        return nil
-    }
 }
 
 /// VMess UDP: a dedicated VMess connection (command 0x02) per destination —
