@@ -5,7 +5,7 @@ import Foundation
 /// convertNodesText, mitm/rules.go ConvertListLine, mitm/egern.go IsEgernRuleSet / ConvertEgernRuleSet,
 /// ownpolicy.go splitOwnPolicyList, runtimejson.go marshalProxiesYAML).
 ///
-/// Reused Swift: NCRuntimeBuilder (runtime tree), NCRuleValidator.convertRuleLine (= mitm ConvertRuleLine),
+/// Reused Swift: NCRuntimeBuilder (runtime tree), NCEngineRuleset.convertRuleLine / splitTop (= mitm ConvertRuleLine / splitTop),
 /// NCRuntimeSteps.providerConvert / uniqueProviderName, NCRuleValidator.prettyProviderName,
 /// NCProfileInspectorPort.parseProviderNodes / parseRuleCache, NCSubscriptionParser (= parseNodeText).
 ///
@@ -25,12 +25,12 @@ enum NCProviderPorts {
         if kind == "domainset" {
             return l.hasPrefix(".") ? "+" + l : l
         }
-        let parts = NCRule.splitTopLevel(l)
+        let parts = NCEngineRuleset.splitTop(l)
         if parts.count < 2 {
-            if let (v4, masked) = maskedPrefix(l) {
+            if case let (v4, masked)? = maskedPrefix(l) {
                 return (v4 ? "IP-CIDR," : "IP-CIDR6,") + masked + ",no-resolve"
             }
-            if let (v4, a) = normalizedAddr(l) {
+            if case let (v4, a)? = normalizedAddr(l) {
                 return v4 ? "IP-CIDR," + a + "/32,no-resolve" : "IP-CIDR6," + a + "/128,no-resolve"
             }
             if !l.contains(" ") && !l.contains(",") && l.contains(".") { return "DOMAIN," + l }
@@ -44,8 +44,8 @@ enum NCProviderPorts {
             let opts = parts.dropFirst(2).filter { $0.caseInsensitiveCompare("no-resolve") == .orderedSame }
             withPol = ([parts[0], parts[1], "X"] + opts).joined(separator: ",")
         }
-        guard let c = try? NCRuleValidator.convertRuleLine(withPol),
-              !c.rule.isEmpty, c.type != "MATCH", c.remoteURL.isEmpty else { return nil }
+        let (c, err) = NCEngineRuleset.convertRuleLine(withPol) // mitm ConvertRuleLine
+        guard err == nil, !c.rule.isEmpty, c.type != "MATCH", c.remoteURL.isEmpty else { return nil }
         return c.rule + c.options
     }
 
