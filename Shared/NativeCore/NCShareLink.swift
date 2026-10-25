@@ -204,6 +204,27 @@ enum NCShareLink {
             }
             return "tuic://\(user)@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
+        case "juicity":
+            var q = KVList()
+            let cc = sStr(m, "congestion-controller", "congestion_control", "congestion-control")
+            q.add("congestion_control", cc.isEmpty ? "bbr" : cc)
+            let a = sList(m, "alpn")
+            if !a.isEmpty { q.add("alpn", a.joined(separator: ",")) }
+            let sni = sStr(m, "sni", "peer")
+            if !sni.isEmpty { q.add("sni", sni) }
+            if sBool(m, "disable-sni") { q.add("disable_sni", "1") }
+            if sBool(m, "skip-cert-verify") || sBool(m, "allow-insecure") || sBool(m, "allowInsecure") {
+                q.add("allow_insecure", "1")
+            }
+            let pin = sStr(m, "pinned-certchain-sha256", "pinned_certchain_sha256", "pinned-peer-cert-sha256")
+            if !pin.isEmpty { q.add("pinned_certchain_sha256", pin) }
+            let urm = sStr(m, "udp-relay-mode", "udp_relay_mode")
+            if !urm.isEmpty { q.add("udp_relay_mode", urm) }
+            let u = sStr(m, "uuid", "user")
+            let pw = sStr(m, "password")
+            let user = escapePath(u) + ":" + escapePath(pw)
+            return "juicity://\(user)@\(hostPort(m))\(q.queryString)#\(frag(name))"
+
         case "anytls":
             var q = KVList()
             q.add("sni", sStr(m, "sni"))
