@@ -49,7 +49,6 @@ enum NCSupport {
                       ["native", "xorpub", "random"].contains(parts[1]), ["1rtt", "0rtt"].contains(parts[2]) else {
                     return "VLESS encryption \(enc.prefix(24)) 不是有效的 mlkem768x25519plus 值"
                 }
-                if p.fields["flow"]?.string == "xtls-rprx-vision" { return "VLESS encryption + Vision 尚未接入" }
             }
         default:
             break
