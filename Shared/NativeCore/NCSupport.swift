@@ -47,6 +47,8 @@ enum NCSupport {
         case "vless":
             if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
                 // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).
+                // TCP and UDP alike: a UDP association opens its own connection through the same
+                // shared encryption instance (NCUDPVLESSSession), so udp:true nodes work encrypted too.
                 let parts = enc.split(separator: ".").map(String.init)
                 guard parts.count >= 4, parts[0] == "mlkem768x25519plus",
                       ["native", "xorpub", "random"].contains(parts[1]), ["1rtt", "0rtt"].contains(parts[2]) else {
@@ -60,18 +62,18 @@ enum NCSupport {
     }
 
     /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
-    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins; restls in NCRestls).
+    /// obfs http/tls, v2ray-plugin websocket / http-upgrade (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins; restls in NCRestls).
     static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
         guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
         switch plugin {
         case "obfs", "v2ray-plugin":
-            // #101 (astemo6) NCSSPluginOptions: obfs mode=http/tls; v2ray-plugin mode=websocket (or empty), no
-            // v2ray-http-upgrade — the exact parse NCConnector.ssPluginStream dials with.
+            // #101 (astemo6) NCSSPluginOptions: obfs mode=http/tls; v2ray-plugin mode=websocket /
+            // http-upgrade (or empty), v2ray-http-upgrade(+fast-open) — the exact parse the dialer uses.
             guard NCSSPluginOptions(pluginName: plugin, opts: opts) == nil else { return nil }
             return plugin == "obfs"
                 ? "obfs 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 http/tls）"
-                : "v2ray-plugin 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 websocket，不支持 http-upgrade）"
+                : "v2ray-plugin 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 websocket / http-upgrade）"
         case "gost-plugin":
             let mode = opts["mode"]?.string ?? ""
             return mode == "websocket" ? nil : "gost-plugin mode \(mode)"
@@ -79,11 +81,11 @@ enum NCSupport {
             let v = opts["version"]?.int ?? 2
             return (1...3).contains(v) ? nil : "shadow-tls v\(v)"
         case "restls":
-            // NCRestls (PacketTunnel): version-hint tls12 / tls13, restls-script, client-fingerprint, skip-cert-verify.
+            // NCRestls: version-hint tls12 / tls13 (any other value — tls11, empty, … — is an explicit
+            // error at dial time, mirroring restls-client-go; it is never silently mapped), restls-script,
+            // client-fingerprint, skip-cert-verify, fingerprint (SHA-256 pinning) and name-cert-verify.
             let hint = (opts["version-hint"]?.string ?? "").lowercased()
-            if hint != "tls12" && hint != "tls13" { return "restls version-hint \(hint)" }
-            if !(opts["fingerprint"]?.string ?? "").isEmpty { return "restls fingerprint (证书指纹固定)" }
-            if !(opts["name-cert-verify"]?.string ?? "").isEmpty { return "restls name-cert-verify" }
+            if hint != "tls12" && hint != "tls13" { return "restls version-hint \(hint.isEmpty ? "(空)" : hint)（仅 tls12 / tls13）" }
             return nil
         default:
             return plugin
@@ -139,19 +141,25 @@ enum NCSupport {
         return nil
     }
 
-    /// Mieru (NCMieru, feat/nc-proto3): transport TCP (stream underlay), TCP + UDP-over-session traffic.
+    /// Mieru (NCMieru, feat/nc-proto3): transport TCP (stream underlay) + UDP (packet underlay),
+    /// TCP + UDP-over-session traffic, traffic-pattern applied (except explicit lowEntropy).
     static func mieruUnsupported(_ p: NCProxy) -> String? {
         let transport = (p.fields["transport"]?.string ?? "").uppercased()
-        if transport == "UDP" { return "Mieru transport UDP 尚未接入（仅 TCP）" }
-        if transport != "TCP" { return "Mieru transport 必须为 TCP 或 UDP" }
+        if transport != "TCP" && transport != "UDP" { return "Mieru transport 必须为 TCP 或 UDP" }
         if (p.fields["username"]?.string ?? "").isEmpty || (p.password ?? "").isEmpty { return "Mieru 缺少 username / password" }
         if (p.port ?? 0) == 0 && (p.fields["port-range"]?.string ?? "").isEmpty { return "Mieru 缺少 port / port-range" }
-        if let tp = p.fields["traffic-pattern"]?.string, !tp.isEmpty { return "Mieru traffic-pattern 尚未接入" }
+        if let tp = p.fields["traffic-pattern"]?.string, !tp.isEmpty {
+            // Decoded + applied in NCMieru (nonce / padding / TCP fragment); an explicit
+            // lowEntropy mode (mieru's low-entropy data codec) is the one unimplemented piece.
+            guard let pattern = NCMieruTrafficPattern.decode(tp) else { return "Mieru traffic-pattern 无效" }
+            if pattern.lowEntropyMode != 0 { return "Mieru traffic-pattern lowEntropy 尚未接入" }
+        }
         return nil
     }
 
     /// WireGuard (NCWireGuard, feat/nc-wg): same checks as NCWGConfig.parse in the tunnel. AmneziaWG 1.0
-    /// (jc/jmin/jmax/s1/s2/h1–h4) is supported; AWG 2.0 header ranges and s3/s4 are not (i1–i5 are ignored).
+    /// (jc/jmin/jmax/s1/s2/h1–h4) and 2.0 (h1–h4 header ranges, s3/s4 padding) are supported;
+    /// i1–i5 signature packets are ignored (standard packets are sent instead).
     static func wireguardUnsupported(_ p: NCProxy) -> String? {
         let f = p.fields
         if (f["private-key"]?.string ?? "").isEmpty { return "WireGuard 缺少 private-key" }
@@ -165,12 +173,6 @@ enum NCSupport {
             }
         } else if p.server == nil || p.port == nil || (f["public-key"]?.string ?? "").isEmpty {
             return "WireGuard 缺少 server / port / public-key"
-        }
-        if let o = f["amnezia-wg-option"]?.object {
-            for k in ["h1", "h2", "h3", "h4"] where (o[k]?.string ?? "").contains("-") {
-                return "AmneziaWG 2.0 头部范围 \(k) 尚未接入"
-            }
-            if (o["s3"]?.int ?? 0) != 0 || (o["s4"]?.int ?? 0) != 0 { return "AmneziaWG 2.0 s3 / s4 尚未接入" }
         }
         return nil
     }

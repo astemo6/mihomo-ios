@@ -1394,9 +1394,22 @@ final class NCUDPVMessSession: NCUDPSession {
 /// VLESS UDP: dedicated connection per destination (command 0x02); datagrams
 /// are framed as BE16 length + payload in both directions after the response
 /// head (version + addon length).
+///
+/// VLESS encryption (mlkem768x25519plus): the encryption layer wraps the whole
+/// connection, so a UDP association is simply its own connection through the
+/// SAME shared NCVLESSEncClient instance TCP uses (NCConnector.vlessEncryption,
+/// keyed by the encryption string — the 0-RTT ticket cache is shared), with the
+/// identical VLESS framing inside: request head (command 0x02), then
+/// length-framed datagrams. There is no separate UDP cipher or ticket.
 final class NCUDPVLESSSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let raw: NCStream
+    /// The stream datagrams actually flow over: `raw` itself, or `raw` wrapped
+    /// in NCVLESSEncStream once the encryption handshake lands. Until then
+    /// sends queue in `pending` (the enc stream drops pre-handshake sends).
+    private var stream: NCRelayStream?
+    private var pending: [Data] = []
+    private var dead = false
     private var buffer = Data()
     // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
     // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
@@ -1422,14 +1435,30 @@ final class NCUDPVLESSSession: NCUDPSession {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)
         }
         raw.start { [weak self] err in
-            guard let self, err == nil else { return }
-            self.raw.send(head)
-            self.receiveLoop()
+            guard let self, !self.cancelled else { return }
+            guard err == nil else { self.dead = true; self.pending = []; return }
+            if NCConnector.vlessEncryption(proxy) != nil {
+                NCConnector.vlessEncrypt(self.raw, proxy: proxy, queue: queue) { [weak self] wrapped, werr in
+                    guard let self, !self.cancelled else { return }
+                    guard let wrapped, werr == nil else { self.dead = true; self.pending = []; return }
+                    self.stream = wrapped
+                    wrapped.send(head)
+                    let queued = self.pending
+                    self.pending = []
+                    for d in queued { wrapped.send(d) }
+                    self.receiveLoop()
+                }
+            } else {
+                self.stream = self.raw
+                self.raw.send(head)
+                self.receiveLoop()
+            }
         }
     }
 
     private func receiveLoop() {
-        raw.receive { [weak self] data, error in
+        guard let stream else { return }
+        stream.receive { [weak self] data, error in
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             self.buffer.append(data)
@@ -1463,11 +1492,17 @@ final class NCUDPVLESSSession: NCUDPSession {
         var framed = Data()
         framed.appendBE16(UInt16(clamping: data.count))
         framed.append(data)
-        raw.send(framed)
+        if let stream {
+            stream.send(framed)
+        } else if !dead, !cancelled, pending.count < 64 {
+            pending.append(framed) // encryption handshake still running
+        }
     }
 
     func cancel() {
         cancelled = true
+        pending = []
+        stream?.cancel()
         raw.cancel()
     }
 }

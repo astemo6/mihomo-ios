@@ -8,7 +8,7 @@ import Foundation
 /// each datagram = 0x00 ‖ len(2) ‖ [00 00 00 ‖ ATYP ADDR PORT ‖ payload] ‖ 0xFF.
 final class NCUDPMieruSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
-    private var stream: NCMieruStream?
+    private var stream: NCRelayStream?
     private var pending: [(Data, NCTarget)] = []
     private var buffer = [UInt8]()
     private var cancelled = false

@@ -36,8 +36,13 @@ enum NCSSPlugin {
         let path: String
         /// v2ray-plugin: TLS to the SS server itself (wss).
         let tls: Bool
-        /// v2ray-plugin: mux framing over the websocket (mihomo default true).
+        /// v2ray-plugin: mux framing over the transport (mihomo default true).
         let mux: Bool
+        /// v2ray-plugin http-upgrade transport: HTTP/1.1 Upgrade handshake, then a raw stream
+        /// (no websocket framing). Set by `v2ray-http-upgrade: true` or `mode: http-upgrade`.
+        let httpUpgrade: Bool
+        /// `v2ray-http-upgrade-fast-open`: the transport is usable before the 101 arrives.
+        let httpUpgradeFastOpen: Bool
         let skipCertVerify: Bool
         let headers: [String: String]
 
@@ -56,17 +61,17 @@ enum NCSSPlugin {
                 self.path = ""
                 self.tls = false
                 self.mux = false
+                self.httpUpgrade = false
+                self.httpUpgradeFastOpen = false
                 self.skipCertVerify = false
                 self.headers = [:]
             case "v2ray-plugin":
                 let mode = opts["mode"]?.string ?? ""
-                guard mode.isEmpty || mode == "websocket" else { return nil }
-                // v2ray-plugin's httpupgrade mode needs an HTTP/1.1 Upgrade
-                // pipeline we do not implement; fail loudly instead of
-                // speaking websocket to an httpupgrade server.
-                guard opts["v2ray-http-upgrade"]?.bool != true else { return nil }
+                guard mode.isEmpty || mode == "websocket" || mode == "http-upgrade" else { return nil }
+                self.httpUpgrade = opts["v2ray-http-upgrade"]?.bool == true || mode == "http-upgrade"
+                self.httpUpgradeFastOpen = opts["v2ray-http-upgrade-fast-open"]?.bool ?? false
                 self.kind = .v2rayPlugin
-                self.mode = "websocket"
+                self.mode = httpUpgrade ? "http-upgrade" : "websocket"
                 self.host = NCSSPlugin.defaultHost(opts["host"]?.string)
                 self.path = opts["path"]?.string ?? ""
                 self.tls = opts["tls"]?.bool ?? false

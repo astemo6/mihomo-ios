@@ -29,8 +29,10 @@ import Foundation
 //     N = length, N~R = N + random(0..<R) per record, N?R = fixed random once, <K = ask the server for K
 //     responses and hold further writes until a server record arrives. The server's commands ask the client for
 //     K empty (padding-only) records.
-// Not ported: TLS 1.2 session-ticket resumption (layout-4 session IDs; the server accepts full handshakes),
-// `fingerprint` / `name-cert-verify` certificate pinning (NCSupport marks them unsupported).
+// Not ported: TLS 1.2 session-ticket resumption (layout-4 session IDs; the server accepts full handshakes).
+// `fingerprint` (SHA-256 certificate pinning, mihomo ca.NewFingerprintVerifier semantics) and
+// `name-cert-verify` (verify the chain against a name other than the SNI host) are implemented in
+// NCTLSClientStream's certificate policy (Config.pinnedCertSHA256 / certVerifyName).
 
 enum NCRestls {
     enum VersionHint { case tls12, tls13 }
@@ -417,8 +419,23 @@ final class NCRestlsSession {
 // MARK: - Connector glue
 
 extension NCConnector {
-    /// mihomo restlsOption (plugin-opts): host, password, version-hint (tls12 | tls13), restls-script,
-    /// skip-cert-verify, force-tls12; the proxy's client-fingerprint picks the ClientHello shape.
+    private static func hexBytes(_ hex: String) -> Data? {
+        var out = Data()
+        out.reserveCapacity(hex.count / 2)
+        var i = hex.startIndex
+        while i < hex.endIndex {
+            let j = hex.index(i, offsetBy: 2)
+            guard j <= hex.endIndex, let b = UInt8(hex[i..<j], radix: 16) else { return nil }
+            out.append(b)
+            i = j
+        }
+        return out
+    }
+
+    /// mihomo restlsOption (plugin-opts): host, password, version-hint (tls12 | tls13 — anything else,
+    /// including an empty hint, is an explicit error, exactly like restls-client-go's NewRestlsConfig),
+    /// restls-script, skip-cert-verify, fingerprint, name-cert-verify, force-tls12; the proxy's
+    /// client-fingerprint picks the ClientHello shape.
     static func restlsStream(raw: NCRelayStream, proxy: NCProxy, queue: DispatchQueue,
                              completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
@@ -440,10 +457,30 @@ extension NCConnector {
             queue.async { completion(nil, Failure.handshake("restls: \(error)")) }
             return
         }
+        // fingerprint: hex SHA-256 of a presented certificate (colons tolerated), mihomo
+        // ca.NewFingerprintVerifier — browser names here are a config error there, and so here.
+        var pin: Data?
+        if let fp = opts["fingerprint"]?.string, !fp.isEmpty {
+            if ["chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized"]
+                .contains(fp.lowercased()) {
+                raw.cancel()
+                queue.async { completion(nil, Failure.handshake("restls: `fingerprint` is used for TLS certificate pinning; use `client-fingerprint` for the browser fingerprint")) }
+                return
+            }
+            let hex = fp.replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespaces)
+            guard hex.count == 64, let bytes = Self.hexBytes(hex) else {
+                raw.cancel()
+                queue.async { completion(nil, Failure.handshake("restls: fingerprint string decode error: need sha256 fingerprint")) }
+                return
+            }
+            pin = bytes
+        }
         let session = NCRestlsSession(secret: NCRestls.secret(password: opts["password"]?.string ?? ""),
                                       hint: hint, script: script)
         var cfg = NCTLSClientStream.Config(serverName: host)
         cfg.allowInsecure = opts["skip-cert-verify"]?.bool ?? false
+        cfg.pinnedCertSHA256 = pin
+        if let ncv = opts["name-cert-verify"]?.string, !ncv.isEmpty { cfg.certVerifyName = ncv }
         // restls clientIDMap: chrome / firefox / safari / ios, anything else → Chrome.
         let fp = proxy.fields["client-fingerprint"]?.string ?? ""
         cfg.profile = ["chrome", "firefox", "safari", "ios"].contains(fp) ? NCClientHelloProfile.named(fp) : .chrome
