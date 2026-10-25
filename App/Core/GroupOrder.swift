@@ -31,8 +31,7 @@ enum GroupOrder {
 
     /// Group names written in the profile file (the ones that can move).
     nonisolated static func fileNames(_ p: Profile) -> [String] {
-        let json = LibmihomoProfileGroupNames(p.fileURL.path)
-        return (try? JSONDecoder().decode([String].self, from: Data(json.utf8))) ?? []
+        NCGroupOrder.fileGroupNames(path: p.fileURL.path)
     }
 
     /// Display name → name in the file, for groups renamed in 策略组编辑.
@@ -102,7 +101,9 @@ enum GroupOrder {
             // Already a copy: reorder it in place. 手动节点 too: it is the app's own profile (node adds go to it),
             // so a copy would leave later manual nodes behind.
             let path = p.fileURL.path
-            let r = decode(await Task.detached(priority: .userInitiated) { LibmihomoReorderGroups(home, path, json) }.value)
+            let r = await Task.detached(priority: .userInitiated) {
+                NCGroupOrder.reorderFile(path: path, want: order)
+            }.value
             if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: GoText.localize(e)) }
             storeOrder(r.order ?? order, for: p.id)
             if r.changed == true {
@@ -127,7 +128,9 @@ enum GroupOrder {
             c.lastUpdated = p.lastUpdated
         }
         let src = p.fileURL.path, dst = c.fileURL.path
-        let r = decode(await Task.detached(priority: .userInitiated) { LibmihomoGroupOrderCopy(home, src, dst, json) }.value)
+        let r = await Task.detached(priority: .userInitiated) {
+            NCGroupOrder.copy(home: AppShared.homeURL, sourcePath: src, copyPath: dst, want: order)
+        }.value
         if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: GoText.localize(e)) }
         // Same order as the source: no copy needed. An edited existing copy (reordered in place) is switched to
         // even when it already had this order.
@@ -172,12 +175,10 @@ enum GroupOrder {
     /// saved order. force: also when the user edited the copy.
     @discardableResult
     nonisolated static func regenerate(_ c: Profile, from src: Profile, force: Bool = false) async -> RegenerateResult {
-        let home = AppShared.homeURL.path, s = src.fileURL.path, d = c.fileURL.path
-        let out = await Task.detached(priority: .utility) {
-            force ? LibmihomoGroupOrderRegenerateForced(home, s, d) : LibmihomoGroupOrderRegenerate(home, s, d)
+        let home = AppShared.homeURL, s = src.fileURL.path, d = c.fileURL.path
+        let r = await Task.detached(priority: .utility) {
+            NCGroupOrder.regenerate(home: home, sourcePath: s, copyPath: d, force: force)
         }.value
-        struct R: Decodable { var changed: Bool?; var modified: Bool?; var error: String? }
-        let r = (try? JSONDecoder().decode(R.self, from: Data(out.utf8))) ?? R(error: out)
         if r.modified == true { return RegenerateResult(changed: false, modified: true) }
         if let e = r.error, !e.isEmpty { StartupLog.write("group order regenerate: \(e)", tag: "app") }
         return RegenerateResult(changed: r.changed == true, modified: false,

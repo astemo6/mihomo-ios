@@ -63,7 +63,7 @@ enum GroupEditStore {
 }
 
 /// The profile's own groups (before edits) plus provider / node names, from bridge GroupSpecs.
-struct GroupSpecsResult: Decodable {
+struct GroupSpecsResult: Codable {
     var groups: [GroupSpec] = []
     var providers: [String] = []
     var proxies: [String] = []
@@ -71,8 +71,9 @@ struct GroupSpecsResult: Decodable {
     var chains: [String]? = nil
 
     static func load(_ path: String) async -> GroupSpecsResult {
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoGroupSpecs(AppShared.homeURL.path, path) }.value
-        return (try? JSONDecoder().decode(GroupSpecsResult.self, from: Data(json.utf8))) ?? GroupSpecsResult()
+        await Task.detached(priority: .userInitiated) {
+            NCGroupEditing.specs(home: AppShared.homeURL, profilePath: path)
+        }.value
     }
 }
 
@@ -407,9 +408,10 @@ struct GroupEditorView: View {
     func persist(_ e: GroupEdits, profile p: Profile, renamedFrom: String? = nil, savedName: String? = nil) async {
         saving = true
         defer { saving = false }
-        let json = GroupEditStore.json(e)
         let path = p.fileURL.path
-        let err = await Task.detached(priority: .userInitiated) { LibmihomoGroupEditCheck(AppShared.homeURL.path, path, json) }.value
+        let err = await Task.detached(priority: .userInitiated) {
+            NCGroupEditing.editCheck(home: AppShared.homeURL, profilePath: path, edits: e)
+        }.value
         if !err.isEmpty { message = err; return }
         GroupEditStore.set(p.id, e)
         var pinned: [String] = []
