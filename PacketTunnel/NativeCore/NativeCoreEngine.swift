@@ -182,6 +182,7 @@ final class NativeCoreEngine {
 
         stateLock.lock(); defer { stateLock.unlock() }
         guard isCurrent() else { return Self.supersededMessage }
+        fakeIP?.persist(to: fakeIPFile) // nc-dns: flush the live pool before it is replaced below, so a reload keeps every mapping (fakeIPFile still points at the outgoing home here)
         self.home = home
         configSource = loaded.source
         loadedCanonical = loaded.canonical
@@ -373,8 +374,7 @@ final class NativeCoreEngine {
     }
 
     func persistFakeIP() {
-        guard let pool = locked({ fakeIP }), let data = pool.snapshotData() else { return }
-        try? data.write(to: fakeIPFile, options: .atomic)
+        locked({ fakeIP })?.persist(to: fakeIPFile)
     }
 
     // MARK: Routing
