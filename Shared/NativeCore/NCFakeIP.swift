@@ -295,19 +295,37 @@ final class NCFakeIPPool {
 
     // MARK: Persistence (host -> address pairs, compact and stable across versions)
 
+    /// On-disk format version. Files with any other version (including the pre-version
+    /// v1 layout) fail the version check in restore() and are silently rebuilt — a bad or
+    /// stale cache must never keep the tunnel from starting. Entry counts are bounded by
+    /// the pool's own `capacity` on both the write and the read side, and only mappings
+    /// still live in the pool are written (the clock/LRU state is the expiry policy).
+    private static let snapshotVersion = 2
+
     private struct Snapshot: Codable {
+        var version: Int
         var base: UInt32
         var pairs: [String: UInt32]
+        var pairs6: [String: UInt64] // host -> v6 offset (validated against base6 on restore)
     }
 
     func snapshotData() -> Data? {
         lock.lock(); defer { lock.unlock() }
-        let snap = Snapshot(base: base, pairs: hostToIP)
+        let snap = Snapshot(version: Self.snapshotVersion, base: base, pairs: hostToIP, pairs6: hostToIP6)
         return try? JSONEncoder().encode(snap)
     }
 
+    /// Atomically persist the live mappings (the engine calls this before a reload swaps
+    /// the pool out, and on stop). Write failures are ignored by design: persistence is
+    /// an optimisation for mapping stability, never a reason to fail a load.
+    func persist(to url: URL) {
+        guard let data = snapshotData() else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
     func restore(data: Data) {
-        guard let snap = try? JSONDecoder().decode(Snapshot.self, from: data), snap.base == base else { return }
+        guard let snap = try? JSONDecoder().decode(Snapshot.self, from: data),
+              snap.version == Self.snapshotVersion, snap.base == base else { return }
         lock.lock(); defer { lock.unlock() }
         // Only addresses this pool may hand out (older builds could persist
         // the network address / .1-.3), at most `capacity`, in address order.
@@ -332,6 +350,29 @@ final class NCFakeIPPool {
         if let maxUsed = kept.last?.1 {
             let off = maxUsed &- base
             cursor = off >= lastOff ? firstOff : off + 1
+        }
+        // v6 mappings: offsets valid for this pool's range6 only, deduped, capped.
+        if base6 != nil, count6 > 2 {
+            hostToIP6 = [:]
+            ipToHost6 = [:]
+            ring6 = []
+            ring6Head = 0
+            referenced6 = []
+            var seen6 = Set<Data>()
+            var maxOff6: UInt64 = 0
+            for (h, off) in snap.pairs6.sorted(by: { $0.value < $1.value }) where off >= 1 && off < count6 - 1 {
+                let key = Data(address6Bytes(forOffset: off))
+                guard seen6.insert(key).inserted else { continue }
+                hostToIP6[h] = off
+                ipToHost6[key] = h
+                ring6.append(off)
+                maxOff6 = off
+                if hostToIP6.count >= capacity { break }
+            }
+            if maxOff6 > 0 {
+                nextOffset6 = maxOff6 &+ 1
+                if nextOffset6 >= count6 - 1 || nextOffset6 == 0 { nextOffset6 = 1 }
+            }
         }
     }
 }
