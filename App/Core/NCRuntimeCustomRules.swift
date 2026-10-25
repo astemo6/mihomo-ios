@@ -66,7 +66,7 @@ extension NCRuntimeSteps {
         var comps = URLComponents()
         comps.scheme = "http"
         comps.host = "127.0.0.1"
-        comps.port = o.controllerPort
+        comps.port = o.core.controllerPort
         comps.path = "/rules/convert"
         comps.queryItems = [URLQueryItem(name: "url", value: src), URLQueryItem(name: "kind", value: kind)]
         return comps.string ?? ""
@@ -95,7 +95,7 @@ extension NCRuntimeSteps {
             "behavior": .string(behavior),
             "format": .string("text"),
             "url": .string(ruleConvertURL(o, src: sp.url, kind: sp.kind)),
-            "header": .object(["Authorization": .array([.string("Bearer " + o.secret)])]),
+            "header": .object(["Authorization": .array([.string("Bearer " + o.core.secret)])]),
             "proxy": .string("DIRECT"),
             "path": .string(path),
             "interval": .number(Double(interval > 0 ? interval : 86400)),
