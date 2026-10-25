@@ -18,6 +18,8 @@ final class PolicyModel: ObservableObject {
             apply(try await ControllerClient.shared.proxies())
             error = nil
         } catch {
+            // fix/nc-start-empty: leaving the page cancels the load — keep what is on screen, no red 「已取消」.
+            if ControllerClient.isCancellation(error) { return }
             self.error = error.localizedDescription
         }
     }

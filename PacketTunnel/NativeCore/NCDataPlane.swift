@@ -33,6 +33,14 @@ final class NCDataPlane {
     }
     private var dnsReplies = 0
     private var udpDropped = 0
+    // fix/nc-start-empty: what the plane saw, for 诊断 (startup log +15 s / +60 s). Written on `queue`; read racily
+    // for the log line only, like `sessions.count` in statsLine.
+    private var packetsIn = 0
+    private var tcpAccepted = 0
+    private var dnsQueries = 0
+    private var dnsNoUpstream = 0
+    private var dnsForwardFailed = 0
+    private var loggedNoUpstream = false
     private(set) var totalUp: Int64 = 0
     private(set) var totalDown: Int64 = 0
     private(set) var totalProxyUp: Int64 = 0
@@ -172,7 +180,7 @@ final class NCDataPlane {
     }
 
     var statsLine: String {
-        "native: sessions \(sessions.count), dns replies \(dnsReplies), udp dropped \(udpDropped)"
+        "native: packets in \(packetsIn), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped)"
     }
 
     // MARK: Packet flow
@@ -184,6 +192,7 @@ final class NCDataPlane {
                 // rv2-life: a stopped plane stops reading (a restarted core's new plane owns the flow now)
                 guard self.isRunning else { return }
                 if !self.tickFast { self.setTickFast(true) }
+                self.packetsIn &+= packets.count
                 for p in packets {
                     // ICMP echo to fake-IP / tunnel addresses: answer in
                     // place (those destinations aren't stack addresses).
@@ -251,6 +260,7 @@ final class NCDataPlane {
         let fakeDomain = derefed.host != conn.dst.host ? derefed.host : nil
         let s = TCPSession(conn: conn, target: derefed, ruleDomain: fakeDomain)
         sessions[s.key] = s
+        tcpAccepted &+= 1
         let sniff = engine.snifferConfig
         if !sniff.enable {
             connect(s) // sniffer off (config / user toggle): no first-packet inspection
@@ -620,6 +630,7 @@ final class NCDataPlane {
 
     private func udp(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
         if info.dst.port == 53 {
+            dnsQueries &+= 1
             if let reply = engine.dnsHostsReply(data) ?? engine.handleDNSQuery(data) {
                 // nc-script-runtime: registered type=dns scripts may rewrite the finished reply before
                 // it is written back (async, on the hook queue; fail-open). No dns scripts: direct send.
@@ -641,6 +652,12 @@ final class NCDataPlane {
             let route = engine.dnsRoute(for: data)
             guard let primary = route.primary else {
                 udpDropped += 1
+                dnsNoUpstream &+= 1
+                if !loggedNoUpstream {
+                    // fix/nc-start-empty: used to be silent — every lookup failed and nothing said why.
+                    loggedNoUpstream = true
+                    StartupLog.write("DNS: no usable upstream (dns.nameserver / default-nameserver have nothing forwardable) — queries are dropped")
+                }
                 return
             }
             forwardDNS(data, session: info.id, primary: primary,
@@ -659,6 +676,7 @@ final class NCDataPlane {
                             fallback: NCDNSUpstream?, fallbackFirst: Bool) {
         let deliver: (Data) -> Void = { [weak self] resp in
             guard let self else { return }
+            self.dnsReplies &+= 1
             self.engine.recordDNSResponse(query: query, response: resp)
             // nc-script-runtime: type=dns scripts see the upstream reply (recorded above, pre-hook, so
             // redir-host learning keeps the resolver's real answer) and may rewrite what the client gets.
@@ -684,7 +702,7 @@ final class NCDataPlane {
             guard let self else { return }
             if let resp, !self.engine.dnsAnswerTriggersFallback(resp) { deliver(resp); return }
             guard let fallback else {
-                if let resp { deliver(resp) }
+                if let resp { deliver(resp) } else { self.dnsForwardFailed &+= 1 }
                 return
             }
             self.dnsForwarder.forward(query, upstream: fallback) { resp2 in

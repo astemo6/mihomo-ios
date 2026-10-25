@@ -238,8 +238,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     return
                 }
                 completionHandler(nil)
-                DispatchQueue.global().asyncAfter(deadline: .now() + 15) { [weak self] in
-                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(self?.core.engine?.statsLine ?? "-")")
+                // fix/nc-start-empty: what the data plane and the controller saw (packets / DNS / accepted flows /
+                // App requests) at +15 s and +60 s, plus the controller answering its own /version — 诊断 used to
+                // show "startTunnel OK" and nothing that tells a dead packet path from a dead API.
+                for delay in [15.0, 60.0] {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self else { return }
+                        StartupLog.write("+\(Int(delay)) s: \(ProcessMemory.summary()), \(self.core.engine?.statsLine ?? "-"); \(self.core.plane?.statsLine ?? "no plane"); \(self.core.controller?.statsLine ?? "no controller")")
+                        self.core.controller?.selfProbe { StartupLog.write("+\(Int(delay)) s: controller \($0)") }
+                    }
                 }
             }
         }

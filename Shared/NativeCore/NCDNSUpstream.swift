@@ -87,6 +87,17 @@ enum NCDNSUpstream: Equatable {
         return .udp(host: hp.0, port: hp.1)
     }
 
+    /// fix/nc-start-empty: the first list (in priority order) that yields a forwardable upstream. A runtime whose
+    /// `nameserver` holds only `system` / `dhcp://…` (QX profiles that rely on the system resolver) used to give
+    /// no upstream at all, and in redir-host mode every TUN DNS query was dropped — "connected, nothing loads".
+    /// Callers pass nameserver, then default-nameserver, then proxy-server-nameserver.
+    static func firstUsable(_ lists: [[String]]) -> NCDNSUpstream? {
+        for list in lists {
+            if let u = of(list.compactMap { parse($0) }) { return u }
+        }
+        return nil
+    }
+
     /// Map a canonical DNS server reference onto a forwardable upstream.
     init?(_ ref: NCDNSServerRef) {
         switch ref.scheme {

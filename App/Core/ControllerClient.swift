@@ -103,6 +103,9 @@ final class ControllerClient {
             switch e.code {
             case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet, .cannotFindHost: throw APIError.unreachable
             case .timedOut: throw APIError.timedOut
+            // fix/nc-start-empty: the caller's task went away (a page left / a .task(id:) restarted) — not a kernel
+            // error. Thrown as CancellationError so pages can ignore it instead of showing iOS's 「已取消」.
+            case .cancelled where Task.isCancelled: throw CancellationError()
             default: throw e
             }
         }
@@ -110,6 +113,14 @@ final class ControllerClient {
             throw APIError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         return data
+    }
+
+    /// fix/nc-start-empty: a request that ended because its caller was cancelled (page left, task restarted),
+    /// never a reason to show an error. URLError.cancelled covers callers outside `send` (streams, bytes).
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let u = error as? URLError, u.code == .cancelled { return true }
+        return (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled
     }
 
     /// Streams a response body line by line (NDJSON endpoints such as /tools/speed).

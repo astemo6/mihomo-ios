@@ -657,7 +657,10 @@ struct GroupQuickPicker: View {
             all = try await ControllerClient.shared.proxies()
             item = all[group]
             error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            if ControllerClient.isCancellation(error) { return } // fix/nc-start-empty: page left, not an error
+            self.error = error.localizedDescription
+        }
     }
 
     func select(_ node: String) async {
