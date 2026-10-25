@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -17,7 +17,6 @@ enum NCSupport {
         let t = p.type.lowercased()
         guard types.contains(t) else {
             switch t {
-            case "tuic": return "TUIC 尚未接入（需要 QUIC 单向流与 TLS exporter）"
             case "wireguard": return "WireGuard 尚未接入"
             case "tailscale": return "Tailscale 尚未接入"
             case "mieru": return "Mieru 尚未接入"
@@ -38,6 +37,9 @@ enum NCSupport {
             if let why = hysteriaUnsupported(p) { return why + " 尚未接入" }
         case "ssh":
             if let why = sshUnsupported(p) { return why }
+        case "tuic":
+            let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
+            if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
         case "vless":
             if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
                 // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).

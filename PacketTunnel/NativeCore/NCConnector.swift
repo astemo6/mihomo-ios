@@ -571,13 +571,12 @@ enum NCConnector {
             connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue,
                          transport: transport, completion: completion)
         case "tuic":
-            // Platform-blocked, see docs/native-core-design.md: TUIC auth
-            // and UDP commands live on QUIC unidirectional streams, which
-            // Network.framework does not expose (v5 also needs the TLS
-            // keying-material exporter). Fail loudly, never silently.
-            queue.async {
-                completion(nil, Failure.unsupported("tuic: needs QUIC uni streams + TLS exporter, unavailable in Network.framework"))
+            // feat/nc-proto A1: TUIC v5/v4 TCP over Network.framework QUIC (uni-stream auth + TLS exporter).
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("tuic over a chain transport")) }
+                return
             }
+            tuicStream(proxy: proxy, target: target, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
