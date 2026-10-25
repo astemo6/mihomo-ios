@@ -1,9 +1,8 @@
 import Foundation
 import UIKit
-import Libmihomo
 
 /// 诊断 → 导出诊断包: asks the running tunnel to flush its core-log / memory rings, collects the app's
-/// own state, and lets the Go bridge write one redacted zip (bridge/diagbundle.go + redact.go).
+/// own state, and writes one redacted zip (NCDiagnosticBundle + NCZipWriter; was bridge/diagbundle.go + redact.go).
 @MainActor
 enum DiagnosticsExporter {
     /// Builds the bundle and returns its file URL (in the app's temporary directory).
@@ -17,10 +16,10 @@ enum DiagnosticsExporter {
         let out = dir.appendingPathComponent("Tern-diagnostics-\(stamp).zip")
         let home = AppShared.homeURL.path
         let profile = AppShared.activeProfileURL?.path ?? ""
+        let cachedModules = EngineStore.shared.moduleInfo
         try await Task.detached(priority: .userInitiated) {
-            var err: NSError?
-            _ = LibmihomoWriteDiagnosticBundle(home, profile, info, out.path, &err)
-            if let err { throw err }
+            try DiagnosticSummary.writeBundle(home: home, profilePath: profile, appInfo: info, outPath: out.path,
+                                              cachedModuleInfo: cachedModules)
         }.value
         return out
     }
@@ -62,7 +61,7 @@ enum DiagnosticsExporter {
         return items.filter { $0.pathExtension == "appex" }.compactMap { Bundle(url: $0) }.first
     }
 
-    /// key=value lines; the Go side adds the core version and redacts everything again.
+    /// key=value lines; DiagnosticSummary adds the core version and redacts everything again.
     static func appInfo(vpn: VPNManager, tunnelReply: String?) -> String {
         let o = CoreOverrides.load()
         let dev = UIDevice.current
