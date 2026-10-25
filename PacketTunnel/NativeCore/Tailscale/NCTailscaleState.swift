@@ -115,11 +115,11 @@ struct NCTailscaleKeys {
     }
 
     var nodePublicKeyHex: String {
-        [UInt8](nodeKey.publicKey.rawRepresentation).map { String(format: "%02x", $0) }.joined()
+        [UInt8](nodeKey.publicKey.rawRepresentation).ncHex
     }
 
     var discoPublicKeyHex: String {
-        [UInt8](discoKey.publicKey.rawRepresentation).map { String(format: "%02x", $0) }.joined()
+        [UInt8](discoKey.publicKey.rawRepresentation).ncHex
     }
 }
 
@@ -174,7 +174,7 @@ enum NCTailscaleKeyStore {
     /// Formats a key according to Tailscale conventions (`privkey:<64-hex>\n`).
     static func formatKey(_ key: Curve25519.KeyAgreement.PrivateKey) -> Data {
         let raw = [UInt8](key.rawRepresentation)
-        let hex = raw.map { String(format: "%02x", $0) }.joined()
+        let hex = raw.ncHex
         return Data("privkey:\(hex)\n".utf8)
     }
 

@@ -491,7 +491,7 @@ final class OverrideScriptStore: ObservableObject {
 
     nonisolated static func fileSHA(_ url: URL) -> String {
         guard let d = try? Data(contentsOf: url) else { return "" }
-        return SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined()
+        return SHA256.hash(data: d).ncHex
     }
 
     private func fingerprint(_ p: Profile, _ list: [OverrideScript]) -> String {

@@ -444,7 +444,7 @@ final class NCResources {
         var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
         let bytes = Array(u.utf8)
         CC_SHA1(bytes, CC_LONG(bytes.count), &digest)
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        let hex = digest.ncHex
         return ((home as NSString).appendingPathComponent("engine/cache") as NSString).appendingPathComponent(hex)
     }
 

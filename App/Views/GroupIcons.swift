@@ -110,7 +110,7 @@ final class IconCache {
     init() { memory.countLimit = 300 }
 
     static func key(_ url: String) -> String {
-        SHA256.hash(data: Data(url.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        SHA256.hash(data: Data(url.utf8)).prefix(16).ncHex
     }
 
     /// B23: the 镜像 choice, read from CoreOverrides (a file + two Keychain reads) at most every 30 s instead of for

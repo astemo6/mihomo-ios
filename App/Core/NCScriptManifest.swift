@@ -308,7 +308,7 @@ enum NCScriptManifest {
                             var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
                             let codeBytes = Array(code.utf8)
                             CC_SHA256(codeBytes, CC_LONG(codeBytes.count), &hash)
-                            let hex12 = hash.prefix(12).map { String(format: "%02x", $0) }.joined()
+                            let hex12 = hash.prefix(12).ncHex
                             let key = "nc-" + hex12
                             ent.key = key
                             let relFile = (scriptManifestDir as NSString).appendingPathComponent("\(key).js")

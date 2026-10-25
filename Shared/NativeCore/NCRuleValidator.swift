@@ -448,7 +448,7 @@ enum NCRuleValidator {
 
     static func providerNameFor(url: String, kind: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data((kind + "|" + url).utf8))
-        let hex = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+        let hex = digest.prefix(4).ncHex
         return "custom-" + hex
     }
 

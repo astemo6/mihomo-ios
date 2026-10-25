@@ -1067,7 +1067,7 @@ extension NCEngineRuleset {
         var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
         let bytes = Array(joined.utf8)
         CC_SHA1(bytes, CC_LONG(bytes.count), &digest)
-        return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
+        return digest.prefix(6).ncHex
     }
 
     static func disabledByParam(_ p: [String: String]) -> Bool {

@@ -71,7 +71,7 @@ func ncProviderCachePath(home: String, kind: String, _ m: [String: NCJSONValue])
     }
     let u = ncStr(m["url"])
     if !u.isEmpty {
-        let hex = Insecure.MD5.hash(data: Data(u.utf8)).map { String(format: "%02x", $0) }.joined()
+        let hex = Insecure.MD5.hash(data: Data(u.utf8)).ncHex
         return (home as NSString).appendingPathComponent(kind == "rule" ? "rules" : "proxies") + "/" + hex
     }
     return ""

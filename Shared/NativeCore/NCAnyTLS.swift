@@ -45,7 +45,7 @@ enum NCAnyTLS {
 
     static func settingsFrame(clientMetadata: String) -> Data {
         let md5 = Insecure.MD5.hash(data: Data(defaultPaddingScheme.utf8))
-            .map { String(format: "%02x", $0) }.joined()
+            .ncHex
         let map = "client=\(clientMetadata)\npadding-md5=\(md5)\nv=2"
         return frame(cmd: cmdSettings, streamID: 0, data: Data(map.utf8))
     }

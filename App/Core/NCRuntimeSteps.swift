@@ -1052,7 +1052,7 @@ enum NCRuntimeSteps {
     /// bridge tailscaleStateDir.
     static func tailscaleStateDir(_ name: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data(name.utf8))
-        let hash8 = digest.map { String(format: "%02x", $0) }.joined().prefix(8)
+        let hash8 = digest.ncHex.prefix(8)
         var base = ""
         var inUnsafeRun = false
         for ch in name {
