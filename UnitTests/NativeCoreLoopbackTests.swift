@@ -411,9 +411,10 @@ final class NativeCoreLoopbackTests: XCTestCase {
     // The UDP session classes (NCUDPSSSession & friends) live in the
     // PacketTunnel target, which this bundle cannot link. These tests drive
     // the same Shared wire primitives those sessions are built from —
-    // NCSSEncoder / NCSSDecoder and NCSS2022UDPCrypto, one fresh instance per
-    // packet, exactly as NCUDPSSSession does — over a real NWConnection UDP
-    // socket to the sing-box SS inbound, targeting the UDP echo backend.
+    // NCShadowsocks.udpPacketEncode / udpPacketDecode (SIP022 packet format:
+    // salt ‖ single zero-nonce seal; NOT the TCP stream codec) and
+    // NCSS2022UDPCrypto — over a real NWConnection UDP socket to the
+    // sing-box SS inbound, targeting the UDP echo backend.
 
     func testShadowsocksUDPEcho() throws {
         let conn = try self.udpConnection(to: Self.ssPort)
@@ -421,11 +422,12 @@ final class NativeCoreLoopbackTests: XCTestCase {
         let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
         var plain = target.atypEncoded
         plain.append(Self.dnsQuery)
-        let encoder = try XCTUnwrap(NCSSEncoder(cipher: Self.ssCipher, password: Self.ssPassword))
-        let packet = try XCTUnwrap(encoder.encode(plain))
+        let packet = try XCTUnwrap(NCShadowsocks.udpPacketEncode(cipher: Self.ssCipher,
+                                                                 password: Self.ssPassword, plain: plain))
         let reply = try self.udpRoundTrip(conn, packet: packet)
-        let decoder = try XCTUnwrap(NCSSDecoder(cipher: Self.ssCipher, password: Self.ssPassword))
-        let plainReply = try XCTUnwrap(decoder.feed(reply), "SS UDP reply did not decrypt")
+        let plainReply = try XCTUnwrap(NCShadowsocks.udpPacketDecode(cipher: Self.ssCipher,
+                                                                     password: Self.ssPassword, packet: reply),
+                                       "SS UDP reply did not decrypt")
         let payload = try XCTUnwrap(Self.stripTargetHeader(plainReply), "SS UDP reply has no target header")
         XCTAssertEqual(payload, Self.dnsQuery)
     }

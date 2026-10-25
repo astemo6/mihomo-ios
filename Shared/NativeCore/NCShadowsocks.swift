@@ -54,6 +54,74 @@ enum NCShadowsocks {
             i += 1
         }
     }
+
+    // MARK: - AEAD over UDP (SIP022 packet format)
+    //
+    // UDP datagrams are independent of each other: packet = salt ‖ a single
+    // AEAD seal, nonce all zero, over target-header ‖ payload, keyed by the
+    // per-packet subkey. There is no sealed length chunk and no nonce
+    // counter — that framing is TCP-only (NCSSEncoder / NCSSDecoder above).
+    // Reusing the stream codec for UDP (as NCUDPSSSession once did) emits
+    // salt ‖ seal(len) ‖ seal(body), which fails AEAD verification at the
+    // server and is dropped silently — no reply ever comes back
+    // (fix/nc-ss-udp; cross-checked in tools/loopback/ss-aead-udp-check.py).
+
+    /// Largest legal UDP payload; the whole sealed datagram must fit in it.
+    static let maxUDPPacketBytes = 65507
+
+    private static func sealZeroNonce(spec: CipherSpec, key: SymmetricKey, plain: Data) -> Data? {
+        // SealedBox.combined = nonce(12) + ciphertext + tag(16); the wire
+        // keeps only ciphertext + tag, the nonce is implicitly zero.
+        let zeroNonce = Data(count: 12)
+        if spec.isAES {
+            guard let n = try? AES.GCM.Nonce(data: zeroNonce),
+                  let box = try? AES.GCM.seal(plain, using: key, nonce: n),
+                  let combined = box.combined else { return nil }
+            return Data(combined.dropFirst(12))
+        }
+        guard let n = try? ChaChaPoly.Nonce(data: zeroNonce),
+              let box = try? ChaChaPoly.seal(plain, using: key, nonce: n) else { return nil }
+        return Data(box.combined.dropFirst(12))
+    }
+
+    private static func openZeroNonce(spec: CipherSpec, key: SymmetricKey, sealed: Data) -> Data? {
+        var combined = Data(count: 12)
+        combined.append(sealed)
+        if spec.isAES {
+            guard let box = try? AES.GCM.SealedBox(combined: combined),
+                  let plain = try? AES.GCM.open(box, using: key) else { return nil }
+            return plain
+        }
+        guard let box = try? ChaChaPoly.SealedBox(combined: combined),
+              let plain = try? ChaChaPoly.open(box, using: key) else { return nil }
+        return plain
+    }
+
+    /// Seal one UDP datagram's plaintext (target header ‖ payload) into a
+    /// wire packet with a fresh salt (or `salt` when given, for tests).
+    /// Returns nil for an unknown cipher or a datagram that cannot fit.
+    static func udpPacketEncode(cipher: String, password: String, plain: Data, salt: Data? = nil) -> Data? {
+        guard let spec = spec(for: cipher) else { return nil }
+        let salt = salt ?? Data((0..<spec.saltLen).map { _ in UInt8.random(in: 0...255) })
+        guard salt.count == spec.saltLen,
+              plain.count + spec.saltLen + 16 <= maxUDPPacketBytes else { return nil }
+        let master = masterKey(password: password, keyLen: spec.keyLen)
+        let key = SymmetricKey(data: subkey(master: master, salt: salt, keyLen: spec.keyLen))
+        guard let sealed = sealZeroNonce(spec: spec, key: key, plain: plain) else { return nil }
+        var packet = salt
+        packet.append(sealed)
+        return packet
+    }
+
+    /// Open one received UDP datagram; returns target header ‖ payload, or
+    /// nil when the packet is truncated or fails AEAD verification.
+    static func udpPacketDecode(cipher: String, password: String, packet: Data) -> Data? {
+        guard let spec = spec(for: cipher), packet.count >= spec.saltLen + 16 else { return nil }
+        let salt = Data(packet.prefix(spec.saltLen))
+        let master = masterKey(password: password, keyLen: spec.keyLen)
+        let key = SymmetricKey(data: subkey(master: master, salt: salt, keyLen: spec.keyLen))
+        return openZeroNonce(spec: spec, key: key, sealed: Data(packet.dropFirst(spec.saltLen)))
+    }
 }
 
 final class NCSSEncoder {
