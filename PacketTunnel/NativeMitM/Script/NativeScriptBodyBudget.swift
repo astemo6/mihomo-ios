@@ -179,7 +179,7 @@ extension NativeScriptBodyBudget {
 }
 
 // Defaults so the Go-backed app build (NativeScriptHost, the Go NativeBodyStore) and the unit-test fakes need nothing new.
-extension ScriptGoHost {
+extension ScriptHostAPI {
     /// The streaming charge bodyAdmit opened for ticket (NativeCore only).
     func bodyCharge(ticket: Int64) -> NativeBodyCharge? { nil }
 }

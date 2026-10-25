@@ -7,7 +7,7 @@
 // Go's ($persistentStore shared with the app, notifications, $httpAPI, geo, $httpClient through mihomo routing), and
 // every log line / request-log note, formatted by the Go path's own code.
 //
-// ScriptGoHost is a protocol so the unit tests can count calls; production is NativeScriptHost.
+// ScriptHostAPI is a protocol so the unit tests can count calls; production is NativeScriptHost.
 
 import Foundation
 import os
@@ -105,7 +105,7 @@ protocol ScriptFetch: AnyObject {
     func done()
 }
 
-protocol ScriptGoHost: AnyObject {
+protocol ScriptHostAPI: AnyObject {
     func ready() -> Bool
     func token() -> Int64
     func cancel(_ token: Int64)
@@ -152,7 +152,7 @@ final class NativeScriptFetch: ScriptFetch {
     func done() { onDone() }
 }
 
-final class NativeScriptHost: ScriptGoHost {
+final class NativeScriptHost: ScriptHostAPI {
     static let shared = NativeScriptHost()
     static var geoLookup: ((String) -> String?)?
 

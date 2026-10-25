@@ -5,9 +5,9 @@
 // $httpClient / $httpAPI answers delivered through __tern_fire / __tern_deliver), the run's timeout, cancellation
 // and memory guard (JavaScriptCore's execution time limit asks shouldStop every 100 ms), and $done → result. The
 // JavaScript itself runs in the same JSCScriptEngine context Go would use (Go's program cache index loads it:
-// ScriptGoHost.prepare), so the script sees the identical prelude and API.
+// ScriptHostAPI.prepare), so the script sees the identical prelude and API.
 //
-// What still goes to Go (ScriptGoHost): $persistentStore, notifications, $httpAPI, geo, btoa / atob, console lines
+// What still goes through the host (ScriptHostAPI): $persistentStore, notifications, $httpAPI, geo, btoa / atob, console lines
 // (the Go log ring), $httpClient (egress through mihomo routing), ungzip / compress, error / finish log lines.
 // Bodies never do: the response body is a NativeBodyStore handle (blob id NativeBlobBase + handle) that
 // JSCScriptEngine reads directly, large results stay in the store.
@@ -63,7 +63,7 @@ final class NativeScriptRun: JSCRun {
     let runID: Int64
     let gen: Int64
     let rule: Int
-    private let go: ScriptGoHost
+    private let go: ScriptHostAPI
     private let js: NativeJSEngine
     private let lane: JSCNativeBlobProvider?
     private let nativeBase: Int64
@@ -94,7 +94,7 @@ final class NativeScriptRun: JSCRun {
     private var token: Int64 = 0
     private let timerQueue = DispatchQueue(label: "tern.native-script.timers", qos: .userInitiated)
 
-    init(gen: Int64, rule: Int, go: ScriptGoHost, js: NativeJSEngine, lane: JSCNativeBlobProvider?, nativeBase: Int64, laneOK: Bool) {
+    init(gen: Int64, rule: Int, go: ScriptHostAPI, js: NativeJSEngine, lane: JSCNativeBlobProvider?, nativeBase: Int64, laneOK: Bool) {
         runID = Self.nextID()
         self.gen = gen
         self.rule = rule

@@ -300,7 +300,7 @@ enum NCScriptDebug {
 
 /// The run's host for 脚本调试: captures console lines / notifications, the real persistent store, URLSession
 /// for $httpClient; admission / bodies are not involved (the sample bodies are handed over whole).
-final class DebugScriptHost: ScriptGoHost {
+final class DebugScriptHost: ScriptHostAPI {
     struct Line { var t: Int64; var level: String; var msg: String }
 
     private let lock = NSLock()

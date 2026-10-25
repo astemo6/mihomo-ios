@@ -27,7 +27,7 @@ final class NativeRequestScripts {
     }
 
     let gen: Int64
-    private let go: ScriptGoHost
+    private let go: ScriptHostAPI
     private let js: NativeJSEngine
     private let store: JSCNativeBlobProvider?
     private let nativeBase: Int64
@@ -54,7 +54,7 @@ final class NativeRequestScripts {
     private(set) var pushFailed = false
     private var finished = false
 
-    init(gen: Int64, go: ScriptGoHost, js: NativeJSEngine, store: JSCNativeBlobProvider?, nativeBase: Int64) {
+    init(gen: Int64, go: ScriptHostAPI, js: NativeJSEngine, store: JSCNativeBlobProvider?, nativeBase: Int64) {
         self.gen = gen
         self.go = go
         self.js = js

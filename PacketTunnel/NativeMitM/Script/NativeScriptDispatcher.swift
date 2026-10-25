@@ -84,7 +84,7 @@ final class NativeScriptResponse {
     let gen: Int64
     private let steps: [ScriptPlanStep]
     private let req: ScriptRequestView
-    private let go: ScriptGoHost
+    private let go: ScriptHostAPI
     private let js: NativeJSEngine
     private let store: ScriptBodyStore
     private let nativeBase: Int64
@@ -122,7 +122,7 @@ final class NativeScriptResponse {
     private var finished = false
     private var loadPending = false         // .needBody answered, the push / await not done yet (slot held)
 
-    init(gen: Int64, steps: [ScriptPlanStep], request: ScriptRequestView, go: ScriptGoHost, js: NativeJSEngine,
+    init(gen: Int64, steps: [ScriptPlanStep], request: ScriptRequestView, go: ScriptHostAPI, js: NativeJSEngine,
          store: ScriptBodyStore, nativeBase: Int64) {
         self.gen = gen
         self.steps = steps
