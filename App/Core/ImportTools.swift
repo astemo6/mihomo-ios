@@ -125,7 +125,7 @@ enum ImportTools {
 
     private static let singBoxTypes: Set<String> = ["shadowsocks", "vmess", "vless", "trojan",
                                                     "hysteria2", "tuic", "anytls", "socks",
-                                                    "http", "ssh", "wireguard"]
+                                                    "http", "ssh", "wireguard", "naive"]
 
     private static func singBoxCount(_ list: [[String: Any]]) -> Int {
         list.filter {
