@@ -90,6 +90,14 @@ targets:
       # native MitM stage 3 lane s3-h2: native HTTP/2 (switch nativeMitmH2, default OFF), in the app only for
       # UnitTests/NativeMitmH2Tests.swift + NativeMitmH2LoopbackTests.swift.
       - path: PacketTunnel/NativeMitM/H2
+      # nc-lifecycle evidence: the NativeCore control-plane engine (+ its health-check scheduler and the
+      # [nc-mem] sampler), in the app only so UnitTests/NativeCoreReloadEvidenceTests.swift can drive real
+      # NativeCoreEngine.load() cycles in-process (20 reloads, footprint + drain assertions). The app never
+      # starts the engine. The engine's tunnel-only script-hook consults are behind TERN_TUNNEL (undefined
+      # here), and its DNS forwarder moved to Shared for this — see NCDNSForwarder.swift.
+      - path: PacketTunnel/NativeCore/NativeCoreEngine.swift
+      - path: PacketTunnel/NativeCore/NCHealthCheck.swift
+      - path: PacketTunnel/NativeCore/NCMemorySampler.swift
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig

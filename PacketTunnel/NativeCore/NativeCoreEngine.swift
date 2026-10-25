@@ -525,10 +525,16 @@ final class NativeCoreEngine {
     /// the scripts' own timeouts (NCScriptHookRunner.ruleVerdict) and any timeout / error falls through to
     /// normal rule matching (fail-open). Without rule scripts this is the pre-hook path, untouched.
     func route(_ ctx: NCMatchContext) -> (policy: String, rule: String?, resolution: NCGroupEngine.Resolution) {
+        // nc-lifecycle (evidence rework): the script-hook runner is tunnel-only, so the
+        // hook consult is compiled in only there (TERN_TUNNEL). App-target builds — unit
+        // tests driving this engine in-process — route exactly like the tunnel does with
+        // no rule scripts registered, which is the pre-hook path below.
+        #if TERN_TUNNEL
         if hasRuleScripts, let verdict = NCScriptHookRunner.shared.ruleVerdict(ctx: ctx) {
             stateLock.lock(); defer { stateLock.unlock() }
             return (verdict.policy, "script:\(verdict.script)", groups?.resolve(verdict.policy) ?? .direct)
         }
+        #endif
         stateLock.lock(); defer { stateLock.unlock() }
         let (policy, rule) = policyWithRule(for: ctx)
         guard let groups else { return (policy, rule, .direct) }
@@ -652,6 +658,8 @@ final class NativeCoreEngine {
         // nc-script-runtime: registered type=rule scripts run first, on the hook runner's serial queue
         // (never blocking this caller); a policy verdict short-circuits rule matching, no-match / error /
         // timeout falls through to it (fail-open). Without rule scripts this is the pre-hook path.
+        // nc-lifecycle (evidence rework): tunnel-only, as in route() — see the note there.
+        #if TERN_TUNNEL
         if hasRuleScripts {
             NCScriptHookRunner.shared.applyRule(ctx: ctx0, on: queue) { [weak self] policy, script in
                 guard let self else { return }
@@ -664,6 +672,7 @@ final class NativeCoreEngine {
             }
             return
         }
+        #endif
         routeAsyncImpl(ctx0, queue: queue, completion: completion)
     }
 
