@@ -1638,6 +1638,20 @@ private final class RE2Parser {
 }
 
 private func icuFromRE2(_ p: String) -> (String, String) {
+    // RE2Parser / emitICU recurse per group level: refuse pathological input instead of risking the stack.
+    if p.unicodeScalars.count > 16 << 10 {
+        return ("", "pattern too long")
+    }
+    var depth = 0
+    var maxDepth = 0
+    var esc = false
+    for c in p.unicodeScalars {
+        if esc { esc = false; continue }
+        if c == "\\" { esc = true } else if c == "(" { depth += 1; maxDepth = max(maxDepth, depth) } else if c == ")" { depth -= 1 }
+    }
+    if maxDepth > 64 {
+        return ("", "nesting too deep")
+    }
     let parser = RE2Parser(pattern: p)
     let (ast, parseWhy) = parser.parse()
     guard let ast = ast, parseWhy.isEmpty else {

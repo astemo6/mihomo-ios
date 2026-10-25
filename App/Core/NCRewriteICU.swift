@@ -129,6 +129,11 @@ enum NCRewriteICU {
     /// snapRegex describes a compiled rule pattern: re2 = URL matcher requires RE2 equivalence,
     /// replace = captures / match positions are used.
     static func snapRegex(pattern: String, re2: Bool, replace: Bool) -> NCSnapRegex {
+        // A pathological pattern is reported as not portable (the rule then stays on the slow path / is skipped);
+        // it must never take the whole runtime preparation down.
+        if pattern.unicodeScalars.count > rx2MaxPattern {
+            return NCSnapRegex(p: pattern, ok: false, groups: 0)
+        }
         let valid = isValidRegexPattern(pattern)
         if !valid {
             return NCSnapRegex(p: pattern, ok: false, groups: 0)
@@ -508,7 +513,7 @@ enum NCRewriteICU {
                 var n = 0
                 var digits = false
                 while j < bytes.count && bytes[j] >= UInt8(ascii: "0") && bytes[j] <= UInt8(ascii: "9") {
-                    n = n * 10 + Int(bytes[j] - UInt8(ascii: "0"))
+                    if n < 1_000_000 { n = n * 10 + Int(bytes[j] - UInt8(ascii: "0")) } // a{99999999999999999999}: no Int overflow trap
                     digits = true
                     j += 1
                 }
@@ -548,7 +553,7 @@ enum NCRewriteICU {
     /// snapTemplate parses a replacement as regexp2.Replace does.
     /// Returns (template, tperr). If regexp2 would return an error on Replace, returns (nil, true).
     static func snapTemplate(pattern: String, repl: String) -> (NCSnapTemplate?, Bool) {
-        if pattern.isEmpty {
+        if pattern.isEmpty || pattern.unicodeScalars.count > rx2MaxPattern {
             return (nil, false)
         }
         let ps = rx2Parser(p: Array(pattern.unicodeScalars), re2: false, replace: true)
@@ -654,6 +659,10 @@ private let atomGroup = 4
 private let atomGroupNull = 5
 private let atomGroupCapNull = 6
 
+/// Guards against pathological input (never seen in real modules): the parser recurses per group level.
+private let rx2MaxPattern = 16 << 10
+private let rx2MaxDepth = 64
+
 private let cacheLock = NSLock()
 private var rx2Cache: [String: rx2Translation] = [:]
 private var rx2Sets: [String: [Bool]] = [:]
@@ -705,6 +714,9 @@ private func rx2TranslateUncached(p: String, re2: Bool, replace: Bool) -> rx2Tra
             return rx2Translation(why: "unicode category in a union")
         }
     }
+    if p.unicodeScalars.count > rx2MaxPattern {
+        return rx2Translation(why: "pattern too long")
+    }
     let ps = rx2Parser(p: Array(p.unicodeScalars), re2: re2, replace: replace)
     ps.alternation(rx2Flags(), 0)
     if ps.why.isEmpty && ps.pos < ps.p.count {
@@ -741,11 +753,16 @@ private func rx2TranslateUncached(p: String, re2: Bool, replace: Bool) -> rx2Tra
     let totalGroups = ps.groups.count
     var slots = [Int](repeating: 0, count: totalGroups + 1)
     slots[0] = 0
-    for s in 1...totalGroups {
+    // build #374 crash (EXC_BREAKPOINT): this was `for s in 1...totalGroups`, and a ClosedRange with
+    // upperBound < lowerBound traps — i.e. every pattern WITHOUT a capture group (`^https?://ad\.x\.com/`, the
+    // most common rewrite shape) crashed runtime preparation. Go's `for s := 1; s <= n; s++` simply does not run.
+    var s = 1
+    while s <= totalGroups {
         guard let g = ps.byNum[s] else {
             return rx2Translation(why: "group numbering")
         }
         slots[s] = g.icu
+        s += 1
     }
     // Backreferences: placeholders -> ICU indices
     var out = ps.b
@@ -770,7 +787,10 @@ private func rx2TranslateUncached(p: String, re2: Bool, replace: Bool) -> rx2Tra
         } else {
             ref = "(?:\(ref))"
         }
-        let idx = out.index(out.startIndex, offsetBy: r.at)
+        // r.at is a UTF-8 offset into the emitted ICU text (b is ASCII by construction; limitedBy never traps).
+        guard r.at >= 0, let idx = out.utf8.index(out.utf8.startIndex, offsetBy: r.at, limitedBy: out.utf8.endIndex) else {
+            return rx2Translation(why: "backreference position")
+        }
         out.insert(contentsOf: ref, at: idx)
     }
     return rx2Translation(icu: out, slots: slots, why: "")
@@ -855,7 +875,7 @@ private final class rx2Parser {
             if c == "|" || c == ")" {
                 return f
             }
-            let start = b.count
+            let start = b.utf8.count
             let (kind, nf) = atom(f, depth)
             if !why.isEmpty {
                 return f
@@ -867,8 +887,7 @@ private final class rx2Parser {
             if kind == atomNone {
                 continue
             }
-            let startIdx = b.index(b.startIndex, offsetBy: start)
-            let atomText = String(b[startIdx...])
+            let atomText = rx2Tail(b, start)
             quantifier(kind, atomText)
         }
         return f
@@ -939,6 +958,10 @@ private final class rx2Parser {
     }
 
     func atom(_ f: rx2Flags, _ depth: Int) -> (Int, rx2Flags) {
+        guard pos < p.count else {
+            fail("unexpected end")
+            return (0, f)
+        }
         let c = p[pos]
         switch c {
         case "(":
@@ -1055,7 +1078,7 @@ private final class rx2Parser {
                 return (0, f)
             }
             pos += 2
-            refs.append(rx2Ref(at: b.count, num: Int(d.value - UnicodeScalar("0").value), name: "", ci: f.i))
+            refs.append(rx2Ref(at: b.utf8.count, num: Int(d.value - UnicodeScalar("0").value), name: "", ci: f.i))
             return (atomGroupCapNull, f)
         case "k":
             if inLB > 0 {
@@ -1082,7 +1105,7 @@ private final class rx2Parser {
                 return (0, f)
             }
             pos = k + 1
-            refs.append(rx2Ref(at: b.count, num: -1, name: name, ci: f.i))
+            refs.append(rx2Ref(at: b.utf8.count, num: -1, name: name, ci: f.i))
             return (atomGroupCapNull, f)
         case "x":
             if pos + 3 >= p.count || !isHexRune(p[pos + 2]) || !isHexRune(p[pos + 3]) {
@@ -1172,6 +1195,10 @@ private final class rx2Parser {
     }
 
     func group(_ f: rx2Flags, _ depth: Int) -> (Int, rx2Flags) {
+        if depth >= rx2MaxDepth {
+            fail("nesting too deep")
+            return (0, f)
+        }
         pos += 1 // '('
         var inner = f
         var kind = ""
@@ -1277,7 +1304,7 @@ private final class rx2Parser {
         if lb { inLB += 1 }
         if la { inLA += 1 }
         b.append(kind)
-        let start = b.count
+        let start = b.utf8.count
         let refsBefore = refs.count
         let groupsBefore = groups.count
         alternation(inner, depth + 1)
@@ -1289,8 +1316,7 @@ private final class rx2Parser {
             return (0, f)
         }
         pos += 1
-        let startIdx = b.index(b.startIndex, offsetBy: start)
-        let body = String(b[startIdx...])
+        let body = rx2Tail(b, start)
         b.append(")")
         if lb { inLB -= 1 }
         if la { inLA -= 1 }
@@ -1326,6 +1352,12 @@ private final class rx2Parser {
         }
         return set
     }
+}
+
+/// The text emitted since UTF-8 offset `start` ("" when the offset is past the end — never traps).
+private func rx2Tail(_ b: String, _ start: Int) -> String {
+    guard start >= 0, let i = b.utf8.index(b.utf8.startIndex, offsetBy: start, limitedBy: b.utf8.endIndex) else { return "" }
+    return String(b[i...])
 }
 
 // MARK: - Character Set & Atom Evaluation
@@ -1577,15 +1609,17 @@ private func parseReplacementTemplate(repl: String, unnamedCount: Int, capnames:
     }
     let capsize = 1 + unnamedCount + capnames.count
     let bytes = Array(repl.utf8)
-    var sb = ""
+    // Literal text is collected as UTF-8 bytes: appending each byte as its own Character turned every non-ASCII
+    // replacement (中文 / emoji in a 302 target or header value) into Latin-1 mojibake.
+    var sb: [UInt8] = []
     var strings: [String] = []
     var rules: [Int] = []
 
     func flushSb() {
         if !sb.isEmpty {
             rules.append(strings.count)
-            strings.append(sb)
-            sb = ""
+            strings.append(String(decoding: sb, as: UTF8.self))
+            sb = []
         }
     }
 
@@ -1593,13 +1627,13 @@ private func parseReplacementTemplate(repl: String, unnamedCount: Int, capnames:
     while i < bytes.count {
         let c = bytes[i]
         if c != UInt8(ascii: "$") {
-            sb.append(Character(UnicodeScalar(c)))
+            sb.append(c)
             i += 1
             continue
         }
         if i + 1 >= bytes.count {
             // Trailing '$' is literal
-            sb.append("$")
+            sb.append(UInt8(ascii: "$"))
             i += 1
             continue
         }
@@ -1668,7 +1702,7 @@ private func parseReplacementTemplate(repl: String, unnamedCount: Int, capnames:
             var rule = 0
             switch ch {
             case UInt8(ascii: "$"):
-                sb.append("$")
+                sb.append(UInt8(ascii: "$"))
                 i = nextPos + 1
                 recognized = true
             case UInt8(ascii: "&"):
@@ -1699,7 +1733,7 @@ private func parseReplacementTemplate(repl: String, unnamedCount: Int, capnames:
         }
 
         // Unrecognized $: literalize '$' and advance to character after '$'
-        sb.append("$")
+        sb.append(UInt8(ascii: "$"))
         i = backpos + 1
     }
     flushSb()
