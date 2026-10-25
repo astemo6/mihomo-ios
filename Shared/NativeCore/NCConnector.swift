@@ -398,7 +398,7 @@ enum NCConnector {
             }
             muxSession(proxy: proxy, server: server, port: port, queue: queue) { session, err in
                 guard let session else { completion(nil, err); return }
-                completion(session.openStream(target: target), nil)
+                completion(session.openStream(target: target, callerQueue: queue), nil)
             }
             return
         }
@@ -674,7 +674,7 @@ enum NCConnector {
             }
             anytlsSession(proxy: proxy, server: server, port: port, queue: queue) { session, err in
                 guard let session else { completion(nil, err); return }
-                completion(session.openStream(target: target), nil)
+                completion(session.openStream(target: target, callerQueue: queue), nil)
             }
         case "vmess":
             connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue,

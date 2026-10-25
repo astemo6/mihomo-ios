@@ -384,7 +384,7 @@ final class NCUDPMuxSession: NCUDPSession {
         guard let server = proxy.server, let port = proxy.port else { return }
         NCConnector.muxSession(proxy: proxy, server: server, port: port, queue: queue) { [weak self] session, _ in
             guard let self, !self.cancelled, let session else { return }
-            let stream = session.openStream(target: NCMux.destination, rawMode: true)
+            let stream = session.openStream(target: NCMux.destination, rawMode: true, callerQueue: queue)
             self.stream = stream
             let queued = self.pending
             self.pending = []
@@ -454,7 +454,7 @@ final class NCUDPAnyTLSSession: NCUDPSession {
         guard let server = proxy.server, let port = proxy.port else { return }
         NCConnector.anytlsSession(proxy: proxy, server: server, port: port, queue: queue) { [weak self] session, _ in
             guard let self, !self.cancelled, let session else { return }
-            self.stream = session.openStream(target: NCUoT.magicTarget)
+            self.stream = session.openStream(target: NCUoT.magicTarget, callerQueue: queue)
             let queued = self.pending
             self.pending = []
             for (data, t) in queued { self.sendNow(data, to: t) }
