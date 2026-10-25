@@ -490,17 +490,36 @@ final class NativeCoreLoopbackTests: XCTestCase {
         }
         XCTAssertEqual(first, Self.dnsQuery, "no hysteria2 UDP echo over QUIC datagrams (\(conn.udpDiagnostics))")
 
-        let big = Data((0..<3000).map { UInt8(($0 * 13 + 5) & 0xff) })
-        var echoed: Data?
-        for _ in 0..<5 where echoed == nil {
-            conn.sendUDP(sessionID: sessionID, target: target, payload: big)
-            let until = Date().addingTimeInterval(2)
-            while echoed == nil, Date() < until, let got = replies.wait(timeout: until.timeIntervalSinceNow) {
-                if got == big { echoed = got }
+        // Size ladder (diagnostics): unfragmented single datagrams up to the client budget, then the
+        // fragmented 3000-byte packet at the default budget and at a small one. Each rung reports
+        // whether its echo came back, so a failure pinpoints the direction / size that is lost.
+        func roundTrip(_ payload: Data, tries: Int = 3) -> Bool {
+            for _ in 0..<tries {
+                conn.sendUDP(sessionID: sessionID, target: target, payload: payload)
+                let until = Date().addingTimeInterval(1.5)
+                while Date() < until, let got = replies.wait(timeout: until.timeIntervalSinceNow) {
+                    if got == payload { return true }
+                }
             }
+            return false
         }
+        var ladder: [String] = []
+        for size in [512, 900, 1050] {
+            let p = Data((0..<size).map { UInt8(($0 * 11 + 1) & 0xff) })
+            ladder.append("\(size):\(roundTrip(p) ? "ok" : "lost")")
+        }
+        let big = Data((0..<3000).map { UInt8(($0 * 13 + 5) & 0xff) })
+        var bigOK = roundTrip(big)
+        ladder.append("3000@\(NCHy2UDP.maxDatagramSize):\(bigOK ? "ok" : "lost")")
+        if !bigOK {
+            conn.setUDPDatagramLimitForTesting(600)
+            bigOK = roundTrip(big)
+            ladder.append("3000@600:\(bigOK ? "ok" : "lost")")
+            conn.setUDPDatagramLimitForTesting(NCHy2UDP.maxDatagramSize)
+        }
+        let echoed: Data? = bigOK ? big : nil
         XCTAssertEqual(echoed?.count, big.count,
-                       "fragmented 3000-byte UDP packet did not round-trip (\(conn.udpDiagnostics))")
+                       "fragmented 3000-byte UDP packet did not round-trip [\(ladder.joined(separator: " "))] (\(conn.udpDiagnostics))")
         XCTAssertEqual(echoed, big)
     }
 }

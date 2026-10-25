@@ -520,10 +520,17 @@ final class NCHysteria2Connection {
     /// Diagnostics (session queue): failed datagram sends and the last error, read by the loopback test.
     private var udpSendErrors = 0
     private var lastUDPSendError: String?
+    private var udpRxCount = 0
+    private var udpRxMaxSize = 0
+
+    /// Test seam: override the per-datagram budget (session queue hop).
+    func setUDPDatagramLimitForTesting(_ limit: Int) {
+        ncOnSessionQueue(queue) { self.datagramLimit = limit }
+    }
 
     /// Snapshot of the UDP datagram path for diagnostics/tests.
     var udpDiagnostics: String {
-        let read = { "limit=\(self.datagramLimit) flow=\(self.datagramFlow != nil) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
+        let read = { "limit=\(self.datagramLimit) flow=\(self.datagramFlow != nil) peerFlow=\(self.peerDatagramFlow != nil) rx=\(self.udpRxCount) rxMax=\(self.udpRxMaxSize) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
         if NCSessionQueues.isCurrent(queue) { return read() }
         return queue.sync(execute: read)
     }
@@ -928,6 +935,10 @@ final class NCHysteria2Connection {
     private func readDatagrams(_ flow: NWConnection) {
         flow.receiveMessage { [weak self, weak flow] data, _, _, error in
             guard let self, let flow, self.state == .ready else { return }
+            if let data {
+                self.udpRxCount += 1
+                self.udpRxMaxSize = max(self.udpRxMaxSize, data.count)
+            }
             if let data, let id = NCHy2UDP.peekSessionID(data), let sink = self.udpSinks[id] {
                 sink(data)
             }
