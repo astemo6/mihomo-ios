@@ -14,6 +14,16 @@ import Foundation
 //    - Go: Uses yaml.FlowStyle bitmask on yaml.Node.
 //    - Swift: Detects flow-style proxy entries (`- { ... }`) and preserves flow-style mapping formatting on updates.
 //    - Impact: Flow-style entries remain flow-style; block-style entries remain block-style.
+// 3. Line endings / BOM (rv2):
+//    - Go: yaml.v3 re-encodes the whole document with LF endings.
+//    - Swift: the dominant line ending of the input (CRLF or LF) and a leading UTF-8 BOM are kept on output, so an
+//      edit to a uniformly-CRLF file changes only the touched lines. Mixed-ending files are written with the
+//      dominant ending.
+// 4. Scalar quoting (rv2): formatYAMLString follows yaml.v3's encoder choice — plain when the string re-reads as
+//    the same !!str, double-quoted when it would resolve to another type (bool / null / int / float / timestamp /
+//    YAML 1.1 bool / base-60) or contains control or line-break characters, single-quoted otherwise. Divergence: a
+//    multi-line string is double-quoted with `\n` escapes instead of yaml.v3's block literal (`|-`), since the
+//    line editor emits single-line values; it reads back as the identical string.
 
 /// A comment- and order-preserving YAML document editor for profile node operations.
 /// Operates at the line/block structure level to inspect, insert, update, and delete proxy entries
@@ -21,12 +31,41 @@ import Foundation
 final class NCProfileYAML {
 
     private(set) var lines: [String]
+    /// Line terminator written by `text()`: the dominant one in the input ("\r\n" or "\n").
+    private let newline: String
+    /// Leading UTF-8 BOM of the input, re-emitted by `text()`.
+    private let bom: String
 
     init(text: String) {
-        // Split by lines, handling CRLF or LF
-        self.lines = text.components(separatedBy: "\n").map { line in
-            line.hasSuffix("\r") ? String(line.dropLast()) : line
+        var body = text
+        if body.unicodeScalars.first == "\u{FEFF}" {
+            bom = "\u{FEFF}"
+            body = String(body.unicodeScalars.dropFirst())
+        } else {
+            bom = ""
         }
+        // Split by "\n", remembering whether each break was CRLF so `text()` writes the same ending back
+        // (review rv2: edits used to turn every CRLF into LF despite the "untouched bytes preserved" contract).
+        // Note: Swift treats "\r\n" as ONE Character, so split on unicode scalars, not Characters.
+        var out: [String] = []
+        var crlf = 0, lf = 0
+        var cur = String.UnicodeScalarView()
+        let scalars = Array(body.unicodeScalars)
+        var i = 0
+        while i < scalars.count {
+            let c = scalars[i]
+            if c == "\r" && i + 1 < scalars.count && scalars[i + 1] == "\n" {
+                out.append(String(cur)); cur = String.UnicodeScalarView(); crlf += 1; i += 2; continue
+            }
+            if c == "\n" {
+                out.append(String(cur)); cur = String.UnicodeScalarView(); lf += 1; i += 1; continue
+            }
+            cur.append(c)
+            i += 1
+        }
+        out.append(String(cur))
+        self.lines = out
+        self.newline = crlf > lf ? "\r\n" : "\n"
     }
 
     convenience init?(contentsOf fileURL: URL) {
@@ -38,7 +77,7 @@ final class NCProfileYAML {
     }
 
     func text() -> String {
-        lines.joined(separator: "\n")
+        bom + lines.joined(separator: newline)
     }
 
     func data() -> Data? {
@@ -119,21 +158,10 @@ final class NCProfileYAML {
             }
         }
 
+        let bounds = entryBounds(itemStarts: itemStarts, section: section, listIndent: listIndent)
         for (idx, startLine) in itemStarts.enumerated() {
-            // Find end line of this item
-            let nextStart = (idx + 1 < itemStarts.count) ? itemStarts[idx + 1] : section.contentRange.upperBound
-
-            // Include preceding comment lines that directly attach to this item
-            var actualStart = startLine
-            while actualStart > (idx == 0 ? section.headerLine + 1 : itemStarts[idx - 1] + 1) {
-                let prev = lines[actualStart - 1]
-                let prevTrimmed = prev.trimmingCharacters(in: .whitespaces)
-                if prevTrimmed.hasPrefix("#") {
-                    actualStart -= 1
-                } else {
-                    break
-                }
-            }
+            let actualStart = bounds[idx].lowerBound
+            let nextStart = bounds[idx].upperBound
 
             let entryLines = Array(lines[startLine..<nextStart])
             let entryText = entryLines.joined(separator: "\n")
@@ -161,6 +189,54 @@ final class NCProfileYAML {
         }
 
         return entries
+    }
+
+    /// Line ranges of list entries, comment-aware (review rv2 #11).
+    ///
+    /// Each entry starts at its first leading comment line (comments directly above the dash line at an indent
+    /// <= the list indent, with no blank line in between) and ends right before the NEXT entry's leading
+    /// comments — previously it ended at the next dash line, so deleting / replacing entry A also deleted or
+    /// moved entry B's leading comment. The last entry ends after its last content line (or a comment indented
+    /// deeper than the list), so trailing blank lines / column-0 comments that introduce the next top-level key
+    /// stay outside every entry.
+    private func entryBounds(itemStarts: [Int], section: (headerLine: Int, contentRange: Range<Int>), listIndent: Int) -> [Range<Int>] {
+        var starts: [Int] = []
+        for (idx, startLine) in itemStarts.enumerated() {
+            let floor = idx == 0 ? section.headerLine + 1 : itemStarts[idx - 1] + 1
+            var actualStart = startLine
+            while actualStart > floor {
+                let prev = lines[actualStart - 1]
+                let prevTrimmed = prev.trimmingCharacters(in: .whitespaces)
+                let prevIndent = prev.prefix(while: { $0 == " " }).count
+                if prevTrimmed.hasPrefix("#") && prevIndent <= listIndent {
+                    actualStart -= 1
+                } else {
+                    break
+                }
+            }
+            starts.append(actualStart)
+        }
+        var out: [Range<Int>] = []
+        for idx in 0..<starts.count {
+            var end: Int
+            if idx + 1 < starts.count {
+                end = starts[idx + 1]
+            } else {
+                end = section.contentRange.upperBound
+                while end > itemStarts[idx] + 1 {
+                    let l = lines[end - 1]
+                    let t = l.trimmingCharacters(in: .whitespaces)
+                    let ind = l.prefix(while: { $0 == " " }).count
+                    if t.isEmpty || (t.hasPrefix("#") && ind <= listIndent) {
+                        end -= 1
+                    } else {
+                        break
+                    }
+                }
+            }
+            out.append(starts[idx]..<max(end, itemStarts[idx] + 1))
+        }
+        return out
     }
 
     /// Finds a proxy entry by name.
@@ -230,6 +306,10 @@ final class NCProfileYAML {
                     // Replace "proxies: []" with "proxies:" and item
                     lines[section.headerLine] = "proxies:"
                     lines.insert(contentsOf: formatted, at: section.headerLine + 1)
+                } else if let last = listProxies().last {
+                    // Insert right after the last entry (before trailing blank lines / comments that belong to
+                    // the next top-level key).
+                    lines.insert(contentsOf: formatted, at: last.lineRange.upperBound)
                 } else {
                     // Insert at end of proxies content range
                     var insertPos = section.contentRange.upperBound
@@ -258,8 +338,15 @@ final class NCProfileYAML {
         guard let entry = findProxy(name: name) else { return nil }
 
         var duplicateLines = Array(lines[entry.lineRange])
-        // Update name in duplicateLines
-        duplicateLines = updateNameInEntryLines(duplicateLines, newName: newName)
+        if entry.isFlowStyle {
+            // `- { name: A, ... }` has no `name:` line to rewrite; re-emit the flow mapping with the new name.
+            var d = entry.dict
+            d["name"] = newName
+            duplicateLines = formatUpdatedEntry(originalLines: duplicateLines, want: d, isFlow: true, baseIndent: entry.baseIndent)
+        } else {
+            // Update name in duplicateLines
+            duplicateLines = updateNameInEntryLines(duplicateLines, newName: newName)
+        }
 
         let insertPos = entry.lineRange.upperBound
         lines.insert(contentsOf: duplicateLines, at: insertPos)
@@ -284,20 +371,13 @@ final class NCProfileYAML {
         for (i, k) in keys.enumerated() {
             guard let val = node[k] else { continue }
             let valStr = Self.formatYAMLValue(val, indent: fieldIndent + 2)
+            let ks = Self.formatYAMLString(k)
+            // A nested map is emitted as a flow mapping on the key line (formatYAMLValue returns `{ ... }`);
+            // the old "key:" + bare "{...}" line pair was not valid block YAML.
             if i == 0 {
-                if val is [String: Any] {
-                    out.append(String(repeating: " ", count: baseIndent) + "- \(k):")
-                    out.append(valStr)
-                } else {
-                    out.append(String(repeating: " ", count: baseIndent) + "- \(k): \(valStr)")
-                }
+                out.append(String(repeating: " ", count: baseIndent) + "- \(ks): \(valStr)")
             } else {
-                if val is [String: Any] {
-                    out.append(String(repeating: " ", count: fieldIndent) + "\(k):")
-                    out.append(valStr)
-                } else {
-                    out.append(String(repeating: " ", count: fieldIndent) + "\(k): \(valStr)")
-                }
+                out.append(String(repeating: " ", count: fieldIndent) + "\(ks): \(valStr)")
             }
         }
         return out
@@ -311,11 +391,21 @@ final class NCProfileYAML {
             var pairs: [String] = []
             for k in keys {
                 if let v = want[k] {
-                    pairs.append("\(k): \(Self.formatYAMLValue(v, indent: 0))")
+                    pairs.append("\(Self.formatYAMLString(k, flow: true)): \(Self.formatYAMLValue(v, indent: 0, flow: true))")
                 }
             }
             let flowLine = String(repeating: " ", count: baseIndent) + "- { " + pairs.joined(separator: ", ") + " }"
-            return [flowLine]
+            // Keep the entry's leading comment lines and trailing blank / comment lines (rv2 #11: they used to be
+            // dropped together with the old flow line).
+            guard let dash = originalLines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("-") }) else {
+                return [flowLine]
+            }
+            var tail = originalLines.count
+            while tail > dash + 1 {
+                let t = originalLines[tail - 1].trimmingCharacters(in: .whitespaces)
+                if t.isEmpty || t.hasPrefix("#") { tail -= 1 } else { break }
+            }
+            return Array(originalLines[0..<dash]) + [flowLine] + Array(originalLines[tail...])
         }
 
         let fieldIndent = baseIndent + 2
@@ -399,22 +489,21 @@ final class NCProfileYAML {
             seen.insert(f.key)
 
             // Extract inline comment if any
-            var kl = f.keyLine
-            var commentPart = ""
-            if let hashIdx = kl.firstIndex(of: "#") {
-                commentPart = " " + String(kl[hashIdx...])
-                kl = String(kl[..<hashIdx])
-            }
+            // Inline comment: a `#` preceded by whitespace and outside quotes (a bare firstIndex(of: "#") cut
+            // values such as `password: "a#b"` in half).
+            let split = Self.splitInlineComment(f.keyLine)
+            let kl = split.content
+            let commentPart = split.comment
             if let colonIdx = kl.firstIndex(of: ":") {
                 let prefix = String(kl[...colonIdx])
                 if let mapVal = newVal as? [String: Any] {
                     f.keyLine = prefix + commentPart
                     f.childLines = []
-                    var subKeys = Array(mapVal.keys).sorted()
+                    let subKeys = Array(mapVal.keys).sorted()
                     for sk in subKeys {
                         if let sv = mapVal[sk] {
                             let svStr = Self.formatYAMLValue(sv, indent: fieldIndent + 4)
-                            f.childLines.append(String(repeating: " ", count: fieldIndent + 2) + "\(sk): \(svStr)")
+                            f.childLines.append(String(repeating: " ", count: fieldIndent + 2) + "\(Self.formatYAMLString(sk)): \(svStr)")
                         }
                     }
                 } else {
@@ -433,17 +522,17 @@ final class NCProfileYAML {
             guard let newVal = want[k] else { continue }
             if let mapVal = newVal as? [String: Any] {
                 var cl: [String] = []
-                var subKeys = Array(mapVal.keys).sorted()
+                let subKeys = Array(mapVal.keys).sorted()
                 for sk in subKeys {
                     if let sv = mapVal[sk] {
                         let svStr = Self.formatYAMLValue(sv, indent: fieldIndent + 4)
-                        cl.append(String(repeating: " ", count: fieldIndent + 2) + "\(sk): \(svStr)")
+                        cl.append(String(repeating: " ", count: fieldIndent + 2) + "\(Self.formatYAMLString(sk)): \(svStr)")
                     }
                 }
                 resultFields.append(Field(
                     key: k,
                     comments: [],
-                    keyLine: String(repeating: " ", count: fieldIndent) + "\(k):",
+                    keyLine: String(repeating: " ", count: fieldIndent) + "\(Self.formatYAMLString(k)):",
                     childLines: cl
                 ))
             } else {
@@ -451,7 +540,7 @@ final class NCProfileYAML {
                 resultFields.append(Field(
                     key: k,
                     comments: [],
-                    keyLine: String(repeating: " ", count: fieldIndent) + "\(k): \(formatted)",
+                    keyLine: String(repeating: " ", count: fieldIndent) + "\(Self.formatYAMLString(k)): \(formatted)",
                     childLines: []
                 ))
             }
@@ -484,17 +573,17 @@ final class NCProfileYAML {
 
     private func updateNameInEntryLines(_ entryLines: [String], newName: String) -> [String] {
         var out: [String] = []
-        let formattedName = Self.formatYAMLValue(newName, indent: 0)
+        let formattedName = Self.formatYAMLString(newName)
+        var renamed = false
         for line in entryLines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:") {
-                // Extract inline comment if any
-                var commentPart = ""
-                var cleanLine = line
-                if let hashIdx = line.firstIndex(of: "#") {
-                    commentPart = " " + String(line[hashIdx...])
-                    cleanLine = String(line[..<hashIdx])
-                }
+            // Only the entry's own `name:` (first one) — a nested `name:` under e.g. an opts map stays.
+            if !renamed && (trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:")) {
+                renamed = true
+                // Extract inline comment if any (quote-aware, see splitInlineComment)
+                let split = Self.splitInlineComment(line)
+                let commentPart = split.comment
+                let cleanLine = split.content
                 if let colonIdx = cleanLine.firstIndex(of: ":") {
                     let prefix = String(cleanLine[...colonIdx])
                     out.append(prefix + " " + formattedName + commentPart)
@@ -506,8 +595,12 @@ final class NCProfileYAML {
         return out
     }
 
-    static func formatYAMLValue(_ val: Any, indent: Int) -> String {
+    static func formatYAMLValue(_ val: Any, indent: Int, flow: Bool = false) -> String {
         switch val {
+        case is NSNull:
+            return "null"
+        case let n as NSNumber where CFGetTypeID(n) == CFBooleanGetTypeID():
+            return n.boolValue ? "true" : "false"
         case let b as Bool:
             return b ? "true" : "false"
         case let n as Int:
@@ -515,40 +608,220 @@ final class NCProfileYAML {
         case let n as Int64:
             return "\(n)"
         case let n as Double:
-            if n.isFinite && n == floor(n) {
-                return "\(Int64(n))"
-            }
-            return "\(n)"
+            return formatYAMLDouble(n)
         case let s as String:
-            return formatYAMLString(s)
+            return formatYAMLString(s, flow: flow)
         case let a as [Any]:
-            let items = a.map { formatYAMLValue($0, indent: indent) }
+            let items = a.map { formatYAMLValue($0, indent: indent, flow: true) }
             return "[" + items.joined(separator: ", ") + "]"
         case let m as [String: Any]:
             var pairs: [String] = []
             for (k, v) in m.sorted(by: { $0.key < $1.key }) {
-                pairs.append("\(k): \(formatYAMLValue(v, indent: indent))")
+                pairs.append("\(formatYAMLString(k, flow: true)): \(formatYAMLValue(v, indent: indent, flow: true))")
             }
             return "{ " + pairs.joined(separator: ", ") + " }"
+        case let n as NSNumber:
+            return formatYAMLDouble(n.doubleValue)
         default:
-            return "\(val)"
+            return formatYAMLString("\(val)", flow: flow)
         }
     }
 
-    static func formatYAMLString(_ s: String) -> String {
-        if s.isEmpty { return "\"\"" }
-        let needsQuotes = s.contains(":") || s.contains("#") || s.contains(",") ||
-            s.contains("[") || s.contains("]") || s.contains("{") || s.contains("}") ||
-            s.contains("&") || s.contains("*") || s.contains("!") || s.contains("|") ||
-            s.contains(">") || s.contains("'") || s.contains("\"") || s.contains("%") ||
-            s.contains("@") || s.contains("`") || s.hasPrefix(" ") || s.hasSuffix(" ") ||
-            ["true", "false", "yes", "no", "null", "~"].contains(s.lowercased()) ||
-            Double(s) != nil
-        if needsQuotes {
-            let escaped = s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-            return "\"\(escaped)\""
+    /// yaml.v3 float spelling; integral values within Int64 range print without a fraction (the old
+    /// `Int64(n)` trapped for integral values beyond Int64, e.g. 1e20).
+    static func formatYAMLDouble(_ n: Double) -> String {
+        if n.isNaN { return ".nan" }
+        if n.isInfinite { return n < 0 ? "-.inf" : ".inf" }
+        if n == n.rounded(.towardZero) && n >= -9.2e18 && n <= 9.2e18 {
+            return "\(Int64(n))"
         }
-        return s
+        return "\(n)"
+    }
+
+    // MARK: - Scalar quoting (yaml.v3 equivalent)
+
+    /// Formats a string scalar the way yaml.v3's encoder chooses its style (encode.go stringv + libyaml
+    /// yaml_emitter_analyze_scalar / select_scalar_style):
+    ///  - "" -> `""`
+    ///  - contains a line break or a non-printable character (control chars, tab, DEL, BOM, NEL, LS, PS) ->
+    ///    double-quoted with escapes (yaml.v3 uses a `|-` literal for multi-line block values; a double-quoted
+    ///    scalar reads back as the identical string and keeps the entry on one line — see DIVERGENCES 4)
+    ///  - would resolve to a non-string as a plain scalar (null, bool incl. YAML 1.1 y/yes/on/off..., int incl.
+    ///    0x/0o/0b/underscores, float incl. .inf/.nan, base-60, timestamp, merge key `<<`) -> double-quoted
+    ///  - plain style not allowed (leading indicator, leading/trailing space, ": " / " #" / trailing ":",
+    ///    flow indicators `,[]{}` when `flow`, document markers) -> single-quoted (`'` doubled)
+    ///  - otherwise plain.
+    /// Every value written by the line editor goes through here, so an editor-supplied value can never break
+    /// the line structure or inject a key (review rv2: `\n`/control chars/leading `-`,`?`,`:` were written raw).
+    static func formatYAMLString(_ s: String, flow: Bool = false) -> String {
+        if s.isEmpty { return "\"\"" }
+        if needsDoubleQuotes(s) || resolvesToNonString(s) {
+            return doubleQuoted(s)
+        }
+        if plainAllowed(s, flow: flow) {
+            return s
+        }
+        return "'" + s.replacingOccurrences(of: "'", with: "''") + "'"
+    }
+
+    private static func isPrintable(_ v: UInt32) -> Bool {
+        // libyaml IS_PRINTABLE (0x0A is handled as a break by the caller).
+        return (v >= 0x20 && v <= 0x7E) || v == 0x85 || (v >= 0xA0 && v <= 0xD7FF) ||
+            (v >= 0xE000 && v <= 0xFFFD && v != 0xFEFF) || (v >= 0x10000 && v <= 0x10FFFF)
+    }
+
+    private static func isBreak(_ v: UInt32) -> Bool {
+        v == 0x0A || v == 0x0D || v == 0x85 || v == 0x2028 || v == 0x2029
+    }
+
+    private static func needsDoubleQuotes(_ s: String) -> Bool {
+        for u in s.unicodeScalars {
+            let v = u.value
+            if isBreak(v) || !isPrintable(v) { return true }
+        }
+        return false
+    }
+
+    private static func fullMatch(_ pattern: String, _ s: String) -> Bool {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return false }
+        let r = NSRange(s.startIndex..., in: s)
+        guard let m = re.firstMatch(in: s, options: [.anchored], range: r) else { return false }
+        return m.range.location == 0 && m.range.length == r.length
+    }
+
+    /// yaml.v3 resolve() (+ isOldBool / isBase60Float in stringv): true when the plain scalar `s` would not
+    /// read back as a !!str.
+    static func resolvesToNonString(_ s: String) -> Bool {
+        let nullOrBool: Set<String> = [
+            "~", "null", "Null", "NULL",
+            "true", "True", "TRUE", "false", "False", "FALSE",
+            // YAML 1.1 booleans (yaml.v3 isOldBool) and merge key
+            "y", "Y", "yes", "Yes", "YES", "on", "On", "ON",
+            "n", "N", "no", "No", "NO", "off", "Off", "OFF", "<<",
+            ".inf", ".Inf", ".INF", "+.inf", "+.Inf", "+.INF", "-.inf", "-.Inf", "-.INF",
+            ".nan", ".NaN", ".NAN",
+        ]
+        if nullOrBool.contains(s) { return true }
+        guard let first = s.unicodeScalars.first else { return true }
+        let hint = "+-.0123456789"
+        guard hint.unicodeScalars.contains(first) else { return false }
+        // int: strconv.ParseInt(strings.ReplaceAll(s, "_", ""), 0, 64) (+ ParseUint) — any base prefix.
+        let noUnderscore = s.replacingOccurrences(of: "_", with: "")
+        if fullMatch("[-+]?(0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+|[0-9]+)", noUnderscore) { return true }
+        // float: yamlStyleFloat
+        if fullMatch("[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?", s) { return true }
+        // base-60 float (isBase60Float)
+        if fullMatch("[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+(?:\\.[0-9_]*)?", s) { return true }
+        // timestamp (parseTimestamp accepts these layouts); quoting a near-miss is harmless
+        if fullMatch("[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt ].*)?", s) { return true }
+        return false
+    }
+
+    /// libyaml yaml_emitter_analyze_scalar, plain branch. `flow` = the scalar sits inside `[...]` / `{...}`.
+    static func plainAllowed(_ s: String, flow: Bool) -> Bool {
+        let u = Array(s.unicodeScalars)
+        guard let first = u.first, let last = u.last else { return false }
+        if first == " " || last == " " { return false }
+        if s.hasPrefix("---") || s.hasPrefix("...") { return false }
+        let followedBySpace: (Int) -> Bool = { i in i + 1 >= u.count || u[i + 1] == " " }
+        // leading indicators
+        if "#,[]{}&*!|>'\"%@`".unicodeScalars.contains(first) { return false }
+        if first == "?" || first == ":" {
+            if flow || followedBySpace(0) { return false }
+        }
+        if first == "-" && followedBySpace(0) { return false }
+        for i in 0..<u.count {
+            let c = u[i]
+            if flow && ",?[]{}".unicodeScalars.contains(c) { return false }
+            if c == ":" {
+                if flow || followedBySpace(i) { return false }
+            }
+            if c == "#" && i > 0 && u[i - 1] == " " { return false }
+        }
+        return true
+    }
+
+    /// libyaml yaml_emitter_write_double_quoted escapes.
+    static func doubleQuoted(_ s: String) -> String {
+        var out = "\""
+        for u in s.unicodeScalars {
+            let v = u.value
+            switch v {
+            case 0x00: out += "\\0"
+            case 0x07: out += "\\a"
+            case 0x08: out += "\\b"
+            case 0x09: out += "\\t"
+            case 0x0A: out += "\\n"
+            case 0x0B: out += "\\v"
+            case 0x0C: out += "\\f"
+            case 0x0D: out += "\\r"
+            case 0x1B: out += "\\e"
+            case 0x22: out += "\\\""
+            case 0x5C: out += "\\\\"
+            case 0x85: out += "\\N"
+            case 0x2028: out += "\\L"
+            case 0x2029: out += "\\P"
+            default:
+                if isPrintable(v) {
+                    out.unicodeScalars.append(u)
+                } else if v <= 0xFF {
+                    out += String(format: "\\x%02X", v)
+                } else if v <= 0xFFFF {
+                    out += String(format: "\\u%04X", v)
+                } else {
+                    out += String(format: "\\U%08X", v)
+                }
+            }
+        }
+        return out + "\""
+    }
+
+    /// Undoes single / double quoting of a whole scalar (best effort, for rule lines read back for editing).
+    static func unquoteScalar(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        if t.count >= 2 && t.hasPrefix("'") && t.hasSuffix("'") {
+            return String(t.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
+        }
+        if t.count >= 2 && t.hasPrefix("\"") && t.hasSuffix("\""),
+           let v = NCYAML.parse("k: " + t)?.object?["k"], case .string(let str) = v {
+            return str
+        }
+        return t
+    }
+
+    /// Splits a line into its content and an inline comment. A comment starts at a `#` that follows whitespace
+    /// (or starts the line) and is outside a quoted scalar; quotes only open at the start of a value (after
+    /// whitespace, `:`, `-`, `[`, `{`, `,`), so `it's` does not open one. `comment` keeps the whitespace that
+    /// separated it from the content.
+    static func splitInlineComment(_ line: String) -> (content: String, comment: String) {
+        let chars = Array(line)
+        var inSingle = false, inDouble = false
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if inDouble {
+                if c == "\\" { i += 2; continue }
+                if c == "\"" { inDouble = false }
+            } else if inSingle {
+                if c == "'" {
+                    if i + 1 < chars.count && chars[i + 1] == "'" { i += 2; continue }
+                    inSingle = false
+                }
+            } else {
+                let prev: Character? = i > 0 ? chars[i - 1] : nil
+                let opener = prev == nil || prev == " " || prev == "\t" || prev == ":" || prev == "-" ||
+                    prev == "[" || prev == "{" || prev == ","
+                if (c == "\"" || c == "'") && opener {
+                    if c == "\"" { inDouble = true } else { inSingle = true }
+                } else if c == "#" && (prev == nil || prev == " " || prev == "\t") {
+                    var j = i
+                    while j > 0 && (chars[j - 1] == " " || chars[j - 1] == "\t") { j -= 1 }
+                    return (String(chars[0..<j]), String(chars[j...]))
+                }
+            }
+            i += 1
+        }
+        return (line, "")
     }
 
     // MARK: - Proxy Groups & References
@@ -579,8 +852,9 @@ final class NCProfileYAML {
         }
 
         var groups: [GroupInfo] = []
+        let bounds = entryBounds(itemStarts: itemStarts, section: section, listIndent: listIndent)
         for (idx, startLine) in itemStarts.enumerated() {
-            let nextStart = (idx + 1 < itemStarts.count) ? itemStarts[idx + 1] : section.contentRange.upperBound
+            let nextStart = bounds[idx].upperBound
             var name = ""
             var proxies: [String] = []
             var isFlow = false
@@ -653,7 +927,7 @@ final class NCProfileYAML {
 
             groups.append(GroupInfo(
                 name: name,
-                lineRange: startLine..<nextStart,
+                lineRange: bounds[idx],
                 proxies: proxies,
                 isProxiesFlowStyle: isFlow,
                 proxiesLineIndex: proxiesLineIdx,
@@ -712,7 +986,7 @@ final class NCProfileYAML {
 
                 // Group dialer-proxy
                 if trimmed.hasPrefix("dialer-proxy:") {
-                    let rest = trimmed.dropFirst(13).trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    let rest = Self.unquoteScalar(Self.splitInlineComment(String(trimmed.dropFirst(13))).content)
                     if rest == oldName {
                         if !currentGroup.isEmpty && !st.dialers.contains(currentGroup) {
                             st.dialers.append(currentGroup)
@@ -722,7 +996,7 @@ final class NCProfileYAML {
                             continue
                         } else {
                             let prefix = line.prefix(while: { $0 == " " }) + "dialer-proxy: "
-                            lines[i] = prefix + Self.formatYAMLValue(newName, indent: 0)
+                            lines[i] = String(prefix) + Self.formatYAMLString(newName) + Self.splitInlineComment(line).comment
                         }
                     }
                 }
@@ -740,7 +1014,7 @@ final class NCProfileYAML {
                             if raw == oldName {
                                 hit = true
                                 if !newName.isEmpty {
-                                    newMembers.append(Self.formatYAMLValue(newName, indent: 0))
+                                    newMembers.append(Self.formatYAMLString(newName, flow: true))
                                 }
                             } else {
                                 newMembers.append(m)
@@ -757,7 +1031,7 @@ final class NCProfileYAML {
 
                 // Block proxies list member
                 if trimmed.hasPrefix("- ") {
-                    let member = trimmed.dropFirst(2).trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    let member = Self.unquoteScalar(Self.splitInlineComment(String(trimmed.dropFirst(2))).content)
                     if member == oldName {
                         if !currentGroup.isEmpty && !st.groups.contains(currentGroup) {
                             st.groups.append(currentGroup)
@@ -767,7 +1041,7 @@ final class NCProfileYAML {
                             continue
                         } else {
                             let prefix = String(line.prefix(while: { $0 == " " })) + "- "
-                            lines[i] = prefix + Self.formatYAMLValue(newName, indent: 0)
+                            lines[i] = String(prefix) + Self.formatYAMLString(newName) + Self.splitInlineComment(line).comment
                         }
                     }
                 }
@@ -791,7 +1065,7 @@ final class NCProfileYAML {
                 }
 
                 if trimmed.hasPrefix("dialer-proxy:") {
-                    let rest = trimmed.dropFirst(13).trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    let rest = Self.unquoteScalar(Self.splitInlineComment(String(trimmed.dropFirst(13))).content)
                     if rest == oldName {
                         if !currentProxy.isEmpty && !st.dialers.contains(currentProxy) {
                             st.dialers.append(currentProxy)
@@ -801,7 +1075,7 @@ final class NCProfileYAML {
                             continue
                         } else {
                             let prefix = line.prefix(while: { $0 == " " }) + "dialer-proxy: "
-                            lines[i] = prefix + Self.formatYAMLValue(newName, indent: 0)
+                            lines[i] = String(prefix) + Self.formatYAMLString(newName) + Self.splitInlineComment(line).comment
                         }
                     }
                 }
@@ -817,7 +1091,11 @@ final class NCProfileYAML {
                 let line = lines[i]
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if trimmed.hasPrefix("- ") {
-                    let ruleStr = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                    // rv2: strip an inline comment and the scalar's own quotes before splitting, and re-quote the
+                    // rewritten rule as a whole (a quoted rule used to lose its closing quote, and a new name with
+                    // `#`, `: ` or a line break was written raw).
+                    let split = Self.splitInlineComment(String(trimmed.dropFirst(2)))
+                    let ruleStr = Self.unquoteScalar(split.content)
                     var parts = Self.ysplitRule(ruleStr)
                     if parts.count >= 2 {
                         let ti = Self.ruleTarget(parts)
@@ -829,7 +1107,7 @@ final class NCProfileYAML {
                             } else {
                                 parts[ti] = newName
                                 let prefix = line.prefix(while: { $0 == " " }) + "- "
-                                lines[i] = prefix + parts.joined(separator: ",")
+                                lines[i] = String(prefix) + Self.formatYAMLString(parts.joined(separator: ",")) + split.comment
                             }
                         }
                     }

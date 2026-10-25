@@ -9,10 +9,27 @@ struct NCZipWriter {
     private var data = Data()
     private var central = Data()
     private var count = 0
+    /// Entries `add` refused because they do not fit a non-ZIP64 archive (see `add`).
+    private(set) var skipped: [String] = []
+
+    /// Classic (non-ZIP64) limits: 16-bit entry count / name length, 32-bit sizes and offsets.
+    static let maxEntries = Int(UInt16.max)
+    static let maxNameBytes = Int(UInt16.max)
+    static let max32 = Int(UInt32.max)
 
     /// Adds one file. `modified` becomes the entry's MS-DOS date / time (local time, 2-second resolution).
-    mutating func add(name: String, contents: Data, modified: Date = Date()) {
+    ///
+    /// rv2: every narrowing conversion used to be a trapping `UInt32(...)` / `UInt16(...)`; a > 4 GiB archive,
+    /// > 65535 entries or a > 64 KiB name crashed the app while exporting diagnostics. An entry that would push
+    /// the archive past those limits is now skipped (recorded in `skipped`, returns false) — ZIP64 is not
+    /// implemented; diagnostic bundles are far below the limits.
+    @discardableResult
+    mutating func add(name: String, contents: Data, modified: Date = Date()) -> Bool {
         let nameBytes = Data(name.utf8)
+        guard count < Self.maxEntries, nameBytes.count <= Self.maxNameBytes, contents.count <= Self.max32 else {
+            skipped.append(name)
+            return false
+        }
         let crc = NCZipWriter.crc32(contents)
         var method: UInt16 = 0
         var payload = contents
@@ -20,8 +37,15 @@ struct NCZipWriter {
             method = 8
             payload = d
         }
+        // Local header (30) + name + payload, then central record (46) + name, then the 22-byte end record:
+        // the central directory offset and every entry offset must stay representable in 32 bits.
+        let projected = data.count + 30 + nameBytes.count + payload.count + central.count + 46 + nameBytes.count + 22
+        guard data.count <= Self.max32, projected <= Self.max32 else {
+            skipped.append(name)
+            return false
+        }
         let (dosTime, dosDate) = NCZipWriter.dosDateTime(modified)
-        let offset = UInt32(data.count)
+        let offset = UInt32(truncatingIfNeeded: data.count)
         let flags: UInt16 = 0x0800
 
         var local = Data()
@@ -32,9 +56,9 @@ struct NCZipWriter {
         local.le16(dosTime)
         local.le16(dosDate)
         local.le32(crc)
-        local.le32(UInt32(payload.count))
-        local.le32(UInt32(contents.count))
-        local.le16(UInt16(nameBytes.count))
+        local.le32(UInt32(truncatingIfNeeded: payload.count))
+        local.le32(UInt32(truncatingIfNeeded: contents.count))
+        local.le16(UInt16(truncatingIfNeeded: nameBytes.count))
         local.le16(0)                        // extra field length
         local.append(nameBytes)
         data.append(local)
@@ -49,9 +73,9 @@ struct NCZipWriter {
         c.le16(dosTime)
         c.le16(dosDate)
         c.le32(crc)
-        c.le32(UInt32(payload.count))
-        c.le32(UInt32(contents.count))
-        c.le16(UInt16(nameBytes.count))
+        c.le32(UInt32(truncatingIfNeeded: payload.count))
+        c.le32(UInt32(truncatingIfNeeded: contents.count))
+        c.le16(UInt16(truncatingIfNeeded: nameBytes.count))
         c.le16(0)                            // extra
         c.le16(0)                            // comment
         c.le16(0)                            // disk number start
@@ -61,19 +85,21 @@ struct NCZipWriter {
         c.append(nameBytes)
         central.append(c)
         count += 1
+        return true
     }
 
     /// The finished archive.
     func finish() -> Data {
         var out = data
-        let cdOffset = UInt32(out.count)
+        // `add` keeps count / sizes / offsets within the classic limits, so these conversions cannot truncate.
+        let cdOffset = UInt32(truncatingIfNeeded: out.count)
         out.append(central)
         out.le32(0x06054b50)
         out.le16(0)                          // this disk
         out.le16(0)                          // disk with the central directory
-        out.le16(UInt16(count))
-        out.le16(UInt16(count))
-        out.le32(UInt32(central.count))
+        out.le16(UInt16(truncatingIfNeeded: count))
+        out.le16(UInt16(truncatingIfNeeded: count))
+        out.le32(UInt32(truncatingIfNeeded: central.count))
         out.le32(cdOffset)
         out.le16(0)                          // comment length
         return out
@@ -113,7 +139,8 @@ struct NCZipWriter {
 
     static func dosDateTime(_ date: Date) -> (UInt16, UInt16) {
         let comps = Calendar(identifier: .gregorian).dateComponents(in: .current, from: date)
-        let y = max((comps.year ?? 1980) - 1980, 0)
+        // MS-DOS dates cover 1980...2107 (7-bit year); clamp instead of letting the bits spill into the month.
+        let y = min(max((comps.year ?? 1980) - 1980, 0), 127)
         let hour: Int = comps.hour ?? 0
         let minute: Int = comps.minute ?? 0
         let second: Int = comps.second ?? 0

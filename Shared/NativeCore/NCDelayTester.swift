@@ -379,6 +379,8 @@ final class NCNodeResolver {
 
     struct CachedProfile {
         var mtime: Date
+        /// mtime of the manual-nodes store (a manual node added / edited must not resolve from a stale cache).
+        var manualMtime: Date = .distantPast
         var profileProxies: [String: NCProxy]
         var providers: [String: [String: NCProxy]]
         var allNamedProxies: [String: NCProxy]
@@ -411,7 +413,10 @@ final class NCNodeResolver {
         let attrs = (try? fm.attributesOfItem(atPath: profilePath)) ?? [:]
         let mtime = (attrs[.modificationDate] as? Date) ?? Date.distantPast
 
-        if let existing = cache[profilePath], existing.mtime == mtime {
+        let manualPath = Self.manualNodesPath(home: homeDir)
+        let manualMtime = ((try? fm.attributesOfItem(atPath: manualPath))?[.modificationDate] as? Date) ?? Date.distantPast
+
+        if let existing = cache[profilePath], existing.mtime == mtime, existing.manualMtime == manualMtime {
             return existing
         }
 
@@ -474,17 +479,15 @@ final class NCNodeResolver {
             }
         }
 
-        // 3. Manual nodes from <home>/manual-nodes.json
-        let manualURL = URL(fileURLWithPath: homeDir).appendingPathComponent("manual-nodes.json")
-        if let data = try? Data(contentsOf: manualURL),
-           let array = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] {
-            for dict in array {
-                if let p = NCDelayTester.parseProxy(dict: dict) {
-                    if profileProxies[p.name] == nil {
-                        profileProxies[p.name] = p
-                    }
-                    allNamedProxies[p.name] = allNamedProxies[p.name] ?? p
+        // 3. Manual nodes. rv2: the App keeps them in the manual profile <container>/profiles/manual-nodes.yaml
+        // (NCManualNodes / AppShared.profileURL(id: "manual-nodes"), bridge runtimeinputs.go manualNodesPath) —
+        // nothing ever wrote the <home>/manual-nodes.json this used to read, so manual nodes never resolved here.
+        if !manualPath.isEmpty, manualPath != profilePath {
+            for (_, p) in loadNodesFromFile(manualPath).sorted(by: { $0.key < $1.key }) {
+                if profileProxies[p.name] == nil {
+                    profileProxies[p.name] = p
                 }
+                allNamedProxies[p.name] = allNamedProxies[p.name] ?? p
             }
         }
 
@@ -506,6 +509,7 @@ final class NCNodeResolver {
         }
 
         let cp = CachedProfile(mtime: mtime,
+                               manualMtime: manualMtime,
                                profileProxies: profileProxies,
                                providers: providers,
                                allNamedProxies: allNamedProxies)
@@ -526,6 +530,23 @@ final class NCNodeResolver {
             return nil
         }
         return NCProxy(name: name, type: type, fields: obj)
+    }
+
+    /// Same path as the App's NCRuntimeOverrides.manualNodesPath (bridge runtimeinputs.go):
+    /// filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml"). Duplicated here because NCDelayTester is
+    /// Shared and NCRuntimeOverrides is App-only; keep the two in step.
+    static func manualNodesPath(home: String) -> String {
+        if home.isEmpty { return "" }
+        let dir: String
+        if let r = home.range(of: "/", options: .backwards) {
+            let head = String(home[home.startIndex..<r.lowerBound])
+            dir = head.isEmpty ? "/" : head
+        } else {
+            dir = "."
+        }
+        if dir == "." { return "profiles/manual-nodes.yaml" }
+        return ((dir as NSString).appendingPathComponent("profiles") as NSString)
+            .appendingPathComponent("manual-nodes.yaml")
     }
 
     private func loadNodesFromFile(_ path: String) -> [String: NCProxy] {

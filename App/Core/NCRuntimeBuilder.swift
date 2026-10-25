@@ -328,10 +328,16 @@ enum NCRuntimeBuilder {
     private static let geositeRefRe = try? NSRegularExpression(
         pattern: #"\bGEOSITE,([^,()\s]+)"#, options: [.caseInsensitive])
 
+    /// `stageDir` (rv2, transactional native prep): when set, the geosite lists are written under
+    /// `<stageDir>/nativecore-geosite/` while the provider paths in `raw` still name their final location
+    /// `<home>/nativecore-geosite/` — NativeRuntimePrep moves them there when it commits. `writeFailed` is told
+    /// about every list that could not be written (it used to be a silent `try?`).
     static func lowerForNative(
         home: String,
         _ raw: inout [String: NCJSONValue],
-        _ rep: inout PrepReport
+        _ rep: inout PrepReport,
+        stageDir: String? = nil,
+        writeFailed: ((String) -> Void)? = nil
     ) {
         var rp = raw.map("rule-providers")
         var codes = Set<String>()
@@ -370,7 +376,8 @@ enum NCRuntimeBuilder {
         rep.rules = out.count
         if codes.isEmpty { return }
         let dir = URL(fileURLWithPath: home).appendingPathComponent("nativecore-geosite")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let writeDir = stageDir.map { URL(fileURLWithPath: $0).appendingPathComponent("nativecore-geosite") } ?? dir
+        try? FileManager.default.createDirectory(at: writeDir, withIntermediateDirectories: true)
         let datURL = URL(fileURLWithPath: home).appendingPathComponent("GeoSite.dat")
         let db = (try? Data(contentsOf: datURL)).flatMap { NCGeoSiteDB(data: $0) }
         if db == nil {
@@ -389,7 +396,12 @@ enum NCRuntimeBuilder {
                 rep.warnings = (rep.warnings ?? []) + ["GEOSITE " + code + ": 分类不存在"]
             }
             let body = (lines ?? []).map { $0 + "\n" }.joined()
-            try? NCRuntimeFiles.writeAtomic(Data(body.utf8), to: file)
+            let writePath = writeDir.appendingPathComponent(code + ".list").path
+            do {
+                try NCRuntimeFiles.writeAtomic(Data(body.utf8), to: writePath)
+            } catch {
+                writeFailed?("GEOSITE " + code + ": " + error.localizedDescription)
+            }
             rp[name] = .object([
                 "type": .string("file"),
                 "behavior": .string("classical"),
