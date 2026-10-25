@@ -57,7 +57,7 @@ enum NCSupport {
     }
 
     /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
-    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v1/v2/v3 are implemented in NCSSPlugins).
+    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins).
     static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
         guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
@@ -69,6 +69,9 @@ enum NCSupport {
             if (opts["mode"]?.string ?? "") != "websocket" { return "v2ray-plugin mode \(opts["mode"]?.string ?? "")" }
             if opts["v2ray-http-upgrade"]?.bool == true { return "v2ray-plugin http-upgrade" }
             return nil
+        case "gost-plugin":
+            let mode = opts["mode"]?.string ?? ""
+            return mode == "websocket" ? nil : "gost-plugin mode \(mode)"
         case "shadow-tls":
             let v = opts["version"]?.int ?? 2
             return (1...3).contains(v) ? nil : "shadow-tls v\(v)"

@@ -609,6 +609,69 @@ final class NCShadowTLSV3Conn: NCFramedRelay {
     }
 }
 
+// MARK: - gost-plugin smux (feat/nc-proto3)
+
+/// gost-plugin's mux: one smux v1 stream over the websocket (mihomo transport/gost NewGostWebsocket with
+/// metacubex/smux DefaultConfig, keep-alive off). Frame: ver=1 ‖ cmd ‖ len (LE16) ‖ streamID (LE32) ‖ data;
+/// cmd SYN=0 FIN=1 PSH=2 NOP=3. v1 has no flow-control frames. The client's first stream ID is 1.
+final class NCGostSmuxStream: NCFramedRelay {
+    private static let sid: UInt32 = 1
+    private static let maxFrame = 32768
+    private var opened = false
+    private var finished = false
+
+    private static func frame(_ cmd: UInt8, _ payload: Data = Data()) -> Data {
+        var f = Data([1, cmd, UInt8(payload.count & 0xff), UInt8((payload.count >> 8) & 0xff)])
+        f.append(contentsOf: [UInt8(sid & 0xff), UInt8((sid >> 8) & 0xff), UInt8((sid >> 16) & 0xff), UInt8(sid >> 24)])
+        f.append(payload)
+        return f
+    }
+
+    func open() {
+        guard !opened else { return }
+        opened = true
+        raw.send(Self.frame(0))
+    }
+
+    override func send(_ data: Data) {
+        open()
+        var rest = data[...]
+        var wire = Data()
+        while !rest.isEmpty {
+            let chunk = Data(rest.prefix(Self.maxFrame))
+            rest = rest.dropFirst(chunk.count)
+            wire.append(Self.frame(2, chunk))
+        }
+        if !wire.isEmpty { raw.send(wire) }
+    }
+
+    override func cancel() {
+        if opened && !finished { finished = true; raw.send(Self.frame(1)) }
+        raw.cancel()
+    }
+
+    override func consume() throws -> [Data] {
+        var out: [Data] = []
+        while inbuf.count >= 8 {
+            let s = inbuf.startIndex
+            guard inbuf[s] == 1 else { throw Self.err("gost smux: bad version \(inbuf[s])") }
+            let cmd = inbuf[s + 1]
+            let len = Int(inbuf[s + 2]) | Int(inbuf[s + 3]) << 8
+            let sid = UInt32(inbuf[s + 4]) | UInt32(inbuf[s + 5]) << 8 | UInt32(inbuf[s + 6]) << 16 | UInt32(inbuf[s + 7]) << 24
+            guard inbuf.count >= 8 + len else { break }
+            let payload = Data(inbuf[(s + 8)..<(s + 8 + len)])
+            inbuf = Data(inbuf.dropFirst(8 + len))
+            guard sid == Self.sid else { continue }
+            switch cmd {
+            case 2: if !payload.isEmpty { out.append(payload) }
+            case 1: throw Self.err("gost smux: stream closed by peer")
+            default: break // SYN / NOP
+            }
+        }
+        return out
+    }
+}
+
 // MARK: - Connector glue
 
 extension NCConnector {
@@ -651,6 +714,52 @@ extension NCConnector {
                 ws.startHandshake { err in
                     guard err == nil else { completion(nil, err); return }
                     completion(mux ? NCV2rayPluginMux(raw: ws) : ws, nil)
+                }
+            }
+            if tls {
+                if let transport {
+                    var cfg = NCTLSClientStream.Config(serverName: sni)
+                    cfg.alpn = ["http/1.1"]
+                    cfg.allowInsecure = insecure
+                    let t = NCTLSClientStream(raw: transport, config: cfg, queue: queue)
+                    t.startHandshake { err in
+                        if let err { completion(nil, err) } else { overWS(t) }
+                    }
+                    return
+                }
+                let s = NCStream(to: server, port: port, tlsServerName: sni, allowInsecure: insecure, queue: queue)
+                s.start { err in
+                    if let err { completion(nil, err) } else { overWS(s) }
+                }
+                return
+            }
+            plainRaw { raw, err in
+                guard let raw else { completion(nil, err); return }
+                overWS(raw)
+            }
+        case "gost-plugin":
+            // mihomo gostObfsOption{Host: "bing.com", Mux: true}; mode must be websocket.
+            let host = opts["host"]?.string ?? "bing.com"
+            let path = opts["path"]?.string ?? ""
+            var headers: [String: String] = [:]
+            for (k, v) in opts["headers"]?.object ?? [:] { if let s = v.string { headers[k] = s } }
+            let mux = opts["mux"]?.bool ?? true
+            let tls = opts["tls"]?.bool ?? false
+            let insecure = opts["skip-cert-verify"]?.bool ?? false
+            let hostHeader = headers.first(where: { $0.key.lowercased() == "host" })?.value
+            let sni = hostHeader ?? host
+            func overWS(_ raw: NCRelayStream) {
+                let ws = NCWebSocketStream(raw: raw, hostHeader: hostHeader ?? host, path: path.isEmpty ? "/" : path,
+                                           headers: headers.filter { $0.key.lowercased() != "host" })
+                ws.startHandshake { err in
+                    guard err == nil else { completion(nil, err); return }
+                    if mux {
+                        let m = NCGostSmuxStream(raw: ws)
+                        m.open()
+                        completion(m, nil)
+                    } else {
+                        completion(ws, nil)
+                    }
                 }
             }
             if tls {
