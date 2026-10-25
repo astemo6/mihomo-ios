@@ -66,12 +66,12 @@ enum NCSupport {
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
         switch plugin {
         case "obfs", "v2ray-plugin":
-            // #101 (astemo6) NCSSPluginOptions: obfs mode=http/tls; v2ray-plugin mode=websocket (or empty), no
-            // v2ray-http-upgrade — the exact parse NCConnector.ssPluginStream dials with.
+            // #101 (astemo6) NCSSPluginOptions: obfs mode=http/tls; v2ray-plugin mode=websocket /
+            // http-upgrade (or empty), v2ray-http-upgrade(+fast-open) — the exact parse the dialer uses.
             guard NCSSPluginOptions(pluginName: plugin, opts: opts) == nil else { return nil }
             return plugin == "obfs"
                 ? "obfs 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 http/tls）"
-                : "v2ray-plugin 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 websocket，不支持 http-upgrade）"
+                : "v2ray-plugin 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 websocket / http-upgrade）"
         case "gost-plugin":
             let mode = opts["mode"]?.string ?? ""
             return mode == "websocket" ? nil : "gost-plugin mode \(mode)"
