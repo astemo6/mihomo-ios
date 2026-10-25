@@ -233,10 +233,16 @@ enum NCMitmBuild {
                     continue
                 }
                 let sub = NCEngineRuleset()
-                // Go keeps the module text as a byte string; decode
-                // Latin-1 so every byte maps 1:1 instead of letting
-                // lossy UTF-8 replacement mangle non-UTF-8 content.
-                sub.parseText(String(data: data, encoding: .isoLatin1) ?? String(decoding: data, as: UTF8.self), source: m.name, args: m.args ?? [:])
+                // mitm config.go Build: sub.ParseText(string(b), …) — the
+                // module bytes ARE the text (module files are UTF-8), so
+                // decode as lossy UTF-8, which preserves every valid
+                // UTF-8 sequence byte-for-byte. (nc-callsite-audit rework:
+                // a Latin-1 decode landed here briefly — it re-read every
+                // multibyte sequence as separate Latin-1 characters and
+                // garbled all non-ASCII module content: Chinese comments,
+                // names and policy references rendered as mojibake and
+                // stopped matching. Do not reintroduce it.)
+                sub.parseText(String(decoding: data, as: UTF8.self), source: m.name, args: m.args ?? [:])
                 // mitm config.go Build: a module's skip-cert-verify=true
                 // propagates to the built ruleset (false never clears).
                 if sub.skipCertVerify == true { rs.skipCertVerify = true }
