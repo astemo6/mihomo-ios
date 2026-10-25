@@ -781,18 +781,56 @@ public struct NCTailscalePortRange: Codable, Equatable {
     }
 }
 
+/// One destination matcher of a packet filter rule (tailcfg.NetPortRange):
+/// `IP` is "*" or an IP/CIDR string, `Bits` an optional prefix that takes
+/// precedence over `IP`, `Ports` the destination port range.
+public struct NCTailscaleNetPortRange: Codable, Equatable {
+    public var IP: String
+    public var Bits: String?
+    public var Ports: NCTailscalePortRange
+
+    public init(IP: String, Bits: String? = nil, Ports: NCTailscalePortRange) {
+        self.IP = IP
+        self.Bits = Bits
+        self.Ports = Ports
+    }
+}
+
+/// A capability grant attached to a filter rule (tailcfg.CapGrant).
+/// Phase 3 parses but does not enforce capability grants: rules carrying
+/// only grants never match as plain allows in the evaluator.
+public struct NCTailscaleCapGrant: Codable, Equatable {
+    public var Dsts: [String]?
+    public var Caps: [String]?
+
+    public init(Dsts: [String]? = nil, Caps: [String]? = nil) {
+        self.Dsts = Dsts
+        self.Caps = Caps
+    }
+}
+
+/// tailcfg.PacketFilterRule, field-for-field. The phase-1 model typed
+/// `DstPorts` as bare port ranges, which does not match the wire format
+/// (each element is a NetPortRange object) and would have failed decoding
+/// real MapResponses containing a PacketFilter; fixed in phase 3.
 public struct NCTailscalePacketFilterRule: Codable, Equatable {
     public var SrcIPs: [String]?
-    public var DstPorts: [NCTailscalePortRange]?
-    public var CapGrant: [String]?
+    public var SrcBits: [String]?
+    public var DstPorts: [NCTailscaleNetPortRange]?
+    public var IPProto: [Int]?
+    public var CapGrant: [NCTailscaleCapGrant]?
 
     public init(
         SrcIPs: [String]? = nil,
-        DstPorts: [NCTailscalePortRange]? = nil,
-        CapGrant: [String]? = nil
+        SrcBits: [String]? = nil,
+        DstPorts: [NCTailscaleNetPortRange]? = nil,
+        IPProto: [Int]? = nil,
+        CapGrant: [NCTailscaleCapGrant]? = nil
     ) {
         self.SrcIPs = SrcIPs
+        self.SrcBits = SrcBits
         self.DstPorts = DstPorts
+        self.IPProto = IPProto
         self.CapGrant = CapGrant
     }
 }
