@@ -5,10 +5,30 @@ import Foundation
 /// rules once, owns the fake-IP pool and the group engine, and routes targets
 /// to outbounds. The data plane (TUN/lwIP) lands in the next batch; until the
 /// provider switch is wired, nothing calls this in production paths.
+///
+/// Threading (gap D3): the data plane (its queue), the controller (its queue + delay-test queues), the MitM
+/// upstream (NCUpstreamConnector, per-dial queues), the local mixed proxy and subscription refreshes (URLSession
+/// queues) all call into one engine. Every piece of mutable state here — config, rules, the group engine (whose
+/// selections / delays / round-robin counters change on every resolve), fake-IP responder, DNS policy — is read and
+/// written under `stateLock` (recursive: public entry points call each other). The group engine is never handed out
+/// unlocked: callers use `withGroups`.
 final class NativeCoreEngine {
-    public static var active: NativeCoreEngine?
+    private static let activeLock = NSLock()
+    private static var _active: NativeCoreEngine?
+    /// The running engine (MitM upstream / script geo lookups read it from their own queues).
+    static var active: NativeCoreEngine? {
+        get { activeLock.lock(); defer { activeLock.unlock() }; return _active }
+        set { activeLock.lock(); _active = newValue; activeLock.unlock() }
+    }
 
-    private(set) var config: NCConfig?
+    private let stateLock = NSRecursiveLock()
+    @inline(__always) private func locked<T>(_ body: () throws -> T) rethrows -> T {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return try body()
+    }
+
+    private var _config: NCConfig?
+    var config: NCConfig? { locked { _config } }
     private(set) var isRunning = false
     private var rules: [NCRule] = []
     private var groups: NCGroupEngine?
@@ -72,19 +92,20 @@ final class NativeCoreEngine {
     private(set) var configSource = ""
     private var loadedCanonical: NCCanonicalConfig?
 
-    var loadedCanonicalConfig: NCCanonicalConfig? { loadedCanonical }
+    var loadedCanonicalConfig: NCCanonicalConfig? { locked { loadedCanonical } }
 
     /// MitM decision for a TLS connection: the app's rewrite snapshot (module / 解密 hostnames) or, for .conf
     /// profiles, the canonical [MITM] section.
     func isMitm(host: String, port: Int = 443) -> Bool {
         if NativeRewriteEngine.shared.intercepts(host: host, port: port) { return true }
-        return loadedCanonical?.mitm.matches(host: host) ?? false
+        return locked { loadedCanonical?.mitm.matches(host: host) ?? false }
     }
 
     /// Rule lines the parser did not understand (ignored, listed in the startup log / 诊断).
     private(set) var unparsedRules: [String] = []
     /// NCSupport.report for the loaded config.
-    private(set) var supportReport: [String] = []
+    private var _supportReport: [String] = []
+    var supportReport: [String] { locked { _supportReport } }
     /// The app's per-profile selections (`<profile>.selected.json`, bridge/inspect.go SaveSelection) — the same file
     /// the app writes when a node is picked while the VPN is off, so both sides agree.
     private var selectionsFile: URL {
@@ -95,17 +116,18 @@ final class NativeCoreEngine {
     }
 
     func lookupCountry(_ ipStr: String) -> String? {
-        guard let ip = NCIP(ipStr), let db = geoIPDB else { return nil }
+        guard let ip = NCIP(ipStr), let db = locked({ geoIPDB }) else { return nil }
         return db.countryCode(for: ip)
     }
 
     @discardableResult
     func load(home: String) -> String? {
+        stateLock.lock(); defer { stateLock.unlock() }
         self.home = home
         let (loadedCfg, loadError) = loadConfig(home: home)
         if let loadError { return loadError }
         guard let cfg = loadedCfg else { return "native core: config decode failed" }
-        config = cfg
+        _config = cfg
         var parsed: [NCRule] = []
         var unparsed: [String] = []
         for line in cfg.rules {
@@ -163,7 +185,8 @@ final class NativeCoreEngine {
     /// expanded through each group's `use` subscriptions and regex filters.
     /// Selections/delays survive rebuilds (subscription refresh lands async).
     private func rebuildGroupEngine() {
-        guard let cfg = config else { return }
+        stateLock.lock(); defer { stateLock.unlock() } // also runs from subscription refresh completions
+        guard let cfg = _config else { return }
         let merged = mergedConfig(base: cfg)
         let engine = NCGroupEngine(config: merged)
         if let old = groups {
@@ -181,7 +204,7 @@ final class NativeCoreEngine {
             engine.alive[p.name] = false
         }
         engine.unsupported = unsupported
-        supportReport = NCSupport.report(config: merged, unparsedRules: unparsedRules)
+        _supportReport = NCSupport.report(config: merged, unparsedRules: unparsedRules)
         engine.ssidProvider = {
             UserDefaults(suiteName: AppShared.appGroup)?.string(forKey: "nativeCoreSSID")
         }
@@ -225,6 +248,7 @@ final class NativeCoreEngine {
 
     /// Build a match context with this engine's GeoIP/ASN lookups injected.
     func matchContext(domain: String?, ip: NCIP?, srcIP: NCIP? = nil, dstPort: Int?, network: String) -> NCMatchContext {
+        stateLock.lock(); defer { stateLock.unlock() }
         var ctx = NCMatchContext(domain: domain, ip: ip, srcIP: srcIP, dstPort: dstPort, network: network)
         if let geoIPDB {
             ctx.countryOf = { geoIPDB.countryCode(for: $0) }
@@ -239,9 +263,10 @@ final class NativeCoreEngine {
     }
 
     func stop() {
+        stateLock.lock(); defer { stateLock.unlock() }
         persistFakeIP()
         isRunning = false
-        config = nil
+        _config = nil
         rules = []
         groups = nil
         fakeIP = nil
@@ -254,27 +279,45 @@ final class NativeCoreEngine {
     }
 
     func persistFakeIP() {
-        guard let pool = fakeIP, let data = pool.snapshotData() else { return }
+        guard let pool = locked({ fakeIP }), let data = pool.snapshotData() else { return }
         try? data.write(to: fakeIPFile, options: .atomic)
     }
 
     // MARK: Routing
 
-    var groupEngine: NCGroupEngine? { groups }
+    /// Runs `body` with the effective config and the group engine under the engine lock (gap D3: the controller
+    /// and the Live Activity's main-node lookup used to read the group engine's dictionaries while the data plane
+    /// mutated them). Keep `body` short: it blocks routing.
+    func withGroups<T>(_ body: (NCConfig, NCGroupEngine) -> T) -> T? {
+        stateLock.lock(); defer { stateLock.unlock() }
+        guard let cfg = effectiveConfig, let g = groups else { return nil }
+        return body(cfg, g)
+    }
+
+    /// Resolves a policy / proxy / group name (controller delay tests) under the lock.
+    func resolve(policyName: String) -> NCGroupEngine.Resolution? {
+        locked { groups?.resolve(policyName) }
+    }
 
     /// The config the controller should present: base config merged with
     /// subscription nodes (routing already runs on this view).
     var effectiveConfig: NCConfig? {
-        guard let cfg = config else { return nil }
+        stateLock.lock(); defer { stateLock.unlock() }
+        guard let cfg = _config else { return nil }
         return groups != nil ? mergedConfig(base: cfg) : cfg
     }
 
     /// Controller-driven mode override (PATCH /configs); nil = config's mode.
-    var modeOverride: String?
+    private var _modeOverride: String?
+    var modeOverride: String? {
+        get { locked { _modeOverride } }
+        set { locked { _modeOverride = newValue } }
+    }
 
-    var effectiveMode: String { modeOverride ?? config?.mode ?? "rule" }
+    var effectiveMode: String { locked { _modeOverride ?? _config?.mode ?? "rule" } }
 
     func setSelection(group: String, member: String?) {
+        stateLock.lock(); defer { stateLock.unlock() }
         if let member {
             groups?.selections[group] = member
         } else {
@@ -286,6 +329,7 @@ final class NativeCoreEngine {
     }
 
     func recordDelay(name: String, ms: Int) {
+        stateLock.lock(); defer { stateLock.unlock() }
         groups?.delays[name] = ms
         groups?.alive[name] = ms > 0
     }
@@ -297,7 +341,8 @@ final class NativeCoreEngine {
     }
 
     func policyWithRule(for ctx: NCMatchContext) -> (policy: String, rule: String?) {
-        guard let cfg = config else { return ("DIRECT", nil) }
+        stateLock.lock(); defer { stateLock.unlock() }
+        guard let cfg = _config else { return ("DIRECT", nil) }
         switch effectiveMode {
         case "direct":
             return ("DIRECT", nil)
@@ -311,7 +356,17 @@ final class NativeCoreEngine {
         }
     }
 
+    /// Policy, matching rule and outbound for one connection in a single locked step (the rule is matched once and a
+    /// load-balance group advances once). Used by the local mixed proxy (gap D1).
+    func route(_ ctx: NCMatchContext) -> (policy: String, rule: String?, resolution: NCGroupEngine.Resolution) {
+        stateLock.lock(); defer { stateLock.unlock() }
+        let (policy, rule) = policyWithRule(for: ctx)
+        guard let groups else { return (policy, rule, .direct) }
+        return (policy, rule, groups.resolve(policy))
+    }
+
     func resolve(_ ctx: NCMatchContext) -> NCGroupEngine.Resolution {
+        stateLock.lock(); defer { stateLock.unlock() }
         guard let groups else { return .direct }
         return groups.resolve(policy(for: ctx))
     }
@@ -328,14 +383,14 @@ final class NativeCoreEngine {
     /// Hosts-table answer for a query, if any (checked before fake-IP:
     /// a [Host] entry wins over the fake pool in all three reference apps).
     func dnsHostsReply(_ query: Data) -> Data? {
-        dnsPolicy?.hostsReply(queryData: query)
+        locked { dnsPolicy }?.hostsReply(queryData: query)
     }
 
     /// Upstream for a query that neither hosts nor fake-IP answered: the
     /// per-domain assignment (nameserver-policy / [Host] server: / QX
     /// server=/) when one exists, else the first configured default.
     func dnsUpstream(for query: Data) -> NCDNSUpstream? {
-        if let policy = dnsPolicy, let msg = NCDNSMessage.parse(query),
+        if let policy = locked({ dnsPolicy }), let msg = NCDNSMessage.parse(query),
            let name = msg.questions.first?.name {
             for ref in policy.servers(for: name) {
                 if let up = NCDNSUpstream(ref) { return up }
@@ -349,6 +404,7 @@ final class NativeCoreEngine {
     /// query is not fake-IP business and must be forwarded upstream by the
     /// caller. In redir-host mode nothing is answered locally.
     func handleDNSQuery(_ query: Data) -> Data? {
+        stateLock.lock(); defer { stateLock.unlock() }
         guard !redirHostMode, let pool = fakeIP else { return nil }
         if dnsResponder == nil { dnsResponder = NCFakeIPResponder(pool: pool) }
         return dnsResponder?.respond(to: query)
@@ -357,7 +413,7 @@ final class NativeCoreEngine {
     /// redir-host: remember a forwarded response's A/AAAA answers so later
     /// connections to those real IPs match rules by the queried host.
     func recordDNSResponse(query: Data, response: Data) {
-        guard redirHostMode, let map = realIPMap,
+        guard let map = locked({ redirHostMode ? realIPMap : nil }),
               let q = NCDNSMessage.parse(query), let name = q.questions.first?.name,
               let resp = NCDNSMessage.parse(response) else { return }
         map.record(host: name, answers: resp.addressAnswers)
@@ -368,6 +424,7 @@ final class NativeCoreEngine {
     /// fall back to the recorded real-IP -> host mapping.
     func derefFakeIP(_ target: NCTarget) -> NCTarget {
         guard let ip = target.ip else { return target }
+        let (fakeIP, realIPMap) = locked { (self.fakeIP, self.realIPMap) }
         if let pool = fakeIP, let host = pool.host(for: ip) {
             return NCTarget(host: host, port: target.port)
         }
@@ -378,7 +435,8 @@ final class NativeCoreEngine {
     }
 
     var statsLine: String {
-        guard let cfg = config else { return "native core: not loaded" }
+        stateLock.lock(); defer { stateLock.unlock() }
+        guard let cfg = _config else { return "native core: not loaded" }
         return "native core (\(configSource)): \(cfg.proxies.count) proxies, \(cfg.groups.count) groups, \(rules.count) rules (\(unparsedRules.count) ignored), unsupported \(groups?.unsupported.count ?? 0), fake-ip \(fakeIP?.size ?? 0) entries"
     }
 
@@ -393,6 +451,6 @@ final class NativeCoreEngine {
         case .v6(let bytes):
             if let tunnel6 = NCIP("fdfe:dcba:9876::1"), case .v6(let tb) = tunnel6, bytes == tb { return true }
         }
-        return fakeIP?.isFakeAddress(ip) ?? false
+        return locked { fakeIP }?.isFakeAddress(ip) ?? false
     }
 }

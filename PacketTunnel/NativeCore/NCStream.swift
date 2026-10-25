@@ -13,7 +13,8 @@ final class NCStream {
 
     init(to host: String, port: Int, tls: Bool = false, queue: DispatchQueue) {
         self.queue = queue
-        conn = NWConnection(to: Self.endpoint(host, port: port), using: tls ? .tls : .tcp)
+        // Gap D2: bound to the physical interface while includeAllNetworks is on (NCOutboundBinding).
+        conn = NWConnection(to: Self.endpoint(host, port: port), using: NCOutboundBinding.params(tls ? .tls : .tcp, host: host))
     }
 
     /// TLS with proxy-protocol options: explicit SNI (servername) and optional
@@ -30,6 +31,7 @@ final class NCStream {
             }, queue)
         }
         let params = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+        NCOutboundBinding.apply(params, host: host)
         conn = NWConnection(to: Self.endpoint(host, port: port), using: params)
     }
 

@@ -229,7 +229,11 @@ final class NCController {
     // MARK: Payload builders
 
     private func proxiesJSON() -> [String: Any] {
-        guard let cfg = engine.effectiveConfig, let groups = engine.groupEngine else { return [:] }
+        // Gap D3: built under the engine lock (the data plane mutates the group engine while it routes).
+        engine.withGroups { cfg, groups in Self.proxiesJSON(cfg: cfg, groups: groups) } ?? [:]
+    }
+
+    private static func proxiesJSON(cfg: NCConfig, groups: NCGroupEngine) -> [String: Any] {
         var out: [String: Any] = [:]
         let now = ISO8601DateFormatter().string(from: Date())
         for p in cfg.proxies {
@@ -415,11 +419,10 @@ final class NCController {
     /// End-to-end delay through the named node (or group's current member):
     /// open a relay to the test URL and time until the first response byte.
     private func measureDelay(name: String, url: String, timeoutMs: Int, completion: @escaping (Int?) -> Void) {
-        guard let groups = engine.groupEngine else {
+        guard let resolution = engine.resolve(policyName: name) else {
             completion(nil)
             return
         }
-        let resolution = groups.resolve(name)
         guard let target = Self.httpTarget(url) else {
             completion(nil)
             return
