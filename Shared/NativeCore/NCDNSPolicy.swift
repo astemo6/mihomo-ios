@@ -127,7 +127,19 @@ struct NCDNSPolicy {
         return nil
     }
 
+    /// Dynamic hosts source for Tailscale MagicDNS names, installed by the
+    /// running Tailscale client (tunnel target) while it is up and cleared
+    /// when it stops. Consulted before the static hosts table so live
+    /// netmap data wins; returns the node's tailnet IPs for a name.
+    static var tailscaleHostsProvider: ((String) -> [NCIP])?
+
     private func matchHosts(_ name: String) -> NCHostEntry? {
+        if let provider = Self.tailscaleHostsProvider {
+            let ips = provider(name)
+            if !ips.isEmpty {
+                return NCHostEntry(pattern: name, value: ips.map(\.string).joined(separator: ","))
+            }
+        }
         for e in hosts where !e.pattern.contains("*") {
             if normalize(e.pattern) == name { return e }
         }

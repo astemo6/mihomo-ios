@@ -358,10 +358,17 @@ final class NCWGDevice {
         peer.sendPacket(pkt)
     }
 
+    /// Optional extra inbound filter, consulted after the cryptokey source
+    /// check in `input(_:from:)`. The Tailscale client installs it to enforce
+    /// the control-delivered PacketFilter ACLs; returning false drops the
+    /// packet. Nil means no extra filtering (plain WireGuard behavior).
+    var inboundPacketHook: (([UInt8]) -> Bool)?
+
     /// A decrypted packet from `peer`: accepted only when its source is in the peer's allowed-ips.
     fileprivate func input(_ pkt: [UInt8], from peer: NCWGPeer) {
         guard alive, let src = NCWGDevice.address(pkt, source: true),
               routes.first(where: { $0.0.contains(src) })?.1 === peer else { return }
+        if let hook = inboundPacketHook, !hook(pkt) { return }
         pkt.withUnsafeBufferPointer { nc_wg_input(devID, $0.baseAddress, UInt32($0.count)) }
     }
 

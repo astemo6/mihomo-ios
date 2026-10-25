@@ -114,6 +114,19 @@ public final class NCTailscaleClient {
     public let derp: NCTailscaleDERPClient
     public private(set) var device: NCWGDevice?
 
+    // Phase 3: routing policy, MagicDNS, PacketFilter state
+    public let routeConfig: NCTailscaleRouteConfig
+    public let magicDNS = NCTailscaleMagicDNS()
+    public private(set) var routingError: String?
+    private var packetFilterRules: [NCTailscalePacketFilterRule]?
+    private var dnsProviderInstalled = false
+
+    private func currentPacketFilterRules() -> [NCTailscalePacketFilterRule]? {
+        clientLock.lock()
+        defer { clientLock.unlock() }
+        return packetFilterRules
+    }
+
     // Threading & State Locks
     private let clientLock = NSLock()
     private var peerRegionMap: [Data: Int] = [:]
@@ -168,6 +181,7 @@ public final class NCTailscaleClient {
         )
         self.control = NCTailscaleControl(config: controlConfig)
         self.derp = NCTailscaleDERPClient(queue: q)
+        self.routeConfig = NCTailscaleRouteConfig(proxy: proxy)
 
         // Attempt loading prior state if present
         if let saved = NCTailscaleStatusStore.load(stateDirURL: stateDirURL) {
@@ -311,9 +325,21 @@ public final class NCTailscaleClient {
         writeStatusFile()
     }
 
+    private func installDNSProviderIfNeeded() {
+        guard !dnsProviderInstalled else { return }
+        dnsProviderInstalled = true
+        NCDNSPolicy.tailscaleHostsProvider = { [weak self] name in
+            self?.magicDNS.lookup(name) ?? []
+        }
+    }
+
     private func stopInternal() {
         watchdogTimer?.cancel()
         watchdogTimer = nil
+        if dnsProviderInstalled {
+            dnsProviderInstalled = false
+            NCDNSPolicy.tailscaleHostsProvider = nil
+        }
         control.stop()
         derp.stop()
         NCLwIP.queue.async { [weak self] in
@@ -391,6 +417,28 @@ public final class NCTailscaleClient {
             }
         }
 
+        // Phase 3: MagicDNS table, PacketFilter rules, exit-node resolution
+        magicDNS.rebuild(snapshot: snapshot)
+        installDNSProviderIfNeeded()
+        let exitPeerKey: Data?
+        if let query = routeConfig.exitNodeQuery {
+            if let exitNode = NCTailscaleRouting.resolveExitNode(query: query, peers: Array(snapshot.peers.values)),
+               let keyBytes = NCTailscaleKeyEncoding.decodeKey(exitNode.Key), keyBytes.count == 32 {
+                exitPeerKey = Data(keyBytes)
+                clientLock.lock(); routingError = nil; clientLock.unlock()
+            } else {
+                exitPeerKey = nil
+                clientLock.lock()
+                routingError = "Tailscale 出口节点「\(query)」在当前 tailnet 中未找到，已按无出口节点运行"
+                clientLock.unlock()
+            }
+        } else {
+            exitPeerKey = nil
+        }
+        clientLock.lock()
+        packetFilterRules = snapshot.packetFilter
+        clientLock.unlock()
+
         // Build peer list from netmap
         var newPeers: [NCWGConfig.Peer] = []
         var newRegionMap: [Data: Int] = [:]
@@ -401,7 +449,9 @@ public final class NCTailscaleClient {
             let keyData = Data(pubKeyBytes)
             let pRegion = peerNode.derpRegionID ?? homeRegion
             newRegionMap[keyData] = pRegion
-            let cidrs = peerNode.AllowedIPs.compactMap { NCCIDR($0.trimmingCharacters(in: .whitespaces)) }
+            let effective = NCTailscaleRouting.effectiveAllowedIPs(
+                for: peerNode, isExitNode: exitPeerKey == keyData, config: routeConfig)
+            let cidrs = effective.compactMap { NCCIDR($0.trimmingCharacters(in: .whitespaces)) }
             guard !cidrs.isEmpty else { continue }
             newPeers.append(NCWGConfig.Peer(
                 server: "",
@@ -456,6 +506,14 @@ public final class NCTailscaleClient {
                     }
                 }
                 self.device = dev
+            }
+
+            // Phase 3: enforce the netmap PacketFilter on inbound packets
+            if let dev = self.device {
+                dev.inboundPacketHook = { [weak self] pkt in
+                    guard let self else { return true }
+                    return NCTailscalePacketFilter.allows(packet: pkt, rules: self.currentPacketFilterRules())
+                }
             }
 
             self.clientLock.lock()
@@ -534,14 +592,15 @@ public final class NCTailscaleClient {
                 }
 
                 dev.retain()
-                dev.resolve(target.host) { ips in
+                let proceed: ([NCIP]) -> Void = { ips in
                     guard dev.alive else {
                         dev.release()
                         queue.async { completion(nil, NCConnector.Failure.handshake("Tailscale device closed during resolve")) }
                         return
                     }
 
-                    // Cryptokey routing check: Target IP must match a peer's AllowedIPs
+                    // Cryptokey routing check: target IP must match a peer's
+                    // effective AllowedIPs (phase-3 routing policy included)
                     var matchedIP: NCIP?
                     for ip in ips {
                         if dev.peer(for: ip) != nil {
@@ -552,9 +611,8 @@ public final class NCTailscaleClient {
 
                     guard let targetIP = matchedIP else {
                         dev.release()
-                        queue.async {
-                            completion(nil, NCConnector.Failure.handshake("目标 \(target.host) 不在 tailnet 路由内"))
-                        }
+                        let msg = self.dialRouteError(target: target, candidates: ips)
+                        queue.async { completion(nil, NCConnector.Failure.handshake(msg)) }
                         return
                     }
 
@@ -564,8 +622,35 @@ public final class NCTailscaleClient {
                         completion(err == nil ? s : nil, err)
                     }
                 }
+
+                // MagicDNS first: tailnet names resolve from the netmap
+                // table without a DNS round-trip
+                let magic = self.magicDNS.lookup(target.host)
+                if !magic.isEmpty {
+                    proceed(magic)
+                } else {
+                    dev.resolve(target.host) { ips in proceed(ips) }
+                }
             }
         }
+    }
+
+    /// Explains why a dial target has no route, preferring the most
+    /// specific cause: unresolved exit node, LAN carved out of the exit
+    /// route by allow-lan-access, or an unknown tailnet name.
+    private func dialRouteError(target: NCTarget, candidates: [NCIP]) -> String {
+        clientLock.lock()
+        let rErr = routingError
+        clientLock.unlock()
+        if let rErr { return rErr }
+        if routeConfig.exitNodeQuery != nil, routeConfig.allowLanAccess,
+           candidates.contains(where: { NCTailscaleRouting.isLANOrTailnet($0) }) {
+            return "目标 \(target.host) 是局域网/tailnet 地址：按 exit-node-allow-lan-access 不经出口节点转发，且没有子网路由覆盖它"
+        }
+        if magicDNS.isTailnetName(target.host) {
+            return "目标 \(target.host) 是 tailnet 名称，但当前 netmap 中没有这台设备"
+        }
+        return "目标 \(target.host) 不在 tailnet 路由内"
     }
 
     // MARK: - Status File Persistence
@@ -659,6 +744,7 @@ public final class NCTailscaleClient {
         if let v = selected.stoppedAvailable { dict["stoppedAvailable"] = v }
         if let v = selected.stoppedAt { dict["stoppedAt"] = v }
         if let v = selected.lastError { dict["error"] = v }
+        if let v = selected.routingError { dict["routingError"] = v }
         if let v = selected.authURL { dict["authURL"] = v }
         return dict
     }
