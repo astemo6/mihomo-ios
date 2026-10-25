@@ -460,6 +460,7 @@ final class NCKCP {
     // MARK: User Receive
     func recv() -> Data? {
         guard !rcv_queue.isEmpty else { return nil }
+        let recover = rcv_queue.count >= Int(rcv_wnd)
         var result = Data()
         while !rcv_queue.isEmpty {
             let seg = rcv_queue.removeFirst()
@@ -474,13 +475,25 @@ final class NCKCP {
             rcv_queue.append(seg)
             rcv_nxt &+= 1
         }
+        // ikcp_recv fast recover: the window was full and has reopened -> send IKCP_CMD_WINS on the next flush.
+        if recover && rcv_queue.count < Int(rcv_wnd) { probe |= 2 }
         return result.isEmpty ? nil : result
     }
+
+    /// Segments queued or in flight (ikcp_waitsnd).
+    var waitSnd: Int { snd_queue.count + snd_buf.count }
+
+    /// ikcp dead_link reached: a segment was retransmitted `dead_link` times.
+    var isDeadLink: Bool { state == 0xffff_ffff }
 
     // MARK: Input from Wire
     func input(data: Data) -> Int {
         guard data.count >= 24 else { return -1 }
         var p = data.startIndex
+        let prevUna = snd_una
+        var maxack: UInt32 = 0
+        var latestTs: UInt32 = 0
+        var flag = false
 
         while data.endIndex - p >= 24 {
             let c = UInt32(data[p]) | UInt32(data[p + 1]) << 8 | UInt32(data[p + 2]) << 16 | UInt32(data[p + 3]) << 24
@@ -509,6 +522,14 @@ final class NCKCP {
                 }
                 parseAck(sn)
                 shrinkBuf()
+                if !flag {
+                    flag = true
+                    maxack = sn
+                    latestTs = ts
+                } else if Int32(bitPattern: sn &- maxack) > 0 {
+                    maxack = sn
+                    latestTs = ts
+                }
             } else if cmd == 81 { // IKCP_CMD_PUSH
                 if Int32(bitPattern: sn &- (rcv_nxt + rcv_wnd)) < 0 {
                     acklist.append((sn: sn, ts: ts))
@@ -531,7 +552,35 @@ final class NCKCP {
                 // Do nothing; rmt_wnd updated above
             }
         }
+        if flag { parseFastack(maxack, ts: latestTs) }
+        // ikcp_input congestion window growth (only matters when nocwnd == 0).
+        if Int32(bitPattern: snd_una &- prevUna) > 0 && cwnd < rmt_wnd {
+            let mssV = mss
+            if cwnd < ssthresh {
+                cwnd &+= 1
+                incr &+= mssV
+            } else {
+                if incr < mssV { incr = mssV }
+                incr &+= (mssV &* mssV) / max(incr, 1) &+ (mssV / 16)
+                if (cwnd &+ 1) &* mssV <= incr {
+                    cwnd = (incr &+ mssV &- 1) / max(mssV, 1)
+                }
+            }
+            if cwnd > rmt_wnd {
+                cwnd = rmt_wnd
+                incr = rmt_wnd &* mssV
+            }
+        }
         return 0
+    }
+
+    /// ikcp_parse_fastack (kcp-go: also requires seg.ts <= ts): once per input, not once per ACK.
+    private func parseFastack(_ sn: UInt32, ts: UInt32) {
+        if Int32(bitPattern: sn &- snd_una) < 0 || Int32(bitPattern: sn &- snd_nxt) >= 0 { return }
+        for seg in snd_buf {
+            if Int32(bitPattern: sn &- seg.sn) < 0 { break }
+            if sn != seg.sn && Int32(bitPattern: seg.ts &- ts) <= 0 { seg.fastack &+= 1 }
+        }
     }
 
     private func parseUna(_ una: UInt32) {
@@ -540,15 +589,11 @@ final class NCKCP {
         }
     }
 
+    /// ikcp_parse_ack: drop the acknowledged segment (it used to stay in snd_buf, flagged but still retransmitted).
     private func parseAck(_ sn: UInt32) {
-        for seg in snd_buf {
-            if seg.sn == sn {
-                seg.acked = true
-                break
-            }
-            if Int32(bitPattern: sn &- seg.sn) > 0 {
-                seg.fastack &+= 1
-            }
+        if Int32(bitPattern: sn &- snd_una) < 0 || Int32(bitPattern: sn &- snd_nxt) >= 0 { return }
+        if let i = snd_buf.firstIndex(where: { $0.sn == sn }) {
+            snd_buf.remove(at: i)
         }
     }
 
@@ -595,7 +640,7 @@ final class NCKCP {
             updated = true
             ts_flush = currentMs
         }
-        let slap = Int32(bitPattern: currentMs &- ts_flush)
+        var slap = Int32(bitPattern: currentMs &- ts_flush)
         if slap >= 10000 || slap < -10000 {
             ts_flush = currentMs
             slap = 0

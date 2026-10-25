@@ -105,6 +105,12 @@ struct NCCloakPluginOptions: Equatable {
             }
         }
 
+        // Cloak Transport=CDN is a different handshake (real uTLS to the CDN, auth in a WebSocket "hidden"
+        // header, 60-byte session-key reply, frames as WS messages without TLS records); not ported.
+        if transport.lowercased() == "cdn" {
+            return (nil, "cloak Transport=CDN（WebSocket 鉴权模式）暂不支持")
+        }
+
         let cdnHost = lookup("cdnoriginhost")?.string
         let cdnPath = lookup("cdnwsurlpath")?.string ?? lookup("path")?.string
 

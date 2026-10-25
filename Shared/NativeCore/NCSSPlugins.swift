@@ -743,7 +743,7 @@ extension NCConnector {
                     completion(nil, err ?? Failure.unsupported("kcptun session dial failed"))
                     return
                 }
-                guard let stream = session.smux?.openStream() else {
+                guard let stream = session.smux?.openStream(callerQueue: queue) else {
                     completion(nil, Failure.unsupported("kcptun failed to open smux stream"))
                     return
                 }

@@ -16,6 +16,8 @@ struct NCKcptunOptions: Equatable {
     static let defaultMTU = 1350
     static let defaultDataShard = 10
     static let defaultParityShard = 3
+    /// kcptun / mihomo ciphers this port does not implement (reported as unsupported, never silently keyed as AES).
+    static let unportedCrypts: Set<String> = ["tea", "xor", "sm4", "blowfish", "twofish", "cast5", "3des", "xtea", "aes-192"]
 
     var key: String
     var crypt: String
@@ -61,6 +63,7 @@ struct NCKcptunOptions: Equatable {
 
         let key = lookup("key")?.string ?? "it's a secrect"
         let crypt = (lookup("crypt")?.string ?? "aes").lowercased()
+        if unportedCrypts.contains(crypt) { return (nil, "kcptun crypt \(crypt)") }
         let mode = (lookup("mode")?.string ?? "fast").lowercased()
         let conn = max(1, lookup("conn")?.int ?? 1)
         let autoExpire = lookup("autoexpire")?.int ?? 0
@@ -122,6 +125,9 @@ struct NCKcptunOptions: Equatable {
 // MARK: - Packet Crypto
 
 enum NCKcptunCryptMode {
+    /// "null": kcp-go block == nil, no crypt header at all.
+    case null
+    /// "none": kcp-go NoneBlockCrypt, nonce(16) + crc32(4) header, no cipher.
     case none
     case aes256CFB(NCAES)
     case aes128CFB(NCAES)
@@ -136,9 +142,17 @@ final class NCKcptunBlockCrypt {
 
     init?(crypt: String, password: String) {
         let c = crypt.lowercased()
-        if c == "none" || c == "null" {
+        if c == "null" {
+            mode = .null
+            return
+        }
+        if c == "none" {
             mode = .none
             return
+        }
+        // kcptun/mihomo ciphers not ported: refuse instead of silently keying AES (mismatch = dead node).
+        if NCKcptunOptions.unportedCrypts.contains(c) {
+            return nil
         }
 
         func deriveKey(length: Int) -> Data {
@@ -180,11 +194,43 @@ final class NCKcptunBlockCrypt {
         }
     }
 
+    /// Bytes this crypt adds to every datagram (kcp-go headerSize; AEAD adds its tag too).
+    var overhead: Int {
+        switch mode {
+        case .null: return 0
+        case .aes128GCM: return 12 + 16
+        default: return 20
+        }
+    }
+
     /// Encrypts an outgoing datagram payload.
+    private static func crcHeader(_ payload: Data) -> Data {
+        var buf = NCConnector.randomData(16)
+        let checksum = NCCRC32.checksum(payload)
+        buf.append(UInt8(checksum & 0xff))
+        buf.append(UInt8((checksum >> 8) & 0xff))
+        buf.append(UInt8((checksum >> 16) & 0xff))
+        buf.append(UInt8((checksum >> 24) & 0xff))
+        buf.append(payload)
+        return buf
+    }
+
+    /// nonce(16) + crc32 LE(4) + payload (already decrypted) -> payload, or nil on bad CRC.
+    private static func checkCRC(_ plain: Data) -> Data? {
+        guard plain.count >= 20 else { return nil }
+        let p = plain.startIndex
+        let expected = UInt32(plain[p + 16]) | UInt32(plain[p + 17]) << 8 | UInt32(plain[p + 18]) << 16 | UInt32(plain[p + 19]) << 24
+        let payload = plain.subdata(in: (p + 20)..<plain.endIndex)
+        guard NCCRC32.checksum(payload) == expected else { return nil }
+        return payload
+    }
+
     func seal(_ payload: Data) -> Data {
         switch mode {
-        case .none:
+        case .null:
             return payload
+        case .none:
+            return Self.crcHeader(payload)
         case .aes256CFB(let aes), .aes128CFB(let aes):
             // Format: Nonce(16) || CRC32(4 LE) || payload
             var buf = NCConnector.randomData(16)
@@ -203,19 +249,22 @@ final class NCKcptunBlockCrypt {
             }
             return payload
         case .salsa20(let key):
-            // salsa20BlockCrypt: first 8 bytes random nonce, then Salsa20 over rest
-            let nonce = NCConnector.randomData(8)
-            var body = [UInt8](payload)
+            // kcp-go: nonce(16) + crc32(4) + payload, then salsa20BlockCrypt XORs buf[8:] with nonce buf[:8].
+            let buf = Self.crcHeader(payload)
+            let nonce = buf.prefix(8)
+            var body = [UInt8](buf.dropFirst(8))
             NCSalsa20.xorKeyStream(data: &body, key: key, nonce: nonce)
-            return nonce + Data(body)
+            return Data(nonce) + Data(body)
         }
     }
 
     /// Decrypts an incoming datagram packet. Returns nil if checksum or auth tag verification fails.
     func open(_ packet: Data) -> Data? {
         switch mode {
-        case .none:
+        case .null:
             return packet
+        case .none:
+            return Self.checkCRC(packet)
         case .aes256CFB(let aes), .aes128CFB(let aes):
             guard packet.count >= 20 else { return nil }
             let plain = Self.cfb128Decrypt(aes: aes, data: packet)
@@ -235,11 +284,11 @@ final class NCKcptunBlockCrypt {
                   let dec = try? AES.GCM.open(box, using: key) else { return nil }
             return dec
         case .salsa20(let key):
-            guard packet.count >= 8 else { return nil }
+            guard packet.count >= 20 else { return nil }
             let nonce = packet.prefix(8)
             var body = [UInt8](packet.dropFirst(8))
             NCSalsa20.xorKeyStream(data: &body, key: key, nonce: nonce)
-            return Data(body)
+            return Self.checkCRC(Data(nonce) + Data(body))
         }
     }
 
@@ -520,8 +569,10 @@ final class NCKcptunFEC {
         dataPacket.append(UInt8((seq >> 16) & 0xff))
         dataPacket.append(UInt8((seq >> 24) & 0xff))
         dataPacket.append(contentsOf: [0xf1, 0x00]) // typeData 0xf1
-        dataPacket.append(UInt8(packet.count & 0xff))
-        dataPacket.append(UInt8((packet.count >> 8) & 0xff))
+        // kcp-go fecEncoder: SIZE = len(size field + payload), i.e. payload + 2.
+        let sizeField = packet.count + 2
+        dataPacket.append(UInt8(sizeField & 0xff))
+        dataPacket.append(UInt8((sizeField >> 8) & 0xff))
         dataPacket.append(packet)
 
         encDataShards.append(Data(dataPacket.dropFirst(6))) // includes 2-byte len + packet
@@ -588,13 +639,12 @@ final class NCKcptunFEC {
         // Check if we can emit or recover from this set
         var out: [Data] = []
         if flag == 0xf1 {
-            // Immediate pass of intact data packet
-            if payload.count >= 2 {
-                let len = Int(payload[0]) | Int(payload[1]) << 8
-                if payload.count >= 2 + len {
-                    out.append(payload.subdata(in: 2..<(2 + len)))
-                }
+            // Intact data packet: kcp-go feeds everything after the 2-byte size field (data[fecHeaderSizePlus2:]).
+            if payload.count > 2 {
+                out.append(payload.subdata(in: (payload.startIndex + 2)..<payload.endIndex))
             }
+        } else if flag != 0xf2 {
+            return [] // typeOOB / unknown: not a KCP packet
         }
 
         // If shard set has at least dataShards shards and some data shards were missing, reconstruct!
@@ -624,12 +674,16 @@ final class NCKcptunFEC {
                     for i in 0..<dataShards {
                         let sSeq = shardId * UInt32(shardSize) + UInt32(i)
                         if set[sSeq] == nil, let rec = shards[i], rec.count >= 2 {
-                            let len = Int(rec[0]) | Int(rec[1]) << 8
-                            if rec.count >= 2 + len {
-                                out.append(rec.subdata(in: 2..<(2 + len)))
+                            // kcp-go: sz counts the size field itself; valid when 2 <= sz <= len(shard).
+                            let sz = Int(rec[rec.startIndex]) | Int(rec[rec.startIndex + 1]) << 8
+                            if sz > 2, sz <= rec.count {
+                                out.append(rec.subdata(in: (rec.startIndex + 2)..<(rec.startIndex + sz)))
                             }
+                            // Mark recovered so later parities of this group do not recover (and emit) it again.
+                            set[sSeq] = (flag: 0xf1, data: rec)
                         }
                     }
+                    decShardSets[shardId] = set
                 }
             }
         }
