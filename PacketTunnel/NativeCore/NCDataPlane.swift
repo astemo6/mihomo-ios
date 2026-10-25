@@ -794,6 +794,9 @@ final class NCDataPlane {
         case .proxy(let proxy) where proxy.type == "tuic":
             // feat/nc-proto2: native (QUIC datagram) / quic (uni stream) relay over the shared TUIC connection.
             session = NCUDPTUICSession(proxy: proxy, queue: queue)
+        case .proxy(let proxy) where proxy.type == "juicity":
+            // Juicity UDP over QUIC stream relay (one stream per source triplet).
+            session = NCUDPJuicitySession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "hysteria":
             // feat/nc-proto2: Hysteria v1 UDP over the shared session (datagrams, obfs / port hopping honoured).
             session = NCUDPHysteria1Session(proxy: proxy, queue: queue)
