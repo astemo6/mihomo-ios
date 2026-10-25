@@ -95,6 +95,11 @@ struct NCScriptManifestEntry: Encodable {
     var key: String? = nil
     var name: String
     var type: String
+    /// The rule's pattern (nc-script-runtime): for type=dns / type=rule
+    /// entries a domain regex filter — the tunnel hook runner only runs
+    /// the script for matching query names / connection domains. Empty
+    /// for every other script kind.
+    var pattern: String? = nil
     var file: String? = nil
     var timeoutMs: Int64
     var maxSize: Int? = nil
@@ -114,7 +119,7 @@ struct NCScriptManifestEntry: Encodable {
     var icon: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case i, key, name, type, file, timeoutMs, maxSize, setup, err
+        case i, key, name, type, pattern, file, timeoutMs, maxSize, setup, err
         case taskId, kind, cron, event, off, format, source, line, path, icon
     }
 
@@ -124,6 +129,7 @@ struct NCScriptManifestEntry: Encodable {
         if let key, !key.isEmpty { try c.encode(key, forKey: .key) }
         try c.encode(name, forKey: .name)
         try c.encode(type, forKey: .type)
+        if let pattern, !pattern.isEmpty { try c.encode(pattern, forKey: .pattern) }
         if let file, !file.isEmpty { try c.encode(file, forKey: .file) }
         try c.encode(timeoutMs, forKey: .timeoutMs)
         if let maxSize, maxSize > 0 { try c.encode(maxSize, forKey: .maxSize) }
@@ -328,7 +334,8 @@ enum NCScriptManifest {
 
             for (i, r) in rs.rules.enumerated() {
                 guard r.kind == "script", let sc = r.script else { continue }
-                let ent = try build(i: i, sc: sc, isTask: false)
+                var ent = try build(i: i, sc: sc, isTask: false)
+                if !r.pattern.isEmpty { ent.pattern = r.pattern }
                 man.scripts.append(ent)
             }
 
@@ -606,7 +613,10 @@ enum NCScriptManifest {
       $done(pn);
       return;
     }
-    $done(ret && typeof ret === 'object' ? ret : {});
+    // nc-script-runtime: dns / rule scripts answer with a bare value (a
+    // type=rule script returns the policy name as a string); pass strings
+    // through instead of dropping them to {}.
+    $done(ret && (typeof ret === 'object' || typeof ret === 'string') ? ret : {});
   }
   var run;
   try { run = Promise.resolve(__egernMain(ctx)); } catch (e) { run = Promise.reject(e); }

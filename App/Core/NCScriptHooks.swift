@@ -4,36 +4,34 @@ import Foundation
 /// HTTP phase: Surge `type=dns` and `type=rule` scripts (and, with the
 /// same registration, Egern scriptings with dns / rule triggers).
 ///
-/// STATUS (nc-compat): the interface is defined here and the import /
-/// registration side is wired — EngineParser registers these scripts
-/// as script rules (NCEngineRule kind "script", phase "dns" / "rule",
-/// NCEngineScript.type "dns" / "rule"), so they flow into
-/// nativecore-scripts.json through the existing NCScriptManifest build
-/// loop exactly like http-request / http-response scripts. The kernel
-/// side does NOT call them yet: nothing in the DNS or rule engines
-/// references this file's runner today. Do not read registration as
-/// execution.
+/// STATUS: registration (nc-compat, above) AND kernel execution
+/// (nc-script-runtime) are both wired. The tunnel-side runner is
+/// PacketTunnel/NativeCore/NCScriptHookRunner.swift — it cannot use
+/// this file's types (App target), so it mirrors them there; the
+/// semantics below are the shared contract. Two placement decisions
+/// differ from the original sketch and are deliberate:
 ///
-/// Kernel wiring points (exact call sites for whoever picks this up):
-///
-/// 1. type=dns — PacketTunnel/NativeCore/NativeCoreEngine.swift,
-///    `handleDNSQuery(_:)`. Parse the question (Shared/NativeCore/
-///    NCDNS.swift, NCDNSMessage.parse), then consult the registered
-///    dns scripts in declaration order before the answer is produced
-///    from hosts / fake-IP / `dnsRoute(for:)` upstreams:
-///      - .addresses(ips)  → answer the query with those A / AAAA
-///        records (filtered to the query's qtype) and stop.
-///      - .passThrough     → continue the existing flow untouched.
+/// 1. type=dns — the scripts run AFTER an answer exists (hosts /
+///    fake-IP locally, or the assigned upstream's reply, on the
+///    `handleDNSQuery(_:)` path in NCDataPlane) and BEFORE it is
+///    written back to the client, in declaration order, each script
+///    seeing the previous script's answer:
+///      - .addresses(ips)  → the reply's answer is rebuilt from those
+///        A / AAAA records (filtered to the query's qtype); an empty
+///        list is an authoritative empty answer (NODATA). A script
+///        may also set an rcode.
+///      - .passThrough     → the current answer stands.
 ///    A rule's `pattern`, when non-empty, is a domain regex filter:
 ///    the script only runs for matching query names. Errors and
 ///    timeouts (script timeout from the manifest entry) are
 ///    .passThrough — a broken dns script must never break resolution.
 ///
-/// 2. type=rule — PacketTunnel/NativeCore/NativeCoreEngine.swift,
-///    `route(_:)` / `routeAsync(_:queue:…)`, alongside the
-///    NCRuleMatcher evaluation (Shared/NativeCore/NCRule.swift,
-///    `NCRuleMatcher.evaluate` / `scan`). Registered rule scripts run
-///    in declaration order when rule evaluation reaches them:
+/// 2. type=rule — NativeCoreEngine `route(_:)` / `routeAsync(_:…)`
+///    consult the registered rule scripts, in declaration order,
+///    BEFORE NCRuleMatcher evaluation (the kernel's rule list and the
+///    manifest's rule list come from different sources, so an
+///    interleaved "when evaluation reaches them" is not
+///    representable):
 ///      - .policy(name) → the connection takes that policy, exactly
 ///        as if a rule with that policy had matched; stop.
 ///      - .noMatch      → continue matching the remaining rules.
@@ -98,7 +96,7 @@ enum NCScriptRuleVerdict {
     case policy(String)
 }
 
-// MARK: - Runner (implemented by the tunnel script host, not yet wired)
+// MARK: - Runner (implemented tunnel-side by NCScriptHookRunner.swift)
 
 protocol NCScriptHookRunner: AnyObject {
     /// Runs one registered type=dns script for a query. Must be
