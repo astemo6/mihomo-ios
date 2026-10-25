@@ -49,7 +49,7 @@ struct AddNodeView: View {
         Proto(title: "ShadowQUIC", subtitle: "QUIC · TLS 1.3", type: "shadowquic"),
         Proto(title: "OpenVPN", subtitle: String(localized: "用户态 · PEM"), type: "openvpn"),
         Proto(title: "GOST Relay", subtitle: "GOST v3 · TLS · Mux", type: "gost-relay"),
-        Proto(title: "Tailscale", subtitle: String(localized: "实验性 · tailnet 组网"), type: "tailscale"),
+        Proto(title: "Tailscale", subtitle: String(localized: "不支持 · 原生内核尚未接入"), type: "tailscale"),
     ]
 
     /// Same list and presets as QXAddNodeView.protocols.

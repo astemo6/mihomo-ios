@@ -4211,6 +4211,40 @@
         }
       }
     },
+    "Tailscale：原生内核尚未接入，节点会保留在配置中，但不会被连接。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale: the native core does not support it yet. The node stays in your config but is never connected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale：ネイティブコアはまだ対応していません。ノードは設定に保持されますが、接続されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale: 네이티브 코어가 아직 지원하지 않습니다. 노드는 구성에 유지되지만 연결되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale: нативное ядро пока не поддерживает этот протокол. Узел останется в конфигурации, но не будет подключаться."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale：原生內核尚未接入，節點會保留在設定中，但不會被連接。"
+          }
+        }
+      }
+    },
     "Tern": {
       "localizations": {
         "en": {
@@ -10075,6 +10109,74 @@
         }
       }
     },
+    "不支持": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Supported"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원 안 함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не поддерживается"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支援"
+          }
+        }
+      }
+    },
+    "不支持 · 原生内核尚未接入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not supported · not in the native core yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応 · ネイティブコア未実装"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원 안 함 · 네이티브 코어 미지원"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не поддерживается · нет в нативном ядре"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支援 · 原生內核尚未接入"
+          }
+        }
+      }
+    },
     "不支持的语法": {
       "localizations": {
         "en": {
@@ -10455,6 +10557,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Импортировано: %lld"
+          }
+        }
+      }
+    },
+    "当前版本使用原生内核，尚未接入 Tailscale。配置里的 Tailscale 节点会保留，但不会被连接，也不会加入 tailnet。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This version runs on the native core, which does not support Tailscale yet. Tailscale nodes stay in your config, but they are never connected and do not join a tailnet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンはネイティブコアで動作しており、Tailscale にはまだ対応していません。設定内の Tailscale ノードは保持されますが、接続されることはなく、tailnet にも参加しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전은 네이티브 코어로 실행되며 아직 Tailscale을 지원하지 않습니다. 구성에 있는 Tailscale 노드는 유지되지만 연결되지 않고 tailnet에 가입하지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта версия работает на нативном ядре, которое пока не поддерживает Tailscale. Узлы Tailscale останутся в конфигурации, но не будут подключаться и не войдут в tailnet."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前版本使用原生內核，尚未接入 Tailscale。設定裡的 Tailscale 節點會保留，但不會被連接，也不會加入 tailnet。"
+          }
+        }
+      }
+    },
+    "当前配置没有 Tailscale 节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Tailscale nodes in the current config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の設定に Tailscale ノードはありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 구성에 Tailscale 노드가 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В текущей конфигурации нет узлов Tailscale"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前設定沒有 Tailscale 節點"
           }
         }
       }

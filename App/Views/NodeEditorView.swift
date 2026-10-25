@@ -23,8 +23,10 @@ enum NodeProtocols {
         ("tailscale", "Tailscale"),
     ]
 
-    /// v0.18: protocols shown with 实验性 (memory not yet measured on device).
-    static let experimental: Set<String> = ["tailscale"]
+    /// Protocols shown with 实验性 (memory not yet measured on device). Tailscale left the set:
+    /// the native core does not implement it at all (see note(for:) / NCSupport), so it is
+    /// presented as unsupported, not experimental.
+    static let experimental: Set<String> = []
 
     /// Overlay networks joined through a control plane: no server / port fields.
     static func serverless(_ type: String) -> Bool { ["tailscale", "zerotier", "easytier"].contains(type) }
@@ -41,7 +43,7 @@ enum NodeProtocols {
         case "shadowquic": return "ShadowQUIC：伪装成普通 QUIC（TLS 1.3）的代理协议，SNI 填被伪装的网站。"
         case "openvpn": return "OpenVPN：由内核在用户态完成连接，不会创建系统 VPN。CA 证书必填；把 .ovpn 中 <ca> 等段的 PEM 内容粘贴进来。"
         case "gost-relay": return "GOST Relay：GOST v3 的 relay 协议，可选 TLS 与多路复用。"
-        case "tailscale": return "Tailscale：由内核在隧道扩展里加入你的 tailnet（不创建系统 VPN）。建议填写 Auth Key；目标不在 tailnet 路由内时连接会失败，访问公网需要设置出口节点。状态保存在 App Group 内核目录下。"
+        case "tailscale": return "Tailscale：原生内核尚未接入，节点会保留在配置中，但不会被连接。"
         default: return nil
         }
     }

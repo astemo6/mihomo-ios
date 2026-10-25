@@ -255,7 +255,7 @@ struct AdvancedSettingsView: View {
                 NavigationLink { LazyDestination { TunnelSettingsView() } } label: {
                     MoreRow(id: "隧道", title: "隧道", symbol: "network.badge.shield.half.filled", tone: .blue)
                 }
-                // v0.19.22: the experimental Tailscale node(s) — status, tailnet address, add / edit / delete.
+                // Tailscale: unsupported by the native core (NCSupport) — the page says so and lists any configured nodes as unavailable.
                 NavigationLink { LazyDestination { TailscaleSettingsView() } } label: {
                     MoreRow(id: "Tailscale", title: "Tailscale", symbol: "circle.hexagongrid.fill", tone: .blue)
                 }
