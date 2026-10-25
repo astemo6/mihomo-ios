@@ -100,7 +100,7 @@ struct ConfImportResult: Decodable {
     var error: String?
 
     static func convert(_ text: String) async -> ConfImportResult {
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoImportConf(text) }.value
+        let json = await Task.detached(priority: .userInitiated) { NCConfImportPort.importConf(text) }.value
         return (try? JSONDecoder().decode(ConfImportResult.self, from: Data(json.utf8)))
             ?? ConfImportResult(yaml: nil, module: nil, report: nil, error: String(localized: "转换失败"))
     }
