@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// Error thrown during share link encoding.
 enum ShareLinkError: LocalizedError {
@@ -411,13 +410,33 @@ enum NCShareLink {
         }
         guard hasQx || hasSurge else { return nil }
 
-        let resJson = LibmihomoImportConf(text)
-        guard let data = resJson.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let yaml = obj["yaml"] as? String, !yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
+        // feat/nc-integrate: was LibmihomoImportConf (Go). This file is in Shared/, which the Go-free PacketTunnel
+        // compiles too, so it must not import Libmihomo. Swift path: the NativeCore importers (NCQXImport /
+        // NCConfImport, the same ones the tunnel uses) → NCConfig → mihomo YAML via NCYAMLEmitter.
+        // Covers proxies, proxy groups, rules, rule-providers and DNS servers; Surge/QX MitM / rewrite / script
+        // sections are not part of a share-link conversion.
+        let lower = text.lowercased()
+        let isLoon = !hasQx && (lower.contains("[remote rule]") || lower.contains("[remote proxy]") || lower.contains("[plugin]"))
+        let canonical: NCCanonicalConfig = hasQx ? NCQXImport.quantumultx(text)
+            : (isLoon ? NCConfImport.loon(text) : NCConfImport.surge(text))
+        let cfg = canonical.legacyConfig()
+        guard !cfg.proxies.isEmpty || !cfg.groups.isEmpty else { return nil }
+        var root: [String: Any] = ["mode": cfg.mode]
+        root["proxies"] = cfg.proxies.map { p -> [String: Any] in
+            var d = p.fields.mapValues { $0.rawAny }
+            d["name"] = p.name; d["type"] = p.type
+            return d
         }
-        let formatName = hasQx ? "Quantumult X" : "Surge"
+        root["proxy-groups"] = cfg.groups.map { g -> [String: Any] in
+            var d = g.fields.mapValues { $0.rawAny }
+            d["name"] = g.name; d["type"] = g.type; d["proxies"] = g.proxies
+            return d
+        }
+        root["rules"] = cfg.rules
+        if let provs = cfg.raw["rule-providers"] { root["rule-providers"] = provs.rawAny }
+        if !cfg.dns.fields.isEmpty { root["dns"] = cfg.dns.fields.mapValues { $0.rawAny } }
+        let yaml = NCYAMLEmitter.emit(root)
+        let formatName = hasQx ? "Quantumult X" : (isLoon ? "Loon" : "Surge")
         let head = "# Tern: converted from a \(formatName) config (\(formatName) 配置转换)\n"
         return head + yaml
     }
