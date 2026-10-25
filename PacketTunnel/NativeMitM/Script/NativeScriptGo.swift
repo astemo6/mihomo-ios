@@ -601,6 +601,10 @@ final class NativeScriptHost: ScriptGoHost {
 
     func api(gen: Int64, rule: Int, arg: String) -> String { "{}" }
 
+    /// $httpClient (NativeCore): NCScriptHTTPClient on NCUpstreamConnector — the request follows the tunnel's rules
+    /// (direct / reject / proxy with origin TLS over the relay), not the extension's own URLSession sockets. Meta
+    /// JSON as before: {"id","status","headers":[[name,value],…]} (order kept, every Set-Cookie its own pair; the
+    /// body decoded, Content-Length its decoded size) or {"id","err"}.
     func fetch(gen: Int64, rule: Int, token: Int64, arg: String, body: Data) -> ScriptFetch {
         struct FetchReqArg: Decodable {
             var id: Int64
@@ -612,83 +616,40 @@ final class NativeScriptHost: ScriptGoHost {
             var insecure: Bool?
             var noRedirect: Bool?
         }
-        guard let req = try? JSONDecoder().decode(FetchReqArg.self, from: Data(arg.utf8)),
-              let targetURL = URL(string: req.url) else {
+        func errMeta(_ id: Int64, _ msg: String) -> String {
+            let o: [String: Any] = ["id": id, "err": msg]
+            if let d = try? JSONSerialization.data(withJSONObject: o), let s = String(data: d, encoding: .utf8) { return s }
+            return #"{"id":\#(id),"err":"fetch failed"}"#
+        }
+        guard let req = try? JSONDecoder().decode(FetchReqArg.self, from: Data(arg.utf8)) else {
             return NativeScriptFetch(meta: #"{"id":0,"err":"invalid fetch request"}"#, body: Data())
         }
-        var request = URLRequest(url: targetURL)
-        request.httpMethod = req.method ?? "GET"
-        if let headers = req.headers {
-            for pair in headers where pair.count == 2 {
-                request.addValue(pair[1], forHTTPHeaderField: pair[0])
-            }
+        guard let targetURL = URL(string: req.url) else {
+            return NativeScriptFetch(meta: errMeta(req.id, "invalid url"), body: Data())
         }
-        if !body.isEmpty { request.httpBody = body }
-        // Go's fetchReq: 15 s unless the script asks (ms).
-        request.timeoutInterval = (req.timeout ?? 0) > 0 ? req.timeout! / 1000.0 : 15
-
-        let sem = DispatchSemaphore(value: 0)
-        var respData = Data()
-        var respMeta = #"{"id":\#(req.id),"err":"timeout"}"#
-
-        final class ScriptSessionDelegate: NSObject, URLSessionTaskDelegate {
-            let allowInsecure: Bool
-            let noRedirect: Bool
-            init(allowInsecure: Bool, noRedirect: Bool) {
-                self.allowInsecure = allowInsecure
-                self.noRedirect = noRedirect
+        var r = NCScriptHTTPClient.Request(url: targetURL)
+        r.method = (req.method ?? "GET").isEmpty ? "GET" : (req.method ?? "GET")
+        r.headers = (req.headers ?? []).compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }
+        r.body = body
+        // Go's fetchReq: 15 s unless the script asks (ms)
+        r.timeout = (req.timeout ?? 0) > 0 ? req.timeout! / 1000.0 : 15
+        r.noRedirect = req.noRedirect ?? false
+        switch NCScriptHTTPClient.fetch(r) {
+        case .failure(let f):
+            lock.lock(); logLines += 1; let n = logLines; lock.unlock()
+            if n <= 500 { StartupLog.write("script #\(rule): $httpClient \(r.method) \(String(req.url.prefix(100))) failed: \(f)") }
+            return NativeScriptFetch(meta: errMeta(req.id, f.description), body: Data())
+        case .success(let resp):
+            let metaObj: [String: Any] = [
+                "id": req.id,
+                "status": resp.status,
+                "headers": resp.headers.map { [$0.0, $0.1] },
+            ]
+            guard let md = try? JSONSerialization.data(withJSONObject: metaObj), let ms = String(data: md, encoding: .utf8) else {
+                return NativeScriptFetch(meta: errMeta(req.id, "meta encoding"), body: Data())
             }
-            func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-                completionHandler(noRedirect ? nil : request)
-            }
-            func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-                if allowInsecure, challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-                   let trust = challenge.protectionSpace.serverTrust {
-                    completionHandler(.useCredential, URLCredential(trust: trust))
-                    return
-                }
-                completionHandler(.performDefaultHandling, nil)
-            }
+            return NativeScriptFetch(meta: ms, body: resp.body)
         }
-
-        let delegate = ScriptSessionDelegate(allowInsecure: req.insecure ?? false, noRedirect: req.noRedirect ?? false)
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-
-        let task = session.dataTask(with: request) { data, response, error in
-            defer { sem.signal() }
-            if let error {
-                let o: [String: Any] = ["id": req.id, "err": error.localizedDescription]
-                if let md = try? JSONSerialization.data(withJSONObject: o), let ms = String(data: md, encoding: .utf8) {
-                    respMeta = ms
-                }
-                return
-            }
-            if let http = response as? HTTPURLResponse {
-                respData = data ?? Data()
-                var pairs: [[String]] = []
-                // URLSession hands over the decoded body: drop the encoding / length of the encoded one.
-                for (k, v) in http.allHeaderFields {
-                    let name = String(describing: k)
-                    let lower = name.lowercased()
-                    if lower == "content-encoding" || lower == "content-length" { continue }
-                    pairs.append([name, String(describing: v)])
-                }
-                pairs.append(["Content-Length", String(respData.count)])
-                let metaObj: [String: Any] = [
-                    "id": req.id,
-                    "status": http.statusCode,
-                    "headers": pairs
-                ]
-                if let md = try? JSONSerialization.data(withJSONObject: metaObj),
-                   let ms = String(data: md, encoding: .utf8) {
-                    respMeta = ms
-                }
-            }
-        }
-        task.resume()
-        if sem.wait(timeout: .now() + request.timeoutInterval + 1) == .timedOut { task.cancel() }
-        session.finishTasksAndInvalidate() // the session retains its delegate until invalidated
-        return NativeScriptFetch(meta: respMeta, body: respData)
     }
 
     func memLow() -> Bool {
