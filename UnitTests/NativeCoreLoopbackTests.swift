@@ -520,7 +520,10 @@ final class NativeCoreLoopbackTests: XCTestCase {
             let before = replies.counters()
             var want = Set<Data>()
             for i in 0..<n {
-                let p = Data((0..<(wire - addrHeader)).map { UInt8(($0 * 7 + i * 31 + wire + gapMs) & 0xff) })
+                let seed: Int = i * 31 + wire + gapMs
+                let count: Int = wire - addrHeader
+                var p = Data(count: count)
+                for j in 0..<count { p[j] = UInt8(truncatingIfNeeded: j * 7 + seed) }
                 want.insert(p)
                 conn.sendUDP(sessionID: sessionID, target: target, payload: p)
                 if gapMs > 0 { Thread.sleep(forTimeInterval: Double(gapMs) / 1000) }
@@ -536,14 +539,19 @@ final class NativeCoreLoopbackTests: XCTestCase {
         var ladder: [String] = []
         for wire in [600, 1197] {
             let n = wire - addrHeader
-            let p = Data((0..<n).map { UInt8(($0 * 11 + wire) & 0xff) })
+            var p = Data(count: n)
+            for j in 0..<n { p[j] = UInt8(truncatingIfNeeded: j * 11 + wire) }
             ladder.append("u\(wire):" + roundTrip(p, budget: 1197))
         }
         ladder.append("b3x1000:" + burst(3, wire: 1000, gapMs: 0))
         ladder.append("b6x600:" + burst(6, wire: 600, gapMs: 0))
         ladder.append("b3x1000gap5:" + burst(3, wire: 1000, gapMs: 5))
         // Distinct bytes per rung, so a late echo of a lost rung can never pass a later one.
-        func big(_ seed: Int) -> Data { Data((0..<3000).map { UInt8(($0 * 13 + seed) & 0xff) }) }
+        func big(_ seed: Int) -> Data {
+            var d = Data(count: 3000)
+            for j in 0..<3000 { d[j] = UInt8(truncatingIfNeeded: j * 13 + seed) }
+            return d
+        }
         for mode in [0, 1, 2] {
             conn.setUDPFragmentPacingForTesting(mode)
             for budget in [1197, 1100, 600] {
