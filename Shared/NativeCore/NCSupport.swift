@@ -75,6 +75,8 @@ enum NCSupport {
             // NCGostPluginOptions: mihomo's only mode (websocket) with tls / mux / fingerprint /
             // name-cert-verify; client certificates and ECH are explicit gaps.
             return NCGostPluginOptions.parse(opts).1
+        case "cloak", "ck-client":
+            return NCCloakPluginOptions.parse(opts, fallbackHost: proxy.fields["server"]?.string).1
         case "kcptun":
             // Not implemented natively (feat/nc-ss-plugins2 decision): KCP ARQ + Reed-Solomon FEC + 13 block
             // ciphers + snappy + a shared multi-stream smux session over UDP — see docs/nc-ss-kcptun.md.

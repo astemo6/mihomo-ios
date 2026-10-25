@@ -43,6 +43,20 @@ enum NCShareLink {
                 var p = "v2ray-plugin;mode=\(sStr(o, "mode"));host=\(sStr(o, "host"));path=\(sStr(o, "path"))"
                 if sBool(o, "tls") { p += ";tls" }
                 q.add("plugin", p)
+            case "cloak", "ck-client":
+                let o = sMap(m, "plugin-opts")
+                var p = "cloak"
+                let sn = !sStr(o, "ServerName").isEmpty ? sStr(o, "ServerName") : sStr(o, "server-name")
+                if !sn.isEmpty { p += ";ServerName=\(sn)" }
+                let pk = !sStr(o, "PublicKey").isEmpty ? sStr(o, "PublicKey") : sStr(o, "public-key")
+                if !pk.isEmpty { p += ";PublicKey=\(pk)" }
+                let uid = !sStr(o, "UID").isEmpty ? sStr(o, "UID") : sStr(o, "uid")
+                if !uid.isEmpty { p += ";UID=\(uid)" }
+                let bs = !sStr(o, "BrowserSig").isEmpty ? sStr(o, "BrowserSig") : sStr(o, "browser-signature")
+                if !bs.isEmpty { p += ";BrowserSig=\(bs)" }
+                let em = !sStr(o, "EncryptionMethod").isEmpty ? sStr(o, "EncryptionMethod") : sStr(o, "encryption-method")
+                if !em.isEmpty { p += ";EncryptionMethod=\(em)" }
+                q.add("plugin", p)
             case "":
                 break
             default:

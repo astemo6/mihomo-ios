@@ -696,6 +696,43 @@ extension NCConnector {
             s.start { err in
                 if let err { s.cancel(); completion(nil, err) } else { overWS(s) }
             }
+        case "cloak", "ck-client":
+            guard let c = NCCloakPluginOptions.parse(opts, fallbackHost: server).0 else {
+                queue.async { completion(nil, Failure.unsupported("ss plugin cloak shape unsupported")) }
+                return
+            }
+            func overStream(_ raw: NCRelayStream) {
+                NCCloak.handshake(raw: raw, options: c) { res in
+                    switch res {
+                    case .success(let hs):
+                        let framed = NCCloakFramedStream(raw: raw, sessionKey: hs.sessionKey, encMethodByte: c.encryptionMethodByte)
+                        if !hs.tail.isEmpty {
+                            do { try framed.feedExternal(hs.tail) } catch { completion(nil, error); return }
+                        }
+                        completion(framed, nil)
+                    case .failure(let err):
+                        raw.cancel()
+                        completion(nil, err)
+                    }
+                }
+            }
+            if c.transport.lowercased() == "cdn" {
+                let wsHost = c.cdnOriginHost ?? server
+                let wsPath = c.cdnWsUrlPath ?? "/"
+                plainRaw { raw, err in
+                    guard let raw else { completion(nil, err); return }
+                    let ws = NCWebSocketStream(raw: raw, hostHeader: wsHost, path: wsPath, headers: [:])
+                    ws.startHandshake { wsErr in
+                        guard wsErr == nil else { raw.cancel(); completion(nil, wsErr); return }
+                        overStream(ws)
+                    }
+                }
+                return
+            }
+            plainRaw { raw, err in
+                guard let raw else { completion(nil, err); return }
+                overStream(raw)
+            }
         case "shadow-tls":
             let version = opts["version"]?.int ?? 2
             let password = opts["password"]?.string ?? ""
