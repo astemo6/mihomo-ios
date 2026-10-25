@@ -201,44 +201,57 @@ final class NCSS2022Decoder {
         switch state { case .chunkLength, .chunkBody: return true; default: return false }
     }
 
+    // nc-perf: read-offset consumption of `buffer` (was a Data(dropFirst) copy of the remainder
+    // per chunk — O(n^2) over a long stream). Peek copies only the chunk being opened; the
+    // offset advances on success, and the buffer is rebased once, past the halfway point.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func peekBuffered(_ n: Int) -> Data { Data(buffer[bufferOffset..<(bufferOffset + n)]) }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
+
     /// Feed wire bytes; returns plaintext pieces (possibly empty while the
     /// header is still arriving), or nil on any validation/decrypt failure.
     func feed(_ data: Data) -> [Data]? {
+        defer { compactBuffer() }
         buffer.append(data)
         var out: [Data] = []
         while true {
             switch state {
             case .salt:
-                guard buffer.count >= spec.saltLen else { return out }
-                let salt = Data(buffer.prefix(spec.saltLen))
-                buffer = Data(buffer.dropFirst(spec.saltLen))
+                guard buffered >= spec.saltLen else { return out }
+                let salt = peekBuffered(spec.saltLen)
+                bufferOffset += spec.saltLen
                 let key = NCSS2022.sessionKey(psk: psk, salt: salt, keyLen: spec.keyLen)
                 crypto = NCSS2022StreamCrypto(sessionKey: key, isAES: spec.isAES)
                 state = .fixed
             case .fixed:
                 let plainLen = 1 + 8 + spec.saltLen + 2
-                guard buffer.count >= plainLen + 16 else { return out }
-                guard let crypto, let fixed = crypto.open(Data(buffer.prefix(plainLen + 16))) else { return nil }
-                buffer = Data(buffer.dropFirst(plainLen + 16))
+                guard buffered >= plainLen + 16 else { return out }
+                guard let crypto, let fixed = crypto.open(peekBuffered(plainLen + 16)) else { return nil }
+                bufferOffset += plainLen + 16
                 guard fixed[0] == 0x01 else { return nil }
                 guard Data(fixed[9..<(9 + spec.saltLen)]) == requestSalt else { return nil }
                 let varLen = Int(fixed[plainLen - 2]) << 8 | Int(fixed[plainLen - 1])
                 state = .variable(varLen)
             case .variable(let len):
-                guard buffer.count >= len + 16 else { return out }
-                guard let crypto, let plain = crypto.open(Data(buffer.prefix(len + 16))) else { return nil }
-                buffer = Data(buffer.dropFirst(len + 16))
+                guard buffered >= len + 16 else { return out }
+                guard let crypto, let plain = crypto.open(peekBuffered(len + 16)) else { return nil }
+                bufferOffset += len + 16
                 if !plain.isEmpty { out.append(plain) }
                 state = .chunkLength
             case .chunkLength:
-                guard buffer.count >= 2 + 16 else { return out }
-                guard let crypto, let lenData = crypto.open(Data(buffer.prefix(2 + 16))) else { return nil }
-                buffer = Data(buffer.dropFirst(2 + 16))
+                guard buffered >= 2 + 16 else { return out }
+                guard let crypto, let lenData = crypto.open(peekBuffered(2 + 16)) else { return nil }
+                bufferOffset += 2 + 16
                 state = .chunkBody(Int(lenData[0]) << 8 | Int(lenData[1]))
             case .chunkBody(let len):
-                guard buffer.count >= len + 16 else { return out }
-                guard let crypto, let plain = crypto.open(Data(buffer.prefix(len + 16))) else { return nil }
-                buffer = Data(buffer.dropFirst(len + 16))
+                guard buffered >= len + 16 else { return out }
+                guard let crypto, let plain = crypto.open(peekBuffered(len + 16)) else { return nil }
+                bufferOffset += len + 16
                 if !plain.isEmpty { out.append(plain) }
                 state = .chunkLength
             }

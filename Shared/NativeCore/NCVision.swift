@@ -257,6 +257,9 @@ struct NCVisionReader {
     private(set) var directRequested = false
 
     private var buffer: [UInt8] = []
+    /// nc-perf: read offset into `buffer` — frames are consumed by advancing it instead of
+    /// removeFirst per frame (O(n^2) over a long stream); compacted once it passes half the buffer.
+    private var readOffset = 0
     private var readFilterUUID = true
     private var readLastCommand: UInt8 = NCVision.commandContinue
     private var remainingContent = 0
@@ -266,32 +269,44 @@ struct NCVisionReader {
         self.userUUID = userUUID
     }
 
+    private var buffered: Int { buffer.count - readOffset }
+
+    /// One rebase per buffer, after more than half of it was consumed (or all of it): the only
+    /// place bytes move. `Data`/`Array` slices keep their indices, so compaction copies explicitly.
+    private mutating func compactBuffer() {
+        if readOffset == 0 { return }
+        if readOffset >= buffer.count { buffer.removeAll(keepingCapacity: true); readOffset = 0 }
+        else if readOffset > buffer.count / 2 { buffer.removeFirst(readOffset); readOffset = 0 }
+    }
+
     /// Feed raw stream bytes; returns the plaintext pieces ready to deliver.
     mutating func feed(_ bytes: [UInt8]) throws -> [[UInt8]] {
+        defer { compactBuffer() }
         buffer += bytes
         var out: [[UInt8]] = []
         while true {
             if remainingContent > 0 {
-                if buffer.isEmpty { break }
-                let n = min(remainingContent, buffer.count)
-                let chunk = Array(buffer[0..<n])
-                buffer.removeFirst(n)
+                if buffered == 0 { break }
+                let n = min(remainingContent, buffered)
+                let chunk = Array(buffer[readOffset..<(readOffset + n)])
+                readOffset += n
                 remainingContent -= n
                 filter.filter(chunk) // Go filters delivered content too
                 out.append(chunk)
                 continue
             }
             if remainingPadding > 0 {
-                if buffer.isEmpty { break }
-                let n = min(remainingPadding, buffer.count)
-                buffer.removeFirst(n)
+                if buffered == 0 { break }
+                let n = min(remainingPadding, buffered)
+                readOffset += n
                 remainingPadding -= n
                 continue
             }
             if passthrough {
-                if !buffer.isEmpty {
-                    out.append(buffer)
+                if buffered > 0 {
+                    out.append(Array(buffer[readOffset...]))
                     buffer = []
+                    readOffset = 0
                 }
                 break
             }
@@ -300,9 +315,9 @@ struct NCVisionReader {
                 let need = readFilterUUID
                     ? NCVision.paddingHeaderLength
                     : NCVision.paddingHeaderLength - NCVision.uuidLength
-                if buffer.count < need { return out }
-                var header = Array(buffer[0..<need])
-                buffer.removeFirst(need)
+                if buffered < need { return out }
+                var header = Array(buffer[readOffset..<(readOffset + need)])
+                readOffset += need
                 if readFilterUUID {
                     readFilterUUID = false
                     guard Array(header[0..<NCVision.uuidLength]) == userUUID else {

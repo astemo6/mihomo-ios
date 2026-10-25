@@ -745,6 +745,15 @@ final class NCUDPMuxSession: NCUDPSession {
     private var stream: NCMuxStream?
     private var pending: [(Data, NCTarget)] = []
     private var buffer = Data()
+    // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
+    // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
     private var requestWritten = false
     private var cancelled = false
 
@@ -773,9 +782,11 @@ final class NCUDPMuxSession: NCUDPSession {
 
     private func drain() {
         // The stream status byte is consumed inside NCMuxStream; what
-        // arrives here is pure packet frames.
-        while let (_, payload, consumed) = NCMux.parseUDPPacketFrame(buffer) {
-            buffer = Data(buffer.dropFirst(consumed))
+        // arrives here is pure packet frames. parseUDPPacketFrame reads
+        // startIndex-relative, so it takes the un-consumed slice as-is.
+        defer { compactBuffer() }
+        while let (_, payload, consumed) = NCMux.parseUDPPacketFrame(buffer[bufferOffset...]) {
+            bufferOffset += consumed
             onReply(payload)
         }
     }
@@ -813,6 +824,15 @@ final class NCUDPAnyTLSSession: NCUDPSession {
     private var stream: NCAnyTLSStream?
     private var pending: [(Data, NCTarget)] = []
     private var buffer = Data()
+    // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
+    // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
     private var requestWritten = false
     private var cancelled = false
     private let flowTarget: NCTarget
@@ -835,12 +855,48 @@ final class NCUDPAnyTLSSession: NCUDPSession {
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             self.buffer.append(data)
-            while let (_, payload, consumed) = NCUoT.parsePacket(self.buffer) {
-                self.buffer = Data(self.buffer.dropFirst(consumed))
+            while let (_, payload, consumed) = Self.parseUoTPacket(self.buffer, at: self.bufferOffset) {
+                self.bufferOffset += consumed
                 self.onReply(payload)
             }
+            self.compactBuffer()
             self.receiveLoop()
         }
+    }
+
+    /// NCUoT.parsePacket's wire layout ([family][addr][port][len][payload]) read at an offset
+    /// into the session's rebased buffer — parsePacket itself indexes from 0, so it cannot take
+    /// the un-consumed slice; the two must be kept in sync (nc-perf).
+    private static func parseUoTPacket(_ data: Data, at off: Int) -> (NCTarget, Data, Int)? {
+        guard data.count - off >= 1 else { return nil }
+        let family = data[off]
+        var pos = off + 1
+        let host: String
+        switch family {
+        case 0x00:
+            guard data.count - pos >= 4 else { return nil }
+            host = (0..<4).map { String(data[pos + $0]) }.joined(separator: ".")
+            pos += 4
+        case 0x01:
+            guard data.count - pos >= 16 else { return nil }
+            host = NCIP.v6([UInt8](data[pos..<(pos + 16)])).string
+            pos += 16
+        case 0x02:
+            guard data.count - pos >= 1 else { return nil }
+            let len = Int(data[pos])
+            pos += 1
+            guard data.count - pos >= len else { return nil }
+            host = String(decoding: data[pos..<(pos + len)], as: UTF8.self)
+            pos += len
+        default:
+            return nil
+        }
+        guard data.count - pos >= 4 else { return nil }
+        let port = Int(data[pos]) << 8 | Int(data[pos + 1])
+        let len = Int(data[pos + 2]) << 8 | Int(data[pos + 3])
+        pos += 4
+        guard data.count - pos >= len else { return nil }
+        return (NCTarget(host: host, port: port), Data(data[pos..<(pos + len)]), pos + len - off)
     }
 
     func send(_ data: Data, to target: NCTarget) {
@@ -954,6 +1010,15 @@ final class NCUDPTrojanSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let raw: NCStream
     private var buffer = Data()
+    // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
+    // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
     private var cancelled = false
 
     init(proxy: NCProxy, firstTarget: NCTarget, queue: DispatchQueue) {
@@ -979,8 +1044,9 @@ final class NCUDPTrojanSession: NCUDPSession {
     }
 
     private func parseFrames() {
-        while let (payload, consumed) = Self.parseFrame(buffer) {
-            buffer = Data(buffer.dropFirst(consumed))
+        defer { compactBuffer() }
+        while let (payload, consumed) = Self.parseFrame(buffer, at: bufferOffset) {
+            bufferOffset += consumed
             onReply(payload)
         }
     }
@@ -989,23 +1055,26 @@ final class NCUDPTrojanSession: NCUDPSession {
     /// (or a malformed frame, which also just waits — the stream is trusted
     /// past the TLS layer in practice; a bad frame resyncs never, matching
     /// other clients' simple parsers).
-    static func parseFrame(_ data: Data) -> (payload: Data, consumed: Int)? {
-        guard let first = data.first else { return nil }
+    /// `at` is the frame's offset into the (rebased) `data` — nc-perf: the drain loop advances
+    /// an offset instead of copying the remainder per frame. Indices are offset-relative to it.
+    static func parseFrame(_ data: Data, at off: Int = 0) -> (payload: Data, consumed: Int)? {
+        let count = data.count - off
+        guard count >= 1 else { return nil }
         var headerLen: Int
-        switch first {
+        switch data[off] {
         case 0x01: headerLen = 1 + 4 + 2
         case 0x04: headerLen = 1 + 16 + 2
         case 0x03:
-            guard data.count >= 2 else { return nil }
-            headerLen = 1 + 1 + Int(data[1]) + 2
+            guard count >= 2 else { return nil }
+            headerLen = 1 + 1 + Int(data[off + 1]) + 2
         default: return nil
         }
-        guard data.count >= headerLen + 2 + 2 else { return nil }
-        let len = Int(data[headerLen]) << 8 | Int(data[headerLen + 1])
-        guard data[headerLen + 2] == 0x0d, data[headerLen + 3] == 0x0a else { return nil }
+        guard count >= headerLen + 2 + 2 else { return nil }
+        let len = Int(data[off + headerLen]) << 8 | Int(data[off + headerLen + 1])
+        guard data[off + headerLen + 2] == 0x0d, data[off + headerLen + 3] == 0x0a else { return nil }
         let total = headerLen + 2 + 2 + len
-        guard data.count >= total else { return nil }
-        return (Data(data[(headerLen + 4)..<total]), total)
+        guard count >= total else { return nil }
+        return (Data(data[(off + headerLen + 4)..<(off + total)]), total)
     }
 
     func send(_ data: Data, to target: NCTarget) {
@@ -1288,6 +1357,15 @@ final class NCUDPVLESSSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let raw: NCStream
     private var buffer = Data()
+    // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
+    // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
     private var responseHeadConsumed = false
     private var cancelled = false
 
@@ -1320,18 +1398,19 @@ final class NCUDPVLESSSession: NCUDPSession {
     }
 
     private func parseFrames() {
+        defer { compactBuffer() }
         if !responseHeadConsumed {
-            guard buffer.count >= 2 else { return }
-            let addonLen = Int(buffer[1])
-            guard buffer.count >= 2 + addonLen else { return }
-            buffer = Data(buffer.dropFirst(2 + addonLen))
+            guard buffered >= 2 else { return }
+            let addonLen = Int(buffer[bufferOffset + 1])
+            guard buffered >= 2 + addonLen else { return }
+            bufferOffset += 2 + addonLen
             responseHeadConsumed = true
         }
-        while buffer.count >= 2 {
-            let len = Int(buffer[0]) << 8 | Int(buffer[1])
-            guard buffer.count >= 2 + len else { return }
-            let payload = Data(buffer[2..<(2 + len)])
-            buffer = Data(buffer.dropFirst(2 + len))
+        while buffered >= 2 {
+            let len = Int(buffer[bufferOffset]) << 8 | Int(buffer[bufferOffset + 1])
+            guard buffered >= 2 + len else { return }
+            let payload = Data(buffer[(bufferOffset + 2)..<(bufferOffset + 2 + len)])
+            bufferOffset += 2 + len
             onReply(payload)
         }
     }

@@ -1017,14 +1017,19 @@ final class NCWGTCPStream: NCRelayStream {
             writtenTotal += before - outbox.count
             checkSendWaiters()
         }
-        while !outbox.isEmpty {
+        // nc-perf: write from a running offset instead of copying the remainder per partial
+        // write (a Data(dropFirst) per tcp_write is O(n^2) for a large outbox); compact once.
+        var off = 0
+        while off < outbox.count {
             let n = outbox.withUnsafeBytes { raw -> Int32 in
-                nc_wg_tcp_write(connID, raw.bindMemory(to: UInt8.self).baseAddress, UInt32(raw.count))
+                nc_wg_tcp_write(connID, raw.bindMemory(to: UInt8.self).baseAddress?.advanced(by: off), UInt32(raw.count - off))
             }
             if n < 0 { outbox.removeAll(); return }
-            if n == 0 { return } // send buffer full: the next tcp_sent continues
-            outbox = outbox.count == Int(n) ? Data() : Data(outbox.dropFirst(Int(n)))
+            if n == 0 { break } // send buffer full: the next tcp_sent continues
+            off += Int(n)
         }
+        if off == outbox.count { outbox = Data() }
+        else if off > 0 { outbox = Data(outbox.dropFirst(off)) }
     }
 
     private func deliver(_ h: @escaping (Data?, Error?) -> Void) {

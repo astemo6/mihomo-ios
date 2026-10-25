@@ -140,30 +140,43 @@ final class NCSSDecoder {
         }
     }
 
+    // nc-perf: read-offset consumption of `buffer` (was a dropFirst copy of the remainder per
+    // chunk — O(n^2) over a long stream). Peek copies only the chunk being opened; the offset
+    // advances on success, and the buffer is rebased once, past the halfway point.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func peekBuffered(_ n: Int) -> Data { Data(buffer[bufferOffset..<(bufferOffset + n)]) }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
+
     /// Feed received bytes; returns whatever plaintext became available.
     func feed(_ data: Data) -> Data? {
+        defer { compactBuffer() }
         buffer.append(data)
         if key == nil {
-            guard buffer.count >= spec.saltLen else { return Data() }
-            let salt = Data(buffer.prefix(spec.saltLen))
-            buffer = buffer.dropFirst(spec.saltLen)
+            guard buffered >= spec.saltLen else { return Data() }
+            let salt = peekBuffered(spec.saltLen)
+            bufferOffset += spec.saltLen
             let master = NCShadowsocks.masterKey(password: password, keyLen: spec.keyLen)
             key = SymmetricKey(data: NCShadowsocks.subkey(master: master, salt: salt, keyLen: spec.keyLen))
         }
         var out = Data()
         while true {
             if let bodyLen = pendingBodyLen {
-                guard buffer.count >= bodyLen + 16 else { break }
-                let sealed = Data(buffer.prefix(bodyLen + 16))
-                buffer = buffer.dropFirst(bodyLen + 16)
+                guard buffered >= bodyLen + 16 else { break }
+                let sealed = peekBuffered(bodyLen + 16)
                 guard let plain = open(sealed) else { return nil }
+                bufferOffset += bodyLen + 16
                 out.append(plain)
                 pendingBodyLen = nil
             } else {
-                guard buffer.count >= 2 + 16 else { break }
-                let sealed = Data(buffer.prefix(2 + 16))
-                buffer = buffer.dropFirst(2 + 16)
+                guard buffered >= 2 + 16 else { break }
+                let sealed = peekBuffered(2 + 16)
                 guard let lenData = open(sealed), lenData.count == 2 else { return nil }
+                bufferOffset += 2 + 16
                 pendingBodyLen = (Int(lenData[0]) << 8) | Int(lenData[1])
             }
         }
