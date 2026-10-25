@@ -288,12 +288,12 @@ final class ImportRouter: ObservableObject {
         case "module": return .moduleText(name: name, text: text, source: "Surge")
         case "yaml", "yml":
             // Egern modules and Stash overrides are YAML too.
-            let c = LibmihomoClassifyText(text)
+            let c = ImportTools.classifyText(text)
             if c.hasPrefix("module:") { return .moduleText(name: name, text: text, source: sourceName(c)) }
             return .profileText(name: name, text: text)
         case "conf":
             // A full Surge / QX config, or a QX rewrite snippet saved as .conf.
-            let c = LibmihomoClassifyText(text)
+            let c = ImportTools.classifyText(text)
             if c.hasPrefix("module:") { return .moduleText(name: name, text: text, source: sourceName(c)) }
             if c == "profile" { return .profileText(name: name, text: text) }
             return .confText(name: name, text: text)
@@ -329,7 +329,7 @@ final class ImportRouter: ObservableObject {
             if ext == "list" { return .unsupported("这是一个规则列表：请在 工具 → 分流规则 → + 中选择「RULE-SET」添加") }
             return .profileURL(url: text, name: name)
         }
-        let c = LibmihomoClassifyText(text)
+        let c = ImportTools.classifyText(text)
         switch c {
         case "profile": return .profileText(name: name.isEmpty ? String(localized: "剪贴板配置") : name, text: text)
         case "conf": return .confText(name: name.isEmpty ? String(localized: "导入的配置") : name, text: text)
