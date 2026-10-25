@@ -59,6 +59,8 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         /// feat/s3-mem: capacity reserved from the hint; trimForMemory copies each finished body at most once.
         var reserved = 0
         var compacted = false
+        /// NativeCore: the script body budget's charge (every appended raw / decoded byte; released on free).
+        var charge: NativeBodyCharge?
 
         init(codec: Codec, limit: Int, hint: Int) {
             self.codec = codec
@@ -98,6 +100,13 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
     // MARK: In-process Body Store
 
     func open(_ enc: String?, limit: Int64, hint: Int64) -> Int64 {
+        open(enc, limit: limit, hint: hint, charge: nil)
+    }
+
+    /// NativeCore: with a charge the script body budget already admitted the body (raw length above its reserve) and
+    /// charges every byte as it is appended, so the store's own floor / governor admission is skipped and nothing is
+    /// reserved from the hint beyond the raw length.
+    func open(_ enc: String?, limit: Int64, hint: Int64, charge: NativeBodyCharge?) -> Int64 {
         let codec: Codec
         switch (enc ?? "").trimmingCharacters(in: .whitespaces).lowercased() {
         case "", "identity": codec = .identity
@@ -106,7 +115,9 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         case "br": codec = .brotli
         default: return refuse()
         }
-        if let g = NativeMemoryGovernor.active {
+        if charge != nil {
+            // admitted by NativeScriptBodyBudget (live reading, actual bytes charged below)
+        } else if let g = NativeMemoryGovernor.active {
             // feat/s3-mem: the native governor admits by size (small bodies down to ~4.5 MB, reclaim first)
             if !g.admit(.body, bytes: hint > 0 ? Int(clamping: hint) : -1) { return refuse() }
         } else {
@@ -115,6 +126,7 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
             if avail > 0 && avail < Self.availFloor { return refuse() }
         }
         let b = Body(codec: codec, limit: Int(clamping: limit), hint: Int(clamping: hint))
+        b.charge = charge
         if codec == .brotli {
             // The deflate-family streams start once their header is known (`feedDeflate`); brotli has none.
             guard Self.startStream(b, COMPRESSION_BROTLI) else { return refuse() }
@@ -135,6 +147,10 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         if b.failed { return b.err == "too-big" ? "too-big" : "decode: " + b.err }
         if b.finished { return "internal: write after finish" }
         if b.raw.count + data.count > b.limit && (b.codec == .identity || b.raw.count + data.count > Self.rawCap(b.limit)) {
+            fail(b, "too-big")
+            return "too-big"
+        }
+        if let c = b.charge, !c.grow(data.count) {
             fail(b, "too-big")
             return "too-big"
         }
@@ -194,6 +210,8 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
             b.closeStream()
             b.raw = Data()
             b.dec = Data()
+            b.charge?.release()
+            b.charge = nil
             b.lock.unlock()
         }
     }
@@ -488,6 +506,11 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
             let produced = Self.scratchSize - s.pointee.dst_size
             if produced > 0 {
                 if b.dec.count + produced > b.limit {
+                    fail(b, "too-big")
+                    return "too-big"
+                }
+                // NativeCore: the decoded bytes actually produced are charged (no br × 8 / gzip × 6 guess)
+                if let c = b.charge, !c.grow(produced) {
                     fail(b, "too-big")
                     return "too-big"
                 }

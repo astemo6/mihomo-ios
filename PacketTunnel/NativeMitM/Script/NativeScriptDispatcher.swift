@@ -29,6 +29,8 @@ import Libmihomo
 /// What the response phase needs from NativeBodyStore (a protocol for the unit tests).
 protocol ScriptBodyStore: JSCNativeBlobProvider {
     func open(_ enc: String?, limit: Int64, hint: Int64) -> Int64
+    /// NativeCore: open with a streaming charge (every appended raw / decoded byte is charged; nil = none).
+    func open(_ enc: String?, limit: Int64, hint: Int64, charge: NativeBodyCharge?) -> Int64
     func write(_ h: Int64, b data: Data?) -> String
     func finish(_ h: Int64) -> Int64
     func err(_ h: Int64) -> String
@@ -265,7 +267,7 @@ final class NativeScriptResponse {
             return .skipped
         }
         let t = a.ticket ?? 0
-        let h = store.open(enc, limit: a.cap ?? 0, hint: contentLength)
+        let h = store.open(enc, limit: a.cap ?? 0, hint: contentLength, charge: go.bodyCharge(ticket: t))
         if h <= 0 {
             go.bodyRelease(ticket: t)
             if !sideEffects { return .handBack("store refused") }
