@@ -342,6 +342,86 @@ final class NativeCoreLoopbackTests: XCTestCase {
         try self.assertEcho(stream, payload: Self.payload)
     }
 
+    // MARK: - TEMP diagnostics (fix/nc-quic-enetdown): which per-stream QUIC options clone
+
+    /// Never fails: logs "[quic-diag]" lines comparing extract strategies on a raw QUIC
+    /// group to the TUIC inbound (ALPN h3). Remove once the QUIC echo tests are green.
+    func testZZQUICExtractDiagnostics() {
+        func makeOptions(_ q: DispatchQueue) -> NWProtocolQUIC.Options {
+            let o = NWProtocolQUIC.Options(alpn: ["h3"])
+            let tls = o.securityProtocolOptions
+            sec_protocol_options_set_tls_min_version(tls, .tlsProtocol13)
+            sec_protocol_options_set_tls_server_name(tls, "localhost")
+            sec_protocol_options_set_verify_block(tls, { _, _, complete in complete(true) }, q)
+            return o
+        }
+        func streamState(_ c: NWConnection?, _ q: DispatchQueue) -> String {
+            guard let c else { return "extract=nil" }
+            let sem = DispatchSemaphore(value: 0)
+            let box = LockedBox("timeout")
+            c.stateUpdateHandler = { st in
+                switch st {
+                case .ready: box.set("ready"); sem.signal()
+                case .failed(let e): box.set("failed(\(e))"); sem.signal()
+                case .waiting(let e): box.set("waiting(\(e))")
+                default: break
+                }
+            }
+            c.start(queue: q)
+            _ = sem.wait(timeout: .now() + 4)
+            c.stateUpdateHandler = nil
+            c.cancel()
+            return box.get()
+        }
+        let strategies: [(String, (NWConnectionGroup, DispatchQueue) -> NWProtocolQUIC.Options?)] = [
+            ("fresh-uni", { _, q in let o = makeOptions(q); o.direction = .unidirectional; return o }),
+            ("group-copy-uni", { g, _ in
+                let o = g.parameters.copy().defaultProtocolStack.transportProtocol as? NWProtocolQUIC.Options
+                o?.direction = .unidirectional; return o }),
+            ("group-live-uni", { g, _ in
+                let o = g.parameters.defaultProtocolStack.transportProtocol as? NWProtocolQUIC.Options
+                o?.direction = .unidirectional; return o }),
+            ("nil-bidi", { _, _ in nil }),
+        ]
+        for (name, make) in strategies {
+            let q = DispatchQueue(label: "nc.quic.diag.\(name)")
+            let params = NWParameters(quic: makeOptions(q))
+            let ep = NWEndpoint.hostPort(host: NWEndpoint.Host(Self.host),
+                                         port: NWEndpoint.Port(rawValue: UInt16(Self.tuicPort))!)
+            let group = NWConnectionGroup(with: NWMultiplexGroup(to: ep), using: params)
+            let ready = DispatchSemaphore(value: 0)
+            let gstate = LockedBox("timeout")
+            group.stateUpdateHandler = { st in
+                switch st {
+                case .ready: gstate.set("ready"); ready.signal()
+                case .failed(let e): gstate.set("failed(\(e))"); ready.signal()
+                case .waiting(let e): gstate.set("waiting(\(e))")
+                default: break
+                }
+            }
+            group.newConnectionHandler = { $0.cancel() }
+            group.start(queue: q)
+            _ = ready.wait(timeout: .now() + 5)
+            var line = "[quic-diag] \(name): group=\(gstate.get())"
+            if gstate.get() == "ready" {
+                let opts = q.sync { make(group, q) }
+                let tp = group.parameters.defaultProtocolStack.transportProtocol
+                line += " transport=\(tp.map { String(describing: type(of: $0)) } ?? "nil")"
+                line += " optsNil=\(opts == nil)"
+                let s1 = streamState(q.sync { group.extract(connectionTo: nil, using: opts) }, q)
+                line += " stream=\(s1)"
+                // A later nil-options extract must still work (live options not corrupted).
+                let s2 = streamState(q.sync { group.extract(connectionTo: nil, using: nil) }, q)
+                line += " thenNilBidi=\(s2)"
+                let s3 = streamState(NWConnection(from: group), q)
+                line += " fromGroup=\(s3)"
+            }
+            print(line)
+            NSLog("%@", line)
+            group.cancel()
+        }
+    }
+
     // WireGuard and Mieru are intentionally absent:
     // - WireGuard: NCConnector refuses outside the tunnel (its dialer runs on
     //   the PacketTunnel-only userspace lwIP stack, NCWireGuard.swift), so the

@@ -221,9 +221,9 @@ extension NCTUICConnection {
     private func sendUni(_ cmd: Data) {
         // Same ALPN/TLS as the group parameters — bare options negotiate without
         // ALPN and the server refuses the stream (the auth-stream defect).
-        let opts = quicStreamOptions()
-        opts.direction = .unidirectional
-        guard let g = group, let c = g.extract(connectionTo: nil, using: opts) else { return }
+        guard let g = group,
+              let c = g.extract(connectionTo: nil,
+                                using: NCQUICStreamOptions.unidirectional(from: g, fallback: quicStreamOptions)) else { return }
         c.stateUpdateHandler = { st in
             switch st {
             case .ready:
@@ -245,9 +245,9 @@ extension NCTUICConnection {
     private func ensureDatagramFlow() -> NWConnection? {
         if let datagramFlow { return datagramFlow }
         // quicStreamOptions already carries ALPN/TLS and maxDatagramFrameSize = 1400.
-        let opts = quicStreamOptions()
-        opts.isDatagram = true
-        guard let g = group, let c = g.extract(connectionTo: nil, using: opts) else { return nil }
+        guard let g = group,
+              let c = g.extract(connectionTo: nil,
+                                using: NCQUICStreamOptions.datagram(from: g, fallback: quicStreamOptions)) else { return nil }
         datagramFlow = c
         c.stateUpdateHandler = { [weak self] st in
             guard let self else { return }

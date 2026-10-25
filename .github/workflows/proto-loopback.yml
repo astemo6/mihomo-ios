@@ -79,7 +79,7 @@ jobs:
           xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/loop -resultBundlePath results/loopback.xcresult \
             -only-testing:MihomoUnitTests/NativeCoreLoopbackTests test-without-building 2>&1 | tee results/loopback.log \
-            | grep -E "Test Case .*(failed|passed)|error:|XCTAssert|Executed"
+            | grep -E "Test Case .*(failed|passed)|error:|XCTAssert|Executed|quic-diag"
           RC=${PIPESTATUS[0]}
           [ "$RC" = 0 ] || tail -n 150 results/loopback.log
           {
@@ -90,13 +90,18 @@ jobs:
           exit "$RC"
       - name: Stop loopback servers
         if: always()
-        run: tools/loopback/start-servers.sh stop || true
+        run: |
+          tools/loopback/start-servers.sh stop || true
+          cp /tmp/nc-loopback/sing-box.log results/sing-box.log 2>/dev/null || true
+          echo "--- sing-box.log (hy2/tuic/quic lines, last 200) ---"
+          grep -i -E "hy2|hysteria|tuic|quic|error|warn" /tmp/nc-loopback/sing-box.log | tail -n 200 || true
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: loopback-results
           path: |
             results/loopback.log
+            results/sing-box.log
             build-loop.log
           if-no-files-found: warn
           retention-days: 14

@@ -589,9 +589,11 @@ final class NCHysteria2Connection {
         guard !handshakeOpened, state == .connecting else { return }
         handshakeOpened = true
 
-        let controlOptions = makeQUICOptions()
-        controlOptions.direction = .unidirectional
-        guard let controlConn = group?.extract(connectionTo: nil, using: controlOptions) else {
+        // Derived from the group's own QUIC options (NCQUICStreamOptions): freshly built
+        // options fail to clone onto the established connection (ENETDOWN).
+        guard let group,
+              let controlConn = group.extract(connectionTo: nil,
+                                              using: NCQUICStreamOptions.unidirectional(from: group, fallback: makeQUICOptions)) else {
             finishStart(NCConnector.Failure.handshake("hysteria2: cannot open control stream"))
             return
         }
