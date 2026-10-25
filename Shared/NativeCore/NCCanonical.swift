@@ -298,7 +298,7 @@ struct NCCanonicalConfig: Equatable {
             for r in ruleSets {
                 var f = r.fields
                 if f["url"] == nil, let url = r.url { f["url"] = .string(url) }
-                if f["interval"] == nil { f["interval"] = .int(r.interval) }
+                if f["interval"] == nil { f["interval"] = .number(Double(r.interval)) }
                 provs[r.name] = .object(f)
             }
             raw["rule-providers"] = .object(provs)

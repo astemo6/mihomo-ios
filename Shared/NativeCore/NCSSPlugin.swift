@@ -378,3 +378,7 @@ enum NCSSPlugin {
             .replacingOccurrences(of: "/", with: "_")
     }
 }
+
+/// feat/nc-integrate: #101 (astemo6) refers to the options type as NCSSPluginOptions in the connector, the plugin
+/// stream and NCSupport; the type lives at NCSSPlugin.Options.
+typealias NCSSPluginOptions = NCSSPlugin.Options
