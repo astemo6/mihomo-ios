@@ -17,18 +17,44 @@ enum NCSubscriptionParser {
         if trimmed.hasPrefix("proxies:") || trimmed.contains("\nproxies:") {
             if let nodes = parseClashYAML(trimmed) { return dedup(nodes) }
         }
+        if let jsonNodes = parseJSONNodes(trimmed) {
+            return dedup(jsonNodes)
+        }
         var body = trimmed
-        if !body.contains("://"), let decoded = base64Decode(body),
+        if !body.contains("://") && !body.contains("="), let decoded = base64Decode(body),
            let s = String(data: decoded, encoding: .utf8) {
+            if let jsonNodes = parseJSONNodes(s) {
+                return dedup(jsonNodes)
+            }
+            body = s
+        } else if let decoded = base64Decode(body),
+                  let s = String(data: decoded, encoding: .utf8), s.contains("://") {
             body = s
         }
         var nodes: [NCProxy] = []
         for line in body.components(separatedBy: .newlines) {
             let l = line.trimmingCharacters(in: .whitespaces)
-            guard l.contains("://") else { continue }
-            if let n = parseURI(l) { nodes.append(n) }
+            if l.isEmpty || l.hasPrefix("#") || l.hasPrefix("//") || l.hasPrefix(";") || l.hasPrefix("[") {
+                continue
+            }
+            if l.contains("://") {
+                if let n = parseURI(l) { nodes.append(n) }
+            } else if l.contains("=") {
+                var dummy = NCImportReport()
+                if let qx = NCQXImport.buildQXNode(line: l, report: &dummy) {
+                    nodes.append(qx)
+                } else if let parsed = NCConfImport.parseNamedNodeLine(l),
+                          let surge = NCConfImport.buildSurgeLikeNode(name: parsed.name, positional: parsed.positional, kv: parsed.kv, order: parsed.order, report: &dummy) {
+                    nodes.append(surge)
+                }
+            }
         }
         return dedup(nodes)
+    }
+
+    /// Parse nodes from text directly into dictionary representation.
+    static func parseToDictionaries(_ text: String) -> [[String: Any]] {
+        parse(text).map { $0.dictionary }
     }
 
     // MARK: Clash YAML
@@ -47,11 +73,19 @@ enum NCSubscriptionParser {
         let rest = String(uri[sep.upperBound...])
         switch scheme {
         case "ss": return parseSS(rest)
+        case "ssr": return parseSSR(rest)
         case "vmess": return parseVMess(rest)
         case "vless": return parseVLESS(rest)
         case "trojan": return parseTrojan(rest)
         case "hysteria2", "hy2": return parseHysteria2(rest)
+        case "hysteria": return parseHysteria1(rest)
         case "tuic": return parseTUIC(rest)
+        case "wireguard", "wg": return parseWireGuard(rest, scheme: scheme)
+        case "snell": return parseSnell(rest)
+        case "ssh": return parseSSH(rest)
+        case "socks", "socks5", "socks5h", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
+        case "anytls": return parseAnyTLS(rest)
+        case "mieru", "mierus": return parseMieru(rest)
         default: return nil
         }
     }
@@ -292,6 +326,295 @@ enum NCSubscriptionParser {
         if q["allow_insecure"] == "1" || q["allowInsecure"] == "1" { f["skip-cert-verify"] = .bool(true) }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "tuic", fields: f)
+    }
+
+    private static func parseJSONNodes(_ text: String) -> [NCProxy]? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix("{") || t.hasPrefix("["),
+              let data = t.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // SIP008: {"servers": [...]}
+        if let servers = json["servers"] as? [[String: Any]] {
+            var proxies: [NCProxy] = []
+            for s in servers {
+                let server = s["server"] as? String ?? ""
+                let port = (s["server_port"] as? NSNumber)?.intValue ?? (s["port"] as? NSNumber)?.intValue ?? 0
+                let method = s["method"] as? String ?? s["cipher"] as? String ?? ""
+                let password = s["password"] as? String ?? ""
+                guard !server.isEmpty, port > 0, !method.isEmpty, !password.isEmpty else { continue }
+                let name = s["remarks"] as? String ?? s["tag"] as? String ?? "\(server):\(port)"
+                var f: [String: NCJSONValue] = [
+                    "server": .string(server),
+                    "port": .number(Double(port)),
+                    "cipher": .string(method),
+                    "password": .string(password),
+                    "udp": .bool(true)
+                ]
+                if let plugin = s["plugin"] as? String {
+                    f["plugin"] = .string(plugin)
+                    if let opts = s["plugin_opts"] as? [String: Any] {
+                        f["plugin-opts"] = .object(opts.mapValues { NCJSONValue($0) })
+                    }
+                }
+                proxies.append(NCProxy(name: name, type: "ss", fields: f))
+            }
+            return proxies.isEmpty ? nil : proxies
+        }
+        // sing-box: {"outbounds": [...]}
+        if let outbounds = json["outbounds"] as? [[String: Any]] {
+            var proxies: [NCProxy] = []
+            for o in outbounds {
+                guard let typ = o["type"] as? String, typ != "direct", typ != "block", typ != "dns" else { continue }
+                let name = o["tag"] as? String ?? o["name"] as? String ?? "\(typ)"
+                var f: [String: NCJSONValue] = [:]
+                for (k, v) in o {
+                    if k == "tag" || k == "type" { continue }
+                    f[k] = NCJSONValue(v)
+                }
+                proxies.append(NCProxy(name: name, type: typ, fields: f))
+            }
+            return proxies.isEmpty ? nil : proxies
+        }
+        return nil
+    }
+
+    private static func parseSSR(_ rest: String) -> NCProxy? {
+        guard let data = base64Decode(rest),
+              let decoded = String(data: data, encoding: .utf8) else { return nil }
+        let mainAndQuery = decoded.components(separatedBy: "/?")
+        let mainParts = mainAndQuery[0].components(separatedBy: ":")
+        guard mainParts.count >= 6 else { return nil }
+        let server = mainParts[0]
+        guard let port = Int(mainParts[1]), port > 0 else { return nil }
+        let protocolStr = mainParts[2]
+        let cipher = mainParts[3]
+        let obfs = mainParts[4]
+        let passB64 = mainParts[5]
+        let pass = base64Decode(passB64).flatMap { String(data: $0, encoding: .utf8) } ?? passB64
+
+        var name = "\(server):\(port)"
+        var obfsParam: String? = nil
+        var protoParam: String? = nil
+        if mainAndQuery.count > 1 {
+            for pair in mainAndQuery[1].components(separatedBy: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                guard kv.count == 2 else { continue }
+                let k = String(kv[0]).lowercased()
+                let vB64 = String(kv[1])
+                let v = base64Decode(vB64).flatMap { String(data: $0, encoding: .utf8) } ?? vB64
+                if k == "remarks" { name = v }
+                else if k == "obfsparam" { obfsParam = v }
+                else if k == "protoparam" { protoParam = v }
+            }
+        }
+        var f: [String: NCJSONValue] = [
+            "server": .string(server),
+            "port": .number(Double(port)),
+            "protocol": .string(protocolStr),
+            "cipher": .string(cipher),
+            "obfs": .string(obfs),
+            "password": .string(pass),
+            "udp": .bool(true)
+        ]
+        if let obfsParam, !obfsParam.isEmpty { f["obfs-param"] = .string(obfsParam) }
+        if let protoParam, !protoParam.isEmpty { f["protocol-param"] = .string(protoParam) }
+        return NCProxy(name: name, type: "ssr", fields: f)
+    }
+
+    private static func parseWireGuard(_ rest: String, scheme: String) -> NCProxy? {
+        let p = splitParts(rest)
+        let q = p.query
+        let server = p.host
+        let port = p.port > 0 ? p.port : 51820
+        guard !server.isEmpty else { return nil }
+
+        let privKey = !p.userinfo.isEmpty ? (p.userinfo.removingPercentEncoding ?? p.userinfo) : (q["pk"] ?? q["private-key"] ?? "")
+        let pubKey = q["publickey"] ?? q["peer_pk"] ?? q["public-key"] ?? ""
+        let psk = q["presharedkey"] ?? q["psk"] ?? q["pre-shared-key"]
+        let addr = q["address"] ?? q["local_address"] ?? q["ip"]
+        let reserved = q["reserved"]
+        let mtu = q["mtu"].flatMap { Int($0) }
+
+        var f: [String: NCJSONValue] = [
+            "server": .string(server),
+            "port": .number(Double(port)),
+            "udp": .bool(true)
+        ]
+        if !privKey.isEmpty { f["private-key"] = .string(privKey) }
+        if !pubKey.isEmpty { f["public-key"] = .string(pubKey) }
+        if let psk, !psk.isEmpty { f["pre-shared-key"] = .string(psk) }
+        if let addr, !addr.isEmpty {
+            for part in addr.components(separatedBy: ",") {
+                let trimmed = part.trimmingCharacters(in: .whitespaces)
+                if trimmed.contains(":") {
+                    f["ipv6"] = .string(trimmed.components(separatedBy: "/")[0])
+                } else if !trimmed.isEmpty {
+                    f["ip"] = .string(trimmed.components(separatedBy: "/")[0])
+                }
+            }
+        }
+        if let reserved, !reserved.isEmpty {
+            f["reserved"] = .array(reserved.components(separatedBy: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }.map { .number(Double($0)) })
+        }
+        if let mtu { f["mtu"] = .number(Double(mtu)) }
+
+        let name = p.name.isEmpty ? "wireguard \(server)" : p.name
+        return NCProxy(name: name, type: "wireguard", fields: f)
+    }
+
+    private static func parseSnell(_ rest: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty, p.port > 0 else { return nil }
+        let psk = p.userinfo.removingPercentEncoding ?? p.userinfo
+        let q = p.query
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(p.port)),
+            "psk": .string(psk),
+            "udp": .bool(true)
+        ]
+        if let ver = q["version"], let v = Int(ver) { f["version"] = .number(Double(v)) }
+        var obfsOpts: [String: NCJSONValue] = [:]
+        if let mode = q["obfs"] { obfsOpts["mode"] = .string(mode) }
+        if let host = q["obfs-host"] { obfsOpts["host"] = .string(host) }
+        if !obfsOpts.isEmpty { f["obfs-opts"] = .object(obfsOpts) }
+
+        let name = p.name.isEmpty ? "snell \(p.host)" : p.name
+        return NCProxy(name: name, type: "snell", fields: f)
+    }
+
+    private static func parseSSH(_ rest: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty else { return nil }
+        let port = p.port > 0 ? p.port : 22
+        let q = p.query
+        var username = ""
+        var password = ""
+        if !p.userinfo.isEmpty {
+            let creds = p.userinfo.split(separator: ":", maxSplits: 1)
+            username = String(creds[0]).removingPercentEncoding ?? String(creds[0])
+            if creds.count > 1 {
+                password = String(creds[1]).removingPercentEncoding ?? String(creds[1])
+            }
+        }
+        if username.isEmpty { username = q["user"] ?? q["username"] ?? "" }
+        if password.isEmpty { password = q["password"] ?? q["pass"] ?? "" }
+        guard !username.isEmpty else { return nil }
+
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(port)),
+            "username": .string(username)
+        ]
+        if !password.isEmpty { f["password"] = .string(password) }
+        if let pk = q["private-key"] ?? q["pk"] ?? q["privateKey"] {
+            f["private-key"] = .string(pk)
+        }
+        if let pp = q["private-key-passphrase"] ?? q["passphrase"] {
+            f["private-key-passphrase"] = .string(pp)
+        }
+        if let hk = q["host-key"] ?? q["hostkey"] {
+            let keys = hk.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            if !keys.isEmpty { f["host-key"] = .array(keys.map { .string($0) }) }
+        }
+
+        let name = p.name.isEmpty ? "ssh \(p.host)" : p.name
+        return NCProxy(name: name, type: "ssh", fields: f)
+    }
+
+    private static func parseSocksHTTP(_ rest: String, scheme: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty, p.port > 0 else { return nil }
+        let isSocks = scheme.hasPrefix("socks")
+        let isHTTPS = scheme == "https"
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(p.port))
+        ]
+        if isSocks { f["udp"] = .bool(true) }
+        if isHTTPS {
+            f["tls"] = .bool(true)
+            if let sni = p.query["sni"] { f["sni"] = .string(sni) }
+        }
+        if !p.userinfo.isEmpty {
+            var ui = p.userinfo
+            if !ui.contains(":"), let decoded = base64Decode(ui), let s = String(data: decoded, encoding: .utf8) {
+                ui = s
+            }
+            let creds = ui.split(separator: ":", maxSplits: 1)
+            f["username"] = .string(String(creds[0]).removingPercentEncoding ?? String(creds[0]))
+            if creds.count > 1 {
+                f["password"] = .string(String(creds[1]).removingPercentEncoding ?? String(creds[1]))
+            }
+        }
+        let typ = isSocks ? "socks5" : "http"
+        let name = p.name.isEmpty ? "\(typ) \(p.host)" : p.name
+        return NCProxy(name: name, type: typ, fields: f)
+    }
+
+    private static func parseAnyTLS(_ rest: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty, p.port > 0 else { return nil }
+        let q = p.query
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(p.port)),
+            "password": .string(p.userinfo.removingPercentEncoding ?? p.userinfo)
+        ]
+        if let sni = q["sni"] { f["sni"] = .string(sni) }
+        if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
+        if let fp = q["hpkp"] ?? q["fingerprint"] { f["fingerprint"] = .string(fp) }
+
+        let name = p.name.isEmpty ? "anytls \(p.host)" : p.name
+        return NCProxy(name: name, type: "anytls", fields: f)
+    }
+
+    private static func parseMieru(_ rest: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty else { return nil }
+        let q = p.query
+        let portStr = q["port"] ?? ""
+        let port = Int(portStr) ?? (p.port > 0 ? p.port : 0)
+        guard port > 0 else { return nil }
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(port))
+        ]
+        if !p.userinfo.isEmpty {
+            let creds = p.userinfo.split(separator: ":", maxSplits: 1)
+            f["username"] = .string(String(creds[0]).removingPercentEncoding ?? String(creds[0]))
+            if creds.count > 1 {
+                f["password"] = .string(String(creds[1]).removingPercentEncoding ?? String(creds[1]))
+            }
+        }
+        if let proto = q["protocol"] { f["transport"] = .string(proto) }
+        if let mux = q["multiplexing"] { f["multiplexing"] = .string(mux) }
+        if let hm = q["handshake-mode"] { f["handshake-mode"] = .string(hm) }
+        let name = q["profile"] ?? (p.name.isEmpty ? "mieru \(p.host)" : p.name)
+        return NCProxy(name: name, type: "mieru", fields: f)
+    }
+
+    private static func parseHysteria1(_ rest: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty, p.port > 0 else { return nil }
+        let q = p.query
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(p.port))
+        ]
+        if let sni = q["peer"] ?? q["sni"] { f["sni"] = .string(sni) }
+        if let auth = q["auth"] { f["auth-str"] = .string(auth) }
+        if let obfs = q["obfs"] { f["obfs"] = .string(obfs) }
+        if let proto = q["protocol"] { f["protocol"] = .string(proto) }
+        if let up = q["upmbps"] { f["up"] = .string(up) }
+        if let down = q["downmbps"] { f["down"] = .string(down) }
+        if let alpn = q["alpn"] { f["alpn"] = .array(alpn.components(separatedBy: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) }) }
+        if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
+
+        let name = p.name.isEmpty ? "hysteria \(p.host)" : p.name
+        return NCProxy(name: name, type: "hysteria", fields: f)
     }
 
     private static func dedup(_ nodes: [NCProxy]) -> [NCProxy] {

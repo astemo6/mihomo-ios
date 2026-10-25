@@ -171,7 +171,7 @@ enum NCQXImport {
     // MARK: - [server_local] nodes
 
     /// Parse `type=server:port, k=v…, tag=Name`.
-    private static func buildQXNode(line: String, report: inout NCImportReport) -> NCProxy? {
+    static func buildQXNode(line: String, report: inout NCImportReport) -> NCProxy? {
         let toks = NCConfImport.tokens(line)
         guard let first = toks.first, let (rawType, address) = NCConfImport.keyValue(first) else {
             report.warnings.append("quantumultx [server_local]: unparsable line skipped: \(line)")
