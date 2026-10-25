@@ -258,7 +258,7 @@ final class ProfileStore: ObservableObject {
     nonisolated static func normalize(_ text: String) -> String {
         let looksYAML = text.contains("proxies:") || text.contains("proxy-providers:") || text.contains("proxy-groups:")
         if looksYAML { return text }
-        let converted = LibmihomoConvertShareLinks(text)
+        let converted = NCShareLink.convertShareLinks(text)
         return converted.isEmpty ? text : converted
     }
 
@@ -504,7 +504,7 @@ final class ProfileStore: ObservableObject {
         if let p = manualProfile { return p }
         let p = Profile(id: Self.manualID, name: "手动节点", kind: .local)
         if !FileManager.default.fileExists(atPath: p.fileURL.path) {
-            _ = LibmihomoManualDelete(p.fileURL.path, "") // writes an empty manual profile
+            _ = NCManualNodes.delete(path: p.fileURL.path, name: "") // writes an empty manual profile
         }
         profiles.insert(p, at: 0)
         persist()
@@ -518,8 +518,7 @@ final class ProfileStore: ObservableObject {
     /// v0.19.6: callable off the main actor (NodeManagerModel.reload).
     nonisolated static func manualNodes(path: String?) -> [[String: Any]] {
         guard let path else { return [] }
-        let json = LibmihomoManualList(path)
-        return (try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]) ?? []
+        return NCManualNodes.list(path: path)
     }
 
     /// Parses links / lines and adds them. Returns the number of nodes added.
@@ -529,8 +528,7 @@ final class ProfileStore: ObservableObject {
         // v0.19.6: parse + write off the main actor (pasting a few thousand links froze the UI).
         let path = p.fileURL.path
         let (n, err) = await Task.detached(priority: .userInitiated) { () -> (Int32, String) in
-            let n = LibmihomoManualAddText(path, text)
-            return (n, n < 0 ? LibmihomoLastError() : "")
+            NCManualNodes.addText(path: path, text: text)
         }.value
         if n < 0 { throw StoreError.invalid(err) }
         objectWillChange.send()
@@ -541,8 +539,7 @@ final class ProfileStore: ObservableObject {
     func upsertManualNode(_ node: [String: Any], oldName: String?) async throws {
         SnapshotStore.shared.capture(String(localized: "编辑手动节点前"))
         let p = ensureManualProfile()
-        let data = try JSONSerialization.data(withJSONObject: node)
-        let err = LibmihomoManualUpsert(p.fileURL.path, String(decoding: data, as: UTF8.self), oldName ?? "")
+        let err = NCManualNodes.upsert(path: p.fileURL.path, node: node, oldName: oldName)
         if !err.isEmpty { throw StoreError.invalid(err) }
         objectWillChange.send()
         if activeID == nil { _ = await setActive(p) } else if activeID == p.id { _ = await VPNManager.shared.reload() }
@@ -621,7 +618,7 @@ final class ProfileStore: ObservableObject {
 
     func deleteManualNode(_ name: String) async {
         guard let p = manualProfile else { return }
-        _ = LibmihomoManualDelete(p.fileURL.path, name)
+        _ = NCManualNodes.delete(path: p.fileURL.path, name: name)
         objectWillChange.send()
         if activeID == p.id { _ = await VPNManager.shared.reload() }
     }

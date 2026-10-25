@@ -271,7 +271,7 @@ struct SubscriptionExportSheet: View {
 
     func load() async {
         let path = AppShared.profileURL(id: ProfileStore.manualID).path
-        let json = await Task.detached { LibmihomoManualSubscription(path) }.value
+        let json = await Task.detached { NCShareLink.manualSubscription(path: path) }.value
         guard let d = json.data(using: .utf8), let o = try? JSONDecoder().decode(Out.self, from: d) else { return }
         text = o.text; count = o.count; skipped = o.skipped
         if !text.isEmpty {
