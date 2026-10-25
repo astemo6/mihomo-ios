@@ -644,8 +644,11 @@ enum NCShareLink {
         return "\(host):\(port)"
     }
 
+    /// The fragment body only: every call site already writes the "#"
+    /// separator (`…#\(frag(name))`); prefixing it here too produced
+    /// `##name`, which re-parses as the name "#name".
     private static func frag(_ name: String) -> String {
-        "#" + escapePath(name)
+        escapePath(name)
     }
 
     /// Go net/url shouldEscape byte table: unreserved [A-Za-z0-9-_.~] plus the

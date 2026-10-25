@@ -123,13 +123,15 @@ final class NativeCorePortedShareLinkTests: XCTestCase {
     }
 
     /// The Go test's base64 subscription blob: ss + trojan + vless +
-    /// wireguard links in one blob must yield four nodes.
+    /// wireguard links in one blob must yield four nodes. Order follows
+    /// bridge nodes.go parseNodeText: self-parsed schemes (wireguard) come
+    /// first in line order, the :// URIs converted afterwards — so wg1 leads.
     func testBase64SubscriptionBlob() {
         let wg = "wireguard://yAnz5TF%2BlXXJte14tji3zlMNq%2BhD2rYUIgJBgB3fBmk%3D@162.159.192.1:2408?publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&address=172.16.0.2%2F32,2606:4700::2%2F128&reserved=1,2,3&mtu=1280#wg1"
         let blob = [Self.ssVector, Self.trojanVector, Self.vlessVector, wg].joined(separator: "\n")
         let nodes = NCSubscriptionParser.parse(Data(blob.utf8).base64EncodedString())
-        XCTAssertEqual(nodes.map { $0.type }, ["ss", "trojan", "vless", "wireguard"])
-        XCTAssertEqual(nodes.map { $0.name }, ["ss1", "tj", "vless1", "wg1"])
+        XCTAssertEqual(nodes.map { $0.type }, ["wireguard", "ss", "trojan", "vless"])
+        XCTAssertEqual(nodes.map { $0.name }, ["wg1", "ss1", "tj", "vless1"])
     }
 
     /// More of the Go test's table, parse-only (their share-link forms are
