@@ -22,7 +22,7 @@ import Foundation
 /// Unfragmented messages carry Fragment count 1; Packet ID / Fragment ID are then irrelevant.
 enum NCHy2UDP {
     /// Largest UDPMessage (header included) sent in one QUIC datagram: sing-quic's udpMTU
-    /// (1200 - 3). The connection lowers it further to the QUIC datagram size the path reports.
+    /// (1200 - 3). The connection lowers it when a send fails with EMSGSIZE.
     static let maxDatagramSize = 1200 - 3
 
     /// Fixed part of the header: session ID (4) + packet ID (2) + frag ID (1) + frag count (1).

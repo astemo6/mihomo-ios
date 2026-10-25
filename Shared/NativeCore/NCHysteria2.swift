@@ -507,8 +507,8 @@ final class NCHysteria2Connection {
     /// A peer-initiated datagram flow that arrived while we already had our own (kept so it stays
     /// alive and its datagrams are read; never sent on).
     private var peerDatagramFlow: NWConnection?
-    /// Largest UDPMessage per datagram: sing-quic's 1197, lowered to the QUIC datagram size the flow
-    /// reports once ready, and again on EMSGSIZE.
+    /// Largest UDPMessage per datagram: sing-quic's 1197, lowered on EMSGSIZE (NWProtocolQUIC.Metadata
+    /// exposes no max datagram size in the iOS SDK — CI build error, so the send error is the signal).
     private var datagramLimit = NCHy2UDP.maxDatagramSize
     /// UDP sessions by hysteria session ID (session queue only). Inbound datagrams are demultiplexed on
     /// the 4-byte session ID (NCHy2UDP.peekSessionID) and handed raw to exactly one sink; the sink's
@@ -896,10 +896,6 @@ final class NCHysteria2Connection {
             guard let self, let flow else { return }
             switch st {
             case .ready:
-                if let meta = flow.metadata(definition: NWProtocolQUIC.definition) as? NWProtocolQUIC.Metadata,
-                   meta.maxDatagramSize > 0 {
-                    self.datagramLimit = min(self.datagramLimit, meta.maxDatagramSize)
-                }
                 self.readDatagrams(flow)
             case .failed, .cancelled:
                 // A dead flow is re-extracted on the next send / registration.
