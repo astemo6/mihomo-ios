@@ -229,13 +229,13 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertGreaterThan(ok, fx.cases.count * 9 / 10)
     }
 
-    /// net/url, net, net/http pieces (GoNetSemantics.swift) against Go's own answers.
-    func testGoNetSemantics() throws {
+    /// net/url, net, net/http pieces (NetSemantics.swift) against Go's own answers.
+    func testNetSemantics() throws {
         guard let fx = try regexFixtures() else { return }
-        XCTAssertEqual(GoURL.pathEsc.map { Int($0) }, fx.pathEsc.map { Int(UInt32(truncatingIfNeeded: $0)) })
-        XCTAssertEqual(GoURL.queryEsc.map { Int($0) }, fx.queryEsc.map { Int(UInt32(truncatingIfNeeded: $0)) })
+        XCTAssertEqual(NetURL.pathEsc.map { Int($0) }, fx.pathEsc.map { Int(UInt32(truncatingIfNeeded: $0)) })
+        XCTAssertEqual(NetURL.queryEsc.map { Int($0) }, fx.queryEsc.map { Int(UInt32(truncatingIfNeeded: $0)) })
         for t in fx.net.targets {
-            let got = GoURL.parseRequestURI(t.t)
+            let got = NetURL.parseRequestURI(t.t)
             if t.err == true {
                 XCTAssertNil(got, "target \(t.t.debugDescription): Go errors")
                 continue
@@ -246,17 +246,17 @@ final class NativeMitmRewriteTests: XCTestCase {
             XCTAssertEqual(g.forceQuery, t.force ?? false, t.t)
             XCTAssertEqual(g.host ?? "", t.host ?? "", t.t)
         }
-        for q in fx.net.queries { XCTAssertEqual(GoURL.cleanQuery(q[0]), q[1], q[0]) }
+        for q in fx.net.queries { XCTAssertEqual(NetURL.cleanQuery(q[0]), q[1], q[0]) }
         for h in fx.net.hosts {
-            let got = GoURL.splitHostPort(h.hp)
+            let got = NetURL.splitHostPort(h.hp)
             if h.err == true { XCTAssertNil(got, h.hp); continue }
             XCTAssertEqual(got?.0, h.host ?? "", h.hp)
             XCTAssertEqual(got?.1, h.port ?? "", h.hp)
         }
-        for code in 0..<1000 { XCTAssertEqual(GoStatus.text[code], fx.net.status[String(code)], "status \(code)") }
+        for code in 0..<1000 { XCTAssertEqual(NetStatus.text[code], fx.net.status[String(code)], "status \(code)") }
         for s in fx.net.sniff {
             let d = Data(base64Encoded: s[0]) ?? Data()
-            XCTAssertEqual(GoSniff.detect(d), s[1], s[0])
+            XCTAssertEqual(NetSniff.detect(d), s[1], s[0])
         }
     }
 
@@ -354,9 +354,9 @@ final class NativeMitmRewriteTests: XCTestCase {
     }
 
     func testHeaderCanonicalAndHop() {
-        XCTAssertEqual(GoHeader.canonical("x-foo-BAR"), "X-Foo-Bar")
-        XCTAssertEqual(GoHeader.canonical("x foo"), "x foo")
-        var h = GoHeader(pairs: [["connection", "keep-alive, X-Hop"], ["x-hop", "1"], ["Te", "trailers"], ["A", "1"], ["a", "2"]])
+        XCTAssertEqual(CanonicalHeader.canonical("x-foo-BAR"), "X-Foo-Bar")
+        XCTAssertEqual(CanonicalHeader.canonical("x foo"), "x foo")
+        var h = CanonicalHeader(pairs: [["connection", "keep-alive, X-Hop"], ["x-hop", "1"], ["Te", "trailers"], ["A", "1"], ["a", "2"]])
         XCTAssertTrue(h.containsToken("Te", "TRAILERS"))
         h.removeHopByHop()
         XCTAssertEqual(h.sortedPairs, [["A", "1"], ["A", "2"]])
@@ -445,7 +445,7 @@ final class NativeMitmRewriteTests: XCTestCase {
     private static func entry(_ evs: [Ev], labels: [String]) -> LogEntry? {
         guard let first = evs.first else { return nil }
         func flat(_ h: [[String]]?) -> [String: String]? {
-            let m = GoHeader(pairs: h ?? []).map.mapValues { $0.joined(separator: ", ") }
+            let m = CanonicalHeader(pairs: h ?? []).map.mapValues { $0.joined(separator: ", ") }
             return m.isEmpty ? nil : m
         }
         func names(_ r: [Int]?) -> [String] { (r ?? []).compactMap { $0 >= 0 && $0 < labels.count ? labels[$0] : nil } }

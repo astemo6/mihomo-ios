@@ -16,7 +16,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         }
     }
 
-    final class FakeGo: GoMemoryControlling {
+    final class FakeGo: RuntimeMemoryControlling {
         var active = false
         var configured: Int64 = 26 << 20
         var nonGarbage: Int64 = 12 << 20
@@ -24,15 +24,15 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         var loan = false
         var limitCalls: [Int64] = []
         var freeOS = 0
-        var sheds: [(level: Int, flags: GoShedFlags, reason: String)] = []
+        var sheds: [(level: Int, flags: MemoryShedFlags, reason: String)] = []
         var connShed: [Int] = []
         /// what a FreeOSMemory gives back (applied to `memory`)
         var freeOSGives = 0
         weak var memory: FakeMemory?
 
         func setActive(_ on: Bool) { active = on }
-        func info() -> GoMemoryInfo? {
-            GoMemoryInfo(heap: 10 << 20, nonGarbage: nonGarbage, floor: max(16 << 20, nonGarbage + 2 << 20), limit: limit,
+        func info() -> RuntimeMemoryInfo? {
+            RuntimeMemoryInfo(heap: 10 << 20, nonGarbage: nonGarbage, floor: max(16 << 20, nonGarbage + 2 << 20), limit: limit,
                          configured: configured, numGC: 1, goroutines: 100, loan: loan)
         }
         func setLimit(_ bytes: Int64) -> Int64 {
@@ -49,7 +49,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
             memory?.available += freeOSGives
             return true
         }
-        func shed(level: Int, flags: GoShedFlags, reason: String) -> String {
+        func shed(level: Int, flags: MemoryShedFlags, reason: String) -> String {
             sheds.append((level, flags, reason))
             return "shed L\(level)"
         }
