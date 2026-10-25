@@ -154,7 +154,8 @@ final class NCMieruStream: NCRelayStream {
 
     /// SOCKS5 request as mieru's model.Request.WriteToSocks5: VER CMD RSV ATYP ADDR PORT.
     static func socksRequest(target: NCTarget, udp: Bool) -> Data {
-        var d = Data([0x05, udp ? 0x03 : 0x01, 0x00])
+        let cmd: UInt8 = udp ? 0x03 : 0x01
+        var d = Data([0x05, cmd, 0x00])
         d.append(target.atypEncoded)
         return d
     }
@@ -175,7 +176,7 @@ final class NCMieruStream: NCRelayStream {
         func pump() {
             pull { [weak self] err in
                 guard let self, !finished else { return }
-                if let err { finished = true; timer.cancel(); completion(err); return }
+                if let err = err ?? self.failure { finished = true; timer.cancel(); completion(err); return }
                 if self.awaitingReply {
                     if self.eof { finished = true; timer.cancel(); completion(NCFramedRelay.err("mieru: closed before SOCKS5 reply")); return }
                     pump()
@@ -396,7 +397,7 @@ final class NCMieruStream: NCRelayStream {
         replyBuf.append(payload)
         let b = [UInt8](replyBuf)
         guard b.count >= 5 else { return }
-        var len: Int
+        let len: Int
         switch b[3] {
         case 0x01: len = 4 + 4 + 2
         case 0x04: len = 4 + 16 + 2
