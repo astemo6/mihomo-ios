@@ -36,7 +36,7 @@ struct NCMemberPool {
         }
     }
 
-    private static func compileRegs(_ s: String) -> [NSRegularExpression]? {
+    static func compileRegs(_ s: String) -> [NSRegularExpression]? {
         if s.isEmpty { return [] }
         var out: [NSRegularExpression] = []
         for f in s.split(separator: "`", omittingEmptySubsequences: false) {
@@ -46,7 +46,7 @@ struct NCMemberPool {
         return out
     }
 
-    private static func match(_ re: NSRegularExpression, _ s: String) -> Bool {
+    static func match(_ re: NSRegularExpression, _ s: String) -> Bool {
         re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil
     }
 
@@ -269,7 +269,7 @@ private final class NCChainGraph {
 
 extension NCRuntimeSteps {
 
-    private static let builtinPolicies: Set<String> =
+    static let builtinPolicies: Set<String> =
         ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE", "GLOBAL"]
 
     /// bridge applyChains: group chains, then the loop guard.
@@ -364,6 +364,388 @@ extension NCRuntimeSteps {
             }
         }
         g.flush(&raw)
+        return warns
+    }
+}
+
+// MARK: - Proxy chains (proxychains.go)
+
+private final class NCChainBuild {
+    var proxies: [String: [String: NCJSONValue]] = [:]   // profile's own inline proxies
+    var groups: [String: [String: NCJSONValue]] = [:]    // groups before chains
+    var providers: [String: [String: NCJSONValue]] = [:]
+    var provOrder: [String] = []
+    var taken: Set<String> = []
+    var generated: Set<String> = []
+    var aliases: Set<String> = []
+    // per chain
+    var newGroups: [NCJSONValue] = []
+    var newProviders: [String: NCJSONValue] = [:]
+    var udp = false
+    var alias = ""
+    var err = ""
+
+    func unique(_ base: String) -> String {
+        var n = base
+        var i = 2
+        while taken.contains(n) {
+            n = "\(base) #\(i)"
+            i += 1
+        }
+        taken.insert(n)
+        return n
+    }
+
+    func providerName(_ hop: Int, _ base: String) -> String {
+        var n = "\(NCRuntimeSteps.generatedProviderPrefix)\(alias)/\(hop)/\(base)"
+        var i = 2
+        while providers[n] != nil || newProviders[n] != nil {
+            n = "\(NCRuntimeSteps.generatedProviderPrefix)\(alias)/\(hop)/\(base)-\(i)"
+            i += 1
+        }
+        return n
+    }
+
+    func hopOverride(_ base: [String: NCJSONValue], _ via: String) -> [String: NCJSONValue] {
+        var ov = base
+        ov["dialer-proxy"] = .string(via)
+        ov["udp"] = .bool(udp)
+        return ov
+    }
+
+    func copyGroup(
+        _ g: [String: NCJSONValue], name: String, via: String,
+        hop: Int, hidden: Bool, depth: Int
+    ) -> Bool {
+        if depth > 4 {
+            err = "策略组「\(g.str("name"))」嵌套太深"
+            return false
+        }
+        var c: [String: NCJSONValue] = [:]
+        let skip: Set<String> = ["name", "proxies", "use", "include-all", "include-all-proxies",
+                                 "include-all-providers", "hidden", "dialer-proxy"]
+        for (k, v) in g where !skip.contains(k) { c[k] = v }
+        c["name"] = .string(name)
+        if hidden { c["hidden"] = .bool(true) }
+        var payload: [NCJSONValue] = []
+        var seen = Set<String>()
+        var explicitNodes: [String] = []
+        func addNode(_ n: String, explicit: Bool) {
+            if seen.contains(n) { return }
+            guard var cp = proxies[n] else { return }
+            seen.insert(n)
+            cp.removeValue(forKey: "dialer-proxy")
+            payload.append(.object(cp))
+            if explicit { explicitNodes.append(n) }
+        }
+        var members: [NCJSONValue] = []
+        for m in g.strList("proxies") {
+            switch true {
+            case NCRuntimeSteps.builtinPolicies.contains(m.uppercased()):
+                members.append(.string(m))
+            case generated.contains(m) || aliases.contains(m):
+                continue // another chain inside a later hop: skipped
+            case proxies[m] != nil:
+                addNode(m, explicit: true)
+            case groups[m] != nil:
+                let sub = unique(alias + " › " + m)
+                let subHidden = groups[m]?.str("type").lowercased() != "select"
+                if !copyGroup(groups[m]!, name: sub, via: via, hop: hop, hidden: subHidden, depth: depth + 1) {
+                    return false
+                }
+                members.append(.string(sub))
+            default:
+                continue
+            }
+        }
+        let includeAll = g.boolOf("include-all")
+        if includeAll || g.boolOf("include-all-proxies") {
+            let regs = NCMemberPool.compileRegsPublic(g.str("filter")) ?? []
+            for n in proxies.keys.sorted() {
+                let ok = regs.isEmpty || regs.contains { NCMemberPool.matchPublic($0, n) }
+                if ok { addNode(n, explicit: false) }
+            }
+        }
+        var use: [NCJSONValue] = []
+        if !payload.isEmpty {
+            let pn = providerName(hop, "nodes")
+            newProviders[pn] = .object([
+                "type": .string("inline"),
+                "payload": .array(payload),
+                "override": .object(hopOverride([:], via)),
+            ])
+            use.append(.string(pn))
+        }
+        var uses = g.strList("use")
+        if includeAll || g.boolOf("include-all-providers") {
+            uses = provOrder
+        }
+        for u in uses {
+            guard var cp = providers[u] else { continue }
+            cp["override"] = .object(hopOverride(cp.map("override"), via))
+            if cp.str("type").lowercased() == "http" {
+                cp["interval"] = .number(0)
+            }
+            let pn = providerName(hop, u)
+            newProviders[pn] = .object(cp)
+            use.append(.string(pn))
+        }
+        if let f = c.str("filter").isEmpty ? nil : c.str("filter"), !explicitNodes.isEmpty {
+            let quoted = explicitNodes.map {
+                Self.quoteMeta($0).replacingOccurrences(of: "`", with: "\\x60")
+            }
+            c["filter"] = .string(f + "`^(?:" + quoted.joined(separator: "|") + ")$")
+        }
+        if members.isEmpty && use.isEmpty {
+            err = "策略组「\(g.str("name"))」里没有可用的节点"
+            return false
+        }
+        if !members.isEmpty { c["proxies"] = .array(members) }
+        if !use.isEmpty { c["use"] = .array(use) }
+        generated.insert(name)
+        newGroups.append(.object(c))
+        return true
+    }
+
+    /// Go regexp.QuoteMeta.
+    static func quoteMeta(_ s: String) -> String {
+        var out = ""
+        for ch in s {
+            if "\\.+*?()|[]{}^$".contains(ch) { out.append("\\") }
+            out.append(ch)
+        }
+        return out
+    }
+
+    func hop(_ m: String, _ via: String, _ name: String, _ k: Int, _ hidden0: Bool) -> Bool {
+        var hidden = hidden0
+        if let g = groups[m] {
+            if hidden && g.str("type").lowercased() == "select" {
+                hidden = false
+            }
+            return copyGroup(g, name: name, via: via, hop: k, hidden: hidden, depth: 0)
+        }
+        let synthetic: [String: NCJSONValue] = [
+            "name": .string(m), "type": .string("select"),
+            "proxies": .array([.string(m)]),
+        ]
+        return copyGroup(synthetic, name: name, via: via, hop: k, hidden: hidden, depth: 0)
+    }
+}
+
+extension NCRuntimeSteps {
+
+    static let generatedProviderPrefix = "tern.chain/"
+
+    /// bridge applyProxyChains. build=false （安全模式） only clears references.
+    static func applyProxyChains(
+        _ raw: inout [String: NCJSONValue],
+        chains: [NCProxyChain],
+        build: Bool
+    ) -> [String] {
+        if chains.isEmpty { return [] }
+        let b = NCChainBuild()
+        for p in raw.list("proxies") {
+            if case .object(let m) = p {
+                let n = m.str("name")
+                if !n.isEmpty {
+                    b.proxies[n] = m
+                    b.taken.insert(n)
+                }
+            }
+        }
+        for x in raw.list("proxy-groups") {
+            if case .object(let g) = x {
+                let n = g.str("name")
+                if !n.isEmpty {
+                    b.groups[n] = g
+                    b.taken.insert(n)
+                }
+            }
+        }
+        for (n, x) in raw.map("proxy-providers") {
+            if case .object(let m) = x {
+                b.providers[n] = m
+                b.provOrder.append(n)
+            }
+        }
+        b.provOrder.sort()
+        for n in builtinPolicies { b.taken.insert(n) }
+
+        var warns: [String] = []
+        var dead = Set<String>()
+        var built = 0
+        for ch in chains {
+            let alias = ch.name.trimmingCharacters(in: .whitespaces)
+            if alias.isEmpty { continue }
+            if b.aliases.contains(alias) || dead.contains(alias) {
+                warns.append("代理链「\(alias)」重名，只用第一条")
+                continue
+            }
+            if b.taken.contains(alias) {
+                warns.append("代理链「\(alias)」与已有的节点或策略组同名，未启用")
+                continue
+            }
+            if !build || !ch.enabled {
+                dead.insert(alias)
+                continue
+            }
+            func fail(_ why: String) {
+                warns.append("代理链「\(alias)」未启用：\(why)")
+                dead.insert(alias)
+            }
+            let members = ch.members
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if members.count < 2 {
+                fail("至少需要两个节点或策略组")
+                continue
+            }
+            var bad = ""
+            for m in members {
+                if b.aliases.contains(m) || b.generated.contains(m) || m == alias {
+                    bad = "不能包含代理链「\(m)」"
+                    break
+                }
+                if b.proxies[m] == nil && b.groups[m] == nil {
+                    bad = "当前配置里没有「\(m)」"
+                    break
+                }
+                if m == probeGroup {
+                    bad = "不能使用「\(m)」"
+                    break
+                }
+            }
+            if !bad.isEmpty {
+                fail(bad)
+                continue
+            }
+            b.alias = alias
+            b.udp = ch.udp
+            b.err = ""
+            b.newGroups = []
+            b.newProviders = [:]
+            b.taken.insert(alias)
+            var prev = members[0]
+            var ok = true
+            for k in 1..<members.count {
+                var name = alias
+                if k < members.count - 1 {
+                    name = b.unique("\(alias) › \(k + 1) \(members[k])")
+                }
+                if !b.hop(members[k], prev, name, k, name != alias) {
+                    ok = false
+                    break
+                }
+                prev = name
+            }
+            if !ok {
+                b.taken.remove(alias)
+                fail(b.err)
+                continue
+            }
+            // Commit, then the entry-hop loop check.
+            let oldGroups = raw["proxy-groups"]
+            let oldProviders = raw["proxy-providers"]
+            var pp = raw.map("proxy-providers")
+            for (n, v) in b.newProviders { pp[n] = v }
+            raw["proxy-providers"] = .object(pp)
+            raw["proxy-groups"] = .array(raw.list("proxy-groups") + b.newGroups)
+            let graph = NCChainGraph(raw)
+            if graph.reach(graph.key(members[0])).contains("g:" + alias) {
+                raw["proxy-groups"] = oldGroups
+                if oldProviders == nil {
+                    raw.removeValue(forKey: "proxy-providers")
+                } else {
+                    raw["proxy-providers"] = oldProviders
+                }
+                for x in b.newGroups {
+                    if case .object(let m) = x { b.generated.remove(m.str("name")) }
+                }
+                b.taken.remove(alias)
+                fail("「\(members[0])」已经经过这条链，会形成循环")
+                continue
+            }
+            b.aliases.insert(alias)
+            built += 1
+        }
+
+        if built > 0 {
+            var groups = raw.list("proxy-groups")
+            for gi in groups.indices {
+                guard case .object(var g) = groups[gi] else { continue }
+                let name = g.str("name")
+                if b.generated.contains(name) || b.aliases.contains(name) { continue }
+                let all = g.boolOf("include-all")
+                if !all && !g.boolOf("include-all-providers") { continue }
+                g.removeValue(forKey: "include-all")
+                g.removeValue(forKey: "include-all-providers")
+                if all { g["include-all-proxies"] = .bool(true) }
+                if !b.provOrder.isEmpty {
+                    g["use"] = .array(b.provOrder.map { NCJSONValue.string($0) })
+                } else {
+                    g.removeValue(forKey: "use")
+                }
+                groups[gi] = .object(g)
+            }
+            raw["proxy-groups"] = .array(groups)
+        }
+        if !dead.isEmpty {
+            warns += dropPolicyRefs(&raw, names: dead)
+        }
+        return warns
+    }
+
+    /// bridge dropPolicyRefs.
+    static func dropPolicyRefs(
+        _ raw: inout [String: NCJSONValue],
+        names: Set<String>
+    ) -> [String] {
+        var warns: [String] = []
+        var groups = raw.list("proxy-groups")
+        for gi in groups.indices {
+            guard case .object(var g) = groups[gi] else { continue }
+            let l = g.list("proxies")
+            if l.isEmpty { continue }
+            var kept = l.filter { !names.contains($0.strValue) }
+            if kept.count == l.count { continue }
+            if kept.isEmpty && g.list("use").isEmpty
+                && !g.boolOf("include-all") && !g.boolOf("include-all-proxies")
+                && !g.boolOf("include-all-providers") {
+                kept = [.string("DIRECT")]
+            }
+            g["proxies"] = .array(kept)
+            groups[gi] = .object(g)
+        }
+        raw["proxy-groups"] = .array(groups)
+        func fix(_ list: [NCJSONValue]) -> [NCJSONValue] {
+            var out: [NCJSONValue] = []
+            for v in list {
+                var v = v
+                if case .string(let s) = v {
+                    var parts = splitTopLevel(s)
+                    let idx = rulePolicyIndex(parts)
+                    if idx >= 0 && names.contains(parts[idx].trimmingCharacters(in: .whitespaces)) {
+                        if parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "match" {
+                            parts[idx] = "DIRECT"
+                            v = .string(parts.joined(separator: ","))
+                        } else {
+                            warns.append("规则「\(s)」指向未启用的代理链，已跳过")
+                            continue
+                        }
+                    }
+                }
+                out.append(v)
+            }
+            return out
+        }
+        if raw["rules"] != nil { raw["rules"] = .array(fix(raw.list("rules"))) }
+        if case .object(var sr) = raw["sub-rules"] ?? .null {
+            for k in sr.keys {
+                if case .array(let l) = sr[k] ?? .null { sr[k] = .array(fix(l)) }
+            }
+            raw["sub-rules"] = .object(sr)
+        }
         return warns
     }
 }

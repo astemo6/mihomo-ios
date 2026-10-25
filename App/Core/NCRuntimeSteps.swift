@@ -705,7 +705,7 @@ enum NCRuntimeSteps {
         return out
     }
 
-    private static func rulePolicyIndex(_ parts: [String]) -> Int {
+    static func rulePolicyIndex(_ parts: [String]) -> Int {
         if parts.count < 2 { return -1 }
         if parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "match" { return 1 }
         if parts.count < 3 { return -1 }
