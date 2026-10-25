@@ -110,6 +110,17 @@ final class NativeCoreLanShareTests: XCTestCase {
         XCTAssertNil(ip("example.com"))
     }
 
+    /// NCCIDR v6 prefixes whose length is not a multiple of 8 trapped (UInt8(0xff << n)).
+    func testCIDRV6OddPrefix() {
+        XCTAssertTrue(NCCIDR("fe80::/10")!.contains(NCIP("fe80::2")!))
+        XCTAssertTrue(NCCIDR("fe80::/10")!.contains(NCIP("febf::1")!))
+        XCTAssertFalse(NCCIDR("fe80::/10")!.contains(NCIP("fec0::1")!))
+        XCTAssertTrue(NCCIDR("fc00::/7")!.contains(NCIP("fd12::1")!))
+        XCTAssertFalse(NCCIDR("fc00::/7")!.contains(NCIP("fe00::1")!))
+        XCTAssertTrue(NCCIDR("2001:db8::/33")!.contains(NCIP("2001:db8:7fff::1")!))
+        XCTAssertFalse(NCCIDR("2001:db8::/33")!.contains(NCIP("2001:db8:8000::1")!))
+    }
+
     func testAdmitsAndSkipAuth() {
         var o = CoreOverrides()
         o.allowLan = true
