@@ -141,14 +141,19 @@ enum NCSupport {
         return nil
     }
 
-    /// Mieru (NCMieru, feat/nc-proto3): transport TCP (stream underlay), TCP + UDP-over-session traffic.
+    /// Mieru (NCMieru, feat/nc-proto3): transport TCP (stream underlay) + UDP (packet underlay),
+    /// TCP + UDP-over-session traffic, traffic-pattern applied (except explicit lowEntropy).
     static func mieruUnsupported(_ p: NCProxy) -> String? {
         let transport = (p.fields["transport"]?.string ?? "").uppercased()
-        if transport == "UDP" { return "Mieru transport UDP 尚未接入（仅 TCP）" }
-        if transport != "TCP" { return "Mieru transport 必须为 TCP 或 UDP" }
+        if transport != "TCP" && transport != "UDP" { return "Mieru transport 必须为 TCP 或 UDP" }
         if (p.fields["username"]?.string ?? "").isEmpty || (p.password ?? "").isEmpty { return "Mieru 缺少 username / password" }
         if (p.port ?? 0) == 0 && (p.fields["port-range"]?.string ?? "").isEmpty { return "Mieru 缺少 port / port-range" }
-        if let tp = p.fields["traffic-pattern"]?.string, !tp.isEmpty { return "Mieru traffic-pattern 尚未接入" }
+        if let tp = p.fields["traffic-pattern"]?.string, !tp.isEmpty {
+            // Decoded + applied in NCMieru (nonce / padding / TCP fragment); an explicit
+            // lowEntropy mode (mieru's low-entropy data codec) is the one unimplemented piece.
+            guard let pattern = NCMieruTrafficPattern.decode(tp) else { return "Mieru traffic-pattern 无效" }
+            if pattern.lowEntropyMode != 0 { return "Mieru traffic-pattern lowEntropy 尚未接入" }
+        }
         return nil
     }
 
