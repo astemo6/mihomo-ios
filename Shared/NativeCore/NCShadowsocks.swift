@@ -102,10 +102,16 @@ enum NCShadowsocks {
     /// Returns nil for an unknown cipher or a datagram that cannot fit.
     static func udpPacketEncode(cipher: String, password: String, plain: Data, salt: Data? = nil) -> Data? {
         guard let spec = spec(for: cipher) else { return nil }
+        return udpPacketEncode(spec: spec, master: masterKey(password: password, keyLen: spec.keyLen),
+                               plain: plain, salt: salt)
+    }
+
+    /// Same as above with the EVP_BytesToKey master key precomputed (one per
+    /// UDP session instead of one MD5 chain per datagram).
+    static func udpPacketEncode(spec: CipherSpec, master: Data, plain: Data, salt: Data? = nil) -> Data? {
         let salt = salt ?? Data((0..<spec.saltLen).map { _ in UInt8.random(in: 0...255) })
         guard salt.count == spec.saltLen,
               plain.count + spec.saltLen + 16 <= maxUDPPacketBytes else { return nil }
-        let master = masterKey(password: password, keyLen: spec.keyLen)
         let key = SymmetricKey(data: subkey(master: master, salt: salt, keyLen: spec.keyLen))
         guard let sealed = sealZeroNonce(spec: spec, key: key, plain: plain) else { return nil }
         var packet = salt
@@ -116,9 +122,14 @@ enum NCShadowsocks {
     /// Open one received UDP datagram; returns target header ‖ payload, or
     /// nil when the packet is truncated or fails AEAD verification.
     static func udpPacketDecode(cipher: String, password: String, packet: Data) -> Data? {
-        guard let spec = spec(for: cipher), packet.count >= spec.saltLen + 16 else { return nil }
+        guard let spec = spec(for: cipher) else { return nil }
+        return udpPacketDecode(spec: spec, master: masterKey(password: password, keyLen: spec.keyLen), packet: packet)
+    }
+
+    /// Same as above with the master key precomputed.
+    static func udpPacketDecode(spec: CipherSpec, master: Data, packet: Data) -> Data? {
+        guard packet.count >= spec.saltLen + 16 else { return nil }
         let salt = Data(packet.prefix(spec.saltLen))
-        let master = masterKey(password: password, keyLen: spec.keyLen)
         let key = SymmetricKey(data: subkey(master: master, salt: salt, keyLen: spec.keyLen))
         return openZeroNonce(spec: spec, key: key, sealed: Data(packet.dropFirst(spec.saltLen)))
     }

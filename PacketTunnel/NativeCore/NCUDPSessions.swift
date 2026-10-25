@@ -213,8 +213,9 @@ final class NCUDPSocks5Session: NCUDPSession {
 final class NCUDPSSSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let conn: NWConnection
-    private let cipher: String
-    private let password: String
+    /// Classic AEAD: cipher spec + EVP_BytesToKey master key, computed once
+    /// per session (the per-datagram work is only the HKDF subkey + seal).
+    private let aead: (spec: NCShadowsocks.CipherSpec, master: Data)?
     private var cancelled = false
     /// First undecodable reply per session is logged; the rest stay silent.
     private var dropLogged = false
@@ -227,13 +228,14 @@ final class NCUDPSSSession: NCUDPSession {
               let server = proxy.server, let port = proxy.port,
               NCShadowsocks.spec(for: cipherName) != nil || NCSS2022.isMethod2022(cipherName)
         else { return nil }
-        self.cipher = cipherName
-        self.password = pw
         if NCSS2022.isMethod2022(cipherName) {
             guard let crypto = NCSS2022UDPCrypto(method: cipherName, password: pw) else { return nil }
             ss2022 = crypto
+            aead = nil
         } else {
+            guard let spec = NCShadowsocks.spec(for: cipherName) else { return nil }
             ss2022 = nil
+            aead = (spec, NCShadowsocks.masterKey(password: pw, keyLen: spec.keyLen))
         }
         conn = NWConnection(host: NWEndpoint.Host(server),
                             port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
@@ -250,7 +252,7 @@ final class NCUDPSSSession: NCUDPSession {
             if let data {
                 if let ss2022 {
                     if let decoded = ss2022.decodePacket(data) { self.onReply(decoded.1) }
-                } else if let plain = NCShadowsocks.udpPacketDecode(cipher: cipher, password: password, packet: data),
+                } else if let aead, let plain = NCShadowsocks.udpPacketDecode(spec: aead.spec, master: aead.master, packet: data),
                           let payload = Self.stripTargetHeader(plain) {
                     self.onReply(payload)
                 } else if !self.dropLogged {
@@ -288,7 +290,7 @@ final class NCUDPSSSession: NCUDPSession {
         }
         var plain = target.atypEncoded
         plain.append(data)
-        guard let packet = NCShadowsocks.udpPacketEncode(cipher: cipher, password: password, plain: plain)
+        guard let aead, let packet = NCShadowsocks.udpPacketEncode(spec: aead.spec, master: aead.master, plain: plain)
         else { return }
         conn.send(content: packet, completion: .idempotent)
     }
