@@ -28,115 +28,126 @@ enum NativeRuntimePrep {
         let home = AppShared.homeURL.path
 
         return await Task.detached(priority: .userInitiated) { () -> String? in
-            let req = NCRuntimeBuilder.Request.load(home: home, profilePath: profile.path)
-            let safeMode = req.settings.core.safeMode
-
-            guard let profileData = NCRuntimeFiles.readRuntimeProfile(home: home, path: profile.path, safe: safeMode) else {
-                // Go surfaces the raw os.ReadFile error after the
-                // prefix; mirror that with the real read error.
-                var detail = "配置文件不可读"
-                do { _ = try Data(contentsOf: profile) } catch {
-                    detail = error.localizedDescription
-                }
-                return fail("读取配置失败: " + detail)
-            }
-
-            var rep = NCRuntimeBuilder.PrepReport()
-            rep.at = Int64(Date().timeIntervalSince1970)
-            rep.profile = (profile.path as NSString).lastPathComponent
-
-            var cfg: NCEngineConfig? = nil
-            var rs: NCEngineRuleset? = nil
-            if !safeMode {
-                let loaded = NCEngineConfig.load(home: home)
-                cfg = loaded
-                rs = NCMitmBuild.build(home: home, cfg: loaded)
-            }
-
-            var groupOrder: [String] = []
-            let buildResult: (data: Data, isJSON: Bool, raw: [String: NCJSONValue])
-            do {
-                buildResult = try NCRuntimeBuilder.build(
-                    profile: profileData,
-                    req: req,
-                    fd: 0
-                ) { raw in
-                    if let cfg {
-                        if cfg.anyOn, let rs {
-                            var unresolved: Set<String>? = nil
-                            let pre = NCRuntimeSteps.resolveCoreRules(raw, rules: rs.coreRules, unresolved: &unresolved)
-                            if !pre.isEmpty {
-                                raw["rules"] = .array(pre.map { NCJSONValue.string($0) } + raw.list("rules"))
-                            }
-                            NCRuntimeSteps.addRemoteModuleRules(&raw, coreRules: rs.coreRules, req.settings)
-                        }
-                        if cfg.quic == "all" {
-                            raw["rules"] = .array([.string("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT")] + raw.list("rules"))
-                        }
-                    }
-                    NCRuntimeBuilder.lowerForNative(home: home, &raw, &rep)
-                    groupOrder = NCRuntimeSteps.runtimeGroupNames(raw)
-                }
-            } catch let err as NCRuntimeBuilder.BuildError {
-                return fail(err.message)
-            } catch {
-                return fail(error.localizedDescription)
-            }
-
-            let runtimePath = URL(fileURLWithPath: home).appendingPathComponent("runtime.yaml").path
-            do {
-                try NCRuntimeFiles.writeAtomic(buildResult.data, to: runtimePath)
-            } catch {
-                return fail(error.localizedDescription)
-            }
-
-            writeRuntimeGroupOrder(home: home, names: groupOrder)
-
-            guard let runtimeJSON = NCRuntimeBuilder.jsonData(buildResult.raw) else {
-                return fail("native runtime JSON: 序列化失败")
-            }
-            let runtimeJSONPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-runtime.json").path
-            do {
-                try NCRuntimeFiles.writeAtomic(runtimeJSON, to: runtimeJSONPath)
-            } catch {
-                return fail(error.localizedDescription)
-            }
-
-            let snapPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json").path
-            if let cfg, let rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
-                let (snap, hosts) = NCRewriteSnapshotBuilder.export(home: home, cfg: cfg, rs: rs)
-                rep.rewrite = true
-                rep.mitmHosts = hosts
-                do {
-                    try NCRuntimeFiles.writeAtomic(Data(snap.utf8), to: snapPath)
-                } catch {
-                    return fail(error.localizedDescription)
-                }
-            } else {
-                try? FileManager.default.removeItem(atPath: snapPath)
-            }
-
-            let scriptRS: NCEngineRuleset? = (cfg != nil && cfg!.anyOn) ? rs : nil
-            do {
-                let (scripts, bad) = try NCScriptManifest.export(home: home, cfg: cfg, rs: scriptRS)
-                rep.scripts = scripts
-                if bad > 0 {
-                    rep.warnings = (rep.warnings ?? []) + ["\(bad) 个脚本加载失败（见 nativecore-scripts.json）"]
-                }
-            } catch {
-                let errStr = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                rep.warnings = (rep.warnings ?? []) + ["脚本清单写入失败：" + errStr]
-            }
-
-            if let prepData = try? JSONEncoder().encode(rep) {
-                let prepPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-prep.json").path
-                try? NCRuntimeFiles.writeAtomic(prepData, to: prepPath)
-            }
-
-            let summary = "runtime.yaml \(buildResult.data.count) B, \(rep.rules) rules, geosite \(rep.geosite?.count ?? 0), rewrite \(rep.rewrite ? "true" : "false"), mitm hosts \(rep.mitmHosts), warnings \(rep.warnings?.count ?? 0)"
-            NSLog("[Mihomo] native runtime prepared: %@", summary)
-            return nil
+            prepareSync(home: home, profile: profile)
         }.value
+    }
+
+    private final class PrepState {
+        var rep: NCRuntimeBuilder.PrepReport
+        var groupOrder: [String] = []
+        init(rep: NCRuntimeBuilder.PrepReport) { self.rep = rep }
+    }
+
+    private static func prepareSync(home: String, profile: URL) -> String? {
+        let req = NCRuntimeBuilder.Request.load(home: home, profilePath: profile.path)
+        let safeMode = req.settings.core.safeMode
+
+        guard let profileData = NCRuntimeFiles.readRuntimeProfile(home: home, path: profile.path, safe: safeMode) else {
+            // Go surfaces the raw os.ReadFile error after the
+            // prefix; mirror that with the real read error.
+            var detail = "配置文件不可读"
+            do { _ = try Data(contentsOf: profile) } catch {
+                detail = error.localizedDescription
+            }
+            return fail("读取配置失败: " + detail)
+        }
+
+        var rep = NCRuntimeBuilder.PrepReport()
+        rep.at = Int64(Date().timeIntervalSince1970)
+        rep.profile = (profile.path as NSString).lastPathComponent
+
+        // Immutable cfg / rs and a reference box for the state the (escaping) inject
+        // closure mutates: Swift 6.2's SIL verifier crashed (OwnershipModelEliminator,
+        // build #359) on the previous captured-var / deferred-let shape of this body.
+        let cfg: NCEngineConfig? = safeMode ? nil : NCEngineConfig.load(home: home)
+        let rs: NCEngineRuleset? = cfg.map { NCMitmBuild.build(home: home, cfg: $0) }
+        let box = PrepState(rep: rep)
+
+        var built: (data: Data, isJSON: Bool, raw: [String: NCJSONValue])? = nil
+        do {
+            built = try NCRuntimeBuilder.build(
+                profile: profileData,
+                req: req,
+                fd: 0
+            ) { raw in
+                if let cfg = cfg {
+                    if cfg.anyOn, let rs = rs {
+                        var unresolved: Set<String>? = nil
+                        let pre = NCRuntimeSteps.resolveCoreRules(raw, rules: rs.coreRules, unresolved: &unresolved)
+                        if !pre.isEmpty {
+                            raw["rules"] = .array(pre.map { NCJSONValue.string($0) } + raw.list("rules"))
+                        }
+                        NCRuntimeSteps.addRemoteModuleRules(&raw, coreRules: rs.coreRules, req.settings)
+                    }
+                    if cfg.quic == "all" {
+                        raw["rules"] = .array([.string("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT")] + raw.list("rules"))
+                    }
+                }
+                NCRuntimeBuilder.lowerForNative(home: home, &raw, &box.rep)
+                box.groupOrder = NCRuntimeSteps.runtimeGroupNames(raw)
+            }
+        } catch let err as NCRuntimeBuilder.BuildError {
+            return fail(err.message)
+        } catch {
+            return fail(error.localizedDescription)
+        }
+        guard let buildResult = built else { return fail("native runtime: 构建失败") }
+        rep = box.rep
+        let groupOrder = box.groupOrder
+
+        let runtimePath = URL(fileURLWithPath: home).appendingPathComponent("runtime.yaml").path
+        do {
+            try NCRuntimeFiles.writeAtomic(buildResult.data, to: runtimePath)
+        } catch {
+            return fail(error.localizedDescription)
+        }
+
+        writeRuntimeGroupOrder(home: home, names: groupOrder)
+
+        guard let runtimeJSON = NCRuntimeBuilder.jsonData(buildResult.raw) else {
+            return fail("native runtime JSON: 序列化失败")
+        }
+        let runtimeJSONPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-runtime.json").path
+        do {
+            try NCRuntimeFiles.writeAtomic(runtimeJSON, to: runtimeJSONPath)
+        } catch {
+            return fail(error.localizedDescription)
+        }
+
+        let snapPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json").path
+        if let cfg = cfg, let rs = rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
+            let (snap, hosts) = NCRewriteSnapshotBuilder.export(home: home, cfg: cfg, rs: rs)
+            rep.rewrite = true
+            rep.mitmHosts = hosts
+            do {
+                try NCRuntimeFiles.writeAtomic(Data(snap.utf8), to: snapPath)
+            } catch {
+                return fail(error.localizedDescription)
+            }
+        } else {
+            try? FileManager.default.removeItem(atPath: snapPath)
+        }
+
+        let scriptRS: NCEngineRuleset? = (cfg != nil && cfg!.anyOn) ? rs : nil
+        do {
+            let (scripts, bad) = try NCScriptManifest.export(home: home, cfg: cfg, rs: scriptRS)
+            rep.scripts = scripts
+            if bad > 0 {
+                rep.warnings = (rep.warnings ?? []) + ["\(bad) 个脚本加载失败（见 nativecore-scripts.json）"]
+            }
+        } catch {
+            let errStr = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            rep.warnings = (rep.warnings ?? []) + ["脚本清单写入失败：" + errStr]
+        }
+
+        if let prepData = try? JSONEncoder().encode(rep) {
+            let prepPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-prep.json").path
+            try? NCRuntimeFiles.writeAtomic(prepData, to: prepPath)
+        }
+
+        let summary = "runtime.yaml \(buildResult.data.count) B, \(rep.rules) rules, geosite \(rep.geosite?.count ?? 0), rewrite \(rep.rewrite ? "true" : "false"), mitm hosts \(rep.mitmHosts), warnings \(rep.warnings?.count ?? 0)"
+        NSLog("[Mihomo] native runtime prepared: %@", summary)
+        return nil
     }
 
     private static func writeRuntimeGroupOrder(home: String, names: [String]?) {
