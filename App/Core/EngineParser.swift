@@ -84,6 +84,8 @@ struct NCEngineRule {
     var script: NCEngineScript? = nil
     var headerPattern = ""
     var line = ""
+    /// mitm Rule.Source ("用户" or the module name), set by addRule.
+    var source = ""
     var desc = ""
 }
 
@@ -156,6 +158,15 @@ final class NCEngineRuleset {
     var coreRules: [String] = []
     var errors: [String] = []
     var unsupported: [String] = []
+    /// mitm Ruleset.SkipCertVerify / H2: set by [MITM] key lines
+    /// (skip-server-cert-verify / skip-cert-verify / skip_validating_cert,
+    /// h2) and by Stash YAML http.skip-cert-verify. Build merges a
+    /// module's skipCertVerify into the parent ruleset (only-true).
+    var skipCertVerify: Bool? = nil
+    var h2: Bool? = nil
+    /// Source label of the text currently being parsed; addRule stamps
+    /// it onto each rule (mitm addRule's source parameter).
+    var parseSource = ""
     var name = ""
     var desc = ""
     var author = ""
@@ -172,9 +183,10 @@ final class NCEngineRuleset {
     var metadata: [String: String] = [:]
     /// Resolved Loon [Argument] values for expression-line evaluation:
     /// user-supplied value when present, else the declared default, plus
-    /// the declared value type (string / number / boolean) used to type
+    /// the declared value type (string / number / boolean) and the
+    /// declared widget type (switch / select / …) used to type
     /// plugin-object arguments. Filled by parseText.
-    var loonArgContext: [String: (value: String, valueType: String?)] = [:]
+    var loonArgContext: [String: (value: String, valueType: String?, type: String?)] = [:]
 
     /// bridge/engine.go toParsed, field for field.
     func projected() -> ParsedEngineText {
@@ -247,6 +259,7 @@ final class NCEngineRuleset {
             }
         }
         r.line = line
+        r.source = parseSource
         r.desc = Self.describe(r)
         rules.append(r)
     }
@@ -590,8 +603,10 @@ extension NCEngineRuleset {
         if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") || line.hasPrefix("//") {
             return (RuleConv(), nil)
         }
+        // mitm ConvertRuleLine: two sequential TrimPrefix calls, so a
+        // YAML list item "- - DOMAIN,…" also converts.
         if line.hasPrefix("- ") { line = String(line.dropFirst(2)) }
-        else if line.hasPrefix("-") { line = String(line.dropFirst()) }
+        if line.hasPrefix("-") { line = String(line.dropFirst()) }
         line = line.trimmingCharacters(in: .whitespaces)
         let parts = splitTop(line)
         let t = (parts.first ?? "").uppercased()
@@ -997,13 +1012,12 @@ extension NCEngineRuleset {
     /// names allowed in their fields. (Go re-renders the parsed schedule;
     /// the stored form here is the whitespace-collapsed original.)
     static func cronValid(_ expr: String) -> Bool {
+        // mitm cron.go ParseCron: 5 fields, or 6 with leading seconds —
+        // the 6th field is never a year. Ranges must satisfy a <= b
+        // (parseField errors on a > b); values resolve through the
+        // month / weekday name tables before bounds-checking.
         let f = expr.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         guard f.count == 5 || f.count == 6 else { return false }
-        if f.count == 6 {
-            // Loon's optional 6th field is a year; Surge's is seconds.
-            // Accept when either reading validates.
-            if cronValid(f.dropLast().joined(separator: " ")) && yearFieldValid(f[5]) { return true }
-        }
         let bounds5 = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)]
         let bounds = f.count == 5 ? bounds5 : [(0, 59)] + bounds5
         let monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
@@ -1012,6 +1026,13 @@ extension NCEngineRuleset {
             let (lo, hi) = bounds[idx]
             let isMonth = (f.count == 5 && idx == 3) || (f.count == 6 && idx == 4)
             let isDow = (f.count == 5 && idx == 4) || (f.count == 6 && idx == 5)
+            func resolve(_ e: Substring) -> Int? {
+                let v = String(e).uppercased()
+                if let n = Int(v) { return n }
+                if isMonth, let i = monthNames.firstIndex(of: v) { return i + 1 }
+                if isDow, let i = dowNames.firstIndex(of: v) { return i }
+                return nil
+            }
             for item in field.split(separator: ",", omittingEmptySubsequences: false) {
                 var base = String(item)
                 if let slash = base.firstIndex(of: "/") {
@@ -1022,31 +1043,16 @@ extension NCEngineRuleset {
                 if base == "*" || base == "?" { continue }
                 let ends = base.split(separator: "-", omittingEmptySubsequences: false)
                 if ends.count > 2 { return false }
+                var resolved: [Int] = []
                 for e in ends {
-                    let v = String(e).uppercased()
-                    if let n = Int(v) {
-                        if n < lo || n > hi { return false }
-                    } else if isMonth && monthNames.contains(v) {
-                        continue
-                    } else if isDow && dowNames.contains(v) {
-                        continue
-                    } else {
-                        return false
-                    }
+                    guard let n = resolve(e) else { return false }
+                    if n < lo || n > hi { return false }
+                    resolved.append(n)
                 }
+                if resolved.count == 2 && resolved[0] > resolved[1] { return false }
             }
         }
         return true
-    }
-
-    static func yearFieldValid(_ field: String) -> Bool {
-        if field == "*" || field == "?" { return true }
-        return field.split(separator: ",").allSatisfy { part in
-            let base = part.split(separator: "/").first.map(String.init) ?? ""
-            return base.split(separator: "-").allSatisfy { v in
-                v == "*" || (Int(v).map { (1970...2099).contains($0) } ?? false)
-            }
-        }
     }
 
     static func cronLooksValid(_ expr: String) -> Bool {
@@ -1099,6 +1105,11 @@ extension NCEngineRuleset {
         t.format = format
         t.line = line
         t.source = source
+        // mitm addTask constructs the Task with the event parameter
+        // up front (the switch below only validates / defaults it), so
+        // a generic task called with event="network-changed" (the Loon
+        // generic form) keeps it.
+        if !event.isEmpty { t.event = event }
         switch kind {
         case "cron":
             guard Self.cronValid(cron) else {
@@ -1109,7 +1120,9 @@ extension NCEngineRuleset {
             t.cron = normalized
             mutSc.type = "cron"
             if mutSc.cron.isEmpty {
-                mutSc.cron = normalized
+                // Go backfills sc.Cron with the ORIGINAL cron string;
+                // only t.Cron carries the normalized form.
+                mutSc.cron = cron0
             }
         case "event":
             let ev = event.isEmpty ? "network-changed" : event
@@ -1421,6 +1434,12 @@ extension NCEngineRuleset {
                     continue
                 }
                 let v = ctx.value
+                // mitm loonObjectArgs typing: a switch argument is a
+                // Boolean before the type= value type is consulted.
+                if ctx.type == "switch" {
+                    pairs.append("\(Self.jsonEscaped(key)):\(Self.truthy(v) ? "true" : "false")")
+                    continue
+                }
                 switch ctx.valueType {
                 case "number":
                     pairs.append("\(Self.jsonEscaped(key)):\(Double(v) != nil ? v : Self.jsonEscaped(v))")
@@ -1568,7 +1587,10 @@ extension NCEngineRuleset {
             if Self.disabledByParam(p) { return true }
             let isEvent = m[1].lowercased() == "network-changed"
             let sc = Self.scriptFromParams(name: p["tag"] ?? "", p: p)
-            addTask(kind: isEvent ? "event" : "generic", cron: "", event: isEvent ? "network-changed" : "",
+            // mitm parse.go passes event="network-changed" for BOTH the
+            // network-changed and generic forms; addTask keeps it on the
+            // task (see addTask's up-front event assignment).
+            addTask(kind: isEvent ? "event" : "generic", cron: "", event: "network-changed",
                     sc: sc, source: source, line: line, format: "loon", params: p)
             return true
         }
@@ -1576,6 +1598,7 @@ extension NCEngineRuleset {
     }
 
     func parseLine(_ line0: String, section: String, source: String) {
+        parseSource = source
         let line = line0.trimmingCharacters(in: .whitespaces)
         if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") || line.hasPrefix("//") { return }
         let add: (NCEngineRule?, AddError?) -> Void = { [self] r, e in addRule(line: line, r, e) }
@@ -1588,8 +1611,16 @@ extension NCEngineRuleset {
             case "hostname":
                 addHosts(v)
                 return
-            case "hostname-disabled", "skip-server-cert-verify", "skip-cert-verify",
-                 "skip_validating_cert", "h2", "tcp-connection", "ca-passphrase", "ca-p12",
+            case "skip-server-cert-verify", "skip-cert-verify", "skip_validating_cert":
+                // mitm parse.go: rs.SkipCertVerify = truthy(v) — the flag
+                // used to be discarded with the other ignored keys, so a
+                // module asking to skip verification never took effect.
+                skipCertVerify = Self.truthy(v)
+                return
+            case "h2":
+                h2 = Self.truthy(v)
+                return
+            case "hostname-disabled", "tcp-connection", "ca-passphrase", "ca-p12",
                  "passphrase", "p12", "client-source-address", "auto-quic-block",
                  "skip_src_ip", "skip_dst_ip":
                 return
@@ -1917,8 +1948,63 @@ extension NCEngineRuleset {
     /// script("…", {${a}, ${b}}) selector list would corrupt it.
     static let loonExprLineRe = regex(#"^(?:(?:http-request|http-response|request|response)[ \t]+if[ \t]|cron[ \t]+\S.*[ \t]then[ \t]+script\(|(?:generic|network-changed)[ \t]+then[ \t]+script\()"#, options: [.caseInsensitive])
 
-    /// mitm applyLoonArgs: substitute {key} / ${key} (and Surge-style
-    /// {{{key}}} first), then drop enable=false lines and strip resolved
+    /// mitm loonArgListRe: Loon's plugin-object argument list.
+    static let loonArgListRe = regex(#"\bargument\s*=\s*"?\[\s*(\{[^{}\[\],"]+\}(?:\s*,\s*\{[^{}\[\],"]+\})*)\s*\]"?"#, options: [.caseInsensitive])
+
+    /// mitm loonObjectArgs: turn `argument=[{a},{b}]` into the typed
+    /// object envelope (`argument=__tern_loon_obj__:<base64url JSON>`)
+    /// BEFORE any {key} substitution — substituting first used to hand
+    /// the script the string "[v1,v2]" and setScriptArgument's envelope
+    /// decode never triggered. Typing: switch → Boolean (truthy),
+    /// type=number → Number when parseable, otherwise String. A list
+    /// naming an undeclared argument is left as written.
+    static func loonObjectArgs(_ text: String, args: [ModArg], user: [String: String]) -> String {
+        guard let re = loonArgListRe else { return text }
+        let byKey = Dictionary(args.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        let ns = text as NSString
+        var result = ""
+        var last = 0
+        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            guard m.numberOfRanges > 1 else { continue }
+            let list = ns.substring(with: m.range(at: 1))
+            var pairs: [String] = []
+            var ok = true
+            for part in list.split(separator: ",") {
+                var k = String(part).trimmingCharacters(in: .whitespaces)
+                if k.hasPrefix("{") { k.removeFirst() }
+                if k.hasSuffix("}") { k.removeLast() }
+                k = k.trimmingCharacters(in: .whitespaces)
+                if k.hasPrefix("$") { k.removeFirst() }
+                if k.hasPrefix("{") { k.removeFirst() }
+                if k.hasSuffix("}") { k.removeLast() }
+                k = k.trimmingCharacters(in: .whitespaces)
+                guard let a = byKey[k] else { ok = false; break }
+                let v = user[k] ?? a.def
+                if a.type == "switch" {
+                    pairs.append("\(jsonEscaped(k)):\(truthy(v) ? "true" : "false")")
+                } else if a.valueType == "number",
+                          Double(v.trimmingCharacters(in: .whitespaces)) != nil {
+                    pairs.append("\(jsonEscaped(k)):\(v.trimmingCharacters(in: .whitespaces))")
+                } else {
+                    pairs.append("\(jsonEscaped(k)):\(jsonEscaped(v))")
+                }
+            }
+            guard ok else { continue }
+            let json = "{" + pairs.joined(separator: ",") + "}"
+            var b64 = Data(json.utf8).base64EncodedString()
+            b64 = b64.replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            while b64.hasSuffix("=") { b64.removeLast() }
+            result += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            result += "argument=__tern_loon_obj__:" + b64
+            last = m.range.location + m.range.length
+        }
+        result += ns.substring(from: last)
+        return result
+    }
+
+    /// mitm applyLoonArgs: encode plugin-object arguments, substitute
+    /// {{{key}}} then {key} (NOT ${key} — the expression syntax binds
+    /// that itself), then drop enable=false lines and strip resolved
     /// enable= options. Substitution is per line so .lpx expression
     /// lines can be skipped (they are resolved by parseLoonExpressionLine).
     static func applyLoonArgs(_ text0: String, args: [ModArg], user: [String: String]) -> String {
@@ -1931,10 +2017,10 @@ extension NCEngineRuleset {
                 out.append(l)
                 continue
             }
+            l = loonObjectArgs(l, args: args, user: user)
             for a in args {
                 let v = user[a.key] ?? a.def
                 l = l.replacingOccurrences(of: "{{{\(a.key)}}}", with: v)
-                l = l.replacingOccurrences(of: "${\(a.key)}", with: v)
                 l = l.replacingOccurrences(of: "{\(a.key)}", with: v)
             }
             if let re = enableRe,
@@ -2005,11 +2091,12 @@ extension NCEngineRuleset {
     }
 
     func parseText(_ text0: String, source: String, args: [String: String]) {
+        parseSource = source
         var text = text0
         if text.hasPrefix("\u{FEFF}") { text = String(text.dropFirst()) }
         text = text.replacingOccurrences(of: "\r\n", with: "\n")
         if Self.isEgern(text) {
-            parseEgern(text)
+            parseEgern(text, user: args)
             return
         }
         if parseQXTaskGallery(text) { return }
@@ -2019,7 +2106,7 @@ extension NCEngineRuleset {
         }
         let loonArgs = Self.parseLoonArguments(text)
         for a in loonArgs {
-            loonArgContext[a.key] = (value: args[a.key] ?? a.def, valueType: a.valueType)
+            loonArgContext[a.key] = (value: args[a.key] ?? a.def, valueType: a.valueType, type: a.type)
         }
         if !loonArgs.isEmpty {
             surgeArgs += loonArgs
@@ -2107,12 +2194,12 @@ extension NCEngineRuleset {
                                "compat_arguments:", "widgets:", "http_captures:", "real_ip_domains:",
                                "bypass_tunnel_proxy:", "env_schema:"]
     static let egernRuleItemRe = regex(#"^\s*-\s+(domain|domain_suffix|domain_keyword|domain_regex|domain_wildcard|ip_cidr|ip_cidr6|geoip|asn|url_regex|user_agent|dest_port|protocol|rule_set|and|or|not|default|ssid)\s*:\s*$"#)
-    static let stashRuleItemRe = regex(#"^\s*-\s+['"]?[A-Za-z][A-Za-z0-9\-]*,"#)
 
-    /// mitm IsEgern.
+    /// mitm IsEgern. (A Stash document — `rules:` plus `- DOMAIN,…`
+    /// items — must NOT match here: Go's IsEgern has no such branch,
+    /// and with it those files were routed away from parseStash.)
     static func isEgern(_ text: String) -> Bool {
         var hasRulesKey = false
-        var rulesKey = false
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let t = String(raw).trimmingCharacters(in: CharacterSet(charactersIn: " \t\r"))
             if t.isEmpty || t.hasPrefix("#") { continue }
@@ -2123,8 +2210,6 @@ extension NCEngineRuleset {
             }
             if hasRulesKey && firstMatch(egernRuleItemRe, t) != nil { return true }
             if t.hasPrefix("  hostnames:") || t.hasPrefix("    includes:") { return true }
-            if t == "rules:" { rulesKey = true }
-            else if rulesKey && firstMatch(stashRuleItemRe, t) != nil { return true }
         }
         return false
     }
@@ -2151,49 +2236,273 @@ extension NCEngineRuleset {
         return re.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1:")
     }
 
-    /// Egern YAML extraction: metadata, MITM hostnames, the
-    /// domain/IP-family rules (as core rules), and `scriptings:`
-    /// entries (parseEgernScripting, nc-compat). The rewrite families
-    /// still need Egern's per-entry object mapping; their entries are
-    /// surfaced in `unsupported` rather than dropped.
-    func parseEgern(_ text: String) {
+    // MARK: Egern helpers (mitm_egern.go egernStr / egernBool / egernEmpty)
+
+    static func egernStr(_ v: NCJSONValue?) -> String {
+        guard let v else { return "" }
+        if let s = v.string { return s }
+        if let b = v.bool { return b ? "true" : "false" }
+        if let n = v.number { return n == n.rounded() && abs(n) < 9.0e15 ? String(Int(n)) : String(n) }
+        return ""
+    }
+
+    static func egernBool(_ v: NCJSONValue?) -> Bool {
+        guard let v else { return false }
+        if let b = v.bool { return b }
+        if let s = v.string { return truthy(s) }
+        if let n = v.number { return n != 0 }
+        return false
+    }
+
+    static func egernEmpty(_ v: NCJSONValue?) -> Bool {
+        guard let v else { return true }
+        if let o = v.object { return o.isEmpty }
+        if let a = v.array { return a.isEmpty }
+        if let s = v.string { return s.trimmingCharacters(in: .whitespaces).isEmpty }
+        if case .null = v { return true }
+        return false
+    }
+
+    static let egernCondTypes: [String: String] = [
+        "domain": "DOMAIN", "domain_suffix": "DOMAIN-SUFFIX", "domain_keyword": "DOMAIN-KEYWORD",
+        "domain_regex": "DOMAIN-REGEX", "domain_wildcard": "DOMAIN-WILDCARD", "ip_cidr": "IP-CIDR",
+        "ip_cidr6": "IP-CIDR6", "geoip": "GEOIP", "asn": "IP-ASN", "url_regex": "URL-REGEX",
+        "dest_port": "DST-PORT", "protocol": "PROTOCOL", "rule_set": "RULE-SET",
+    ]
+
+    /// mitm egernCond: a rule entry is a single-key object
+    /// `{type: {match: …, policy: …}}`; logic keys recurse. Returns the
+    /// Surge condition (no policy) or the Go error text.
+    static func egernCond(_ item: NCJSONValue) -> (cond: String?, error: String?) {
+        guard let obj = item.object, obj.count == 1, let (k, v) = obj.first else {
+            return (nil, "无法识别的 Egern 规则")
+        }
+        let body = v.object ?? [:]
+        if k == "and" || k == "or" || k == "not" {
+            var items: [NCJSONValue] = []
+            if let m = body["match"] {
+                if let arr = m.array { items = arr } else { items = [m] }
+            }
+            var subs: [String] = []
+            for s in items {
+                let (c, e) = egernCond(s)
+                if let e { return (nil, e) }
+                if let c { subs.append("(" + c + ")") }
+            }
+            if subs.isEmpty { return (nil, "逻辑规则缺少条件") }
+            return (k.uppercased() + ",(" + subs.joined(separator: ",") + ")", nil)
+        }
+        guard let t = egernCondTypes[k] else {
+            return (nil, "Egern 规则类型 \(k) 暂不支持")
+        }
+        var match = egernStr(body["match"]).trimmingCharacters(in: .whitespaces)
+        if match.isEmpty { return (nil, "\(k) 缺少 match") }
+        switch k {
+        case "asn":
+            let up = match.uppercased()
+            match = up.hasPrefix("AS") ? String(up.dropFirst(2)) : up
+        case "dest_port":
+            match = match.replacingOccurrences(of: " ", with: "")
+                .replacingOccurrences(of: ",", with: "/")
+        case "protocol":
+            match = match.uppercased()
+        default:
+            break
+        }
+        var c = t + "," + match
+        if egernBool(body["no_resolve"]) { c += ",no-resolve" }
+        return (c, nil)
+    }
+
+    /// mitm egernRule.
+    func egernRule(_ item: NCJSONValue) {
+        guard let obj = item.object, obj.count == 1, let (k, v) = obj.first else {
+            unsupported.append("rules: \(item)")
+            return
+        }
+        if k == "default" {
+            unsupported.append("default（模块里的兜底规则不导入）")
+            return
+        }
+        let body = v.object ?? [:]
+        let policy = Self.egernStr(body["policy"]).trimmingCharacters(in: .whitespaces)
+        let (cond, err) = Self.egernCond(item)
+        if let err {
+            unsupported.append(err)
+            return
+        }
+        guard let cond else { return }
+        if policy.isEmpty {
+            unsupported.append("规则缺少 policy：" + cond)
+            return
+        }
+        var line = cond + "," + policy
+        if cond.hasSuffix(",no-resolve"), k != "and", k != "or", k != "not" {
+            line = String(cond.dropLast(",no-resolve".count)) + "," + policy + ",no-resolve"
+        }
+        parseCoreRule(line)
+    }
+
+    static let egernPlaceholderRe = regex(#"\{\{\{\s*([A-Za-z0-9_.\-]+)\s*\}\}\}"#)
+
+    /// mitm egernPlaceholderRe substitution: declared keys take their
+    /// (user-overridden) value; undeclared placeholders stay as written.
+    static func egernSubstitute(_ text: String, vals: [String: String]) -> String {
+        guard let re = egernPlaceholderRe else { return text }
+        let ns = text as NSString
+        var result = ""
+        var last = 0
+        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            result += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            let key = ns.substring(with: m.range(at: 1))
+            result += vals[key] ?? ns.substring(with: m.range)
+            last = m.range.location + m.range.length
+        }
+        result += ns.substring(from: last)
+        return result
+    }
+
+    /// mitm egernArgs: compat_arguments defaults (bool value → switch),
+    /// ordered by first appearance in the text; the description comes
+    /// from the compat_arguments_desc line starting with the key.
+    static func egernCompatArgs(_ text: String) -> [ModArg] {
+        // Neutralise placeholders so the YAML parses (Go does the same
+        // with a regex replace to a constant token).
+        guard let re = egernPlaceholderRe else { return [] }
+        let neutralized = re.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "__egern_arg__")
+        guard let root = NCYAML.parse(neutralized)?.object,
+              let defs = root["compat_arguments"]?.object else { return [] }
+        let descText = egernStr(root["compat_arguments_desc"])
+        let keys = defs.keys.sorted { a, b in
+            let ia = text.range(of: a + ":")?.lowerBound ?? text.endIndex
+            let ib = text.range(of: b + ":")?.lowerBound ?? text.endIndex
+            return ia < ib
+        }
+        var out: [ModArg] = []
+        for k in keys {
+            let v = defs[k]
+            var a = ModArg(key: k, def: egernStr(v))
+            if v?.bool != nil { a.type = "switch" }
+            for l in descText.split(separator: "\n") {
+                let t = String(l).trimmingCharacters(in: .whitespaces)
+                if t.hasPrefix(k) && t.count > k.count {
+                    a.desc = t
+                    break
+                }
+            }
+            out.append(a)
+        }
+        return out
+    }
+
+    static let egernKnownKeys: Set<String> = ["name", "description", "author", "homepage", "manual",
+                                              "icon", "open_url", "compat_arguments", "compat_arguments_desc", "env_schema", "dns",
+                                              "rules", "url_rewrites", "header_rewrites", "body_rewrites", "map_locals", "scriptings",
+                                              "mitm", "http_captures", "widgets", "bypass_tunnel_proxy", "real_ip_domains",
+                                              "proxies", "policy_groups", "category", "version", "date", "env"]
+
+    /// Egern YAML extraction (mitm parseEgern): metadata + author,
+    /// compat_arguments (with {{{key}}} substitution), MITM hostnames
+    /// (list or includes/excludes map) + skip_server_cert_verify,
+    /// nested rules via egernCond, scriptings, widgets → panels, and
+    /// unsupported notes for the sections Swift does not carry and for
+    /// unknown top-level keys. The rewrite families (url_rewrites /
+    /// header_rewrites / body_rewrites / map_locals) are still
+    /// surfaced in `unsupported` rather than converted — Go converts
+    /// them; that port is outstanding.
+    func parseEgern(_ text0: String, user: [String: String] = [:]) {
         format = "egern"
-        guard let root = NCYAML.parse(text)?.object else { return }
-        if let n = root["name"]?.string { name = n }
-        if let d = root["desc"]?.string ?? root["description"]?.string { desc = d }
-        if let hosts = root["mitm"]?.object?["hostnames"]?.array {
-            for h in hosts {
-                if let s = h.string { addHosts(s) }
+        var text = text0
+        let compatArgs = Self.egernCompatArgs(text)
+        if !compatArgs.isEmpty {
+            arguments.append(contentsOf: compatArgs.map {
+                ParsedEngineText.Arg(key: $0.key, default: $0.def, desc: $0.desc, type: $0.type, options: $0.options)
+            })
+            var vals: [String: String] = [:]
+            for a in compatArgs { vals[a.key] = user[a.key] ?? a.def }
+            text = Self.egernSubstitute(text, vals: vals)
+        }
+        guard let root = NCYAML.parse(text)?.object else {
+            errors.append("Egern 模块 YAML 解析失败")
+            return
+        }
+        if let n = root["name"]?.string, name.isEmpty { name = n }
+        if let d = root["desc"]?.string ?? root["description"]?.string, desc.isEmpty { desc = d }
+        if let a = root["author"]?.string, author.isEmpty { author = a }
+        for k in ["dns", "http_captures", "bypass_tunnel_proxy", "real_ip_domains", "proxies", "policy_groups"] {
+            if let v = root[k], !Self.egernEmpty(v) {
+                unsupported.append("\(k)（Egern 模块，暂不支持）")
             }
         }
-        let typeMap: [String: String] = ["domain": "DOMAIN", "domain_suffix": "DOMAIN-SUFFIX",
-                                         "domain_keyword": "DOMAIN-KEYWORD", "domain_regex": "DOMAIN-REGEX",
-                                         "domain_wildcard": "DOMAIN-WILDCARD", "ip_cidr": "IP-CIDR",
-                                         "ip_cidr6": "IP-CIDR6", "geoip": "GEOIP", "asn": "IP-ASN",
-                                         "dest_port": "DST-PORT"]
-        if let rules = root["rules"]?.array {
-            for item in rules {
-                guard let obj = item.object,
-                      let key = obj.keys.first(where: { typeMap[$0.lowercased()] != nil }),
-                      let mt = typeMap[key.lowercased()] else {
-                    unsupported.append("egern rule: \(item)")
-                    continue
+        for k in root.keys.sorted() where !Self.egernKnownKeys.contains(k) {
+            unsupported.append("\(k)（不是 Egern 模块文档里的字段，已忽略）")
+        }
+        // mitm egernMitM.
+        if let mitm = root["mitm"]?.object {
+            if let hosts = mitm["hostnames"] {
+                if let arr = hosts.array {
+                    for h in arr {
+                        if let s = h.string { addHosts(s) }
+                    }
+                } else if let hm = hosts.object {
+                    for x in hm["includes"]?.array ?? [] {
+                        if let s = x.string { addHosts(s) }
+                    }
+                    for x in hm["excludes"]?.array ?? [] {
+                        guard let s0 = x.string else { continue }
+                        let s = s0.trimmingCharacters(in: .whitespaces)
+                        if !s.isEmpty {
+                            addHosts("-" + (s.hasPrefix("-") ? String(s.dropFirst()) : s))
+                        }
+                    }
                 }
-                let value = obj[key]?.string ?? obj[key]?.number.map { String(Int($0)) } ?? ""
-                let policy = obj["policy"]?.string ?? obj["policies"]?.string ?? ""
-                if policy.isEmpty {
-                    unsupported.append("egern rule: \(item)")
-                    continue
-                }
-                parseCoreRule("\(mt),\(value),\(policy)")
             }
+            if let b = mitm["skip_server_cert_verify"]?.bool { skipCertVerify = b }
+        }
+        if let rules = root["rules"]?.array {
+            for item in rules { egernRule(item) }
         }
         if let arr = root["scriptings"]?.array {
             for item in arr { parseEgernScripting(item) }
         }
+        if let arr = root["widgets"]?.array {
+            for item in arr {
+                guard let w = item.object else { continue }
+                let wname = Self.egernStr(w["name"])
+                if wname.isEmpty { continue }
+                var script = Self.egernStr(w["script_name"])
+                if script.isEmpty { script = wname }
+                var p = NCEnginePanel()
+                p.id = Self.stableID([parseSource, "panel", wname])
+                p.name = wname
+                p.title = wname
+                p.script = script
+                p.source = parseSource
+                p.format = "egern"
+                panels.append(p)
+            }
+        }
         for key in ["url_rewrites", "header_rewrites", "body_rewrites", "map_locals"] {
             if let arr = root[key]?.array {
                 for item in arr { unsupported.append("egern \(key): \(item)") }
+            }
+        }
+        // env_schema: user-set values merge into every script env of
+        // this module (Go's deferred put; module env wins). The
+        // Arguments projection has no env marker in Swift, so the
+        // schema entries themselves are not surfaced as arguments.
+        if let schema = root["env_schema"]?.object {
+            var userEnv: [String: String] = [:]
+            for k in schema.keys {
+                if let v = user[k], !v.isEmpty { userEnv[k] = v }
+            }
+            if !userEnv.isEmpty {
+                for i in rules.indices where rules[i].script?.source == nil {
+                    rules[i].script?.env.merge(userEnv) { _, new in new }
+                }
+                for i in tasks.indices {
+                    tasks[i].script?.env.merge(userEnv) { _, new in new }
+                }
             }
         }
     }
@@ -2396,7 +2705,10 @@ extension NCEngineRuleset {
                     if let s = h.string { addHosts(s) }
                 }
             }
-            for key in ["rewrite", "url-rewrite"] {
+            // mitm parse.go parseStash: http.skip-cert-verify lands on the
+            // ruleset, and header-rewrite lines parse after rewrite lines.
+            if let scv = http["skip-cert-verify"]?.bool { skipCertVerify = scv }
+            for key in ["rewrite", "url-rewrite", "header-rewrite"] {
                 if let lines = http[key]?.array {
                     for l in lines {
                         if let s = l.string { parseLine(s, section: "", source: "模块") }

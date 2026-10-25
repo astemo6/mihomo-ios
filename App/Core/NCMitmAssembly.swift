@@ -8,11 +8,12 @@ import Foundation
 /// task / panel lists are retained for the rewrite snapshot and
 /// script manifest ports.
 ///
-/// Known parser gaps inherited from B6 (not this port): the Swift
-/// parser does not track a module's skip-cert-verify flag, so
-/// Build's SkipCertVerify propagation has nothing to propagate;
-/// panels carry no taskID, so filterSwitches can only test the
-/// panel's script name.
+/// Parser-state note (nc-callsite-audit): the parser now tracks a
+/// module's skip-cert-verify / h2 flags (NCEngineRuleset), and Build
+/// propagates skip-cert-verify with Go's only-true semantics. The
+/// panel model carries taskId, but no Swift parser assigns it yet,
+/// so filterSwitches' task-bound check is in place but inert until
+/// a dialect parser starts filling taskId in.
 
 // MARK: - Config (mitm.Config / Item / Module / ScriptResource)
 
@@ -128,15 +129,63 @@ struct NCEngineConfig: Decodable {
     }
 
     /// mitm LoadConfig: engine/engine.json; a missing file is the
-    /// all-off config. (Go also ignores unmarshal errors, keeping
-    /// whatever fields decoded; a wholly undecodable file lands
-    /// here as all-off.)
+    /// all-off config. Go ignores the Unmarshal error and keeps
+    /// whatever fields decoded — so after a strict decode failure,
+    /// fall back to a per-field lossy pass (case-insensitive keys,
+    /// per-element lossy arrays) instead of dropping the whole file
+    /// because one field is malformed.
     static func load(home: String) -> NCEngineConfig {
         let url = URL(fileURLWithPath: home)
             .appendingPathComponent("engine/engine.json")
-        guard let data = try? Data(contentsOf: url),
-              let cfg = try? JSONDecoder().decode(NCEngineConfig.self, from: data)
-        else { return NCEngineConfig() }
+        guard let data = try? Data(contentsOf: url) else { return NCEngineConfig() }
+        if let cfg = try? JSONDecoder().decode(NCEngineConfig.self, from: data) {
+            return cfg
+        }
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return NCEngineConfig()
+        }
+        func val(_ key: String) -> Any? {
+            if let v = root[key] { return v }
+            let lk = key.lowercased()
+            for (k, v) in root where k.lowercased() == lk { return v }
+            return nil
+        }
+        func boolF(_ key: String) -> Bool? { val(key) as? Bool }
+        func strF(_ key: String) -> String? { val(key) as? String }
+        func strArr(_ key: String) -> [String] {
+            (val(key) as? [Any])?.compactMap { $0 as? String } ?? []
+        }
+        func lossy<T: Decodable>(_ key: String, as _: T.Type) -> [T] {
+            guard let arr = val(key) as? [Any] else { return [] }
+            return arr.compactMap { el in
+                guard let d = try? JSONSerialization.data(withJSONObject: el) else { return nil }
+                return try? JSONDecoder().decode(T.self, from: d)
+            }
+        }
+        var cfg = NCEngineConfig()
+        cfg.enabled = boolF("enabled") ?? false
+        cfg.scriptsEnabled = boolF("scriptsEnabled")
+        cfg.mitm = boolF("mitm") ?? false
+        cfg.skipCertVerify = boolF("skipCertVerify") ?? false
+        cfg.h2 = boolF("h2")
+        cfg.captureBodies = boolF("captureBodies")
+        cfg.hostnames = strArr("hostnames")
+        cfg.rules = lossy("rules", as: NCEngineItem.self)
+        cfg.scripts = lossy("scripts", as: NCEngineItem.self)
+        cfg.modules = lossy("modules", as: NCEngineModule.self)
+        if let dict = val("scriptResources") as? [String: Any] {
+            var res: [String: NCScriptResource] = [:]
+            for (k, v) in dict {
+                if let d = try? JSONSerialization.data(withJSONObject: v),
+                   let r = try? JSONDecoder().decode(NCScriptResource.self, from: d) {
+                    res[k] = r
+                }
+            }
+            cfg.scriptResources = res
+        }
+        cfg.quic = strF("quic") ?? ""
+        cfg.quicAllow = strArr("quicAllow")
+        cfg.language = strF("language") ?? ""
         return cfg
     }
 
@@ -184,7 +233,13 @@ enum NCMitmBuild {
                     continue
                 }
                 let sub = NCEngineRuleset()
-                sub.parseText(String(decoding: data, as: UTF8.self), source: m.name, args: m.args ?? [:])
+                // Go keeps the module text as a byte string; decode
+                // Latin-1 so every byte maps 1:1 instead of letting
+                // lossy UTF-8 replacement mangle non-UTF-8 content.
+                sub.parseText(String(data: data, encoding: .isoLatin1) ?? String(decoding: data, as: UTF8.self), source: m.name, args: m.args ?? [:])
+                // mitm config.go Build: a module's skip-cert-verify=true
+                // propagates to the built ruleset (false never clears).
+                if sub.skipCertVerify == true { rs.skipCertVerify = true }
                 rs.rules.append(contentsOf: sub.rules)
                 rs.tasks.append(contentsOf: sub.tasks)
                 rs.panels.append(contentsOf: sub.panels)
@@ -219,7 +274,7 @@ enum NCMitmBuild {
     /// mitm variants — no trimming).
     static func mapPolicy(_ rule: String, _ m: [String: String]) -> String {
         if m.isEmpty { return rule }
-        var parts = NCRuntimeSteps.splitTopLevel(rule)
+        var parts = NCEngineRuleset.splitTop(rule)
         let idx = NCRuntimeSteps.mitmPolicyIndex(parts)
         if idx < 0 { return rule }
         if let to = m[parts[idx]], !to.isEmpty {
@@ -253,6 +308,15 @@ enum NCMitmBuild {
             guard r.kind == "script", let sc = r.script else { return true }
             return scriptAllowed(cfg, path: sc.path) { _ in }
         }
+        // mitm config.go scriptAllowed mutates tasks too: a resource
+        // interval override lands on the task's script before filtering
+        // (resources.go refreshes tasks by tk.Script.UpdateInterval).
+        for i in rs.tasks.indices {
+            let key = rs.tasks[i].script?.path ?? rs.tasks[i].path
+            if !key.isEmpty, let r = resources[key], r.interval > 0 {
+                rs.tasks[i].script?.updateInterval = r.interval
+            }
+        }
         var off = Set<String>()
         rs.tasks = rs.tasks.filter { t in
             // The Swift task model carries the script's path/name
@@ -280,9 +344,10 @@ enum NCMitmBuild {
         if !scr {
             rs.tasks = []
             rs.panels = rs.panels.filter { p in
-                // Go also drops panels bound to a task (TaskID); the
-                // Swift panel model has no taskID (see header note).
-                p.script == nil || p.script!.isEmpty
+                // mitm filterSwitches also drops panels bound to a task
+                // (TaskID != ""); the model carries taskId even though no
+                // parser assigns it yet (see header note).
+                (p.script == nil || p.script!.isEmpty) && (p.taskId ?? "").isEmpty
             }
         }
     }

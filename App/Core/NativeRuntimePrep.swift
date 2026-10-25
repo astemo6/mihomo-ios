@@ -118,7 +118,10 @@ enum NativeRuntimePrep {
                         raw["rules"] = .array([.string("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT")] + raw.list("rules"))
                     }
                 }
-                NCRuntimeBuilder.lowerForNative(home: home, &raw, &box.rep, stageDir: tx.stage) { box.writeErrors.append($0) }
+                // Geosite list writes: Go ignores their errors
+                // (`_ = writeAtomicFile` in lowerForNative) — surface
+                // them as warnings, not a failed prepare.
+                NCRuntimeBuilder.lowerForNative(home: home, &raw, &box.rep, stageDir: tx.stage) { box.rep.warnings = (box.rep.warnings ?? []) + [$0] }
                 box.groupOrder = NCRuntimeSteps.runtimeGroupNames(raw)
             }
         } catch let err as NCRuntimeBuilder.BuildError {
@@ -148,39 +151,48 @@ enum NativeRuntimePrep {
                 try tx.put(man.data, NCScriptManifest.scriptManifestFile)
                 scriptKeep = man.keep
             } catch {
-                // An old manifest next to the new rule set would index the wrong rules: stage an empty one.
+                // bridge nativeprep.go: a manifest failure is a warning
+                // only — the OLD manifest stays in place (the code files
+                // buildManifest already wrote stay too, as in Go). Do not
+                // stage an empty replacement: that disabled every script.
                 let errStr = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 rep.scripts = 0
-                rep.warnings = (rep.warnings ?? []) + ["脚本清单生成失败，本次未启用脚本：" + errStr]
-                try tx.put(try JSONEncoder().encode(NCScriptManifestRoot()), NCScriptManifest.scriptManifestFile)
+                rep.warnings = (rep.warnings ?? []) + ["脚本清单写入失败：" + errStr]
             }
 
-            // Rewrite / MitM snapshot. An encode failure used to be written as "" with rewrite=true.
+            // Rewrite / MitM snapshot. bridge nativeprep.go: a snapshot
+            // write failure aborts the whole prepare (the runtime files
+            // written before it stay, the old snapshot stays) — it is
+            // NOT downgraded to a warning with the old snapshot deleted.
             rep.rewrite = false
             rep.mitmHosts = 0
             if let cfg = cfg, let rs = rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
-                do {
-                    let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
-                    try tx.put(snap, "nativecore-rewrite.json")
-                    rep.rewrite = true
-                    rep.mitmHosts = hosts
-                } catch let e as PrepTransaction.TxError {
-                    throw e
-                } catch {
-                    rep.warnings = (rep.warnings ?? []) + ["重写 / MitM 快照生成失败，本次未启用：" + error.localizedDescription]
-                    tx.remove("nativecore-rewrite.json")
-                }
+                let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
+                try tx.put(snap, "nativecore-rewrite.json")
+                rep.rewrite = true
+                rep.mitmHosts = hosts
             } else {
                 tx.remove("nativecore-rewrite.json")
             }
 
-            try tx.put(try JSONEncoder().encode(groupOrder), "runtime-groups.json")
+            // bridge nativeprep.go ignores failures of the group-order
+            // and prep-report writes (`_ = writeAtomicFile`); runtime.yaml
+            // and the runtime JSON stay fatal.
+            do {
+                try tx.put(try JSONEncoder().encode(groupOrder), "runtime-groups.json")
+            } catch {
+                rep.warnings = (rep.warnings ?? []) + ["runtime-groups.json 写入失败：" + error.localizedDescription]
+            }
             try tx.put(buildResult.data, "runtime.yaml")
             guard let runtimeJSON = NCRuntimeBuilder.jsonData(buildResult.raw) else {
                 return fail("native runtime JSON: 序列化失败")
             }
             try tx.put(runtimeJSON, "nativecore-runtime.json")
-            try tx.put(try JSONEncoder().encode(rep), "nativecore-prep.json")
+            do {
+                try tx.put(try JSONEncoder().encode(rep), "nativecore-prep.json")
+            } catch {
+                rep.warnings = (rep.warnings ?? []) + ["nativecore-prep.json 写入失败：" + error.localizedDescription]
+            }
 
             try tx.commit()
             if let keep = scriptKeep {
