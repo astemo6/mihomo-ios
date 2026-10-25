@@ -128,17 +128,25 @@ enum NCJuicityWire {
         return chainHash
     }
 
-    /// Parse a pinned cert hash string from configuration (Base64, URL-safe Base64, or Hex).
+    /// Parse a pinned cert hash string from configuration. juicity's client tries URL Base64, then std Base64,
+    /// then hex; a 64-char hex string is also valid Base64 (48 bytes) there and so never matches. Here a decoding
+    /// that yields a 32-byte SHA-256 wins, falling back to the first successful decoding.
     static func parseHash(_ s: String) -> Data? {
         let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
-        if let d = Data(base64Encoded: trimmed) { return d }
+        var candidates: [Data] = []
         var unpadded = trimmed.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         let rem = unpadded.count % 4
         if rem > 0 { unpadded += String(repeating: "=", count: 4 - rem) }
-        if let d = Data(base64Encoded: unpadded) { return d }
-        let hex = trimmed.replacingOccurrences(of: ":", with: "").replacingOccurrences(of: " ", with: "")
-        guard hex.count % 2 == 0 else { return nil }
+        if let d = Data(base64Encoded: unpadded), !d.isEmpty { candidates.append(d) }
+        if let d = hexDecode(trimmed.replacingOccurrences(of: ":", with: "").replacingOccurrences(of: " ", with: "")) {
+            candidates.append(d)
+        }
+        return candidates.first(where: { $0.count == 32 }) ?? candidates.first
+    }
+
+    private static func hexDecode(_ hex: String) -> Data? {
+        guard !hex.isEmpty, hex.count % 2 == 0 else { return nil }
         var out = Data(capacity: hex.count / 2)
         var idx = hex.startIndex
         while idx < hex.endIndex {
@@ -147,7 +155,7 @@ enum NCJuicityWire {
             out.append(b)
             idx = next
         }
-        return out.isEmpty ? nil : out
+        return out
     }
 }
 
@@ -173,7 +181,8 @@ final class NCJuicityConnection {
     /// Tracks stream open count for stream retirement (spec: 30 streams per QUIC connection).
     private(set) var streamCount: Int = 0
     private(set) var isExhausted: Bool = false
-    static let maxStreamsPerConnection = 32
+    /// Spec: a client that cannot read the peer's available stream count opens a new connection after 30 streams.
+    static let maxStreamsPerConnection = 30
 
     private(set) var group: NWConnectionGroup?
     private var authOpened = false
@@ -258,18 +267,12 @@ final class NCJuicityConnection {
         if let expectedHash = pinnedCertHash {
             let allowInsecure = self.allowInsecure
             sec_protocol_options_set_verify_block(tls, { _, trust, complete in
-                if let secTrust = sec_trust_copy_ref(trust) {
-                    let count = SecTrustGetCertificateCount(secTrust)
-                    var certs: [Data] = []
-                    for i in 0..<count {
-                        if let cert = SecTrustGetCertificateAtIndex(secTrust, i) {
-                            certs.append(SecCertificateCopyData(cert) as Data)
-                        }
-                    }
-                    if let hash = NCJuicityWire.generateCertChainHash(rawCerts: certs), hash == expectedHash {
-                        complete(true)
-                        return
-                    }
+                let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
+                let chain = (SecTrustCopyCertificateChain(secTrust) as? [SecCertificate]) ?? []
+                let certs = chain.map { SecCertificateCopyData($0) as Data }
+                if let hash = NCJuicityWire.generateCertChainHash(rawCerts: certs), hash == expectedHash {
+                    complete(true)
+                    return
                 }
                 complete(allowInsecure)
             }, queue)
@@ -382,6 +385,7 @@ final class NCJuicityConnection {
 
     func close(keepState: Bool = false) {
         if !keepState { setState(.closed) }
+        NCConnector.juicityForgetRetired(self)
         notifyWaiters(NCConnector.Failure.handshake("juicity connection closed"))
         ncOnSessionQueue(queue) {
             self.authStream?.cancel(); self.authStream = nil
@@ -566,6 +570,9 @@ final class NCJuicityUDPStream {
     private var buffered: Int { buffer.count - bufferOffset }
 
     var onReply: (Data) -> Void = { _ in }
+    /// Fired once on callerQueue when the stream ends on its own (peer FIN / reset / open failure), so the owning
+    /// session can open a fresh stream instead of silently dropping every later datagram.
+    var onClosed: () -> Void = {}
 
     init(channel: NCHy2StreamChannel, initialTarget: NCTarget, queue: DispatchQueue, callerQueue: DispatchQueue) {
         self.channel = channel
@@ -580,6 +587,7 @@ final class NCJuicityUDPStream {
             if err != nil {
                 self.closed = true
                 self.drainOutboxWaiters()
+                self.notifyClosed()
                 return
             }
             self.open = true
@@ -615,6 +623,7 @@ final class NCJuicityUDPStream {
             guard let self, !self.closed else { return }
             guard let data else {
                 self.closed = true
+                self.notifyClosed()
                 return
             }
             self.buffer.append(data)
@@ -634,6 +643,12 @@ final class NCJuicityUDPStream {
                 self.onReply(p)
             }
         }
+    }
+
+    private func notifyClosed() {
+        let cb = onClosed
+        onClosed = {}
+        callerQueue.async { cb() }
     }
 
     private func compactBuffer() {
@@ -663,18 +678,36 @@ final class NCJuicityUDPStream {
 
 extension NCConnector {
     private static var juicityRegistry: [String: NCJuicityConnection] = [:]
+    /// Connections retired after `maxStreamsPerConnection` streams. Their open streams keep running; the QUIC
+    /// idle timeout (or tunnel stop) ends them. Held here so the group is always cancelled (a dropped, uncancelled
+    /// NWConnectionGroup is never released by Network.framework) and so teardown sees and closes them.
+    private static var juicityRetired: [ObjectIdentifier: NCJuicityConnection] = [:]
     private static let juicityLock = NSLock()
 
     static var juicitySessionCount: Int {
         juicityLock.lock(); defer { juicityLock.unlock() }
-        return juicityRegistry.count
+        return juicityRegistry.count + juicityRetired.count
+    }
+
+    /// Caller holds juicityLock.
+    private static func juicityRetireLocked(_ key: String, _ c: NCJuicityConnection) {
+        juicityRegistry.removeValue(forKey: key)
+        // A dead one has already cancelled its group (finish / state handler); never call close() here (lock held).
+        if c.isAlive { juicityRetired[ObjectIdentifier(c)] = c }
+    }
+
+    static func juicityForgetRetired(_ c: NCJuicityConnection) {
+        juicityLock.lock()
+        juicityRetired.removeValue(forKey: ObjectIdentifier(c))
+        juicityLock.unlock()
     }
 
     @discardableResult
     static func closeAllJuicitySessions() -> Int {
         juicityLock.lock()
-        let all = Array(juicityRegistry.values)
+        let all = Array(juicityRegistry.values) + Array(juicityRetired.values)
         juicityRegistry.removeAll()
+        juicityRetired.removeAll()
         juicityLock.unlock()
         for c in all { c.close() }
         return all.count
@@ -686,7 +719,7 @@ extension NCConnector {
         juicityLock.lock()
         if let c = juicityRegistry[key] {
             if c.isExhausted {
-                juicityRegistry.removeValue(forKey: key)
+                juicityRetireLocked(key, c)
                 // Fall through to open a fresh connection when streams are exhausted.
             } else {
                 juicityLock.unlock()
@@ -750,7 +783,7 @@ extension NCConnector {
         juicityLock.lock()
         if let c = juicityRegistry[key] {
             if c.isExhausted {
-                juicityRegistry.removeValue(forKey: key)
+                juicityRetireLocked(key, c)
             } else {
                 juicityLock.unlock()
                 if c.isAlive {

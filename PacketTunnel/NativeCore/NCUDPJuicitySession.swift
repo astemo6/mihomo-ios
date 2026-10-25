@@ -42,6 +42,11 @@ final class NCUDPJuicitySession: NCUDPSession {
                 udp.onReply = { [weak self] payload in
                     self?.onReply(payload)
                 }
+                udp.onClosed = { [weak self, weak udp] in
+                    // Peer ended this triplet's stream: the next send opens a new one.
+                    guard let self, let udp, self.stream === udp else { return }
+                    self.stream = nil
+                }
                 self.acquiring = false
                 let pending = self.queued
                 self.queued = []
