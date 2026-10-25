@@ -4,6 +4,8 @@
 逐步替换 PacketTunnel 里的 mihomo（Go）内核，解决扩展内存平台期 40 MB、余量 ~10 MB、
 被 jetsam 杀的问题（实测见 bridge/memshed.go）。App 与 UI 不动。
 
+> **现状注记（2026-10-25）**：本设计已落地——NativeCore 是唯一内核，`bridge/` 与 gomobile 已删除（Go-zero），无 `LibmihomoStart` 回退与 Go 侧配置导出；下文的过渡方案（开关回退、差分测试、按进程分批替换）均为历史设计，现状以代码、`README.md` 与 `CI.md` 为准。
+
 ## 原则
 
 1. **先独立写、后替换**：新内核先作为独立模块长出来，用仓库现有测试语料验收；

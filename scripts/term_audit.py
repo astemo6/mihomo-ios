@@ -30,6 +30,10 @@ SKIP = re.compile(r"VPN 配置|Surge|Quantumult|QX|运行配置|未配置|proxy-
 
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
+# Swift sources under these top-level directories are not brand-audited: the test bundles, and bridge/ —
+# the gomobile Go package deleted in the Go-zero migration. The bridge skip stays explicit so a stale
+# checkout (or the org mirror) never audits sources that no longer ship.
+SKIP_PATH_PREFIXES = ("UITests", "UnitTests", "bridge")
 BRAND = re.compile(r"\bMihomo\b")
 # Attribution and legal text that may keep the upstream name.
 BRAND_OK = re.compile(r"Mihomo[ -]?(core|内核|核心|kernel|カーネル|커널|ядр)|MetaCubeX|General Public License|GPL", re.I)
@@ -65,7 +69,7 @@ def brand_hits():
                 check(f"{os.path.relpath(p, ROOT)} {key}", val)
     for p in sorted(glob.glob(os.path.join(ROOT, "**", "*.swift"), recursive=True)):
         rel = os.path.relpath(p, ROOT)
-        if rel.startswith(("UITests", "UnitTests", "bridge")):
+        if rel.startswith(SKIP_PATH_PREFIXES):
             continue
         for n, line in enumerate(open(p, encoding="utf-8"), 1):
             if line.lstrip().startswith("//"):
