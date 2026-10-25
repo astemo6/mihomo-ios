@@ -92,6 +92,23 @@ public final class NCTailscaleControl {
     public var onSnapshotChanged: ((NCTailscaleNetmapSnapshot) -> Void)?
     public var onStatusChanged: ((NCTailscaleStatusFile) -> Void)?
 
+    /// Phase 2: supplies the MapRequest `Endpoints` (our advertised UDP
+    /// endpoints from STUN + local interfaces) at request-build time.
+    public var endpointsProvider: (() -> [String])?
+
+    /// Phase 2: re-runs the session so the next MapRequest carries fresh
+    /// endpoints. Unlike scheduleReconnect this is not an error path: no
+    /// backoff, and no error is written to the status file.
+    public func refreshEndpoints() {
+        guard isRunning else { return }
+        queue.async { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.retryWorkItem?.cancel()
+            self.cancelCurrentConnection()
+            self.runSession()
+        }
+    }
+
     private let statusLock = NSLock()
 
     public init(config: NCTailscaleControlConfig) {
@@ -445,7 +462,7 @@ public final class NCTailscaleControl {
             NodeKey: NCTailscaleKeyEncoding.encodeNodeKey(keys.nodeKey.publicKey),
             DiscoKey: NCTailscaleKeyEncoding.encodeDiscoKey(keys.discoKey.publicKey),
             Stream: true,
-            Endpoints: [],
+            Endpoints: endpointsProvider?() ?? [],
             Hostinfo: NCTailscaleHostinfo(Hostname: config.hostname),
             IncludeIPv6: true,
             OmitCaps: true
