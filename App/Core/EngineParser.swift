@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import CommonCrypto
 
 /// Pure Swift port of the bridge's module / rewrite text parser
 /// (bridge/mitm/parse.go + rules.go + tasks.go, driven by
@@ -54,6 +54,8 @@ struct NCEngineScript {
     var updateInterval = 0
     var echo = false
     var cron = ""
+    var env: [String: String] = [:]
+    var source: Data? = nil
 }
 
 struct NCEngineRule {
@@ -66,6 +68,7 @@ struct NCEngineRule {
     var body: [(regex: String, repl: String)] = []
     var jq = ""
     var jsonCount = 0
+    var jsonOps: [(op: String, path: String, value: String)] = []
     var data = ""
     var dataType = ""
     var respHeaders: [String: String] = [:]
@@ -77,6 +80,7 @@ struct NCEngineRule {
 }
 
 struct NCEngineTask {
+    var id = ""
     var kind = ""
     var name = ""
     var cron: String? = nil
@@ -84,20 +88,49 @@ struct NCEngineTask {
     var path = ""
     var format = ""
     var line = ""
-    // nc-dego-rest (EngineTaskList): the rest of mitm.Task — stableID(source, kind, name, path, cron), the
-    // module name / "用户" that produced it, the script timeout (default 30 s), QX img-url, enabled=false lines.
-    var id = ""
     var source = ""
-    var timeout = 30
-    var icon: String? = nil
+    var icon = ""
     var disabledByLine = false
+    var script: NCEngineScript? = nil
 }
 
-struct NCEnginePanel {
-    var name = ""
-    var title = ""
+struct NCEnginePanel: Codable {
+    var id: String = ""
+    var name: String = ""
+    var title: String = ""
+    var content: String? = nil
+    var style: String? = nil
+    var icon: String? = nil
+    var iconColor: String? = nil
     var script: String? = nil
-    var format = ""
+    var interval: Int? = nil
+    var source: String = ""
+    var format: String = ""
+    var taskId: String? = nil
+    var defaultInterval: Int? = nil
+    var intervalOverridden: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, title, content, style, icon, iconColor, script, interval, source, format, taskId, defaultInterval, intervalOverridden
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        if !title.isEmpty { try container.encode(title, forKey: .title) }
+        if let content, !content.isEmpty { try container.encode(content, forKey: .content) }
+        if let style, !style.isEmpty { try container.encode(style, forKey: .style) }
+        if let icon, !icon.isEmpty { try container.encode(icon, forKey: .icon) }
+        if let iconColor, !iconColor.isEmpty { try container.encode(iconColor, forKey: .iconColor) }
+        if let script, !script.isEmpty { try container.encode(script, forKey: .script) }
+        if let interval, interval > 0 { try container.encode(interval, forKey: .interval) }
+        try container.encode(source, forKey: .source)
+        try container.encode(format, forKey: .format)
+        if let taskId, !taskId.isEmpty { try container.encode(taskId, forKey: .taskId) }
+        if let defaultInterval, defaultInterval > 0 { try container.encode(defaultInterval, forKey: .defaultInterval) }
+        if let intervalOverridden, intervalOverridden { try container.encode(intervalOverridden, forKey: .intervalOverridden) }
+    }
 }
 
 // MARK: - Ruleset builder
@@ -759,10 +792,17 @@ extension NCEngineRuleset {
         var r = NCEngineRule(kind: "json", phase: phase, pattern: pattern)
         var count = 0
         if verb == "del" {
+            for a in args {
+                r.jsonOps.append((op: "del", path: a, value: ""))
+            }
             count = args.count
         } else {
             var i = 0
-            while i + 1 < args.count { count += 1; i += 2 }
+            while i + 1 < args.count {
+                r.jsonOps.append((op: verb, path: args[i], value: args[i + 1]))
+                count += 1
+                i += 2
+            }
         }
         r.jsonCount = count
         if count == 0 { return (nil, .message("JSON 操作缺少参数")) }
@@ -978,55 +1018,92 @@ extension NCEngineRuleset {
         return cronValid(expr)
     }
 
+    static func stableID(_ parts: [String]) -> String {
+        let joined = parts.joined(separator: "\0")
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
+        let bytes = Array(joined.utf8)
+        CC_SHA1(bytes, CC_LONG(bytes.count), &digest)
+        return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func disabledByParam(_ p: [String: String]) -> Bool {
+        for k in ["enable", "enabled"] {
+            if let v = p[k], !truthy(v) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func withLineOpts(_ t: inout NCEngineTask, p: [String: String]) {
+        if let ic = p["img-url"], ic.hasPrefix("http://") || ic.hasPrefix("https://") {
+            t.icon = ic
+        }
+        t.disabledByLine = disabledByParam(p)
+    }
+
     /// mitm addTask (projection-relevant parts).
+    @discardableResult
     func addTask(kind: String, cron cron0: String, event: String, sc: NCEngineScript,
-                 line: String, format: String, source: String = "", p: [String: String] = [:]) {
+                 source: String = "", line: String, format: String,
+                 params: [String: String]? = nil) -> Int? {
+        // mitm ParseCron's expression (nc-dego-rest): quotes trimmed, @macros expanded, fields joined by one space.
+        let cron = kind == "cron" ? Self.normCron(cron0) : cron0
         if sc.path.isEmpty {
             errors.append("脚本缺少 script-path：" + Self.clip(line, 120))
-            return
+            return nil
         }
+        var mutSc = sc
         var t = NCEngineTask()
         t.kind = kind
-        t.name = sc.name
-        t.path = sc.path
+        t.name = mutSc.name
+        t.path = mutSc.path
         t.format = format
         t.line = line
         t.source = source
-        t.timeout = sc.timeout > 0 ? sc.timeout : 30
-        // mitm withLineOpts
-        if let ic = p["img-url"], ic.hasPrefix("http://") || ic.hasPrefix("https://") { t.icon = ic }
-        t.disabledByLine = Self.disabledByParam(p)
-        // mitm ParseCron's expression: quotes trimmed, @macros expanded, fields joined by one space
-        let cron = kind == "cron" ? Self.normCron(cron0) : cron0
         switch kind {
         case "cron":
             guard Self.cronValid(cron) else {
                 errors.append("cron 表达式无效：" + Self.clip(line, 120))
-                return
+                return nil
             }
-            t.cron = cron
+            let normalized = cron.split(whereSeparator: { $0 == " " || $0 == "\t" }).joined(separator: " ")
+            t.cron = normalized
+            mutSc.type = "cron"
+            if mutSc.cron.isEmpty {
+                mutSc.cron = normalized
+            }
         case "event":
             let ev = event.isEmpty ? "network-changed" : event
             guard ev == "network-changed" else {
                 unsupported.append(line)
-                return
+                return nil
             }
             t.event = ev
+            mutSc.type = "event"
         case "interaction":
             t.event = "interaction"
+            mutSc.type = "generic"
         default:
-            break
+            mutSc.type = "generic"
         }
-        t.id = Self.stableID([source, kind, sc.name, sc.path, t.cron ?? ""])
-        if tasks.contains(where: { $0.id == t.id }) {
-            return
+        if mutSc.timeout <= 0 {
+            mutSc.timeout = 30
         }
+        t.script = mutSc
+        t.id = Self.stableID([source, kind, mutSc.name, mutSc.path, t.cron ?? ""])
+        if let params {
+            Self.withLineOpts(&t, p: params)
+        }
+        if let existingIdx = tasks.firstIndex(where: { $0.id == t.id }) {
+            if let params {
+                Self.withLineOpts(&tasks[existingIdx], p: params)
+            }
+            return existingIdx
+        }
+        let idx = tasks.count
         tasks.append(t)
-    }
-
-    /// mitm stableID: hex of the first 6 bytes of SHA-1 over the parts joined by NUL.
-    static func stableID(_ parts: [String]) -> String {
-        Insecure.SHA1.hash(data: Data(parts.joined(separator: "\u{0}").utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        return idx
     }
 
     static let cronMacros: [String: String] = [
@@ -1041,19 +1118,6 @@ extension NCEngineRuleset {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let m = cronMacros[e.lowercased()] { e = m }
         return e.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-    }
-
-    /// mitm disabledByParam: enable= / enabled= present and not truthy.
-    static func disabledByParam(_ p: [String: String]) -> Bool {
-        for k in ["enable", "enabled"] {
-            if let v = p[k] {
-                switch v.trimmingCharacters(in: .whitespaces).lowercased() {
-                case "1", "true", "yes", "on": continue
-                default: return true
-                }
-            }
-        }
-        return false
     }
 
     static let loonCronRe = regex(#"^cron\s+"([^"]+)"\s+(script-path\s*=.*)$"#, options: [.caseInsensitive])
@@ -1081,7 +1145,7 @@ extension NCEngineRuleset {
             }
             let sc = Self.scriptFromParams(name: m[1], p: p)
             let cron = !(p["cronexp"] ?? "").isEmpty ? p["cronexp"]! : (p["cron"] ?? "")
-            addTask(kind: typ, cron: cron, event: p["event-name"] ?? "", sc: sc, line: line, format: "surge", source: source, p: p)
+            addTask(kind: typ, cron: cron, event: p["event-name"] ?? "", sc: sc, source: source, line: line, format: "surge", params: p)
             return true
         }
         var lm = Self.firstMatch(Self.loonCronRe, line)
@@ -1091,14 +1155,14 @@ extension NCEngineRuleset {
         if let m = lm {
             let p = Self.splitParams(m[2], keys: Self.scriptKeys)
             addTask(kind: "cron", cron: m[1], event: "", sc: Self.scriptFromParams(name: p["tag"] ?? "", p: p),
-                    line: line, format: "loon", source: source, p: p)
+                    source: source, line: line, format: "loon", params: p)
             return true
         }
         if let m = Self.firstMatch(Self.loonEventRe, line) {
             let p = Self.splitParams(m[2], keys: Self.scriptKeys)
             let kind = m[1].lowercased() == "network-changed" ? "event" : "generic"
             addTask(kind: kind, cron: "", event: "network-changed", sc: Self.scriptFromParams(name: p["tag"] ?? "", p: p),
-                    line: line, format: "loon", source: source, p: p)
+                    source: source, line: line, format: "loon", params: p)
             return true
         }
         if let m = Self.firstMatch(Self.qxEventRe, line) {
@@ -1106,7 +1170,7 @@ extension NCEngineRuleset {
             p["script-path"] = m[2]
             let kind = m[1].lowercased() == "network" ? "event" : "interaction"
             addTask(kind: kind, cron: "", event: "network-changed", sc: Self.scriptFromParams(name: p["tag"] ?? "", p: p),
-                    line: line, format: "qx", source: source, p: p)
+                    source: source, line: line, format: "qx", params: p)
             return true
         }
         let low = line.lowercased()
@@ -1117,7 +1181,7 @@ extension NCEngineRuleset {
                 var p = Self.splitParams(String(m[3].dropFirst(m[3].hasPrefix(",") ? 1 : 0)), keys: Self.scriptKeys)
                 p["script-path"] = m[2]
                 addTask(kind: "cron", cron: m[1], event: "", sc: Self.scriptFromParams(name: p["tag"] ?? "", p: p),
-                        line: line, format: "qx", source: source, p: p)
+                        source: source, line: line, format: "qx", params: p)
                 return true
             }
         }
@@ -1125,16 +1189,35 @@ extension NCEngineRuleset {
     }
 
     /// mitm parsePanelLine.
-    func parsePanelLine(_ line: String) {
+    func parsePanelLine(_ line: String, source: String = "") {
         guard let eq = line.firstIndex(of: "=") else { return }
         let name = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
         let rest = String(line[line.index(after: eq)...])
         let p = Self.splitParams(rest, keys: ["script-name", "update-interval", "title", "content", "style", "icon", "icon-color"])
         var pn = NCEnginePanel()
         pn.name = name
-        pn.title = (p["title"] ?? "").isEmpty ? name : p["title"]!
+        let title = p["title"] ?? ""
+        pn.title = title.isEmpty ? name : title
+        if let content = p["content"], !content.isEmpty {
+            pn.content = content.replacingOccurrences(of: "\\n", with: "\n")
+        }
+        if let style = p["style"], !style.isEmpty {
+            pn.style = style
+        }
+        if let icon = p["icon"], !icon.isEmpty {
+            pn.icon = icon
+        }
+        if let iconColor = p["icon-color"], !iconColor.isEmpty {
+            pn.iconColor = iconColor
+        }
         pn.script = (p["script-name"] ?? "").isEmpty ? nil : p["script-name"]
+        let iv = Self.atoiDef(p["update-interval"] ?? "", 0)
+        if iv > 0 {
+            pn.interval = iv
+        }
+        pn.source = source
         pn.format = "surge"
+        pn.id = Self.stableID([source, "panel", pn.name])
         panels.append(pn)
     }
 }
@@ -1170,7 +1253,7 @@ extension NCEngineRuleset {
             return
         }
         if section == "panel" {
-            parsePanelLine(line)
+            parsePanelLine(line, source: source)
             return
         }
         if section == "general" || section == "host" || section == "proxy" || section == "proxy group" { return }

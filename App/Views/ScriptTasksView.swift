@@ -499,9 +499,9 @@ enum TaskCatalog {
         let parsed = await Task.detached(priority: .userInitiated) { NCEngineTaskList.tasks(home: home, order: order) }.value
         var list = parsed.map { t in
             ScriptTaskState(id: t.id, kind: t.kind, cron: t.cron, event: t.event,
-                            script: .init(name: t.name, path: t.path, timeout: t.timeout),
+                            script: .init(name: t.name, path: t.path, timeout: t.script?.timeout ?? 30),
                             source: t.source, line: t.line, format: t.format.isEmpty ? nil : t.format,
-                            icon: t.icon, disabledByLine: t.disabledByLine ? true : nil)
+                            icon: t.icon.isEmpty ? nil : t.icon, disabledByLine: t.disabledByLine ? true : nil)
         }
         for i in list.indices {
             if let last = TaskHistory.load(list[i].id).first {
