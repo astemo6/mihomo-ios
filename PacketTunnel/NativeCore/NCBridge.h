@@ -3,4 +3,5 @@
 #ifndef NC_BRIDGE_H
 #define NC_BRIDGE_H
 #include "nc_stack.h"
+#include "nc_wg.h" /* feat/nc-wg: WireGuard netifs */
 #endif

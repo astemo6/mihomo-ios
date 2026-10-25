@@ -16,8 +16,34 @@
 #include "lwip/udp.h"
 #include "lwip/timeouts.h"
 #include "lwip/inet_chksum.h"
+#include "lwip/priv/tcp_priv.h"
 
 void nc_lwip_assert_failed(void) { abort(); }
+
+/* feat/nc-wg: lwIP is initialised once per process. WireGuard netifs (nc_wg.c) live in the same instance and
+   may outlive a TUN restart, so a second lwip_init() (which re-initialises the pools under live PCBs) is never
+   run; nc_shutdown purges the TUN's own PCBs instead. */
+static int g_lwip_ready;
+void nc_lwip_ensure_init(void) {
+  if (g_lwip_ready) return;
+  lwip_init();
+  g_lwip_ready = 1;
+}
+
+/* Abort every PCB not bound to a netif (= every TUN-side PCB; WireGuard client PCBs are netif-bound),
+   including ones still closing / in TIME-WAIT after we dropped them. */
+static void nc_purge_unbound(struct tcp_pcb **list) {
+  for (;;) {
+    struct tcp_pcb *p = *list;
+    while (p && p->netif_idx != NETIF_NO_INDEX) p = p->next;
+    if (!p) return;
+    tcp_arg(p, NULL);
+    tcp_recv(p, NULL);
+    tcp_sent(p, NULL);
+    tcp_err(p, NULL);
+    tcp_abort(p);
+  }
+}
 
 u32_t sys_now(void) {
   struct timespec ts;
@@ -397,7 +423,7 @@ int nc_init(const nc_callbacks *cbs, void *ctx, const char *ip4, const char *ip6
   memset(g_udp, 0, sizeof(g_udp));
   if (cbs) g_cbs = *cbs;
   g_ctx = ctx;
-  lwip_init();
+  nc_lwip_ensure_init();
   ip4_addr_t a4, mask, gw;
   ip4_addr_set_zero(&a4);
   ip4_addr_set_zero(&gw);
@@ -434,6 +460,8 @@ void nc_shutdown(void) {
   for (int i = 0; i < NC_MAX_UDP_SESSIONS; i++) {
     if (g_udp[i].used && g_udp[i].pcb) udp_remove(g_udp[i].pcb);
   }
+  nc_purge_unbound(&tcp_active_pcbs);
+  nc_purge_unbound(&tcp_tw_pcbs);
   netif_remove(&g_netif);
   memset(g_listeners, 0, sizeof(g_listeners));
   memset(g_conns, 0, sizeof(g_conns));

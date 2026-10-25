@@ -20,10 +20,11 @@
 #define MEMP_NUM_PBUF 96
 #define PBUF_POOL_SIZE 96
 #define PBUF_POOL_BUFSIZE 2048
-#define MEMP_NUM_TCP_PCB 96
+/* feat/nc-wg: +32 TCP / +16 UDP PCBs for WireGuard client flows (nc_wg.c), ~8 KB. */
+#define MEMP_NUM_TCP_PCB 128
 #define MEMP_NUM_TCP_PCB_LISTEN 48
 #define MEMP_NUM_TCP_SEG 128
-#define MEMP_NUM_UDP_PCB 48
+#define MEMP_NUM_UDP_PCB 64
 #define MEMP_NUM_RAW_PCB 8
 #define MEMP_NUM_NETBUF 0
 #define MEMP_NUM_NETCONN 0
@@ -91,7 +92,10 @@
 #define CHECKSUM_CHECK_ICMP6 1
 
 #define LWIP_TCPIP_CORE_LOCKING 0
-#define LWIP_SINGLE_NETIF 1
+/* feat/nc-wg: WireGuard devices are extra netifs (nc_wg.c); TUN stays the default netif.
+   Scopes off: no link-local traffic on either kind of netif, keep ip6_addr_t as before. */
+#define LWIP_SINGLE_NETIF 0
+#define LWIP_IPV6_SCOPES 0
 #define PBUF_LINK_HLEN 0
 #define IP_SOF_BROADCAST 0
 #define LWIP_BROADCAST_PING 0
