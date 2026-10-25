@@ -1,7 +1,6 @@
 import SwiftUI
 import CoreImage
 import CoreImage.CIFilterBuiltins
-import Libmihomo
 
 // MARK: - 前置代理 picker
 
@@ -11,12 +10,7 @@ struct ChainCandidate: Decodable, Hashable {
     var group: Bool
 }
 
-private struct ChainCandidatesResponse: Decodable {
-    var current: String
-    var candidates: [ChainCandidate]
-}
-
-/// Picks the policy a node or group dials through (mihomo dialer-proxy). Candidates come from Go and
+/// Picks the policy a node or group dials through (mihomo dialer-proxy). Candidates come from NCChainCandidates and
 /// already exclude everything that would form a loop.
 struct ChainPickerView: View {
     @Environment(\.dismiss) var dismiss
@@ -92,10 +86,8 @@ struct ChainPickerView: View {
 
     func load() async {
         let home = AppShared.homeURL.path, path = profilePath, k = kind, n = name
-        let json = await Task.detached { LibmihomoChainCandidates(home, path, k, n) }.value
-        if let d = json.data(using: .utf8), let r = try? JSONDecoder().decode(ChainCandidatesResponse.self, from: d) {
-            items = r.candidates
-        }
+        let r = await Task.detached { NCChainCandidates.candidates(home: home, profilePath: path, kind: k, name: n) }.value
+        items = r.candidates.map { ChainCandidate(name: $0.name, type: $0.type, group: $0.group) }
         loading = false
     }
 }
@@ -201,19 +193,27 @@ struct ShareTarget: Identifiable {
 enum NodeShare {
     /// Link for a node dictionary (manual nodes); error text on failure.
     static func link(node: [String: Any]) -> Result<String, ShareError> {
-        guard let d = try? JSONSerialization.data(withJSONObject: node), let json = String(data: d, encoding: .utf8) else {
-            return .failure(ShareError(message: String(localized: "节点数据无效")))
+        do {
+            let s = try NCShareLink.encode(node)
+            return .success(s)
+        } catch {
+            return .failure(ShareError(message: error.localizedDescription))
         }
-        let s = LibmihomoNodeShareLink(json)
-        return s.isEmpty ? .failure(ShareError(message: LibmihomoLastError())) : .success(s)
     }
 
     /// Link for a node of the active profile, by name (策略 page).
     static func link(named name: String) async -> Result<String, ShareError> {
         guard let path = AppShared.activeProfileURL?.path else { return .failure(ShareError(message: String(localized: "没有当前配置"))) }
         let home = AppShared.homeURL.path
-        let r = await Task.detached { (LibmihomoNodeShareLinkByName(home, path, name), LibmihomoLastError()) }.value
-        return r.0.isEmpty ? .failure(ShareError(message: r.1)) : .success(r.0)
+        let r = await Task.detached { () -> Result<String, ShareError> in
+            do {
+                let s = try NCShareLink.encodeByName(homeDir: home, profilePath: path, name: name)
+                return .success(s)
+            } catch {
+                return .failure(ShareError(message: error.localizedDescription))
+            }
+        }.value
+        return r
     }
 
     struct ShareError: Error { let message: String }
@@ -271,7 +271,7 @@ struct SubscriptionExportSheet: View {
 
     func load() async {
         let path = AppShared.profileURL(id: ProfileStore.manualID).path
-        let json = await Task.detached { LibmihomoManualSubscription(path) }.value
+        let json = await Task.detached { NCShareLink.manualSubscription(path: path) }.value
         guard let d = json.data(using: .utf8), let o = try? JSONDecoder().decode(Out.self, from: d) else { return }
         text = o.text; count = o.count; skipped = o.skipped
         if !text.isEmpty {

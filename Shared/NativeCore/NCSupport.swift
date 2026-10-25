@@ -26,6 +26,8 @@ enum NCSupport {
         }
         switch t {
         case "ss":
+            // One gate for every SS plugin (ssPluginUnsupported): simple-obfs / v2ray-plugin use #101's
+            // NCSSPluginOptions parse (same as the connector), gost-plugin / shadow-tls / restls the nc-proto rules.
             if let why = ssPluginUnsupported(p) {
                 return "Shadowsocks 插件 \(why) 尚未接入"
             }
@@ -63,13 +65,13 @@ enum NCSupport {
         guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
         switch plugin {
-        case "obfs":
-            let mode = opts["mode"]?.string ?? ""
-            return mode == "http" || mode == "tls" ? nil : "obfs mode \(mode)"
-        case "v2ray-plugin":
-            if (opts["mode"]?.string ?? "") != "websocket" { return "v2ray-plugin mode \(opts["mode"]?.string ?? "")" }
-            if opts["v2ray-http-upgrade"]?.bool == true { return "v2ray-plugin http-upgrade" }
-            return nil
+        case "obfs", "v2ray-plugin":
+            // #101 (astemo6) NCSSPluginOptions: obfs mode=http/tls; v2ray-plugin mode=websocket (or empty), no
+            // v2ray-http-upgrade — the exact parse NCConnector.ssPluginStream dials with.
+            guard NCSSPluginOptions(pluginName: plugin, opts: opts) == nil else { return nil }
+            return plugin == "obfs"
+                ? "obfs 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 http/tls）"
+                : "v2ray-plugin 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 websocket，不支持 http-upgrade）"
         case "gost-plugin":
             let mode = opts["mode"]?.string ?? ""
             return mode == "websocket" ? nil : "gost-plugin mode \(mode)"

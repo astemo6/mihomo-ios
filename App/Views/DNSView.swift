@@ -1,6 +1,5 @@
 import SwiftUI
 import Darwin
-import Libmihomo
 
 /// Mirrors <home>/localdns.json (bridge/localdns.go, v0.7): 本地 DNS 映射 (mihomo `hosts:`) and 真实 IP 域名
 /// (added to fake-ip-filter). Applied on top of the profile whether or not the custom DNS override is on.
@@ -451,7 +450,7 @@ struct DNSView: View {
     func addHost() {
         let d = newHost.trimmingCharacters(in: .whitespaces)
         let v = newHostValue.trimmingCharacters(in: .whitespaces)
-        let err = LibmihomoValidateHostEntry(d, v)
+        let err = NCAppFilePorts.validateHostEntry(domain: d, value: v)
         guard err.isEmpty else { hostError = err; return }
         hostError = nil
         if let i = local.hosts.firstIndex(where: { $0.domain.lowercased() == d.lowercased() }) {

@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 // v0.15 模块库: browse / search modules from configurable index URLs, preview before adding.
 //
@@ -382,8 +381,7 @@ final class ModuleGallery: ObservableObject {
 
     nonisolated static func preview(_ url: String) async throws -> Preview {
         let text = try await EngineStore.download(url)
-        let json = LibmihomoEngineParseText(text, "{}")
-        guard let p = ParsedEngineText.parse(json) else { throw GalleryError.badReply }
+        let p = NCEngineParser.parseText(text, argsJSON: "{}")
         return Preview(text: text, parsed: p)
     }
 }

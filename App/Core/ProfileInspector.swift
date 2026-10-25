@@ -1,11 +1,10 @@
 import Foundation
 import Network
-import Libmihomo
 
 // Offline view of the active profile (bridge/inspect.go): what 策略 / 规则 / 提供者 show while the
-// tunnel is down. Built by the Go bridge from the same runtime YAML the core would load.
+// tunnel is down. Built by NCProfileInspectorPort from the same runtime YAML the core would load.
 
-struct InspectProxy: Decodable, Hashable {
+struct InspectProxy: Codable, Hashable {
     var name: String
     var type: String
     var server: String?
@@ -14,53 +13,71 @@ struct InspectProxy: Decodable, Hashable {
     var source: String?
 }
 
-struct InspectGroup: Decodable, Hashable, Identifiable {
+struct InspectGroup: Codable, Hashable, Identifiable {
     var id: String { name }
     var name: String
     var type: String
     var proxies: [String]
     var use: [String]
     var url: String?
+    var interval: Int?
     var hidden: Bool?
+    var icon: String?
     var filter: String?
     var selected: String?
-    var icon: String?
-    /// B16: members as the core lists them (bridge groupMembers: filter / exclude-filter / exclude-type /
-    /// providers / empty-fallback). nil from an older bridge.
     var members: [String]?
+    var membersError: String?
+    var excludeFilter: String?
+    var excludeType: String?
+    var includeAll: Bool?
 
-    enum CodingKeys: String, CodingKey { case name, type, proxies, use, url, hidden, filter, selected, icon, members }
-    init(from d: Decoder) throws {
-        let c = try d.container(keyedBy: CodingKeys.self)
-        name = try c.decode(String.self, forKey: .name)
-        type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "select"
-        proxies = (try? c.decodeIfPresent([String].self, forKey: .proxies)) ?? []
-        use = (try? c.decodeIfPresent([String].self, forKey: .use)) ?? []
-        url = try? c.decodeIfPresent(String.self, forKey: .url)
-        hidden = try? c.decodeIfPresent(Bool.self, forKey: .hidden)
-        filter = try? c.decodeIfPresent(String.self, forKey: .filter)
-        selected = try? c.decodeIfPresent(String.self, forKey: .selected)
-        icon = try? c.decodeIfPresent(String.self, forKey: .icon)
-        members = try? c.decodeIfPresent([String].self, forKey: .members)
+    init(
+        name: String,
+        type: String,
+        proxies: [String] = [],
+        use: [String] = [],
+        url: String? = nil,
+        interval: Int? = nil,
+        hidden: Bool? = nil,
+        icon: String? = nil,
+        filter: String? = nil,
+        selected: String? = nil,
+        members: [String]? = nil,
+        membersError: String? = nil,
+        excludeFilter: String? = nil,
+        excludeType: String? = nil,
+        includeAll: Bool? = nil
+    ) {
+        self.name = name
+        self.type = type
+        self.proxies = proxies
+        self.use = use
+        self.url = url
+        self.interval = interval
+        self.hidden = hidden
+        self.icon = icon
+        self.filter = filter
+        self.selected = selected
+        self.members = members
+        self.membersError = membersError
+        self.excludeFilter = excludeFilter
+        self.excludeType = excludeType
+        self.includeAll = includeAll
     }
 
     init(name: String, type: String, members: [String]) {
-        self.name = name
-        self.type = type
-        proxies = members
-        use = []
-        self.members = members
+        self.init(name: name, type: type, proxies: members, use: [], members: members)
     }
 }
 
-struct InspectRule: Decodable, Hashable {
+struct InspectRule: Codable, Hashable {
     var type: String
     var payload: String
     var proxy: String
     var options: String?
 }
 
-struct InspectProvider: Decodable, Hashable, Identifiable {
+struct InspectProvider: Codable, Hashable, Identifiable {
     var id: String { kind + ":" + name }
     var name: String
     var kind: String
@@ -81,7 +98,7 @@ struct InspectProvider: Decodable, Hashable, Identifiable {
     var cachedDate: Date? { cachedAt.map { Date(timeIntervalSince1970: $0) } }
 }
 
-struct InspectResult: Decodable {
+struct InspectResult: Codable {
     var mode: String = "rule"
     var proxies: [InspectProxy] = []
     var groups: [InspectGroup] = []
@@ -92,19 +109,6 @@ struct InspectResult: Decodable {
     var error: String?
 
     init() {}
-
-    enum CodingKeys: String, CodingKey { case mode, proxies, groups, rules, proxyProviders, ruleProviders, selected, error }
-    init(from d: Decoder) throws {
-        let c = try d.container(keyedBy: CodingKeys.self)
-        mode = (try? c.decodeIfPresent(String.self, forKey: .mode)) ?? "rule"
-        proxies = (try? c.decodeIfPresent([InspectProxy].self, forKey: .proxies)) ?? []
-        groups = (try? c.decodeIfPresent([InspectGroup].self, forKey: .groups)) ?? []
-        rules = (try? c.decodeIfPresent([InspectRule].self, forKey: .rules)) ?? []
-        proxyProviders = (try? c.decodeIfPresent([InspectProvider].self, forKey: .proxyProviders)) ?? []
-        ruleProviders = (try? c.decodeIfPresent([InspectProvider].self, forKey: .ruleProviders)) ?? []
-        selected = (try? c.decodeIfPresent([String: String].self, forKey: .selected)) ?? [:]
-        error = try? c.decodeIfPresent(String.self, forKey: .error)
-    }
 }
 
 @MainActor
@@ -167,12 +171,12 @@ final class ProfileInspector: ObservableObject {
         return out
     }
 
-    struct GroupPreviewItem: Decodable {
+    struct GroupPreviewItem: Codable {
         var members: [String]?
         var empty: Bool?
         var error: String?
     }
-    private struct GroupPreviewResult: Decodable {
+    private struct GroupPreviewResult: Codable {
         var groups: [GroupPreviewItem]?
         var error: String?
     }
@@ -180,14 +184,15 @@ final class ProfileInspector: ObservableObject {
     /// B16: members the core would give each draft group in the active profile (bridge GroupPreview, the
     /// same expansion as the inspector), for 策略组编辑 previews and 筛选节点 counts. nil on failure.
     func preview(_ specs: [GroupSpec]) async -> [GroupPreviewItem]? {
-        guard let url = AppShared.activeProfileURL, let data = try? JSONEncoder().encode(specs) else { return nil }
-        let json = String(decoding: data, as: UTF8.self)
-        let home = AppShared.homeURL.path
+        guard let url = AppShared.activeProfileURL else { return nil }
+        let home = AppShared.homeURL
         let path = url.path
-        let out = await Task.detached(priority: .userInitiated) { LibmihomoGroupPreview(home, path, json) }.value
-        guard let r = try? JSONDecoder().decode(GroupPreviewResult.self, from: Data(out.utf8)), r.error == nil,
-              let g = r.groups, g.count == specs.count else { return nil }
-        return g
+        let pool = NCGroupEditing.buildMemberPool(home: home, path: path, inspector: self)
+        let items = await Task.detached(priority: .userInitiated) {
+            NCGroupEditing.preview(specs: specs, pool: pool)
+        }.value
+        guard items.count == specs.count else { return nil }
+        return items
     }
 
     func current(of g: InspectGroup) -> String? {
@@ -212,15 +217,11 @@ final class ProfileInspector: ObservableObject {
         defer { if seq == loadSeq { loading = false } }
         let home = AppShared.homeURL.path
         let path = url.path
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoInspectProfile(home, path) }.value
+        let r = await Task.detached(priority: .userInitiated) {
+            NCProfileInspectorPort.inspectProfile(home: home, path: path)
+        }.value
         guard seq == loadSeq else { return }
-        if let r = try? JSONDecoder().decode(InspectResult.self, from: Data(json.utf8)) {
-            result = r
-        } else {
-            var r = InspectResult()
-            r.error = String(localized: "无法读取配置")
-            result = r
-        }
+        result = r
         if profilePath != path { delays = [:] }
         profilePath = path
     }
@@ -228,7 +229,7 @@ final class ProfileInspector: ObservableObject {
     /// Saves group → node for the active profile; applied by the core on the next connect.
     func select(group: String, node: String) {
         guard let path = profilePath ?? AppShared.activeProfileURL?.path else { return }
-        let err = LibmihomoSaveSelection(path, group, node)
+        let err = NCProfileSelections.save(path, group: group, node: node)
         guard err.isEmpty else { return }
         if let i = result.groups.firstIndex(where: { $0.name == group }) { result.groups[i].selected = node }
         result.selected[group] = node // v0.19.8: also the synthesized GLOBAL
@@ -283,7 +284,8 @@ final class ProfileInspector: ObservableObject {
         // v0.15.2: bind the test sockets to Wi-Fi / cellular so another app's VPN (QX, Surge …) that is up
         // while ours is off does not carry the test through its own node too. The core falls back to
         // normal routing when the bind fails.
-        LibmihomoSetOfflineTestInterface(await PhysicalInterface.current() ?? "")
+        let iface = await PhysicalInterface.current() ?? ""
+        NCDelayTester.setOfflineInterface(iface)
         let tcp = ControllerClient.tcpHandshake
         var idx = 0
         while idx < names.count {
@@ -292,7 +294,10 @@ final class ProfileInspector: ObservableObject {
             let got = await withTaskGroup(of: (String, Int).self, returning: [(String, Int)].self) { tg in
                 for n in batch {
                     let u = NodeSettingsStore.customURL(for: n) ?? url
-                    tg.addTask { (n, Int(await BlockingWork.run { tcp ? LibmihomoTCPDelayByName(home, path, n, u, timeout) : LibmihomoTestDelayByName(home, path, n, u, timeout) })) }
+                    tg.addTask { (n, Int(await BlockingWork.run {
+                        tcp ? NCDelayTester.tcpDelayByName(homeDir: home, profilePath: path, name: n, url: u, timeoutMs: timeout)
+                            : NCDelayTester.testDelayByName(homeDir: home, profilePath: path, name: n, url: u, timeoutMs: timeout)
+                    })) }
                 }
                 var out: [(String, Int)] = []
                 for await r in tg { out.append(r) }
@@ -305,7 +310,7 @@ final class ProfileInspector: ObservableObject {
     /// Saves the live selection too, so the offline view and the next connect agree with it.
     static func rememberLiveSelection(group: String, node: String) {
         guard let path = AppShared.activeProfileURL?.path else { return }
-        _ = LibmihomoSaveSelection(path, group, node)
+        NCProfileSelections.save(path, group: group, node: node)
     }
 }
 

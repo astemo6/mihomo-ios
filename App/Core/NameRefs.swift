@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// v0.15.4: a node or group renamed / deleted in 节点管理 or 筛选节点 is also renamed in what the app keeps
 /// outside the profile file: 策略组编辑 (group-edits.json), 按网络切换策略 (netpolicy.json), Home cards,

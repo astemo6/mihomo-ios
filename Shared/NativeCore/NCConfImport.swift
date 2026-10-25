@@ -356,6 +356,8 @@ enum NCConfImport {
         case "smart":
             kind = .urlTest
             report.warnings.append("group '\(name)': smart group approximated as url-test")
+        case "subnet", "ssid":
+            kind = .select // network conditions parsed below into subnetConditions
         default:
             kind = .select
             report.warnings.append("group '\(name)': unrecognized group type '\(rawKind)' treated as select")
@@ -367,6 +369,29 @@ enum NCConfImport {
             return v
         }
         var group = NCGroupModel(name: name, kind: kind, members: Array(positional.dropFirst()))
+        if rawKind == "subnet" || rawKind == "ssid" {
+            // Surge SUBNET / Loon ssid group: tokens are `SSID:policy`
+            // (the SSID may be quoted), plus a DEFAULT entry. Lands in the
+            // canonical subnet conditions exactly like the QX ssid policy
+            // (NCQXImport); NCGroupEngine evaluates them by current SSID.
+            var conditions: [String: String] = [:]
+            var members: [String] = []
+            for token in positional.dropFirst() {
+                guard let colon = token.firstIndex(of: ":") else { continue }
+                let ssid = String(token[..<colon]).trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+                let target = String(token[token.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                guard !ssid.isEmpty, !target.isEmpty else { continue }
+                conditions[ssid] = target
+                if !members.contains(target) { members.append(target) }
+            }
+            if let def = conditions["DEFAULT"] {
+                members.removeAll { $0 == def }
+                members.insert(def, at: 0)
+            }
+            group.kind = .select
+            group.members = members
+            group.subnetConditions = conditions
+        }
         if let u = take("url") { group.url = u }
         if let i = take("interval"), let n = Int(i) { group.interval = n }
         if let t = take("tolerance"), let n = Int(t) { group.tolerance = n }

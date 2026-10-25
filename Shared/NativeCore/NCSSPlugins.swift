@@ -51,223 +51,8 @@ class NCFramedRelay: NCRelayStream {
     }
 }
 
-// MARK: - simple-obfs http
-
-final class NCSimpleObfsHTTP: NCFramedRelay {
-    private let host: String
-    private let port: Int
-    private var firstRequest = true
-    private var firstResponse = true
-
-    init(raw: NCRelayStream, host: String, port: Int) {
-        self.host = host
-        self.port = port
-        super.init(raw: raw)
-    }
-
-    override func send(_ data: Data) {
-        guard firstRequest else { raw.send(data); return }
-        firstRequest = false
-        let key = Data((0..<16).map { _ in UInt8.random(in: 0...255) }).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
-        let hostHeader = port == 80 ? host : "\(host):\(port)"
-        // net/http Request.Write order: Host, User-Agent, Content-Length, then the rest sorted.
-        var head = "GET / HTTP/1.1\r\nHost: \(hostHeader)\r\n"
-        head += "User-Agent: curl/7.\(Int.random(in: 0..<54)).\(Int.random(in: 0..<2))\r\n"
-        head += "Content-Length: \(data.count)\r\n"
-        head += "Connection: Upgrade\r\nSec-Websocket-Key: \(key)\r\nUpgrade: websocket\r\n\r\n"
-        var wire = Data(head.utf8)
-        wire.append(data)
-        raw.send(wire)
-    }
-
-    override func consume() throws -> [Data] {
-        if firstResponse {
-            // Go reads the first chunk and drops everything up to the header end; no header end → EOF.
-            guard let r = inbuf.range(of: Data("\r\n\r\n".utf8)) else {
-                if inbuf.count > 16384 { throw Self.err("simple-obfs http: bad response") }
-                return []
-            }
-            firstResponse = false
-            let body = Data(inbuf[r.upperBound...])
-            inbuf = Data()
-            return [body]
-        }
-        let d = inbuf
-        inbuf = Data()
-        return [d]
-    }
-}
-
-// MARK: - simple-obfs tls
-
-final class NCSimpleObfsTLS: NCFramedRelay {
-    private let server: String
-    private var firstRequest = true
-    private var firstResponse = true
-    private var remain = 0 // payload bytes left in the current record
-
-    init(raw: NCRelayStream, server: String) {
-        self.server = server
-        super.init(raw: raw)
-    }
-
-    override func send(_ data: Data) {
-        var rest = data[...]
-        while !rest.isEmpty {
-            let chunk = Data(rest.prefix(16384))
-            rest = rest.dropFirst(chunk.count)
-            if firstRequest {
-                firstRequest = false
-                raw.send(Self.clientHello(data: chunk, server: server))
-            } else {
-                var rec = Data([0x17, 0x03, 0x03])
-                rec.appendBE16(UInt16(chunk.count))
-                rec.append(chunk)
-                raw.send(rec)
-            }
-        }
-    }
-
-    override func consume() throws -> [Data] {
-        var out: [Data] = []
-        while true {
-            if remain > 0 {
-                guard !inbuf.isEmpty else { break }
-                let n = min(remain, inbuf.count)
-                out.append(Data(inbuf.prefix(n)))
-                inbuf = Data(inbuf.dropFirst(n))
-                remain -= n
-                continue
-            }
-            let skip = firstResponse ? 105 : 3
-            guard inbuf.count >= skip + 2 else { break }
-            let b0 = inbuf.startIndex
-            remain = Int(inbuf[b0 + skip]) << 8 | Int(inbuf[b0 + skip + 1])
-            inbuf = Data(inbuf.dropFirst(skip + 2))
-            firstResponse = false
-        }
-        return out
-    }
-
-    static func clientHello(data: Data, server: String) -> Data {
-        let sn = Data(server.utf8)
-        var b = Data()
-        b.append(22)
-        b.append(contentsOf: [0x03, 0x01])
-        b.appendBE16(UInt16(212 + data.count + sn.count))
-        b.append(1)
-        b.append(0)
-        b.appendBE16(UInt16(208 + data.count + sn.count))
-        b.append(contentsOf: [0x03, 0x03])
-        b.appendBE32(UInt32(Date().timeIntervalSince1970))
-        b.append(NCConnector.randomData(28))
-        b.append(32)
-        b.append(NCConnector.randomData(32))
-        b.append(contentsOf: [0x00, 0x38])
-        b.append(contentsOf: [
-            0xc0, 0x2c, 0xc0, 0x30, 0x00, 0x9f, 0xcc, 0xa9, 0xcc, 0xa8, 0xcc, 0xaa, 0xc0, 0x2b, 0xc0, 0x2f,
-            0x00, 0x9e, 0xc0, 0x24, 0xc0, 0x28, 0x00, 0x6b, 0xc0, 0x23, 0xc0, 0x27, 0x00, 0x67, 0xc0, 0x0a,
-            0xc0, 0x14, 0x00, 0x39, 0xc0, 0x09, 0xc0, 0x13, 0x00, 0x33, 0x00, 0x9d, 0x00, 0x9c, 0x00, 0x3d,
-            0x00, 0x3c, 0x00, 0x35, 0x00, 0x2f, 0x00, 0xff,
-        ] as [UInt8])
-        b.append(contentsOf: [0x01, 0x00])
-        b.appendBE16(UInt16(79 + data.count + sn.count))
-        b.append(contentsOf: [0x00, 0x23]) // session ticket carries the first payload
-        b.appendBE16(UInt16(data.count))
-        b.append(data)
-        b.append(contentsOf: [0x00, 0x00])
-        b.appendBE16(UInt16(sn.count + 5))
-        b.appendBE16(UInt16(sn.count + 3))
-        b.append(0)
-        b.appendBE16(UInt16(sn.count))
-        b.append(sn)
-        b.append(contentsOf: [0x00, 0x0b, 0x00, 0x04, 0x03, 0x01, 0x00, 0x02] as [UInt8])
-        b.append(contentsOf: [0x00, 0x0a, 0x00, 0x0a, 0x00, 0x08, 0x00, 0x1d, 0x00, 0x17, 0x00, 0x19, 0x00, 0x18] as [UInt8])
-        b.append(contentsOf: [
-            0x00, 0x0d, 0x00, 0x20, 0x00, 0x1e, 0x06, 0x01, 0x06, 0x02, 0x06, 0x03, 0x05,
-            0x01, 0x05, 0x02, 0x05, 0x03, 0x04, 0x01, 0x04, 0x02, 0x04, 0x03, 0x03, 0x01,
-            0x03, 0x02, 0x03, 0x03, 0x02, 0x01, 0x02, 0x02, 0x02, 0x03,
-        ] as [UInt8])
-        b.append(contentsOf: [0x00, 0x16, 0x00, 0x00])
-        b.append(contentsOf: [0x00, 0x17, 0x00, 0x00])
-        return b
-    }
-}
-
-// MARK: - v2ray-plugin mux (mihomo's mux.cool-compatible single sub-connection)
-
-final class NCV2rayPluginMux: NCFramedRelay {
-    private var pendingNew: Data?
-    private var remain = 0
-    private var skipping = 0
-
-    override init(raw: NCRelayStream) {
-        // New frame for session 0x0000: TCP to 127.0.0.1:0, sent along with the first payload.
-        var meta = Data([0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 127, 0, 0, 1])
-        var framed = Data()
-        framed.appendBE16(UInt16(meta.count))
-        framed.append(meta)
-        meta = Data()
-        pendingNew = framed
-        super.init(raw: raw)
-    }
-
-    override func send(_ data: Data) {
-        var rest = data[...]
-        repeat {
-            let chunk = Data(rest.prefix(65535))
-            rest = rest.dropFirst(chunk.count)
-            var f = pendingNew ?? Data()
-            pendingNew = nil
-            f.append(contentsOf: [0x00, 0x04, 0x00, 0x00, 0x02, 0x01] as [UInt8]) // Keep + Data
-            f.appendBE16(UInt16(chunk.count))
-            f.append(chunk)
-            raw.send(f)
-        } while !rest.isEmpty
-    }
-
-    override func cancel() {
-        raw.send(Data([0x00, 0x04, 0x00, 0x00, 0x03, 0x00])) // End
-        raw.cancel()
-    }
-
-    override func consume() throws -> [Data] {
-        var out: [Data] = []
-        while true {
-            if skipping > 0 {
-                let n = min(skipping, inbuf.count)
-                inbuf = Data(inbuf.dropFirst(n))
-                skipping -= n
-                if skipping > 0 { break }
-            }
-            if remain > 0 {
-                guard !inbuf.isEmpty else { break }
-                let n = min(remain, inbuf.count)
-                out.append(Data(inbuf.prefix(n)))
-                inbuf = Data(inbuf.dropFirst(n))
-                remain -= n
-                continue
-            }
-            let b = [UInt8](inbuf.prefix(8))
-            guard b.count >= 2 else { break }
-            let metaLen = Int(b[0]) << 8 | Int(b[1])
-            guard metaLen <= 512 else { throw Self.err("v2ray-plugin mux: invalid metalen") }
-            guard metaLen >= 4 else { throw Self.err("v2ray-plugin mux: short meta") }
-            guard inbuf.count >= 2 + metaLen else { break }
-            let status = b[4], option = b[5]
-            if status == 0x04 || option & 0x01 == 0 {
-                inbuf = Data(inbuf.dropFirst(2 + metaLen))
-                continue
-            }
-            guard inbuf.count >= 2 + metaLen + 2 else { break }
-            let i = inbuf.startIndex + 2 + metaLen
-            remain = Int(inbuf[i]) << 8 | Int(inbuf[i + 1])
-            inbuf = Data(inbuf.dropFirst(2 + metaLen + 2))
-        }
-        return out
-    }
-}
+// simple-obfs (http/tls) and v2ray-plugin (websocket + mux) live in NCSSPlugin.swift / NCSSPluginStream.swift
+// (#101, astemo6) — one implementation; nc-proto's duplicate classes were dropped at the nc-integrate merge.
 
 // MARK: - shadow-tls (v2 / v3)
 
@@ -691,51 +476,40 @@ extension NCConnector {
             s.start { err in done(err == nil ? s : nil, err) }
         }
         switch plugin {
-        case "obfs":
-            let host = opts["host"]?.string ?? "bing.com"
-            let mode = opts["mode"]?.string ?? ""
-            plainRaw { raw, err in
-                guard let raw else { completion(nil, err); return }
-                if mode == "tls" { completion(NCSimpleObfsTLS(raw: raw, server: host), nil) }
-                else { completion(NCSimpleObfsHTTP(raw: raw, host: host, port: port), nil) }
+        case "obfs", "v2ray-plugin":
+            // #101 (astemo6): simple-obfs http/tls and v2ray-plugin websocket (+mux) via NCSSPluginOptions /
+            // NCSSPluginStream — the same parse NCSupport gates with.
+            guard let popts = NCSSPluginOptions(pluginName: plugin, opts: opts) else {
+                queue.async { completion(nil, Failure.unsupported("ss plugin \(plugin) shape unsupported (obfs http/tls, v2ray-plugin websocket)")) }
+                return
             }
-        case "v2ray-plugin":
-            let host = opts["host"]?.string ?? "bing.com"
-            let path = opts["path"]?.string ?? "/"
-            var headers: [String: String] = [:]
-            for (k, v) in opts["headers"]?.object ?? [:] { if let s = v.string { headers[k] = s } }
-            let mux = opts["mux"]?.bool ?? true
-            let tls = opts["tls"]?.bool ?? false
-            let insecure = opts["skip-cert-verify"]?.bool ?? false
-            let sni = headers["Host"] ?? host
-            func overWS(_ raw: NCRelayStream) {
-                let ws = NCWebSocketStream(raw: raw, hostHeader: headers["Host"] ?? host, path: path,
-                                           headers: headers.filter { $0.key.lowercased() != "host" })
-                ws.startHandshake { err in
-                    guard err == nil else { completion(nil, err); return }
-                    completion(mux ? NCV2rayPluginMux(raw: ws) : ws, nil)
-                }
+            func wrap(_ raw: NCRelayStream) {
+                let stream = NCSSPluginStream(raw: raw, options: popts, serverPort: String(port))
+                stream.start { err in completion(err == nil ? stream : nil, err) }
             }
-            if tls {
+            if case .v2rayPlugin = popts.kind, popts.tls {
+                // v2ray-plugin tls= terminates TLS at the SS server itself (SNI = Host header, else host).
+                let sni = popts.headers["Host"] ?? popts.host
                 if let transport {
+                    // Chain transport (kept from nc-proto): our TLS client over the hop.
                     var cfg = NCTLSClientStream.Config(serverName: sni)
                     cfg.alpn = ["http/1.1"]
-                    cfg.allowInsecure = insecure
+                    cfg.allowInsecure = popts.skipCertVerify
                     let t = NCTLSClientStream(raw: transport, config: cfg, queue: queue)
                     t.startHandshake { err in
-                        if let err { completion(nil, err) } else { overWS(t) }
+                        if let err { completion(nil, err) } else { wrap(t) }
                     }
                     return
                 }
-                let s = NCStream(to: server, port: port, tlsServerName: sni, allowInsecure: insecure, queue: queue)
+                let s = NCStream(to: server, port: port, tlsServerName: sni, allowInsecure: popts.skipCertVerify, queue: queue)
                 s.start { err in
-                    if let err { completion(nil, err) } else { overWS(s) }
+                    if let err { completion(nil, err) } else { wrap(s) }
                 }
                 return
             }
             plainRaw { raw, err in
                 guard let raw else { completion(nil, err); return }
-                overWS(raw)
+                wrap(raw)
             }
         case "gost-plugin":
             // mihomo gostObfsOption{Host: "bing.com", Mux: true}; mode must be websocket.

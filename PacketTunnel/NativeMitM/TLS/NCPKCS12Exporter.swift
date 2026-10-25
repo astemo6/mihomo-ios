@@ -128,7 +128,12 @@ public final class NCPKCS12Exporter: PKCS12Exporting {
               let pubPoint = SecKeyCopyExternalRepresentation(pub, &err) as Data? else {
             throw LeafCertError.keyGenerationFailed
         }
-        let privScalar = ext.prefix(32)
+        let privScalar: Data
+        if ext.count >= 32 {
+            privScalar = Data(ext.suffix(32))
+        } else {
+            privScalar = Data(repeating: 0, count: 32 - ext.count) + ext
+        }
         // ECPrivateKey ::= SEQUENCE { version INTEGER (1), privateKey OCTET STRING (32), [1] BIT STRING (pubPoint) }
         let ecPrivKey = DER.seq(
             DER.integer(bigEndian: Data([0x01])),

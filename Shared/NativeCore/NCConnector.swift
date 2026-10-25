@@ -227,6 +227,15 @@ enum NCConnector {
         case handshake(String)
     }
 
+    /// Opens a relay stream to `target` through `proxy`.
+    /// Completion fires on `queue` exactly once.
+    static func connect(target: NCTarget,
+                        proxy: NCProxy,
+                        queue: DispatchQueue,
+                        completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        connectViaProxy(target: target, proxy: proxy, queue: queue, completion: completion)
+    }
+
     /// Opens a relay stream to `target` through the resolved outbound.
     /// Completion fires on `queue` exactly once.
     static func connect(target: NCTarget,
@@ -282,6 +291,12 @@ enum NCConnector {
         raw.start { err in completion(err == nil ? raw : nil, err) }
     }
 
+    /// WireGuard dials through the tunnel's userspace lwIP stack (PacketTunnel/NativeCore/NCWireGuard.swift + nc_wg.c),
+    /// which only the PacketTunnel target builds. The tunnel installs its dialer at start
+    /// (NCConnector.installWireGuardDialer()); without it (the App's 延迟测试) a WireGuard node reports unsupported.
+    /// Set once before the first dial, read-only afterwards.
+    static var wireguardDialer: ((NCProxy, NCTarget, DispatchQueue, @escaping (NCRelayStream?, Error?) -> Void) -> Void)?
+
     private static func connectViaProxy(target: NCTarget, proxy: NCProxy, queue: DispatchQueue,
                                         allowMux: Bool = true,
                                         transport: NCRelayStream? = nil,
@@ -299,7 +314,11 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("wireguard over a chain transport")) }
                 return
             }
-            wireguardStream(proxy: proxy, target: target, queue: queue, completion: completion)
+            guard let dial = wireguardDialer else {
+                queue.async { completion(nil, Failure.unsupported("wireguard: only inside the tunnel (userspace lwIP stack)")) }
+                return
+            }
+            dial(proxy, target, queue, completion)
             return
         }
         // Hysteria v1 may give only `ports` (port hopping, feat/nc-proto2): the first one stands in for `port`.
@@ -342,6 +361,10 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
             }
+            // SS stream plugins wrap the whole SS stream — request head included — and apply to TCP only
+            // (mihomo StreamConnContext parity; UDP sessions never see a plugin). One implementation:
+            // NCConnector.ssPluginStream (simple-obfs / v2ray-plugin = #101 NCSSPluginStream; gost-plugin /
+            // shadow-tls / restls = nc-proto).
             if NCSS2022.isMethod2022(cipher) {
                 guard let enc = NCSS2022Encoder(method: cipher, password: password),
                       let dec = NCSS2022Decoder(method: cipher, password: password,

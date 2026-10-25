@@ -1,8 +1,7 @@
 import SwiftUI
-import Libmihomo
 
 // 地理与规则库: the four databases the core reads (geoip.metadb, GeoIP.dat, GeoSite.dat, ASN.mmdb).
-// Downloads run in the app with a progress bar; the Go bridge validates and installs the file.
+// Downloads run in the app with a progress bar; NCGeoStore validates and installs the file.
 
 struct GeoFileInfo: Decodable, Identifiable, Hashable {
     var id: String { kind }
@@ -72,7 +71,7 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     var home: String { AppShared.homeURL.path }
 
     func refresh() {
-        let json = LibmihomoGeoInfo(home)
+        let json = NCGeoStore.info(homeDir: home)
         let list = (try? JSONDecoder().decode([GeoFileInfo].self, from: Data(json.utf8))) ?? []
         files = Self.kinds.compactMap { k in list.first { $0.kind == k } }
         overrides = CoreOverrides.load()
@@ -125,7 +124,7 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
 
     /// The base the 默认地址 boxes use right now.
     var currentBase: String {
-        let u = LibmihomoGeoMirrorURL("mmdb", overrides.geoMirror, overrides.geoMirrorBase)
+        let u = NCGeoStore.mirrorURL(kind: "mmdb", mirror: overrides.geoMirror, base: overrides.geoMirrorBase)
         return u.hasSuffix("geoip.metadb") ? String(u.dropLast("geoip.metadb".count)) : u
     }
 
@@ -137,22 +136,25 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         overrides = o
     }
 
-    func defaultURL(_ kind: String) -> String { LibmihomoGeoMirrorURL(kind, overrides.geoMirror, overrides.geoMirrorBase) }
+    func defaultURL(_ kind: String) -> String { NCGeoStore.mirrorURL(kind: kind, mirror: overrides.geoMirror, base: overrides.geoMirrorBase) }
 
     func effectiveURL(_ kind: String) -> String { Self.effectiveURL(kind, overrides) }
 
     /// The custom URL for a database, else the mirror default (shared with GeoAutoUpdate).
     nonisolated static func effectiveURL(_ kind: String, _ o: CoreOverrides) -> String {
         if let u = o.geoURLs[kind], !u.isEmpty { return u }
-        return LibmihomoGeoMirrorURL(kind, o.geoMirror, o.geoMirrorBase)
+        return NCGeoStore.mirrorURL(kind: kind, mirror: o.geoMirror, base: o.geoMirrorBase)
     }
 
-    /// Validates and installs a downloaded file (Go bridge, off the main thread). Returns an error text or nil.
+    /// Validates and installs a downloaded file (off the main thread). Returns an error text or nil.
     nonisolated static func install(home: String, kind: String, file: URL) async -> String? {
         await Task.detached(priority: .userInitiated) { () -> String? in
-            var err: NSError?
-            _ = LibmihomoGeoInstallFile(home, kind, file.path, &err)
-            return err?.localizedDescription
+            do {
+                _ = try NCGeoStore.installFile(homeDir: home, kind: kind, path: file.path)
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
         }.value
     }
 
@@ -334,7 +336,7 @@ enum GeoAutoUpdate {
         let interval = TimeInterval(o.geoAutoUpdateDays) * 86400
         let home = AppShared.homeURL.path
         let files: [GeoFileInfo] = await Task.detached(priority: .utility) { () -> [GeoFileInfo] in
-            let json = LibmihomoGeoInfo(home)
+            let json = NCGeoStore.info(homeDir: home)
             return (try? JSONDecoder().decode([GeoFileInfo].self, from: Data(json.utf8))) ?? []
         }.value
         let installed = files.filter { $0.exists == true }

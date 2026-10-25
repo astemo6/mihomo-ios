@@ -2,7 +2,6 @@ import Foundation
 import Security
 import UIKit
 import UserNotifications
-import Libmihomo
 
 /// App-side owner of engine.json, modules, local scripts and the MitM CA.
 @MainActor
@@ -67,8 +66,8 @@ final class EngineStore: ObservableObject {
                 for h in hosts where !config.hostnames.contains(h) { config.hostnames.append(h) }
                 continue
             }
-            let p = ParsedEngineText.parse(LibmihomoEngineParseLine(line, toScripts ? "script" : ""))
-            let isScript = p?.rules.first?.kind == "script"
+            let p = NCEngineParser.parseLine(line, section: toScripts ? "script" : "")
+            let isScript = p.rules.first?.kind == "script"
             if isScript { config.scripts.append(EngineItem(line: line)) } else { config.rules.append(EngineItem(line: line)) }
             n += 1
         }
@@ -77,7 +76,7 @@ final class EngineStore: ObservableObject {
     }
 
     static func describe(_ line: String, section: String = "") -> (desc: String, kind: String, error: String?) {
-        guard let p = ParsedEngineText.parse(LibmihomoEngineParseLine(line, section)) else { return ("无法解析", "", "无法解析") }
+        let p = NCEngineParser.parseLine(line, section: section)
         if let r = p.rules.first { return (r.desc, r.kind, nil) }
         if let t = p.tasks?.first { return (t.desc, t.kind, nil) }
         if let e = p.errors.first { return ("无效", "", e) }
@@ -94,7 +93,7 @@ final class EngineStore: ObservableObject {
         for m in config.modules {
             if let text = try? String(contentsOf: EnginePaths.moduleURL(m.id), encoding: .utf8) {
                 let args = (try? JSONEncoder().encode(m.args ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-                if let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, args)) { out[m.id] = p }
+                out[m.id] = NCEngineParser.parseText(text, argsJSON: args)
             }
         }
         moduleInfo = out
@@ -112,7 +111,7 @@ final class EngineStore: ObservableObject {
             for m in mods {
                 if let text = try? String(contentsOf: EnginePaths.moduleURL(m.id), encoding: .utf8) {
                     let args = (try? JSONEncoder().encode(m.args ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-                    if let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, args)) { out[m.id] = p }
+                    out[m.id] = NCEngineParser.parseText(text, argsJSON: args)
                 }
             }
             return out
@@ -147,8 +146,8 @@ final class EngineStore: ObservableObject {
         defer { busy.remove("add") }
         do {
             let text = try await Self.download(wanted)
-            let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, "{}"))
-            guard let p, !(p.rules.isEmpty && p.hostnames.isEmpty && p.coreRules.isEmpty && (p.tasks ?? []).isEmpty && (p.panels ?? []).isEmpty) else {
+            let p = NCEngineParser.parseText(text, argsJSON: "{}")
+            guard !(p.rules.isEmpty && p.hostnames.isEmpty && p.coreRules.isEmpty && (p.tasks ?? []).isEmpty && (p.panels ?? []).isEmpty) else {
                 message = String(localized: "未识别到可用的重写、脚本或 MitM 内容")
                 return
             }
@@ -256,8 +255,8 @@ final class EngineStore: ObservableObject {
 
     func addModule(text: String, name: String) {
         SnapshotStore.shared.capture(String(localized: "添加模块前"))
-        let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, "{}"))
-        let m = EngineModule(name: (p?.name.isEmpty == false ? p!.name : name), url: "", enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
+        let p = NCEngineParser.parseText(text, argsJSON: "{}")
+        let m = EngineModule(name: (!p.name.isEmpty ? p.name : name), url: "", enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
         try? text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
         config.modules.append(m)
         enableForModules()
@@ -396,21 +395,19 @@ final class EngineStore: ObservableObject {
 
     func refreshCA() {
         caGeneration += 1
-        if let d = LibmihomoCAInfo(home).data(using: .utf8), let i = try? JSONDecoder().decode(CAInfoModel.self, from: d) {
-            caInfo = i
-        }
+        caInfo = NCCAManager.caInfo(home: home)
         caTrusted = caInfo.exists ? checkTrust() : nil
     }
 
-    /// fix/nav-jank: refreshCA off the main thread (Go CA load + test leaf + SecTrust evaluation).
+    /// fix/nav-jank: refreshCA off the main thread (Swift CA load + test leaf + SecTrust evaluation).
     func refreshCAInBackground() async {
         caGeneration += 1
         let gen = caGeneration
         let home = self.home
         let (info, trusted) = await Task.detached(priority: .userInitiated) { () -> (CAInfoModel?, Bool?) in
-            guard let d = LibmihomoCAInfo(home).data(using: .utf8),
-                  let i = try? JSONDecoder().decode(CAInfoModel.self, from: d) else { return (nil, nil) }
-            return (i, i.exists ? EngineStore.checkTrust(home: home) : nil)
+            let i = NCCAManager.caInfo(home: home)
+            guard i.exists else { return (i, nil) }
+            return (i, EngineStore.checkTrust(home: home))
         }.value
         guard gen == caGeneration else { return }
         if let info { caInfo = info }
@@ -418,9 +415,11 @@ final class EngineStore: ObservableObject {
     }
 
     func generateCA() {
-        var err: NSError?
-        _ = LibmihomoCAGenerate(home, &err)
-        if let err { message = String(localized: "生成失败：\(err.localizedDescription)") }
+        do {
+            _ = try NCCAManager.generateCA(home: home)
+        } catch {
+            message = String(localized: "生成失败：\(error.localizedDescription)")
+        }
         refreshCA()
         save()
     }
@@ -430,24 +429,12 @@ final class EngineStore: ObservableObject {
     func checkTrust() -> Bool { Self.checkTrust(home: home) }
 
     nonisolated static func checkTrust(home: String) -> Bool {
-        var err: NSError?
-        let s = LibmihomoCATrustChain(home, &err)
-        let parts = s.split(separator: ",").map(String.init)
-        guard err == nil, parts.count == 3,
-              let leafData = Data(base64Encoded: parts[0]), let caData = Data(base64Encoded: parts[1]),
-              let leaf = SecCertificateCreateWithData(nil, leafData as CFData),
-              let ca = SecCertificateCreateWithData(nil, caData as CFData) else { return false }
-        var trust: SecTrust?
-        let policy = SecPolicyCreateSSL(true, parts[2] as CFString)
-        guard SecTrustCreateWithCertificates([leaf, ca] as CFArray, policy, &trust) == errSecSuccess, let trust else { return false }
-        var cfErr: CFError?
-        return SecTrustEvaluateWithError(trust, &cfErr)
+        NCCAManager.checkTrust(home: home)
     }
 
     func mobileConfigFile() -> URL? {
-        var err: NSError?
-        guard let data = LibmihomoCAMobileConfig(home, &err), err == nil else {
-            message = err?.localizedDescription ?? "请先生成证书"
+        guard let data = NCCAManager.mobileConfig(home: home) else {
+            message = "请先生成证书"
             return nil
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Tern-CA.mobileconfig")
@@ -456,22 +443,22 @@ final class EngineStore: ObservableObject {
     }
 
     func certFile() -> URL? {
-        var err: NSError?
-        guard let data = LibmihomoCACertDER(home, &err), err == nil else { return nil }
+        guard let data = NCCAManager.caCertDER(home: home) else { return nil }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Tern-CA.cer")
         try? data.write(to: url, options: .atomic)
         return url
     }
 
     func p12File(password: String) -> URL? {
-        var err: NSError?
-        guard let data = LibmihomoCAExportP12(home, password, &err), err == nil else {
-            message = String(localized: "导出失败：\(err?.localizedDescription ?? "")")
+        do {
+            let data = try NCCAManager.exportP12(home: home, password: password)
+            let url = Self.p12TempURL
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            return url
+        } catch {
+            message = String(localized: "导出失败：\(error.localizedDescription)")
             return nil
         }
-        let url = Self.p12TempURL
-        try? data.write(to: url, options: [.atomic, .completeFileProtection])
-        return url
     }
 
     nonisolated static var p12TempURL: URL { FileManager.default.temporaryDirectory.appendingPathComponent("Tern-CA.p12") }
@@ -483,9 +470,12 @@ final class EngineStore: ObservableObject {
         let ok = url.startAccessingSecurityScopedResource()
         defer { if ok { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url) else { message = String(localized: "无法读取文件"); return }
-        var err: NSError?
-        _ = LibmihomoCAImportP12(home, data, password, &err)
-        if let err { message = err.localizedDescription } else { message = String(localized: "已导入证书，请重新安装并信任描述文件") }
+        do {
+            try NCCAManager.importP12(home: home, data: data, password: password)
+            message = String(localized: "已导入证书，请重新安装并信任描述文件")
+        } catch {
+            message = error.localizedDescription
+        }
         refreshCA()
         save()
     }
@@ -501,17 +491,18 @@ final class EngineStore: ObservableObject {
 
     /// Serves the profile on 127.0.0.1 and opens it in Safari (system profile install needs Safari / Files).
     func installViaSafari() {
-        var err: NSError?
-        var port: Int = 0
-        _ = LibmihomoCAServeProfile(home, &port, &err)
-        if let err { message = err.localizedDescription; return }
-        // Keep the app (and its tiny server) alive for a bit while Safari downloads the profile.
-        if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) }
-        // Review 5 P2-5: end the task synchronously inside the expiration handler (the handler runs on the main
-        // thread); a Task hop could run after the handler returned, and iOS kills apps that overrun.
-        bgTask = UIApplication.shared.beginBackgroundTask(withName: "ca-profile") {
-            MainActor.assumeIsolated { EngineStore.shared.endBackgroundTask() }
+        do {
+            let port = try NCCAManager.serveProfile(home: home)
+            // Keep the app (and its tiny server) alive for a bit while Safari downloads the profile.
+            if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) }
+            // Review 5 P2-5: end the task synchronously inside the expiration handler (the handler runs on the main
+            // thread); a Task hop could run after the handler returned, and iOS kills apps that overrun.
+            bgTask = UIApplication.shared.beginBackgroundTask(withName: "ca-profile") {
+                MainActor.assumeIsolated { EngineStore.shared.endBackgroundTask() }
+            }
+            if let u = URL(string: "http://127.0.0.1:\(port)/ca.mobileconfig") { UIApplication.shared.open(u) }
+        } catch {
+            message = error.localizedDescription
         }
-        if let u = URL(string: "http://127.0.0.1:\(port)/ca.mobileconfig") { UIApplication.shared.open(u) }
     }
 }

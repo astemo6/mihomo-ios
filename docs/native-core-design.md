@@ -88,5 +88,11 @@
   与 http_simple（TCP+UDP）。未实现：auth_aes128_md5/sha1、auth_chain_a/b、
   obfs 的 tls1.2_ticket_auth / http_post / random_head——命中这些组合时
   连接器返回明确的 unsupported 说明。
-- **SS 的 simple-obfs 插件（plugin: obfs）未实现**：与 SSR obfs 是两套东西，
-  后续可单独补 http 模式。
+- **SS 的 simple-obfs 插件（plugin: obfs）已实现**（http/tls 两模式，
+  NCSSPlugin/NCSSPluginStream，规格取自 mihomo 的 Go 移植）：插件包住整条
+  SS 流（含请求头），只作用于 TCP，与 SSR obfs 是两套东西。
+  **v2ray-plugin（websocket 模式，含 mux 与 tls=）已实现**，复用隧道侧
+  NCWebSocketStream 帧层。**shadow-tls 插件未实现**（需完整 TLS 1.3
+  ClientHello 仿造与加密握手，属独立立项量级）；v2ray-plugin 的
+  httpupgrade 模式与 utls fingerprint/ech-opts 选项不受支持（连接器返回
+  明确 unsupported 说明）。

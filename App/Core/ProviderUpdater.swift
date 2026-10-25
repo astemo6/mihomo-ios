@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// One HTTP provider of the active profile the app can download itself (bridge ProviderPlan).
 struct ProviderTask: Decodable, Identifiable, Hashable {
@@ -33,7 +32,7 @@ final class ProviderUpdater: ObservableObject {
     struct Result { var ok = 0; var failed = 0 }
 
     nonisolated static func plan(profilePath: String) -> [ProviderTask] {
-        let json = LibmihomoProviderPlan(AppShared.homeURL.path, profilePath)
+        let json = NCProviderPorts.providerPlan(home: AppShared.homeURL.path, profilePath: profilePath)
         return (try? JSONDecoder().decode([ProviderTask].self, from: Data(json.utf8))) ?? []
     }
 
@@ -105,7 +104,7 @@ final class ProviderUpdater: ObservableObject {
             if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
                 return String(localized: "下载失败：HTTP \(h.statusCode)")
             }
-            let out = LibmihomoProviderStore(AppShared.homeURL.path, t.kind, t.path, t.convert, data)
+            let out = NCProviderPorts.providerStore(home: AppShared.homeURL.path, kind: t.kind, cachePath: t.path, convert: t.convert, data: data)
             struct R: Decodable { var count: Int; var error: String }
             guard let r = try? JSONDecoder().decode(R.self, from: Data(out.utf8)) else { return String(localized: "写入失败") }
             return r.error.isEmpty ? nil : r.error

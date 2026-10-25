@@ -100,7 +100,7 @@ final class ProfileStore: ObservableObject {
         // v0.8.1: profiles converted by v0.8.0 and earlier get source URLs and readable provider names.
         let paths = profiles.filter { $0.kind == .local }.map { $0.fileURL.path }
         Task.detached(priority: .utility) {
-            for path in paths { _ = LibmihomoMigrateProfileProviders(path) }
+            for path in paths { _ = NCProviderPorts.migrateProfileProviders(path) }
         }
     }
 
@@ -152,7 +152,7 @@ final class ProfileStore: ObservableObject {
         OverrideScriptStore.shared.forget(profile: p) // v0.19 覆写脚本
         // Per-profile settings (策略组编辑 / order, 前置代理, 订阅规则, 网络策略) and side files (.bak, .gen,
         // .selected.json) of the deleted profile.
-        let err = LibmihomoForgetProfile(AppShared.homeURL.path, p.id, p.fileURL.path)
+        let err = ImportTools.forgetProfile(home: AppShared.homeURL.path, profileID: p.id, profilePath: p.fileURL.path)
         if !err.isEmpty { StartupLog.write("forget profile: \(err)", tag: "app") }
         // 自定义 copies of a deleted source become plain local profiles (they no longer follow a subscription).
         for i in profiles.indices where profiles[i].sourceID == p.id {
@@ -258,7 +258,7 @@ final class ProfileStore: ObservableObject {
     nonisolated static func normalize(_ text: String) -> String {
         let looksYAML = text.contains("proxies:") || text.contains("proxy-providers:") || text.contains("proxy-groups:")
         if looksYAML { return text }
-        let converted = LibmihomoConvertShareLinks(text)
+        let converted = NCShareLink.convertShareLinks(text)
         return converted.isEmpty ? text : converted
     }
 
@@ -504,7 +504,7 @@ final class ProfileStore: ObservableObject {
         if let p = manualProfile { return p }
         let p = Profile(id: Self.manualID, name: "手动节点", kind: .local)
         if !FileManager.default.fileExists(atPath: p.fileURL.path) {
-            _ = LibmihomoManualDelete(p.fileURL.path, "") // writes an empty manual profile
+            _ = NCManualNodes.delete(path: p.fileURL.path, name: "") // writes an empty manual profile
         }
         profiles.insert(p, at: 0)
         persist()
@@ -518,8 +518,7 @@ final class ProfileStore: ObservableObject {
     /// v0.19.6: callable off the main actor (NodeManagerModel.reload).
     nonisolated static func manualNodes(path: String?) -> [[String: Any]] {
         guard let path else { return [] }
-        let json = LibmihomoManualList(path)
-        return (try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]) ?? []
+        return NCManualNodes.list(path: path)
     }
 
     /// Parses links / lines and adds them. Returns the number of nodes added.
@@ -529,8 +528,7 @@ final class ProfileStore: ObservableObject {
         // v0.19.6: parse + write off the main actor (pasting a few thousand links froze the UI).
         let path = p.fileURL.path
         let (n, err) = await Task.detached(priority: .userInitiated) { () -> (Int32, String) in
-            let n = LibmihomoManualAddText(path, text)
-            return (n, n < 0 ? LibmihomoLastError() : "")
+            NCManualNodes.addText(path: path, text: text)
         }.value
         if n < 0 { throw StoreError.invalid(err) }
         objectWillChange.send()
@@ -541,8 +539,7 @@ final class ProfileStore: ObservableObject {
     func upsertManualNode(_ node: [String: Any], oldName: String?) async throws {
         SnapshotStore.shared.capture(String(localized: "编辑手动节点前"))
         let p = ensureManualProfile()
-        let data = try JSONSerialization.data(withJSONObject: node)
-        let err = LibmihomoManualUpsert(p.fileURL.path, String(decoding: data, as: UTF8.self), oldName ?? "")
+        let err = NCManualNodes.upsert(path: p.fileURL.path, node: node, oldName: oldName)
         if !err.isEmpty { throw StoreError.invalid(err) }
         objectWillChange.send()
         if activeID == nil { _ = await setActive(p) } else if activeID == p.id { _ = await VPNManager.shared.reload() }
@@ -560,7 +557,7 @@ final class ProfileStore: ObservableObject {
 
     /// The full proxy entry of `name` in the profile file, or nil (not defined there, e.g. a provider node).
     nonisolated static func profileNode(_ p: Profile, _ name: String) -> [String: Any]? {
-        let json = LibmihomoProfileNodeGet(p.fileURL.path, name)
+        let json = NCProfileNodes.get(path: p.fileURL.path, name: name)
         guard !json.isEmpty, let o = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
         return o
     }
@@ -576,7 +573,7 @@ final class ProfileStore: ObservableObject {
         let renamed = oldName != nil && oldName != newName
         var pinned: [String] = []
         if renamed, p.id == activeID, let oldName { pinned = await NameRefs.selectionsUsing(oldName) }
-        let err = await Task.detached(priority: .userInitiated) { LibmihomoProfileNodeUpsert(home, path, json, oldName ?? "") }.value
+        let err = await Task.detached(priority: .userInitiated) { NCProfileNodes.upsert(homeDir: home, path: path, nodeJSON: json, oldName: oldName ?? "") }.value
         if !err.isEmpty { throw StoreError.invalid(err) }
         if renamed, let oldName { NameRefs.rename(oldName, to: newName, profileID: p.id, isGroup: false) }
         objectWillChange.send()
@@ -589,22 +586,22 @@ final class ProfileStore: ObservableObject {
     func duplicateProfileNode(_ p: Profile, _ name: String) async throws -> String {
         SnapshotStore.shared.capture(String(localized: "编辑配置节点前"))
         let path = p.fileURL.path, home = AppShared.homeURL.path, suffix = String(localized: "副本")
-        let nn = await Task.detached(priority: .userInitiated) { LibmihomoProfileNodeDuplicate(home, path, name, suffix) }.value
-        if nn.isEmpty { throw StoreError.invalid(LibmihomoLastError()) }
+        let nn = await Task.detached(priority: .userInitiated) { NCProfileNodes.duplicate(homeDir: home, path: path, name: name, suffix: suffix) }.value
+        if nn.isEmpty { throw StoreError.invalid(NCProfileNodes.lastError) }
         objectWillChange.send()
         if p.id == activeID { _ = await ReloadCoalescer.shared.reload(VPNManager.shared, after: 0) }
         return nn
     }
 
     nonisolated static func profileNodeDeleteCheck(_ p: Profile, _ name: String) -> NodeDeleteCheck {
-        let json = LibmihomoProfileNodeDeleteCheck(p.fileURL.path, name)
+        let json = NCProfileNodes.deleteCheck(path: p.fileURL.path, name: name)
         return (try? JSONDecoder().decode(NodeDeleteCheck.self, from: Data(json.utf8))) ?? NodeDeleteCheck(error: json)
     }
 
     func deleteProfileNode(_ p: Profile, _ name: String) async throws {
         SnapshotStore.shared.capture(String(localized: "编辑配置节点前"))
         let path = p.fileURL.path, home = AppShared.homeURL.path
-        let err = await Task.detached(priority: .userInitiated) { LibmihomoProfileNodeDelete(home, path, name) }.value
+        let err = await Task.detached(priority: .userInitiated) { NCProfileNodes.delete(homeDir: home, path: path, name: name) }.value
         if !err.isEmpty { throw StoreError.invalid(err) }
         NameRefs.rename(name, to: nil, profileID: p.id, isGroup: false)
         objectWillChange.send()
@@ -613,7 +610,7 @@ final class ProfileStore: ObservableObject {
 
     /// One-level undo of the last profile node edit (<file>.bak).
     func undoProfileNodeEdit(_ p: Profile) async throws {
-        let err = LibmihomoProfileNodeUndo(p.fileURL.path)
+        let err = NCProfileNodes.undo(path: p.fileURL.path)
         if !err.isEmpty { throw StoreError.invalid(err) }
         objectWillChange.send()
         if p.id == activeID { _ = await ReloadCoalescer.shared.reload(VPNManager.shared, after: 0) }
@@ -621,7 +618,7 @@ final class ProfileStore: ObservableObject {
 
     func deleteManualNode(_ name: String) async {
         guard let p = manualProfile else { return }
-        _ = LibmihomoManualDelete(p.fileURL.path, name)
+        _ = NCManualNodes.delete(path: p.fileURL.path, name: name)
         objectWillChange.send()
         if activeID == p.id { _ = await VPNManager.shared.reload() }
     }

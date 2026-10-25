@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// One row of the module & resource manager (bridge/resources.go ResourceItem).
 struct ResourceItem: Decodable, Identifiable, Hashable {
@@ -52,7 +51,7 @@ final class ResourceStore: ObservableObject {
 
     func reload() {
         let home = self.home
-        let json = LibmihomoResourceList(home)
+        let json = NCResourcesPort.resourceList(home: home)
         items = (try? JSONDecoder().decode([ResourceItem].self, from: Data(json.utf8))) ?? []
     }
 
@@ -60,7 +59,7 @@ final class ResourceStore: ObservableObject {
     func reloadInBackground() async {
         let home = self.home
         let list = await Task.detached(priority: .userInitiated) { () -> [ResourceItem] in
-            let json = LibmihomoResourceList(home)
+            let json = NCResourcesPort.resourceList(home: home)
             return (try? JSONDecoder().decode([ResourceItem].self, from: Data(json.utf8))) ?? []
         }.value
         if items != list { items = list }
@@ -125,11 +124,11 @@ final class ResourceStore: ObservableObject {
             req.setValue(it.kind == "script" ? "Surge iOS/3000" : "Surge iOS/3000 Mihomo-iOS", forHTTPHeaderField: "User-Agent")
             let (data, resp) = try await URLSession.shared.data(for: req)
             if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
-                LibmihomoResourceSetError(home, it.key, "HTTP \(h.statusCode)")
+                NCResourcesPort.resourceSetError(home: home, key: it.key, message: "HTTP \(h.statusCode)")
                 return false
             }
             let key = it.key
-            let res = await Task.detached(priority: .utility) { LibmihomoResourceStore(home, key, data) }.value
+            let res = await Task.detached(priority: .utility) { NCResourcesPort.resourceStore(home: home, key: key, data: data) }.value
             struct R: Decodable { var ok: Bool; var error: String? }
             let r = try? JSONDecoder().decode(R.self, from: Data(res.utf8))
             if r?.ok == true, it.kind == "module" {
@@ -141,7 +140,7 @@ final class ResourceStore: ObservableObject {
             }
             return r?.ok == true
         } catch {
-            LibmihomoResourceSetError(home, it.key, error.localizedDescription)
+            NCResourcesPort.resourceSetError(home: home, key: it.key, message: error.localizedDescription)
             return false
         }
     }

@@ -19,6 +19,13 @@ struct NCDNSPolicy {
     let model: NCDNSModel
     let hosts: [NCHostEntry]
 
+    /// Geosite category matcher for fallback-filter evaluation, injected
+    /// by the engine owner (category, domain) -> Bool. Nil until a GeoSite
+    /// store is wired (the rule-extras batch's NCGeoSite); geosite entries
+    /// in the filter then simply don't trigger, like an unloaded category
+    /// in mihomo.
+    var geositeContains: ((String, String) -> Bool)? = nil
+
     init(model: NCDNSModel, hosts: [NCHostEntry]) {
         self.model = model
         self.hosts = hosts
@@ -104,5 +111,44 @@ struct NCDNSPolicy {
             }
         }
         return best?.servers ?? []
+    }
+
+    // MARK: fallback (mihomo dns.fallback + fallback-filter)
+
+    /// The configured fallback servers, in preference order.
+    var fallbackServers: [NCDNSServerRef] { model.fallback }
+
+    var hasFallback: Bool { !model.fallback.isEmpty }
+
+    /// Domain-side fallback trigger (mihomo checks the query name against
+    /// fallback-filter's geosite/domain lists first): when true, the query
+    /// goes to the fallback servers directly instead of trusting the
+    /// primary answer for a name expected to be polluted / hijacked.
+    func useFallbackFirst(forDomain name0: String) -> Bool {
+        guard hasFallback else { return false }
+        let name = normalize(name0)
+        for raw in model.fallbackFilter.domain {
+            var key = normalize(raw)
+            if key.hasPrefix("+.") { key = String(key.dropFirst(2)) }
+            if name == key || name.hasSuffix("." + key) { return true }
+        }
+        if let geositeContains {
+            for cat in model.fallbackFilter.geosite where geositeContains(cat, name) { return true }
+        }
+        return false
+    }
+
+    /// Answer-side fallback trigger: any A/AAAA in the primary's response
+    /// falls inside fallback-filter's ipcidr ranges, so the answer is
+    /// treated as polluted and the fallback servers get asked instead.
+    func answerTriggersFallback(_ response: Data) -> Bool {
+        guard hasFallback, !model.fallbackFilter.ipcidr.isEmpty,
+              let msg = NCDNSMessage.parse(response) else { return false }
+        let nets = model.fallbackFilter.ipcidr.compactMap { NCCIDR($0) }
+        guard !nets.isEmpty else { return false }
+        for (ip, _) in msg.addressAnswers {
+            if nets.contains(where: { $0.contains(ip) }) { return true }
+        }
+        return false
     }
 }

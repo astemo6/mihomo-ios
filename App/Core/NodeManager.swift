@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 // 节点管理 (v0.16): every node the app knows, grouped by where it comes from. The base list is the offline
 // view of the active profile (ProfileInspector: profile proxies, merged manual nodes, cached provider and
@@ -373,11 +372,11 @@ final class NodeManagerModel: ObservableObject {
     func summary(of n: ManagedNode) async -> NodeSummaryInfo? {
         let json: String
         if !n.inRuntime, let m = manualNode(n), let d = try? JSONSerialization.data(withJSONObject: m), let s = String(data: d, encoding: .utf8) {
-            json = await Task.detached(priority: .userInitiated) { LibmihomoNodeSummaryJSON(s) }.value
+            json = await Task.detached(priority: .userInitiated) { NCNodeManager.nodeSummaryJSON(s) }.value
         } else if let path = AppShared.activeProfileURL?.path {
             let home = AppShared.homeURL.path
             let name = n.name, provider = n.source.runtimeProvider
-            json = await Task.detached(priority: .userInitiated) { LibmihomoNodeSummaryIn(home, path, provider, name) }.value
+            json = await Task.detached(priority: .userInitiated) { NCNodeManager.nodeSummaryIn(home: home, profilePath: path, provider: provider, name: name) }.value
         } else {
             return nil
         }
@@ -409,12 +408,16 @@ final class NodeManagerModel: ObservableObject {
             let home = AppShared.homeURL.path
             let name = n.name, provider = n.source.runtimeProvider
             let ms = await BlockingWork.run {
-                tcp ? LibmihomoNodeTCPDelayIn(home, path, provider, name, url, timeout) : LibmihomoNodeTestDelayIn(home, path, provider, name, url, timeout)
+                tcp ? NCDelayTester.nodeTCPDelayIn(homeDir: home, profilePath: path, provider: provider, name: name, url: url, timeoutMs: timeout)
+                    : NCDelayTester.nodeTestDelayIn(homeDir: home, profilePath: path, provider: provider, name: name, url: url, timeoutMs: timeout)
             }
             return max(ms, 0)
         }
         if let m = manualNode(n), let d = try? JSONSerialization.data(withJSONObject: m), let s = String(data: d, encoding: .utf8) {
-            let ms = await BlockingWork.run { tcp ? LibmihomoTestTCPDelay(s, url, timeout) : LibmihomoTestDelay(s, url, timeout) }
+            let ms = await BlockingWork.run {
+                tcp ? NCDelayTester.testTCPDelay(proxyJSON: s, url: url, timeoutMs: timeout)
+                    : NCDelayTester.testDelay(proxyJSON: s, url: url, timeoutMs: timeout)
+            }
             return max(ms, 0)
         }
         return 0
@@ -430,7 +433,8 @@ final class NodeManagerModel: ObservableObject {
         if let t = ifaceCheckedAt, Date().timeIntervalSince(t) < 30 { return }
         if let running = ifaceLookup { await running.value; return }
         let task = Task {
-            LibmihomoSetOfflineTestInterface(await PhysicalInterface.current() ?? "")
+            let iface = await PhysicalInterface.current() ?? ""
+            NCDelayTester.setOfflineInterface(iface)
         }
         ifaceLookup = task
         await task.value
@@ -495,7 +499,7 @@ final class NodeManagerModel: ObservableObject {
         if let m = manualNode(n) { return m }
         guard let path = AppShared.activeProfileURL?.path else { return nil }
         let home = AppShared.homeURL.path, name = n.name, provider = n.source.runtimeProvider
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoNodeConfigIn(home, path, provider, name) }.value
+        let json = await Task.detached(priority: .userInitiated) { NCNodeManager.nodeConfigIn(home: home, profilePath: path, provider: provider, name: name) }.value
         guard !json.isEmpty, let o = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
         return o
     }

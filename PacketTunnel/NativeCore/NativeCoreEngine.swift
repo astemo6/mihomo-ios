@@ -38,11 +38,17 @@ final class NativeCoreEngine {
     private var redirHostMode = false
     private var geoIPDB: NCMMDB?
     private var asnDB: NCMMDB?
+    private var geoSiteDB: NCGeoSiteDB?
     private var ruleProviders: NCRuleProviderStore?
     private var dnsPolicy: NCDNSPolicy?
     private var nodeSubStore: NCNodeSubscriptionStore?
     private var nodeSubs: [NCNodeSubscription] = []
+    /// 智能选择 scorer (bridge/smart.go port); armed from groups.json on load.
+    private var smart: NCSmartSelector?
+    private var smartTimer: DispatchSourceTimer?
+    private let smartQueue = DispatchQueue(label: "nc.smart")
     private var canonicalGroupMap: [String: NCGroupModel] = [:]
+    private var healthCheck: NCHealthCheckScheduler?
     private var home = ""
 
     private var fakeIPFile: URL {
@@ -167,6 +173,7 @@ final class NativeCoreEngine {
         for sub in staleSubs {
             subStore.refresh(sub) { [weak self] in self?.rebuildGroupEngine() }
         }
+        configureSmart()
         let homeURL = URL(fileURLWithPath: home)
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
             geoIPDB = NCMMDB(data: data)
@@ -175,7 +182,15 @@ final class NativeCoreEngine {
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("ASN.mmdb")), data.count > 1024 {
             asnDB = NCMMDB(data: data)
         }
+        if let data = (try? Data(contentsOf: homeURL.appendingPathComponent("GeoSite.dat")))
+            ?? (try? Data(contentsOf: homeURL.appendingPathComponent("geosite.dat"))) {
+            geoSiteDB = NCGeoSiteDB(data: data)
+        }
         isRunning = true
+        healthCheck?.stop()
+        let hc = NCHealthCheckScheduler(engine: self)
+        hc.start()
+        healthCheck = hc
         Self.active = self
         return nil
     }
@@ -190,9 +205,13 @@ final class NativeCoreEngine {
         let merged = mergedConfig(base: cfg)
         let engine = NCGroupEngine(config: merged)
         if let old = groups {
-            engine.selections = old.selections
-            engine.delays = old.delays
-            engine.alive = old.alive
+            // Snapshot under the old engine's lock: the health-check scheduler
+            // may be writing delays/alive from its own queue right now.
+            let snap = old.statusSnapshot()
+            engine.selections = snap.selections
+            engine.delays = snap.delays
+            engine.alive = snap.alive
+            engine.smartPins = old.smartPins
         } else if let data = try? Data(contentsOf: selectionsFile),
                   let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             // Selections survive a reconnect (mihomo keeps them in cache.db, store-selected).
@@ -208,7 +227,11 @@ final class NativeCoreEngine {
         engine.ssidProvider = {
             UserDefaults(suiteName: AppShared.appGroup)?.string(forKey: "nativeCoreSSID")
         }
+        engine.onGroupTouched = { [weak self] groupName in
+            self?.healthCheck?.notifyTouch(group: groupName)
+        }
         groups = engine
+        healthCheck?.updateConfig()
     }
 
     private func mergedConfig(base cfg: NCConfig) -> NCConfig {
@@ -243,18 +266,25 @@ final class NativeCoreEngine {
         }
         return NCConfig(mode: cfg.mode, logLevel: cfg.logLevel, ipv6: cfg.ipv6,
                         proxies: proxies, groups: groups, rules: cfg.rules,
-                        dns: cfg.dns, raw: cfg.raw)
+                        dns: cfg.dns, sniffer: cfg.sniffer, raw: cfg.raw, subRules: cfg.subRules)
     }
 
     /// Build a match context with this engine's GeoIP/ASN lookups injected.
     func matchContext(domain: String?, ip: NCIP?, srcIP: NCIP? = nil, dstPort: Int?, network: String) -> NCMatchContext {
         stateLock.lock(); defer { stateLock.unlock() }
         var ctx = NCMatchContext(domain: domain, ip: ip, srcIP: srcIP, dstPort: dstPort, network: network)
+        // Every flow here arrived through the TUN inbound; there is no
+        // listener port, so inPort stays nil and IN-PORT cannot match.
+        ctx.inType = "TUN"
+        ctx.subRules = config?.subRules ?? [:]
         if let geoIPDB {
             ctx.countryOf = { geoIPDB.countryCode(for: $0) }
         }
         if let asnDB {
             ctx.asnOf = { asnDB.asn(for: $0) }
+        }
+        if let geoSiteDB {
+            ctx.geositeMatches = { payload, domain in geoSiteDB.matches(payload: payload, domain: domain) }
         }
         if let ruleProviders {
             ctx.ruleSetContains = { name, c in ruleProviders.contains(name: name, ctx: c) }
@@ -264,6 +294,11 @@ final class NativeCoreEngine {
 
     func stop() {
         stateLock.lock(); defer { stateLock.unlock() }
+        healthCheck?.stop()
+        healthCheck = nil
+        smartTimer?.cancel()
+        smartTimer = nil
+        smart = nil
         persistFakeIP()
         isRunning = false
         _config = nil
@@ -294,6 +329,11 @@ final class NativeCoreEngine {
         return body(cfg, g)
     }
 
+    /// The live group engine for the health-check scheduler / delay tester (nc-healthcheck, astemo6). Since that
+    /// change NCGroupEngine guards its own delays / alive / selections with its own lock (snapshot reads), so handing
+    /// the reference out is safe; lock order is always engine → group engine.
+    var groupEngine: NCGroupEngine? { locked { groups } }
+
     /// Resolves a policy / proxy / group name (controller delay tests) under the lock.
     func resolve(policyName: String) -> NCGroupEngine.Resolution? {
         locked { groups?.resolve(policyName) }
@@ -307,6 +347,11 @@ final class NativeCoreEngine {
         return groups != nil ? mergedConfig(base: cfg) : cfg
     }
 
+    /// The loaded config's sniffer settings (disabled when no config).
+    var snifferConfig: NCSnifferConfig {
+        config?.sniffer ?? NCSnifferConfig(fields: [:])
+    }
+
     /// Controller-driven mode override (PATCH /configs); nil = config's mode.
     private var _modeOverride: String?
     var modeOverride: String? {
@@ -318,20 +363,57 @@ final class NativeCoreEngine {
 
     func setSelection(group: String, member: String?) {
         stateLock.lock(); defer { stateLock.unlock() }
-        if let member {
-            groups?.selections[group] = member
-        } else {
-            groups?.selections.removeValue(forKey: group)
-        }
-        if let sel = groups?.selections, let data = try? JSONEncoder().encode(sel) {
+        guard let sel = groups?.setSelection(group: group, member: member) else { return }
+        if let data = try? JSONEncoder().encode(sel) {
             try? data.write(to: selectionsFile, options: .atomic)
         }
     }
 
     func recordDelay(name: String, ms: Int) {
         stateLock.lock(); defer { stateLock.unlock() }
-        groups?.delays[name] = ms
-        groups?.alive[name] = ms > 0
+        groups?.recordDelay(name: name, ms: ms)
+        smart?.recordCheck(name: name, ms: ms)
+    }
+
+    func recordFailure(name: String) {
+        stateLock.lock(); defer { stateLock.unlock() }
+        groups?.recordFailure(name: name)
+        smart?.recordCheck(name: name, ms: 0)
+    }
+
+    /// 智能选择 (bridge/smart.go): read this profile's smart group list from
+    /// <home>/groups.json ({"<profile id>": {"smart": [names]}} — the same
+    /// store the app edits via SmartGroups) and run the scorer: first pass
+    /// 20 s after load, then every 30 s, publishing pins to the resolver.
+    private func configureSmart() {
+        smartTimer?.cancel()
+        smartTimer = nil
+        smart = nil
+        groups?.smartPins = [:]
+        guard let profileID = AppShared.activeProfileURL?.deletingPathExtension().lastPathComponent,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent("groups.json")),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let entry = root[profileID] as? [String: Any],
+              let names = entry["smart"] as? [String], !names.isEmpty else { return }
+        let selector = NCSmartSelector(enabledGroups: names)
+        smart = selector
+        let timer = DispatchSource.makeTimerSource(queue: smartQueue)
+        timer.schedule(deadline: .now() + 20, repeating: 30)
+        timer.setEventHandler { [weak self] in
+            // Engine state read / written under the engine lock (gap D3); the scorer itself runs unlocked.
+            guard let self, let selector = self.locked({ self.smart }) else { return }
+            let cfgGroups = self.effectiveConfig?.groups ?? []
+            let groupEngine = self.groupEngine
+            let pins = selector.tick(groups: cfgGroups, currentMember: { g in groupEngine?.currentMember(of: g) })
+            self.locked { if self.smart === selector { self.groups?.smartPins = pins } }
+        }
+        timer.resume()
+        smartTimer = timer
+    }
+
+    /// GET /smart body for the controller (Go smartRoutes shape).
+    func smartStatusJSON() -> [String: Any] {
+        locked { smart }?.statusJSON() ?? ["groups": [Any]()]
     }
 
     /// Policy name for a connection, following the config mode:
@@ -349,8 +431,8 @@ final class NativeCoreEngine {
         case "global":
             return (cfg.groupMap["GLOBAL"] != nil ? "GLOBAL" : (cfg.groups.first?.name ?? "DIRECT"), nil)
         default:
-            if let hit = NCRuleMatcher.firstMatch(rules, ctx) {
-                return (hit.policy, hit.raw)
+            if let hit = NCRuleMatcher.firstMatchWithPolicy(rules, ctx) {
+                return (hit.policy, hit.rule.raw)
             }
             return ("DIRECT", nil)
         }
@@ -390,13 +472,47 @@ final class NativeCoreEngine {
     /// per-domain assignment (nameserver-policy / [Host] server: / QX
     /// server=/) when one exists, else the first configured default.
     func dnsUpstream(for query: Data) -> NCDNSUpstream? {
-        if let policy = locked({ dnsPolicy }), let msg = NCDNSMessage.parse(query),
+        dnsRoute(for: query).primary
+    }
+
+    /// Full DNS routing for a forwarded query (mihomo dns.fallback /
+    /// fallback-filter): the primary upstream as dnsUpstream picks it,
+    /// plus the first fallback server when dns.fallback is configured.
+    /// `fallbackFirst` is set when the query name itself matches the
+    /// fallback filter (domain/geosite) and no per-domain assignment
+    /// governs the name — per-domain assignments always win, as in
+    /// mihomo, where nameserver-policy bypasses the fallback logic.
+    func dnsRoute(for query: Data) -> (primary: NCDNSUpstream?, fallback: NCDNSUpstream?, fallbackFirst: Bool) {
+        // Gap D3: one locked read of the policy, the rest runs on the local copy.
+        let dnsPolicy = locked { self.dnsPolicy }
+        var primary: NCDNSUpstream? = nil
+        var assigned = false
+        var qname: String? = nil
+        if let policy = dnsPolicy, let msg = NCDNSMessage.parse(query),
            let name = msg.questions.first?.name {
-            for ref in policy.servers(for: name) {
-                if let up = NCDNSUpstream(ref) { return up }
+            qname = name
+            let refs = policy.servers(for: name)
+            assigned = !refs.isEmpty
+            for ref in refs {
+                if let up = NCDNSUpstream(ref) { primary = up; break }
             }
         }
-        return firstDNSUpstream
+        if primary == nil { primary = firstDNSUpstream }
+        var fallback: NCDNSUpstream? = nil
+        if let policy = dnsPolicy {
+            for ref in policy.fallbackServers {
+                if let up = NCDNSUpstream(ref) { fallback = up; break }
+            }
+        }
+        let first = fallback != nil && !assigned && qname != nil
+            && (dnsPolicy?.useFallbackFirst(forDomain: qname!) ?? false)
+        return (primary, fallback, first)
+    }
+
+    /// Whether a primary upstream's answer is polluted per
+    /// fallback-filter ipcidr and the fallback servers should be asked.
+    func dnsAnswerTriggersFallback(_ response: Data) -> Bool {
+        locked { dnsPolicy }?.answerTriggersFallback(response) ?? false
     }
 
     /// Answers a raw DNS query in fake-IP mode (A -> fake IP, AAAA -> fake

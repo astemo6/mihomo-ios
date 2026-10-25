@@ -1138,6 +1138,13 @@ final class NCUDPWireGuardSession: NCUDPSession {
 // MARK: - Connector entry
 
 extension NCConnector {
+    /// Hooks wireguardStream into the shared connector (NCConnector lives in Shared/, compiled into the App too).
+    static func installWireGuardDialer() {
+        wireguardDialer = { proxy, target, queue, completion in
+            wireguardStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        }
+    }
+
     /// TCP through a WireGuard node (feat/nc-wg). Completion on `queue`, exactly once.
     static func wireguardStream(proxy: NCProxy, target: NCTarget, queue: DispatchQueue,
                                 completion: @escaping (NCRelayStream?, Error?) -> Void) {

@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 /// v0.16 全部重写规则: every rewrite / script rule from 本地模块 and each imported module in one searchable
 /// list (type, phase, description, source module). Disabled ones (switch off, module off, engine off) are dimmed.
@@ -44,7 +43,7 @@ struct AllRewritesView: View {
     private static func parseLocal(_ items: [EngineItem], engineOn: Bool) -> [Row] {
         var out: [Row] = []
         for it in items {
-            guard let p = ParsedEngineText.parse(LibmihomoEngineParseLine(it.line, it.line.contains("type=") ? "script" : "")) else { continue }
+            let p = NCEngineParser.parseLine(it.line, section: it.line.contains("type=") ? "script" : "")
             for (i, r) in p.rules.enumerated() {
                 out.append(Row(id: "local:\(it.id)#\(i)", kind: r.kind, phase: r.phase, pattern: r.pattern, desc: r.desc,
                                source: String(localized: "本地模块"), moduleID: nil, enabled: it.enabled && engineOn))

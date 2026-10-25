@@ -343,7 +343,8 @@ struct ScriptLogLine: Decodable, Identifiable, Hashable {
     var count: Int?
 }
 
-/// Result of LibmihomoEngineParseText / EngineParseLine.
+/// Result of the module text parser (NCEngineParser, formerly the Go
+/// bridge's EngineParseText / EngineParseLine).
 struct ParsedEngineText: Decodable {
     struct Rule: Decodable, Hashable {
         var kind: String
@@ -397,14 +398,4 @@ struct ParsedEngineText: Decodable {
         guard let d = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(ParsedEngineText.self, from: d)
     }
-}
-
-struct CAInfoModel: Decodable, Equatable {
-    var exists: Bool
-    var subject: String?
-    var fingerprint: String?
-    var sha1: String?
-    var notBefore: String?
-    var notAfter: String?
-    var algorithm: String?
 }

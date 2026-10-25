@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 // v0.10 配置快照 and 存储空间 (更多 → 工具与数据).
 
@@ -304,7 +303,7 @@ final class StorageModel: ObservableObject {
             // Provider files referenced by any profile (as the core would resolve them).
             var used = Set<String>()
             for p in profiles {
-                let json = LibmihomoProviderPlan(home.path, p)
+                let json = NCProviderPorts.providerPlan(home: home.path, profilePath: p)
                 if let arr = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] {
                     for t in arr { if let path = t["path"] as? String { used.insert(URL(fileURLWithPath: path).standardizedFileURL.path) } }
                 }

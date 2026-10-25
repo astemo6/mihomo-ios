@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 /// 工具 → 重写 → 脚本列表 (feat/loon-rewrite-ui, Loon 配置 → 脚本): every script of the enabled subscriptions
 /// and the enabled local script lines in one list, one section per owner (本地 first). A row shows name,
@@ -150,7 +149,7 @@ struct ScriptSourceView: View {
             .task {
                 let home = AppShared.homeURL.path
                 let p = path
-                let src = await Task.detached(priority: .userInitiated) { (LibmihomoScriptSource(home, p), LibmihomoLastError()) }.value
+                let src = await Task.detached(priority: .userInitiated) { NCScriptSource.codeAndError(home: home, path: p) }.value
                 if src.0.isEmpty {
                     error = src.1.isEmpty ? path : src.1
                 } else {
@@ -198,7 +197,7 @@ enum ScriptListData {
         var out: [ScriptListData.ScriptGroup] = []
         var local: [ScriptEntry] = []
         for it in config.scripts where it.enabled {
-            guard let p = ParsedEngineText.parse(LibmihomoEngineParseLine(it.line, "script")) else { continue }
+            let p = NCEngineParser.parseLine(it.line, section: "script")
             local += entries(p, prefix: "local:" + it.id)
         }
         if !local.isEmpty { out.append(ScriptGroup(id: "local", title: localTitle, entries: local)) }
