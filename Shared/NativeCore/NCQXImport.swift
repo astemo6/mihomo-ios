@@ -251,8 +251,18 @@ enum NCQXImport {
         case "snell":
             if let p = take("psk") ?? take("password") { fields["password"] = .string(p) }
             if let v = take("version"), let n = Int(v) { fields["version"] = .number(Double(n)) }
+        case "tuic":
+            // Same mapping as the Surge/Loon tuic spelling (NCConfImport.buildSurgeLikeNode): credentials stay
+            // strings (the verbatim pass would coerce an all-digit token / password into a number).
+            if let p = take("password") { fields["password"] = .string(p) }
+            if let t = take("token") { fields["token"] = .string(t) }
+            if let u = take("uuid") { fields["uuid"] = .string(u) }
+            if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "hysteria2":
+            if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
+            if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
         default:
-            // tuic / wireguard / hysteria2 / anytls / …: generic credential
+            // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.
             if type == "shadowsocksr" || type == "ssr" { type = "ssr" }
             if let p = take("password") { fields["password"] = .string(p) }
