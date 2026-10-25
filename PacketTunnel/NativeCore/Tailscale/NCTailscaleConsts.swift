@@ -69,38 +69,40 @@ enum NCTailscaleConsts {
     static let derpHeaderLength: Int = 5
 
     /// Official DERP frame type enumeration.
-    /// Official reference: `tailscale.com/derp/derp.go` `frameType` definitions.
+    /// Official reference: `tailscale.com/derp/derp.go` `FrameType` definitions.
     enum DERPFrameType: UInt8, CaseIterable {
         /// ServerKey: 8-byte magic + 32-byte server public key. Sent by server upon connect.
         case serverKey = 0x01
-        /// ClientInfo: Client's public key (32 bytes) + NaCl box encrypted ClientInfo JSON.
+        /// ClientInfo: Client's public key (32 bytes) + 24-byte nonce + NaCl box encrypted ClientInfo JSON.
         case clientInfo = 0x02
-        /// ServerInfo: NaCl box encrypted ServerInfo JSON from server.
+        /// ServerInfo: 24-byte nonce + NaCl box encrypted ServerInfo JSON from server.
         case serverInfo = 0x03
         /// SendPacket: 32-byte destination public key + raw packet payload.
         case sendPacket = 0x04
-        /// ForwardPacket: Internal relay forward frame.
-        case forwardPacket = 0x05
         /// RecvPacket: 32-byte source public key + raw packet payload.
-        case recvPacket = 0x06
+        case recvPacket = 0x05
         /// KeepAlive: 0-byte frame payload used to keep the connection alive.
-        case keepAlive = 0x07
+        case keepAlive = 0x06
         /// NotePreferred: 1-byte boolean (0x01 for preferred home, 0x00 otherwise).
-        case notePreferred = 0x08
+        case notePreferred = 0x07
         /// PeerGone: 32-byte peer public key + 1-byte reason.
-        case peerGone = 0x09
-        /// PeerPresent: 32-byte peer public key.
-        case peerPresent = 0x0a
-        /// WatchPres: 1-byte boolean for presence notification subscription.
-        case watchPres = 0x0b
+        case peerGone = 0x08
+        /// PeerPresent: 32-byte peer public key (+ optional endpoint & flags).
+        case peerPresent = 0x09
+        /// ForwardPacket: 32-byte src key + 32-byte dst key + packet.
+        case forwardPacket = 0x0a
+        /// WatchPres: 0-byte payload for presence notification subscription (mesh).
+        case watchPres = 0x10
+        /// ClosePeer: 32-byte peer public key to close (mesh).
+        case closePeer = 0x11
         /// Ping: 8-byte opaque ping payload.
-        case ping = 0x0c
+        case ping = 0x12
         /// Pong: 8-byte opaque payload echoing the ping payload.
-        case pong = 0x0d
+        case pong = 0x13
         /// Health: UTF-8 formatted error string from the server.
-        case health = 0x0e
+        case health = 0x14
         /// Restarting: 4-byte reconnect duration (ms) + 4-byte try-for duration (ms).
-        case restarting = 0x0f
+        case restarting = 0x15
 
         public var name: String {
             switch self {
@@ -108,13 +110,14 @@ enum NCTailscaleConsts {
             case .clientInfo: return "ClientInfo"
             case .serverInfo: return "ServerInfo"
             case .sendPacket: return "SendPacket"
-            case .forwardPacket: return "ForwardPacket"
             case .recvPacket: return "RecvPacket"
             case .keepAlive: return "KeepAlive"
             case .notePreferred: return "NotePreferred"
             case .peerGone: return "PeerGone"
             case .peerPresent: return "PeerPresent"
+            case .forwardPacket: return "ForwardPacket"
             case .watchPres: return "WatchPres"
+            case .closePeer: return "ClosePeer"
             case .ping: return "Ping"
             case .pong: return "Pong"
             case .health: return "Health"
