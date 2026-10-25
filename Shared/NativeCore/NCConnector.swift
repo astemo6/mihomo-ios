@@ -351,6 +351,10 @@ enum NCConnector {
     /// Set once before the first dial, read-only afterwards.
     static var wireguardDialer: ((NCProxy, NCTarget, DispatchQueue, @escaping (NCRelayStream?, Error?) -> Void) -> Void)?
 
+    /// Tailscale dials through the tunnel's userspace lwIP stack and DERP relays.
+    /// Set once before the first dial via NCConnector.installTailscaleDialer().
+    static var tailscaleDialer: ((NCProxy, NCTarget, DispatchQueue, @escaping (NCRelayStream?, Error?) -> Void) -> Void)?
+
     private static func connectViaProxy(target: NCTarget, proxy: NCProxy, queue: DispatchQueue,
                                         allowMux: Bool = true,
                                         transport: NCRelayStream? = nil,
@@ -376,6 +380,19 @@ enum NCConnector {
             }
             guard let dial = wireguardDialer else {
                 queue.async { completion(nil, Failure.unsupported("wireguard: only inside the tunnel (userspace lwIP stack)")) }
+                return
+            }
+            dial(proxy, target, queue, completion)
+            return
+        }
+        // feat/nc-ts: Tailscale (overlay routing via userspace lwIP and DERP relays).
+        if proxy.type == "tailscale" {
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("tailscale over a chain transport")) }
+                return
+            }
+            guard let dial = tailscaleDialer else {
+                queue.async { completion(nil, Failure.unsupported("tailscale: only inside the tunnel (userspace lwIP stack)")) }
                 return
             }
             dial(proxy, target, queue, completion)
