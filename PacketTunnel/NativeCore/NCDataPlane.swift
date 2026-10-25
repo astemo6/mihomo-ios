@@ -39,6 +39,7 @@ final class NCDataPlane {
         let conn: NCTunStack.TCPConn
         var target: NCTarget        // dial target (domain after deref/sniff, else the IP)
         var ruleDomain: String?     // domain fed to rule matching, when known
+        var protocolHint: String?   // rv2-rules: sniffed "tls" / "quic" / "http" (PROTOCOL rules)
         var pending = Data()        // client bytes buffered before the relay is up
         var outbox = Data()         // relay bytes waiting for stack send window
         var relay: NCRelayStream?
@@ -240,6 +241,7 @@ final class NCDataPlane {
             // The QUIC branch of NCSniffer.detect reports alpn ["h3"]; its
             // port gate is the QUIC table, plain TLS uses the TLS table.
             let isQUIC = alpn == ["h3"]
+            s.protocolHint = isQUIC ? "quic" : "tls"
             guard isQUIC ? sniff.sniffQUIC(port: s.target.port) : sniff.sniffTLS(port: s.target.port) else {
                 connect(s)
                 return
@@ -281,6 +283,7 @@ final class NCDataPlane {
             }
             connect(s)
         case .http(let host, _):
+            s.protocolHint = "http"
             guard sniff.sniffHTTP(port: s.target.port) else { connect(s); return }
             if let host {
                 s.ruleDomain = host
@@ -297,14 +300,29 @@ final class NCDataPlane {
     private func connect(_ s: TCPSession) {
         guard s.state == .deciding else { return }
         s.state = .connecting
-        let ctx = engine.matchContext(domain: s.ruleDomain,
-                                 ip: s.target.ip,
-                                 dstPort: s.target.port,
-                                 network: "tcp")
-        let (policyName, ruleText) = engine.policyWithRule(for: ctx)
+        // rv2-rules: a fake-IP destination is never matched or dialed as an
+        // IP. Unmapped (pool lost) → the sniffed domain if any, else drop
+        // (mihomo rejects "fake DNS record missing").
+        if let ip = s.target.ip, engine.isFakeAddress(ip) {
+            guard let d = s.ruleDomain else { close(s); return }
+            s.target = NCTarget(host: d, port: s.target.port)
+        }
+        var ctx = engine.matchContext(domain: s.ruleDomain,
+                                      ip: s.target.ip,
+                                      dstPort: s.target.port,
+                                      network: "tcp")
+        ctx.protocolHint = s.protocolHint
+        // One match per connection (load-balance advances once); IP rules
+        // resolve the domain asynchronously when needed (mihomo semantics).
+        engine.routeAsync(ctx, queue: queue) { [weak self, weak s] policyName, ruleText, resolution in
+            guard let self, let s, s.state == .connecting else { return }
+            self.dial(s, policyName: policyName, ruleText: ruleText, resolution: resolution)
+        }
+    }
+
+    private func dial(_ s: TCPSession, policyName: String, ruleText: String?, resolution: NCGroupEngine.Resolution) {
         s.policyName = policyName
         s.ruleText = ruleText ?? ""
-        let resolution = engine.resolve(ctx)
         s.chainName = switch resolution {
         case .direct: "DIRECT"
         case .reject: "REJECT"
@@ -495,6 +513,10 @@ final class NCDataPlane {
         }
     }
 
+    /// rv2-rules: first packets of a UDP flow whose rule match is waiting on
+    /// a resolve (bounded per flow).
+    private var udpPending: [UInt32: [Data]] = [:]
+
     private func udpForward(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
         if var entry = udpSessions[info.id] {
             entry.lastUsed = Date()
@@ -502,19 +524,40 @@ final class NCDataPlane {
             entry.session.send(data, to: engine.derefFakeIP(info.dst))
             return
         }
+        if udpPending[info.id] != nil {
+            if udpPending[info.id]!.count < 16 { udpPending[info.id]!.append(data) } else { udpDropped += 1 }
+            return
+        }
         let target = engine.derefFakeIP(info.dst)
+        let restored = target.host != info.dst.host
         // QUIC to a MitM host is dropped so the client falls back to TCP, where the native MitM front sees it
         // (bridge/mitm Inject's UDP REJECT rule on the Go path).
         if info.dst.port == 443, target.host != info.dst.host, engine.isMitm(host: target.host, port: 443) {
             udpDropped += 1
             return
         }
-        let ctx = engine.matchContext(domain: target.host != info.dst.host ? target.host : nil,
-                                 ip: info.dst.ip,
-                                 dstPort: info.dst.port,
-                                 network: "udp")
+        // rv2-rules: match on the restored domain, never on the fake IP;
+        // an unmapped fake destination is dropped.
+        if !restored, let ip = info.dst.ip, engine.isFakeAddress(ip) {
+            udpDropped += 1
+            return
+        }
+        var ctx = engine.matchContext(domain: restored ? target.host : nil,
+                                      ip: restored ? nil : info.dst.ip,
+                                      dstPort: info.dst.port,
+                                      network: "udp")
+        if info.dst.port == 443 { ctx.protocolHint = "quic" }
+        udpPending[info.id] = [data]
+        engine.routeAsync(ctx, queue: queue) { [weak self] _, _, resolution in
+            guard let self, let queued = self.udpPending.removeValue(forKey: info.id), self.isRunning else { return }
+            self.openUDP(info, target: target, resolution: resolution, packets: queued)
+        }
+    }
+
+    private func openUDP(_ info: NCTunStack.UDPSessionInfo, target: NCTarget,
+                         resolution: NCGroupEngine.Resolution, packets: [Data]) {
         let session: NCUDPSession
-        switch engine.resolve(ctx) {
+        switch resolution {
         case .direct:
             session = NCUDPDirectSession(target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "socks5":
@@ -583,7 +626,7 @@ final class NCDataPlane {
             self?.stack.udpSend(session: sid, payload)
         }
         udpSessions[info.id] = UDPSessionEntry(session: session, lastUsed: Date())
-        session.send(data, to: target)
+        for p in packets { session.send(p, to: target) }
     }
 }
 

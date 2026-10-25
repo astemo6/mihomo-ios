@@ -75,6 +75,13 @@ struct NCDNSConfig: Equatable {
     var fakeIPRange: String { fields["fake-ip-range"]?.string ?? "198.18.0.1/16" }
     var fakeIPRange6: String? { fields["fake-ip-range6"]?.string }
     var fakeIPFilter: [String] { fields["fake-ip-filter"]?.array?.compactMap { $0.string } ?? [] }
+    /// mihomo `fake-ip-filter-mode`: "blacklist" (default — listed names get
+    /// real IPs), "whitelist" (ONLY listed names get fake IPs) or "rule"
+    /// (mihomo's rule-style filter, not implemented natively: treated as
+    /// blacklist and reported at load).
+    var fakeIPFilterMode: String { (fields["fake-ip-filter-mode"]?.string ?? "blacklist").lowercased() }
+    /// Fallback nameservers (mihomo dns.fallback).
+    var fallbackServers: [String] { fields["fallback"]?.array?.compactMap { $0.string } ?? [] }
     var nameservers: [String] { fields["nameserver"]?.array?.compactMap { $0.string } ?? [] }
     var enhancedMode: String { fields["enhanced-mode"]?.string ?? "fake-ip" }
 }

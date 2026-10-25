@@ -22,9 +22,27 @@ final class NCGeoSiteDB {
     private let data: Data
     /// Uppercased category code -> byte range of its GeoSite message in `data`.
     private var index: [String: Range<Int>] = [:]
-    private var cache: [String: [Entry]] = [:]
-    private var regexCache: [String: NSRegularExpression] = [:]
+    /// Parsed categories, bounded (rv2: geosite:cn alone is ~100k entries;
+    /// nameserver-policy / fake-ip-filter / fallback-filter now consult the
+    /// store on every DNS query, so the cache must not grow per category
+    /// forever). Least-recently-used category is dropped past the cap.
+    private var cache: [String: Category] = [:]
+    private var cacheOrder: [String] = []
+    private let maxCachedCategories = 8
     private let lock = NSLock()
+
+    /// One category, indexed for O(labels) lookups: exact and root-domain
+    /// entries in hash sets (walk the host's suffixes), keyword / regex
+    /// entries scanned linearly (few in practice). Entries carrying
+    /// attributes are kept apart for `@attr` queries.
+    private final class Category {
+        var full: Set<String> = []
+        var root: Set<String> = []
+        var plain: [String] = []
+        var regex: [NSRegularExpression] = []
+        var attributed: [Entry] = []
+        var hasAttributed: Bool { !attributed.isEmpty }
+    }
 
     struct Entry {
         enum Kind { case plain, regex, rootDomain, full }
@@ -54,7 +72,8 @@ final class NCGeoSiteDB {
     /// mihomo GEOSITE match: `payload` is the rule payload ("NAME" or
     /// "NAME@attr1,attr2"), `domain` the host being routed.
     func matches(payload: String, domain: String) -> Bool {
-        let d = domain.lowercased()
+        var d = domain.lowercased()
+        if d.hasSuffix(".") { d.removeLast() }
         guard !d.isEmpty else { return false }
         var name = payload
         var attrs: [String] = []
@@ -65,22 +84,45 @@ final class NCGeoSiteDB {
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
                 .filter { !$0.isEmpty }
         }
-        guard let entries = entries(for: name.uppercased()) else { return false }
-        for e in entries {
-            if !attrs.allSatisfy({ e.attrs.contains($0) }) { continue }
-            switch e.kind {
-            case .full:
-                if d == e.value { return true }
-            case .rootDomain:
-                if d == e.value || d.hasSuffix("." + e.value) { return true }
-            case .plain:
-                if d.contains(e.value) { return true }
-            case .regex:
-                if let re = regex(for: e.value),
-                   re.firstMatch(in: d, range: NSRange(d.startIndex..., in: d)) != nil { return true }
+        guard let cat = category(for: name.trimmingCharacters(in: .whitespaces).uppercased()) else { return false }
+        if attrs.isEmpty {
+            if cat.full.contains(d) || cat.root.contains(d) { return true }
+            if !cat.root.isEmpty {
+                var rest = Substring(d)
+                while let dot = rest.firstIndex(of: ".") {
+                    rest = rest[rest.index(after: dot)...]
+                    if cat.root.contains(String(rest)) { return true }
+                }
             }
+            for k in cat.plain where d.contains(k) { return true }
+            let range = NSRange(d.startIndex..., in: d)
+            for re in cat.regex where re.firstMatch(in: d, range: range) != nil { return true }
+        }
+        // Attribute entries: only they can satisfy an @attr query; with no
+        // attribute filter they match like any other entry.
+        for e in cat.attributed where attrs.allSatisfy({ e.attrs.contains($0) }) {
+            if Self.entryMatches(e, d) { return true }
         }
         return false
+    }
+
+    /// Whether the database has this category (diagnostics).
+    func hasCategory(_ name: String) -> Bool {
+        var n = name
+        if let at = n.firstIndex(of: "@") { n = String(n[..<at]) }
+        lock.lock(); defer { lock.unlock() }
+        return index[n.trimmingCharacters(in: .whitespaces).uppercased()] != nil
+    }
+
+    private static func entryMatches(_ e: Entry, _ d: String) -> Bool {
+        switch e.kind {
+        case .full: return d == e.value
+        case .rootDomain: return d == e.value || d.hasSuffix("." + e.value)
+        case .plain: return d.contains(e.value)
+        case .regex:
+            guard let re = NCRegexCache.shared.regex(e.value) else { return false }
+            return re.firstMatch(in: d, range: NSRange(d.startIndex..., in: d)) != nil
+        }
     }
 
     /// E-B1: the category's domains as classical rule lines, for the
@@ -100,17 +142,8 @@ final class NCGeoSiteDB {
         }
     }
 
-    private func regex(for pattern: String) -> NSRegularExpression? {
-        lock.lock(); defer { lock.unlock() }
-        if let re = regexCache[pattern] { return re }
-        let re = try? NSRegularExpression(pattern: pattern)
-        regexCache[pattern] = re
-        return re
-    }
-
     private func entries(for category: String) -> [Entry]? {
         lock.lock()
-        if let cached = cache[category] { lock.unlock(); return cached }
         let range = index[category]
         lock.unlock()
         guard let range else { return nil }
@@ -120,8 +153,42 @@ final class NCGeoSiteDB {
             guard field.number == 2, let domainRange = field.bytes else { continue }
             if let e = parseDomain(domainRange) { parsed.append(e) }
         }
-        lock.lock(); cache[category] = parsed; lock.unlock()
         return parsed
+    }
+
+    /// Indexed category, parsed on first use and kept in the bounded cache.
+    private func category(for code: String) -> Category? {
+        lock.lock()
+        if let cached = cache[code] {
+            if cacheOrder.last != code, let i = cacheOrder.firstIndex(of: code) {
+                cacheOrder.remove(at: i)
+                cacheOrder.append(code)
+            }
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+        guard let list = entries(for: code) else { return nil }
+        let cat = Category()
+        for e in list {
+            if !e.attrs.isEmpty { cat.attributed.append(e); continue }
+            switch e.kind {
+            case .full: cat.full.insert(e.value)
+            case .rootDomain: cat.root.insert(e.value)
+            case .plain: cat.plain.append(e.value)
+            case .regex: if let re = try? NSRegularExpression(pattern: e.value) { cat.regex.append(re) }
+            }
+        }
+        lock.lock()
+        if cache[code] == nil {
+            cache[code] = cat
+            cacheOrder.append(code)
+            while cacheOrder.count > maxCachedCategories {
+                cache.removeValue(forKey: cacheOrder.removeFirst())
+            }
+        }
+        lock.unlock()
+        return cat
     }
 
     /// One Domain message: field 1 = type (varint), field 2 = value (string),
