@@ -183,8 +183,10 @@ final class NativeScriptRun: JSCRun {
             if !done { done = true; doneRaw = arg }
             return ""
         case "nblob":
+            // __tern.host is reachable from the script itself: a handle near Int64.max overflowed nativeBase + h
             guard let h = Int64(arg), h > 0, laneOK else { return "" }
-            let id = nativeBase + h
+            let (id, overflow) = nativeBase.addingReportingOverflow(h)
+            if overflow { return "" }
             blobs[id] = .native(h, temp: true)
             nativeOwned.append(h)
             return String(id)

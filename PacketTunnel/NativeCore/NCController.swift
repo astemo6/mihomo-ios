@@ -209,7 +209,9 @@ final class NCController {
                 req.headers[line[line.startIndex..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
             }
         }
-        let bodyLen = Int(req.headers["content-length"] ?? "0") ?? 0
+        // A negative Content-Length ("-5" parses as Int) made data[bodyStart..<(bodyStart + bodyLen)] an inverted
+        // range — a trap from a local client before any auth; treat it as no body.
+        let bodyLen = max(0, Int(req.headers["content-length"] ?? "0") ?? 0)
         let bodyStart = headEnd.upperBound
         guard data.count - bodyStart >= bodyLen else { return nil }
         req.body = Data(data[bodyStart..<(bodyStart + bodyLen)])

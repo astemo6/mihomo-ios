@@ -90,7 +90,9 @@ final class NCHTTP1ResponseParser {
             // Prepare for body reading
             if let ce = headers["transfer-encoding"], ce.lowercased().contains("chunked") {
                 isChunked = true
-            } else if let clStr = headers["content-length"], let cl = Int(clStr) {
+            } else if let clStr = headers["content-length"], let cl = Int(clStr.trimmingCharacters(in: .whitespaces)) {
+                // a negative length made subdata(in: 0..<cl) an inverted range (trap)
+                guard cl >= 0 else { throw NCTailscaleTransportError.invalidHTTPResponse("Invalid Content-Length: \(clStr)") }
                 contentLength = cl
             }
 
@@ -172,7 +174,10 @@ final class NCHTTP1ResponseParser {
             }
 
             let hexStr = sizeLine.components(separatedBy: ";")[0].trimmingCharacters(in: .whitespaces)
-            guard let chunkSize = Int(hexStr, radix: 16) else {
+            // Int(_:radix:) accepts a sign ("-5") and sizes up to Int.max: a negative size inverted the slice
+            // range and a huge one overflowed chunkDataStart + chunkSize — both traps on server input.
+            guard let chunkSize = Int(hexStr, radix: 16), chunkSize >= 0,
+                  chunkSize <= Int.max - lineRange.upperBound - 2 else {
                 throw NCTailscaleTransportError.invalidHTTPResponse("Malformed chunk size hex: \(hexStr)")
             }
 

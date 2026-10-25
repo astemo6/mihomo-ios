@@ -360,7 +360,8 @@ struct HTTP1ResponseParser {
                 let hex = line.split(separator: ";", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
                 guard let n = Int(hex, radix: 16), n >= 0 else { return StepFailure(failure: .badResponse("chunk size \(line)")) }
                 if n == 0 { inTrailers = true; continue }
-                if body.count + n > bodyLimit { return StepFailure(failure: .tooLarge) }
+                // n is the peer's hex (up to Int.max): compare without adding so a huge size cannot overflow
+                if n > bodyLimit - body.count { return StepFailure(failure: .tooLarge) }
                 chunkLeft = n
             }
             if chunkLeft > 0 {
