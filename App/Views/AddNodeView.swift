@@ -246,7 +246,7 @@ struct AddNodeView: View {
         detectTask = Task {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
-            let json = await Task.detached(priority: .userInitiated) { LibmihomoDetectNodeFormat(s) }.value
+            let json = await Task.detached(priority: .userInitiated) { ImportTools.detectNodeFormat(s) }.value
             guard !Task.isCancelled else { return }
             if let d = json.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
                 detected = (o["format"] as? String ?? "", (o["count"] as? NSNumber)?.intValue ?? 0)
