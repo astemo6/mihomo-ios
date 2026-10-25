@@ -408,9 +408,10 @@ struct GroupEditorView: View {
     func persist(_ e: GroupEdits, profile p: Profile, renamedFrom: String? = nil, savedName: String? = nil) async {
         saving = true
         defer { saving = false }
-        let json = GroupEditStore.json(e)
         let path = p.fileURL.path
-        let err = await Task.detached(priority: .userInitiated) { LibmihomoGroupEditCheck(AppShared.homeURL.path, path, json) }.value
+        let err = await Task.detached(priority: .userInitiated) {
+            NCGroupEditing.editCheck(home: AppShared.homeURL, profilePath: path, edits: e)
+        }.value
         if !err.isEmpty { message = err; return }
         GroupEditStore.set(p.id, e)
         var pinned: [String] = []

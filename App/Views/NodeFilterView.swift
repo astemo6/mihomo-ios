@@ -494,9 +494,10 @@ struct NodeFilterView: View {
         busy = busyID
         defer { busy = nil }
         await SnapshotStore.shared.captureAsync(String(localized: "编辑策略组前"))
-        let json = GroupEditStore.json(e)
         let path = p.fileURL.path
-        let err = await Task.detached(priority: .userInitiated) { LibmihomoGroupEditCheck(AppShared.homeURL.path, path, json) }.value
+        let err = await Task.detached(priority: .userInitiated) {
+            NCGroupEditing.editCheck(home: AppShared.homeURL, profilePath: path, edits: e)
+        }.value
         if !err.isEmpty { message = err; return false }
         GroupEditStore.set(p.id, e)
         loadAdded()
