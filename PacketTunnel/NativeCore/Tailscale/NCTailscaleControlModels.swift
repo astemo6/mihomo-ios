@@ -16,15 +16,15 @@ public enum NCTailscaleKeyEncoding {
     public static let privkeyPrefix = "privkey:"
 
     public static func encodeMachineKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
-        mkeyPrefix + hexString(key.rawRepresentation)
+        mkeyPrefix + hexString(Data(key.rawRepresentation))
     }
 
     public static func encodeNodeKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
-        nodekeyPrefix + hexString(key.rawRepresentation)
+        nodekeyPrefix + hexString(Data(key.rawRepresentation))
     }
 
     public static func encodeDiscoKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
-        discokeyPrefix + hexString(key.rawRepresentation)
+        discokeyPrefix + hexString(Data(key.rawRepresentation))
     }
 
     public static func encodeMachineKey(raw32: Data) -> String {
@@ -40,7 +40,7 @@ public enum NCTailscaleKeyEncoding {
     }
 
     public static func encodePrivateKey(_ key: Curve25519.KeyAgreement.PrivateKey) -> String {
-        privkeyPrefix + hexString(key.rawRepresentation)
+        privkeyPrefix + hexString(Data(key.rawRepresentation))
     }
 
     /// Strips any known prefix ("mkey:", "nodekey:", "discokey:", "privkey:") or custom prefix,
