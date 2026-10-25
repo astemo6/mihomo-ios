@@ -174,6 +174,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // Gap D2: with includeAllNetworks the core's own sockets are bound to the physical interface (NCOutboundBinding).
         NCOutboundBinding.start(includeAllNetworks: includeAll && !proxyOnly)
         NCConnector.installWireGuardDialer()
+        NCConnector.installTailscaleDialer()
         StartupLog.write("tunnel scope: includeAllNetworks \(includeAll ? "on" : "off") (setting \(overrides.includeAllNetworks ? "on" : "off")), enforceRoutes \(protocolConfiguration.enforceRoutes), excludeLocalNetworks \(protocolConfiguration.excludeLocalNetworks)")
         StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count)\(overrides.notDefaultRoute ? " (not default route)" : "")\(overrides.hideVPNIcon ? " (hide icon)" : ""), mtu \(overrides.tunMTU), kernel NativeCore\(overrides.safeMode ? ", SAFE MODE" : "")")
         if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
@@ -327,6 +328,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         liveStats?.stop()
         network?.stop()
         memoryGuard?.stop()
+        NCTailscaleClient.stopAll()
         nativeMemGovernor?.stop()
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         core.stop()
@@ -405,7 +407,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case .notifyPrefs:
             completionHandler?(nil)
         case .tailscaleInfo:
-            completionHandler?(Data("[]".utf8))
+            let infos = NCTailscaleClient.tailscaleNodeInfos()
+            let data = (try? JSONSerialization.data(withJSONObject: infos)) ?? Data("[]".utf8)
+            completionHandler?(data)
         case .reloadStatus:
             completionHandler?(Data(core.reloadStatus().utf8))
         case .none:

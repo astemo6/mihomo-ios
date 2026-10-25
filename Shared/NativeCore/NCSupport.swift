@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -16,10 +16,7 @@ enum NCSupport {
     static func unsupportedReason(_ p: NCProxy) -> String? {
         let t = p.type.lowercased()
         guard types.contains(t) else {
-            switch t {
-            case "tailscale": return "Tailscale 尚未接入"
-            default: return "类型 \(t) 尚未接入"
-            }
+            return "类型 \(t) 尚未接入"
         }
         if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"

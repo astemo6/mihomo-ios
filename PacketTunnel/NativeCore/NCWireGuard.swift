@@ -218,7 +218,7 @@ final class NCWGStack {
     fileprivate var tcp: [UInt32: NCWGTCPStream] = [:]
     fileprivate var udp: [UInt32: (NCIP, Int, [UInt8]) -> Void] = [:]
 
-    private func install() {
+    func install() {
         guard !installed else { return }
         var cbs = nc_wg_callbacks()
         cbs.output = ncwgOnOutput
@@ -263,6 +263,15 @@ final class NCWGStack {
 
     fileprivate func forget(_ d: NCWGDevice) {
         if devices[d.key] === d { devices.removeValue(forKey: d.key) }
+        byDev.removeValue(forKey: d.devID)
+    }
+
+    func registerDevice(_ d: NCWGDevice) {
+        install()
+        byDev[d.devID] = d
+    }
+
+    func unregisterDevice(_ d: NCWGDevice) {
         byDev.removeValue(forKey: d.devID)
     }
 }
@@ -383,11 +392,65 @@ final class NCWGDevice {
         peer.sendPacket(pkt)
     }
 
+    /// Optional extra inbound filter, consulted after the cryptokey source
+    /// check in `input(_:from:)`. The Tailscale client installs it to enforce
+    /// the control-delivered PacketFilter ACLs; returning false drops the
+    /// packet. Nil means no extra filtering (plain WireGuard behavior).
+    var inboundPacketHook: (([UInt8]) -> Bool)?
+
     /// A decrypted packet from `peer`: accepted only when its source is in the peer's allowed-ips.
     fileprivate func input(_ pkt: [UInt8], from peer: NCWGPeer) {
         guard alive, let src = NCWGDevice.address(pkt, source: true),
               routes.first(where: { $0.0.contains(src) })?.1 === peer else { return }
+        if let hook = inboundPacketHook, !hook(pkt) { return }
         pkt.withUnsafeBufferPointer { nc_wg_input(devID, $0.baseAddress, UInt32($0.count)) }
+    }
+
+    /// Finds peer whose AllowedIPs contains destination IP.
+    func peer(for ip: NCIP) -> NCWGPeer? {
+        routes.first(where: { $0.0.contains(ip) })?.1
+    }
+
+    /// Feeds incoming raw WireGuard packet (e.g. from DERP) into the peer matching public key.
+    func handleIncomingPacket(from peerPublicKey: [UInt8], data: [UInt8]) {
+        guard alive else { return }
+        guard let peer = peers.first(where: { $0.cfg.publicKey == peerPublicKey }) else { return }
+        peer.handleIncomingPacket(data)
+    }
+
+    /// Count of peers that currently have an active WireGuard session.
+    var activeRelayCount: Int {
+        peers.filter { $0.hasSession }.count
+    }
+
+    /// Dynamically update peers (for Tailscale netmap updates). Runs on NCLwIP.queue.
+    func updatePeers(_ newPeers: [NCWGConfig.Peer], customSender: ((NCWGPeer, [UInt8]) -> Void)? = nil) {
+        dispatchPrecondition(condition: .onQueue(NCLwIP.queue))
+        guard alive else { return }
+        let newKeys = Set(newPeers.map { $0.publicKey })
+        for p in peers where !newKeys.contains(p.cfg.publicKey) {
+            p.close()
+        }
+        var updated: [NCWGPeer] = []
+        for pcfg in newPeers {
+            if let existing = peers.first(where: { $0.cfg.publicKey == pcfg.publicKey }) {
+                updated.append(existing)
+            } else {
+                let p = NCWGPeer(device: self, cfg: pcfg)
+                if let customSender {
+                    p.customSender = { [weak p] bytes in
+                        guard let p else { return }
+                        customSender(p, bytes)
+                    }
+                }
+                updated.append(p)
+            }
+        }
+        self.peers = updated
+        var newRoutes: [(NCCIDR, NCWGPeer)] = []
+        for p in peers { for c in p.cfg.allowed { newRoutes.append((c, p)) } }
+        newRoutes.sort { $0.0.bits > $1.0.bits }
+        self.routes = newRoutes
     }
 
     static func address(_ p: [UInt8], source: Bool) -> NCIP? {
@@ -645,6 +708,15 @@ final class NCWGPeer {
     private var lastSentData = Date.distantPast
     private var lastRecvAny = Date.distantPast
     private var lastRecvData = Date.distantPast
+    var customSender: (([UInt8]) -> Void)?
+
+    var hasSession: Bool {
+        usable(current) != nil
+    }
+
+    func handleIncomingPacket(_ d0: [UInt8]) {
+        received(d0)
+    }
 
     init(device: NCWGDevice, cfg: NCWGConfig.Peer) {
         self.device = device
@@ -898,6 +970,10 @@ final class NCWGPeer {
     // MARK: UDP to the endpoint
 
     private func sendRaw(_ bytes: [UInt8]) {
+        if let customSender {
+            customSender(bytes)
+            return
+        }
         if conn == nil { openConnection() }
         conn?.send(content: Data(bytes), completion: .idempotent)
     }
@@ -1238,6 +1314,13 @@ extension NCConnector {
     static func installWireGuardDialer() {
         wireguardDialer = { proxy, target, queue, completion in
             wireguardStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        }
+    }
+
+    /// Hooks tailscaleStream into the shared connector.
+    static func installTailscaleDialer() {
+        tailscaleDialer = { proxy, target, queue, completion in
+            NCTailscaleClient.dial(proxy: proxy, target: target, queue: queue, completion: completion)
         }
     }
 

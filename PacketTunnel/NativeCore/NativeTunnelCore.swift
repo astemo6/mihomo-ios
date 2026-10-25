@@ -370,11 +370,15 @@ final class NativeTunnelCore {
     /// LibmihomoMemorySnapshot's shape (TunnelMemorySnapshot in the app); Go fields are absent.
     func memorySnapshot(footprint: UInt64, peak: UInt64, available: Int) -> [String: Any] {
         let conns = plane?.stats.snapshot().connections.count ?? 0
-        return [
+        var obj: [String: Any] = [
             "footprint": footprint, "peak": peak, "available": available, "connections": conns,
             "at": Int64(Date().timeIntervalSince1970),
             "native": ["on": true, "sessions": NativeMitmRuntime.liveSessions],
         ]
+        if let ts = NCTailscaleClient.guardStatusSnapshot() {
+            obj["tailscale"] = ts
+        }
+        return obj
     }
 
     /// LibmihomoSetPhysicalInterface: remembered for 诊断. Native sockets are NWConnections, which iOS keeps off the
