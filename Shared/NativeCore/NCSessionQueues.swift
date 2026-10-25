@@ -49,32 +49,13 @@ final class NCOnceCompletion {
     }
 }
 
-/// The part of send completion a shared session can actually await from its base stream in this module:
-/// NCStream reports when the kernel took the bytes (.contentProcessed). Other base streams do not expose a
-/// completion here; `ncSend` then completes right after the hand-off (the integrator's protocol-wide
-/// send-with-completion promotion replaces this shim).
-protocol NCWireSendCompleting: AnyObject {
-    func ncSend(_ data: Data, completion: @escaping () -> Void)
-}
-
-extension NCStream: NCWireSendCompleting {
-    func ncSend(_ data: Data, completion: @escaping () -> Void) {
-        guard !data.isEmpty else { queue.async(execute: completion); return }
-        // After cancel() the connection completes sends with an error at once: the caller still gets its callback.
-        conn.send(content: data, completion: .contentProcessed { _ in completion() })
-    }
-}
-
 extension NCRelayStream {
-    /// Hands `data` to this stream and calls `completion` once the bytes left our side — awaited via
-    /// NCWireSendCompleting when the concrete stream supports it, immediately after `send` otherwise.
+    /// Hands `data` to this stream and calls `completion` once the stream's own send completion fires.
+    /// Since the nc-sessions-flow protocol promotion, every NCRelayStream implements
+    /// send(_:completion:) for real (NCStream waits for .contentProcessed), so this is a direct
+    /// delegation — kept as one spelling for the session-owned streams' base writes.
     func ncSend(_ data: Data, completion: @escaping () -> Void) {
-        if let completing = self as? NCWireSendCompleting {
-            completing.ncSend(data, completion: completion)
-        } else {
-            send(data)
-            completion()
-        }
+        send(data, completion: completion)
     }
 }
 
