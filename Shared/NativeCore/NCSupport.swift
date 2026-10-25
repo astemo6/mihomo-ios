@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "juicity", "wireguard", "mieru", "tailscale",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -41,6 +41,10 @@ enum NCSupport {
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
+        case "juicity":
+            let u = (p.uuid ?? "").trimmingCharacters(in: .whitespaces)
+            let pwd = (p.password ?? "").trimmingCharacters(in: .whitespaces)
+            if u.isEmpty || pwd.isEmpty { return "Juicity 缺少 uuid / password" }
         case "vless":
             if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
                 // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).

@@ -14,6 +14,7 @@ enum NodeProtocols {
     static let all: [(type: String, title: String)] = [
         ("ss", "Shadowsocks"), ("ssr", "ShadowsocksR"), ("vmess", "VMess"), ("vless", "VLESS"),
         ("trojan", "Trojan"), ("hysteria2", "Hysteria2"), ("hysteria", "Hysteria"), ("tuic", "TUIC v5"),
+        ("juicity", "Juicity"),
         ("wireguard", "WireGuard"), ("snell", "Snell"), ("anytls", "AnyTLS"), ("mieru", "Mieru"),
         ("ssh", "SSH"), ("socks5", "SOCKS5"), ("http", "HTTP(S)"),
         // v0.13: protocols added to mihomo after v1.19.0 (all in v1.19.33).
@@ -171,6 +172,16 @@ enum NodeProtocols {
                 FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h3"),
                 FieldSpec(key: "congestion-controller", label: "拥塞控制", kind: .choice(["bbr", "cubic", "new_reno"])),
                 FieldSpec(key: "udp-relay-mode", label: "UDP 转发", kind: .choice(["native", "quic"])),
+                FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+            ]
+        case "juicity":
+            return [
+                FieldSpec(key: "uuid", label: "UUID"),
+                FieldSpec(key: "password", label: "密码", kind: .secure),
+                FieldSpec(key: "sni", label: "SNI"),
+                FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h3"),
+                FieldSpec(key: "congestion-controller", label: "拥塞控制", kind: .choice(["bbr", "cubic", "new_reno"])),
+                FieldSpec(key: "pinned-certchain-sha256", label: "证书链 Hash", placeholder: "SHA-256 Base64/Hex"),
                 FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
             ]
         case "wireguard":
@@ -344,11 +355,11 @@ enum NodeProtocols {
     }
 
     // v0.8 高级: only where mihomo v1.19.33 reads the key for that protocol.
-    static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "trusttunnel"]
-    static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "http", "socks5", "trusttunnel", "gost-relay"]
+    static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "juicity", "anytls", "trusttunnel"]
+    static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "juicity", "anytls", "http", "socks5", "trusttunnel", "gost-relay"]
     static let smuxTypes: Set<String> = ["ss", "vmess", "vless", "trojan"]
     /// QUIC / UDP-based protocols: TCP Fast Open and MPTCP don't apply.
-    static let udpOnlyTypes: Set<String> = ["hysteria", "hysteria2", "tuic", "wireguard", "masque", "shadowquic"]
+    static let udpOnlyTypes: Set<String> = ["hysteria", "hysteria2", "tuic", "juicity", "wireguard", "masque", "shadowquic"]
 
     static func advanced(for type: String) -> [FieldSpec] {
         var f: [FieldSpec] = []
@@ -384,6 +395,7 @@ enum NodeProtocols {
         case "vless": return ["network": "tcp", "tls": "true", "udp": "true"]
         case "trojan", "anytls": return ["udp": "true", "network": "tcp"]
         case "tuic": return ["alpn": "h3", "congestion-controller": "bbr", "udp-relay-mode": "native"]
+        case "juicity": return ["alpn": "h3", "congestion-controller": "bbr", "udp": "true"]
         case "wireguard": return ["udp": "true", "ip": "172.16.0.2"]
         case "snell": return ["version": "4", "udp": "true"]
         case "mieru": return ["transport": "TCP"]

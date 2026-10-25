@@ -124,7 +124,7 @@ enum ImportTools {
     }
 
     private static let singBoxTypes: Set<String> = ["shadowsocks", "vmess", "vless", "trojan",
-                                                    "hysteria2", "tuic", "anytls", "socks",
+                                                    "hysteria2", "tuic", "juicity", "anytls", "socks",
                                                     "http", "ssh", "wireguard"]
 
     private static func singBoxCount(_ list: [[String: Any]]) -> Int {
@@ -158,7 +158,7 @@ enum ImportTools {
     /// conf importers.
     private static func nodeLineCount(_ t: String) -> Int {
         let types = ["ss", "ssr", "vmess", "vless", "trojan", "hysteria", "hysteria2",
-                     "tuic", "socks5", "socks", "http", "https", "snell", "wireguard",
+                     "tuic", "juicity", "socks5", "socks", "http", "https", "snell", "wireguard",
                      "shadowsocks", "anytls"]
         var n = 0
         for raw in t.split(separator: "\n") {

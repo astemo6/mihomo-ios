@@ -58,6 +58,7 @@ struct AddNodeView: View {
               preset: ["flow": "xtls-rprx-vision", "client-fingerprint": "chrome", "tls": "true"]),
         Proto(title: "Hysteria2", subtitle: "QUIC · Brutal", type: "hysteria2"),
         Proto(title: "TUIC v5", subtitle: "QUIC · BBR", type: "tuic"),
+        Proto(title: "Juicity", subtitle: "QUIC · BBR", type: "juicity"),
         Proto(title: "AnyTLS", subtitle: "TLS", type: "anytls"),
         Proto(title: "ShadowTLS", subtitle: "Shadowsocks + ShadowTLS v3", type: "ss",
               preset: ["plugin": "shadow-tls", "plugin-opts.version": "3", "cipher": "2022-blake3-aes-128-gcm"]),
@@ -222,7 +223,7 @@ struct AddNodeView: View {
         case "sudoku": return "square.grid.3x3.fill"
         case "masque": return "theatermasks.fill"
         case "trusttunnel": return "arrow.left.arrow.right.circle.fill"
-        case "shadowquic", "hysteria", "hysteria2", "tuic": return "hare.fill"
+        case "shadowquic", "hysteria", "hysteria2", "tuic", "juicity": return "hare.fill"
         case "openvpn", "ssh": return "key.fill"
         case "gost-relay": return "point.3.connected.trianglepath.dotted"
         case "socks5", "http": return "network"

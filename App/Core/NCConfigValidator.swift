@@ -113,7 +113,7 @@ enum NCConfigValidator {
     /// adapter/parser.go ParseProxy's switch.
     static let proxyTypes: Set<String> = [
         "ss", "ssr", "socks5", "http", "vmess", "vless", "snell", "trojan", "hysteria", "hysteria2", "wireguard",
-        "tuic", "shadowquic", "gost-relay", "direct", "dns", "reject", "rematch", "ssh", "mieru", "anytls", "sudoku",
+        "tuic", "juicity", "shadowquic", "gost-relay", "direct", "dns", "reject", "rematch", "ssh", "mieru", "anytls", "sudoku",
         "masque", "trusttunnel", "openvpn", "tailscale", "zerotier", "easytier",
     ]
 
