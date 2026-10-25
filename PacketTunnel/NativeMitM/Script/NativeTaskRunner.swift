@@ -257,7 +257,9 @@ struct NCCron {
             var step = 1
             if let i = part.firstIndex(of: "/") {
                 guard let s = Int(part[part.index(after: i)...]), s > 0 else { return nil }
-                step = s
+                // a step past the field's span only ever selects the start; capping it keeps `i += step` from
+                // overflowing (and trapping) on a config like "*/9223372036854775807"
+                step = min(s, hi - lo + 1)
                 part = String(part[..<i])
             }
             var a = lo, b = hi

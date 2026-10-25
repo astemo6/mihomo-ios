@@ -168,9 +168,18 @@ enum NCTunnelDelayTester {
         // Bound the round so hung members can never stall the caller: every member
         // gets its own timeout, plus slack for queueing behind the concurrency cap.
         let rounds = (members.count + limit - 1) / limit
-        let roundTimeout = overallTimeoutMs ?? (timeoutMs * rounds + 5000)
+        let roundTimeout = overallTimeoutMs ?? roundTimeoutMs(timeoutMs: timeoutMs, rounds: rounds)
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(roundTimeout)) { run.finish() }
         for _ in 0..<limit { run.launchNext() }
+    }
+
+    /// timeoutMs × rounds + 5 s slack, saturating: the per-member timeout comes from config (`timeout:`) or the
+    /// controller's `?timeout=` query, and a huge value overflowed Int and trapped the tunnel.
+    static func roundTimeoutMs(timeoutMs: Int, rounds: Int) -> Int {
+        let (scaled, o1) = timeoutMs.multipliedReportingOverflow(by: rounds)
+        if o1 { return (timeoutMs < 0) != (rounds < 0) ? 0 : Int.max } // a negative product: fire at once
+        let (sum, o2) = scaled.addingReportingOverflow(5000)
+        return o2 ? Int.max : sum
     }
 
     /// One group round: a cursor over the members, a running count, the results (all under `lock`).
