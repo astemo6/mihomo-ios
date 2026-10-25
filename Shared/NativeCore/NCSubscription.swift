@@ -49,10 +49,16 @@ enum NCSubscriptionParser {
                 let scheme = l[..<sep.lowerBound].lowercased()
                 guard let n = parseURI(l) else { continue }
                 if selfSchemes.contains(scheme) { selfParsed.append(n) } else { uriParsed.append(n) }
-            } else if l.contains("=") {
+            } else if let eq = l.firstIndex(of: "=") {
+                // bridge nodes.go: the key before "=" picks the dialect —
+                // a QX type keyword (qxTypes) goes to parseQXLine, anything
+                // else is a Surge/Loon "Name = type, …" line. buildQXNode
+                // accepts any key, so calling it first turned every Surge
+                // line into a bogus node typed after its display name.
+                let key = l[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
                 var dummy = NCImportReport()
-                if let qx = NCQXImport.buildQXNode(line: l, report: &dummy) {
-                    selfParsed.append(qx)
+                if Self.qxNodeTypes.contains(key) {
+                    if let qx = NCQXImport.buildQXNode(line: l, report: &dummy) { selfParsed.append(qx) }
                 } else if let parsed = NCConfImport.parseNamedNodeLine(l),
                           let surge = NCConfImport.buildSurgeLikeNode(name: parsed.name, positional: parsed.positional, kv: parsed.kv, order: parsed.order, report: &dummy) {
                     selfParsed.append(surge)
@@ -61,6 +67,9 @@ enum NCSubscriptionParser {
         }
         return dedup(selfParsed + uriParsed)
     }
+
+    /// bridge nodes.go qxTypes: the QX `type=host:port, …` keywords.
+    static let qxNodeTypes: Set<String> = ["shadowsocks", "vmess", "vless", "trojan", "http", "socks5", "anytls"]
 
     /// bridge nodes.go tryB64: reject when the trimmed text still contains a
     /// space or tab; strip CR/LF (line-wrapped blobs) before decoding.
