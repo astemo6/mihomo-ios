@@ -239,6 +239,7 @@ final class NativeCoreEngine {
         // from the previous config complete their waiters, but their answers
         // may no longer enter the cache (fetched under the old DNS policy).
         resolveLock.lock(); resolveCache = [:]; resolveGeneration += 1; resolveLock.unlock()
+        echResolver.clearCache()
         ruleDiagnostics = Self.diagnose(cfg: cfg, rules: parsed, providers: preProviders, policy: policy,
                                         pool: pool, geoSite: geo, geoIP: geoIPDB != nil, asn: asnDB != nil)
         // Node subscriptions: cached nodes merge into the effective config;
@@ -379,6 +380,8 @@ final class NativeCoreEngine {
         let stranded = resolveWaiters.values.flatMap { $0 }
         resolveWaiters = [:]
         resolveLock.unlock()
+        echResolver.clearCache()
+        echResolver.cancelAll()
         for w in stranded { w(nil) }
         isRunning = false
         _config = nil
@@ -792,6 +795,31 @@ final class NativeCoreEngine {
         let waiters = resolveWaiters.removeValue(forKey: host) ?? []
         resolveLock.unlock()
         for w in waiters { w(ip) }
+    }
+
+    private(set) lazy var echResolver = NCECHResolver(
+        forwarder: resolveForwarder,
+        upstreamProvider: { [weak self] name, type in
+            guard let self else { return (nil, nil, false) }
+            var q = NCDNSMessage()
+            q.id = 1
+            q.questions = [NCDNSQuestion(name: name, type: type, klass: NCDNSMessage.classIN)]
+            let query = q.serialized()
+            return self.dnsRoute(for: query)
+        }
+    )
+
+    /// Query HTTPS/SVCB DNS records to retrieve ECH configuration for outbound connections.
+    /// Honors query-server-name, kernel nameserver-policy routing, and caches results by TTL.
+    func resolveECH(for host: String, queryServerName: String? = nil,
+                    callerQueue: DispatchQueue = .main,
+                    completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
+        echResolver.resolveECH(for: host, queryServerName: queryServerName, callerQueue: callerQueue, completion: completion)
+    }
+
+    @available(iOS 13.0, macOS 10.15, *)
+    func resolveECH(for host: String, queryServerName: String? = nil) async throws -> NCECHResolution {
+        try await echResolver.resolveECH(for: host, queryServerName: queryServerName)
     }
 
     /// Load-time diagnostics (one line each, capped).
