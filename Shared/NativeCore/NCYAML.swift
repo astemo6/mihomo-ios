@@ -55,8 +55,13 @@ enum NCYAML {
         }
 
         init(text: String) {
-            for rawLine in text.components(separatedBy: "\n") {
-                let raw = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
+            // "\r\n" is ONE Character in Swift, so a Character-level split on "\n"
+            // (swift-foundation / corelibs components(separatedBy:)) never splits a
+            // CRLF profile: the whole file became one line and no key was found.
+            // Split on both terminators explicitly; lone "\r" (old Mac) too.
+            for sub in text.split(omittingEmptySubsequences: false,
+                                  whereSeparator: { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }) {
+                let raw = String(sub)
                 let indent = raw.prefix(while: { $0 == " " }).count
                 let content = String(raw.dropFirst(indent))
                 lines.append(Line(indent: indent, content: Self.stripComment(content), raw: raw))
