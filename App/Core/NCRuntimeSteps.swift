@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// E-B1 stage 3: the buildRuntimeWith satellite steps, ported file by
@@ -494,6 +495,613 @@ enum NCRuntimeSteps {
         }
         if raw["rules"] != nil { raw["rules"] = .array(kept) }
         return (removed, warnings)
+    }
+
+    // MARK: - Manual nodes + node subscriptions (diag.go / nodesubs.go)
+
+    static let manualGroupName = "手动节点"
+    static let probeGroup = "MIHOMO-PROBE"
+
+    /// bridge mergeManualNodes.
+    static func mergeManualNodes(_ raw: inout [String: NCJSONValue], manualPath: String) {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: manualPath)),
+              let root = try? NCYAML.parse(data),
+              case .object(let man) = root else { return }
+        let nodes = man.list("proxies").compactMap { v -> [String: NCJSONValue]? in
+            if case .object(let m) = v { return m }
+            return nil
+        }
+        if nodes.isEmpty { return }
+        var groups = raw.list("proxy-groups")
+        for g in groups {
+            if case .object(let m) = g, m.str("name") == manualGroupName { return }
+        }
+        var existing = Set<String>()
+        var list = raw.list("proxies")
+        for p in list {
+            if case .object(let m) = p { existing.insert(m.str("name")) }
+        }
+        var names: [NCJSONValue] = []
+        for var n in nodes {
+            var name = n.str("name")
+            if name.isEmpty { continue }
+            if existing.contains(name) {
+                name += " (手动)"
+                n["name"] = .string(name)
+            }
+            list.append(.object(n))
+            names.append(.string(name))
+        }
+        raw["proxies"] = .array(list)
+        let mg: NCJSONValue = .object([
+            "name": .string(manualGroupName),
+            "type": .string("select"),
+            "proxies": .array(names),
+        ])
+        for gi in groups.indices {
+            guard case .object(var m) = groups[gi] else { continue }
+            if m.str("type").lowercased() == "select" {
+                m["proxies"] = .array([.string(manualGroupName)] + m.list("proxies"))
+                groups[gi] = .object(m)
+                break
+            }
+        }
+        raw["proxy-groups"] = .array(groups + [mg])
+    }
+
+    private struct NCNodeSub: Decodable {
+        var id: String = ""
+        var name: String = ""
+        var url: String = ""
+        var enabled: Bool = false
+        var groups: [String]? = nil
+    }
+
+    /// bridge defaultSubGroup.
+    static func defaultSubGroup(_ g: [String: NCJSONValue]) -> Bool {
+        if g.boolOf("hidden") || g.str("name") == probeGroup { return false }
+        switch g.str("type").lowercased() {
+        case "url-test":
+            return true
+        case "select":
+            if g[providerLostKey] != nil { return true }
+            if !g.list("use").isEmpty || g.boolOf("include-all") || g.boolOf("include-all-proxies")
+                || g.boolOf("include-all-providers") { return true }
+            let builtins: Set<String> = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
+            for m in g.strList("proxies") where !builtins.contains(m.uppercased()) {
+                return true
+            }
+        default: break
+        }
+        return false
+    }
+
+    /// bridge uniqueProviderName.
+    static func uniqueProviderName(_ base: String, taken: (String) -> Bool) -> String {
+        if !taken(base) { return base }
+        var i = 2
+        while true {
+            let c = "\(base)-\(i)"
+            if !taken(c) { return c }
+            i += 1
+        }
+    }
+
+    /// bridge mergeNodeSubs. subForKey returns the 节点处理 rules of
+    /// "nodesub-<id>" from subscriptions.json.
+    static func mergeNodeSubs(
+        _ raw: inout [String: NCJSONValue],
+        home: String,
+        subForKey: (String) -> NCSubRules?
+    ) {
+        let subs = NCRuntimeFiles.readJSON([NCNodeSub].self, home: home, file: "node-subscriptions.json") ?? []
+        if subs.isEmpty { return }
+        var pp = raw.map("proxy-providers")
+        var groups = raw.list("proxy-groups")
+        var added = false
+        for s in subs {
+            if !s.enabled || s.id.isEmpty { continue }
+            let path = (home as NSString).appendingPathComponent("nodesubs/\(s.id).yaml")
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                  let size = attrs[.size] as? NSNumber, size.intValue > 0 else { continue }
+            let trimmed = s.name.trimmingCharacters(in: .whitespaces)
+            let name = uniqueProviderName(trimmed.isEmpty ? "订阅" : trimmed) { pp[$0] != nil }
+            var p: [String: NCJSONValue] = [
+                "type": .string("file"),
+                "path": .string("./nodesubs/\(s.id).yaml"),
+                "health-check": .object([
+                    "enable": .bool(true),
+                    "url": .string("https://www.gstatic.com/generate_204"),
+                    "interval": .number(600),
+                    "lazy": .bool(true),
+                ]),
+            ]
+            if let r = subForKey("nodesub-" + s.id), r.enabled {
+                var tmp: [String: NCJSONValue] = ["proxy-providers": .object([name: .object(p)])]
+                _ = applySubRules(&tmp, r)
+                if case .object(let tpp) = tmp["proxy-providers"] ?? .null,
+                   case .object(let np) = tpp[name] ?? .null {
+                    p = np
+                }
+            }
+            pp[name] = .object(p)
+            added = true
+            let want = Set(s.groups ?? [])
+            var hit = false
+            for gi in groups.indices {
+                guard case .object(var g) = groups[gi] else { continue }
+                if (!want.isEmpty && want.contains(g.str("name")))
+                    || (want.isEmpty && defaultSubGroup(g)) {
+                    g["use"] = .array(g.list("use") + [.string(name)])
+                    groups[gi] = .object(g)
+                    hit = true
+                }
+            }
+            if !hit {
+                for gi in groups.indices {
+                    guard case .object(var g) = groups[gi] else { continue }
+                    if defaultSubGroup(g) {
+                        g["use"] = .array(g.list("use") + [.string(name)])
+                        groups[gi] = .object(g)
+                    }
+                }
+            }
+        }
+        if added {
+            raw["proxy-providers"] = .object(pp)
+            raw["proxy-groups"] = .array(groups)
+        }
+    }
+
+    /// bridge pruneDanglingUse: returns the changed group names.
+    static func pruneDanglingUse(_ raw: inout [String: NCJSONValue]) -> [String] {
+        let pp = raw.map("proxy-providers")
+        var changed: [String] = []
+        var groups = raw.list("proxy-groups")
+        for gi in groups.indices {
+            guard case .object(var g) = groups[gi] else { continue }
+            let use = g.strList("use")
+            if use.isEmpty { continue }
+            let kept = use.filter { pp[$0] != nil }
+            if kept.count == use.count { continue }
+            changed.append(g.str("name"))
+            if kept.isEmpty {
+                g.removeValue(forKey: "use")
+            } else {
+                g["use"] = .array(kept.map { NCJSONValue.string($0) })
+            }
+            if kept.isEmpty && g.list("proxies").isEmpty
+                && !g.boolOf("include-all") && !g.boolOf("include-all-proxies")
+                && !g.boolOf("include-all-providers") {
+                g["proxies"] = .array([.string("DIRECT")])
+            }
+            groups[gi] = .object(g)
+        }
+        raw["proxy-groups"] = .array(groups)
+        return changed
+    }
+
+    // MARK: - Group edits (groupedits.go)
+
+    /// groupedits.go splitTopLevel: top-level comma split, parts
+    /// untrimmed (callers rejoin with ",").
+    static func splitTopLevel(_ s: String) -> [String] {
+        var out: [String] = []
+        var depth = 0
+        var start = s.startIndex
+        var i = s.startIndex
+        while i < s.endIndex {
+            switch s[i] {
+            case "(": depth += 1
+            case ")": if depth > 0 { depth -= 1 }
+            case "," where depth == 0:
+                out.append(String(s[start..<i]))
+                start = s.index(after: i)
+            default: break
+            }
+            i = s.index(after: i)
+        }
+        out.append(String(s[start...]))
+        return out
+    }
+
+    private static func rulePolicyIndex(_ parts: [String]) -> Int {
+        if parts.count < 2 { return -1 }
+        if parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "match" { return 1 }
+        if parts.count < 3 { return -1 }
+        return 2
+    }
+
+    /// bridge mapRulePolicies: rewrite the policy field of every rule
+    /// in rules and sub-rules through f.
+    static func mapRulePolicies(_ raw: inout [String: NCJSONValue], _ f: (String) -> String) {
+        func fix(_ list: [NCJSONValue]) -> [NCJSONValue] {
+            var list = list
+            for i in list.indices {
+                guard case .string(let s) = list[i] else { continue }
+                var parts = splitTopLevel(s)
+                let idx = rulePolicyIndex(parts)
+                if idx >= 0 {
+                    let p = parts[idx].trimmingCharacters(in: .whitespaces)
+                    let n = f(p)
+                    if n != p {
+                        parts[idx] = n
+                        list[i] = .string(parts.joined(separator: ","))
+                    }
+                }
+            }
+            return list
+        }
+        if raw["rules"] != nil { raw["rules"] = .array(fix(raw.list("rules"))) }
+        if case .object(var sr) = raw["sub-rules"] ?? .null {
+            for k in sr.keys {
+                if case .array(let l) = sr[k] ?? .null { sr[k] = .array(fix(l)) }
+            }
+            raw["sub-rules"] = .object(sr)
+        }
+    }
+
+    /// bridge applyGroupEdits.
+    static func applyGroupEdits(
+        _ raw: inout [String: NCJSONValue],
+        _ e: GroupEdits?
+    ) -> [String] {
+        guard let e, (e.edits?.isEmpty == false) || (e.added?.isEmpty == false) else { return [] }
+        var warn: [String] = []
+        var renames: [String: String] = [:]
+        var deleted = Set<String>()
+        var kept: [NCJSONValue] = []
+        for gv in raw.list("proxy-groups") {
+            guard case .object(var g) = gv else {
+                kept.append(gv)
+                continue
+            }
+            let name = g.str("name")
+            guard let ed = e.edits?[name] else {
+                kept.append(.object(g))
+                continue
+            }
+            if ed.deleted == true {
+                deleted.insert(name)
+                continue
+            }
+            if var s = ed.spec {
+                if s.name.trimmingCharacters(in: .whitespaces).isEmpty { s.name = name }
+                g = NCGroupEditing.writeSpec(to: g, spec: s)
+                if s.name != name { renames[name] = s.name }
+            }
+            kept.append(.object(g))
+        }
+        var existing = Set<String>()
+        for gv in kept {
+            if case .object(let g) = gv { existing.insert(g.str("name")) }
+        }
+        if let ed = e.edits?["GLOBAL"], ed.deleted != true, var s = ed.spec, !existing.contains("GLOBAL") {
+            s.name = "GLOBAL"
+            let g = NCGroupEditing.writeSpec(to: [:], spec: s)
+            kept.append(.object(g))
+            existing.insert("GLOBAL")
+        }
+        for s in e.added ?? [] {
+            if s.name.trimmingCharacters(in: .whitespaces).isEmpty || existing.contains(s.name) {
+                warn.append("新建的策略组「\(s.name)」与已有名称重复，已跳过")
+                continue
+            }
+            let g = NCGroupEditing.writeSpec(to: [:], spec: s)
+            kept.append(.object(g))
+            existing.insert(s.name)
+        }
+        var fallback = "DIRECT"
+        for gv in kept {
+            if case .object(let g) = gv, g.str("type").lowercased() == "select" {
+                fallback = g.str("name")
+                break
+            }
+        }
+        for ki in kept.indices {
+            guard case .object(var g) = kept[ki] else { continue }
+            let hadKey = g["proxies"] != nil
+            var px: [String] = []
+            for p in g.strList("proxies") {
+                if deleted.contains(p) { continue }
+                px.append(renames[p] ?? p)
+            }
+            if hadKey || !px.isEmpty {
+                if px.isEmpty {
+                    g.removeValue(forKey: "proxies")
+                } else {
+                    g["proxies"] = .array(px.map { NCJSONValue.string($0) })
+                }
+            }
+            kept[ki] = .object(g)
+        }
+        mapRulePolicies(&raw) { p in
+            if let n = renames[p] { return n }
+            if deleted.contains(p) {
+                warn.append("规则指向已删除的策略组「\(p)」，改用「\(fallback)」")
+                return fallback
+            }
+            return p
+        }
+        raw["proxy-groups"] = .array(kept)
+        warn += renameGroupRefs(&raw, renames: renames, deleted: deleted)
+        return warn
+    }
+
+    /// bridge renameGroupRefs.
+    static func renameGroupRefs(
+        _ raw: inout [String: NCJSONValue],
+        renames: [String: String],
+        deleted: Set<String>
+    ) -> [String] {
+        if renames.isEmpty && deleted.isEmpty { return [] }
+        var warn: [String] = []
+        func fix(_ m: inout [String: NCJSONValue], _ key: String, _ owner: String) {
+            guard case .string(let v) = m[key] ?? .null, !v.isEmpty else { return }
+            if let n = renames[v] {
+                m[key] = .string(n)
+            } else if deleted.contains(v) {
+                m.removeValue(forKey: key)
+                warn.append("「\(owner)」的 \(key) 指向已删除的策略组「\(v)」，已移除")
+            }
+        }
+        var proxies = raw.list("proxies")
+        for i in proxies.indices {
+            if case .object(var m) = proxies[i] {
+                fix(&m, "dialer-proxy", m.str("name"))
+                proxies[i] = .object(m)
+            }
+        }
+        raw["proxies"] = .array(proxies)
+        var groups = raw.list("proxy-groups")
+        for i in groups.indices {
+            if case .object(var m) = groups[i] {
+                fix(&m, "dialer-proxy", m.str("name"))
+                groups[i] = .object(m)
+            }
+        }
+        raw["proxy-groups"] = .array(groups)
+        var pp = raw.map("proxy-providers")
+        for name in pp.keys {
+            if case .object(var pv) = pp[name] ?? .null,
+               case .object(var ov) = pv["override"] ?? .null {
+                fix(&ov, "dialer-proxy", name)
+                pv["override"] = .object(ov)
+                pp[name] = .object(pv)
+            }
+        }
+        raw["proxy-providers"] = .object(pp)
+        var listeners = raw.list("listeners")
+        for i in listeners.indices {
+            if case .object(var m) = listeners[i] {
+                fix(&m, "proxy", m.str("name"))
+                listeners[i] = .object(m)
+            }
+        }
+        raw["listeners"] = .array(listeners)
+        guard case .object(var dns) = raw["dns"] ?? .null else { return warn }
+        func fixServer(_ s: String) -> String {
+            guard let hashIdx = s.lastIndex(of: "#") else { return s }
+            let frag = String(s[s.index(after: hashIdx)...])
+            let name: String
+            let rest: String
+            let hasRest: Bool
+            if let amp = frag.firstIndex(of: "&") {
+                name = String(frag[..<amp])
+                rest = String(frag[frag.index(after: amp)...])
+                hasRest = true
+            } else {
+                name = frag
+                rest = ""
+                hasRest = false
+            }
+            if name.contains("=") { return s }
+            let head = String(s[...hashIdx]) // includes '#'
+            let base = String(s[..<hashIdx])
+            if let n = renames[name] {
+                return hasRest ? head + n + "&" + rest : head + n
+            }
+            if deleted.contains(name) {
+                warn.append("DNS 服务器「\(base)」指定的策略组「\(name)」已删除，已改为按默认出站")
+                return hasRest ? head + rest : base
+            }
+            return s
+        }
+        func fixList(_ v: NCJSONValue) -> NCJSONValue {
+            switch v {
+            case .string(let s): return .string(fixServer(s))
+            case .array(let l):
+                return .array(l.map { if case .string(let s) = $0 { return .string(fixServer(s)) }; return $0 })
+            default: return v
+            }
+        }
+        for k in ["nameserver", "fallback", "proxy-server-nameserver", "direct-nameserver", "default-nameserver"] {
+            if let v = dns[k] { dns[k] = fixList(v) }
+        }
+        if case .object(var np) = dns["nameserver-policy"] ?? .null {
+            for k in np.keys {
+                if let v = np[k] { np[k] = fixList(v) }
+            }
+            dns["nameserver-policy"] = .object(np)
+        }
+        raw["dns"] = .object(dns)
+        return warn
+    }
+
+    /// bridge runtimeGroupNames.
+    static func runtimeGroupNames(_ raw: [String: NCJSONValue]) -> [String] {
+        var out: [String] = []
+        for gv in raw.list("proxy-groups") {
+            if case .object(let g) = gv {
+                let n = g.str("name")
+                if !n.isEmpty && n != probeGroup { out.append(n) }
+            }
+        }
+        return out
+    }
+
+    // MARK: - Own-policy providers + Tailscale (ownpolicy.go / tailscale.go)
+
+    /// bridge truthyAny (chain.go).
+    static func truthy(_ v: NCJSONValue?) -> Bool {
+        switch v {
+        case .bool(let b): return b
+        case .string(let s): return s == "true"
+        default: return false
+        }
+    }
+
+    private struct OwnPolicyPart: Decodable {
+        var policy: String = ""
+        var file: String = ""
+        var count: Int = 0
+    }
+
+    /// bridge expandOwnPolicyProviders.
+    static func expandOwnPolicyProviders(_ raw: inout [String: NCJSONValue], home: String) {
+        let rp0 = raw.map("rule-providers")
+        if rp0.isEmpty || home.isEmpty { return }
+        var rp = rp0
+        struct Exp { var dir: String; var parts: [OwnPolicyPart] }
+        var exps: [String: Exp] = [:]
+        for (name, v) in rp {
+            guard case .object(let m) = v, truthy(m["x-own-policy"]) else { continue }
+            var p = m.str("path")
+            if p.isEmpty { continue }
+            if !(p as NSString).isAbsolutePath {
+                p = (home as NSString).appendingPathComponent(p)
+            }
+            let sidecar = p + ".policies.json"
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: sidecar)),
+                  let parts = try? JSONDecoder().decode([OwnPolicyPart].self, from: data),
+                  !parts.isEmpty else { continue }
+            exps[name] = Exp(dir: (p as NSString).deletingLastPathComponent, parts: parts)
+        }
+        let rules = raw.list("rules")
+        if exps.isEmpty || rules.isEmpty { return }
+        var known: [String: String] = [:]
+        var groups = raw.list("proxy-groups")
+        for g in groups {
+            if case .object(let m) = g {
+                let n = m.str("name")
+                if !n.isEmpty { known[n.lowercased()] = n }
+            }
+        }
+        for p in raw.list("proxies") {
+            if case .object(let m) = p {
+                let n = m.str("name")
+                if !n.isEmpty && known[n.lowercased()] == nil { known[n.lowercased()] = n }
+            }
+        }
+        func resolve(_ pol: String, _ fallback: String) -> String {
+            let lp = pol.trimmingCharacters(in: .whitespaces).lowercased()
+            switch true {
+            case lp == "proxy": return fallback
+            case lp == "direct": return "DIRECT"
+            case lp == "reject-drop": return "REJECT-DROP"
+            case lp.hasPrefix("reject"): return "REJECT"
+            default: break
+            }
+            if let n = known[lp] { return n }
+            var members: [NCJSONValue] = []
+            let fu = fallback.uppercased()
+            if fu != "DIRECT" && !fu.hasPrefix("REJECT") {
+                members.append(.string(fallback))
+            }
+            members.append(.string("DIRECT"))
+            groups.append(.object([
+                "name": .string(pol), "type": .string("select"), "proxies": .array(members),
+            ]))
+            known[lp] = pol
+            return pol
+        }
+        var out: [NCJSONValue] = []
+        for r in rules {
+            guard case .string(let s) = r else {
+                out.append(r)
+                continue
+            }
+            let f = s.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            guard f.count >= 3,
+                  f[0].trimmingCharacters(in: .whitespaces).lowercased() == "rule-set",
+                  let e = exps[f[1].trimmingCharacters(in: .whitespaces)] else {
+                out.append(r)
+                continue
+            }
+            let name = f[1].trimmingCharacters(in: .whitespaces)
+            let fallback = f[2].trimmingCharacters(in: .whitespaces)
+            let rest = f.count > 3 ? "," + f[3...].joined(separator: ",") : ""
+            for p in e.parts {
+                let pn = name + "#" + p.policy
+                rp[pn] = .object([
+                    "type": .string("file"),
+                    "behavior": .string("classical"),
+                    "format": .string("text"),
+                    "path": .string((e.dir as NSString).appendingPathComponent(p.file)),
+                ])
+                out.append(.string("RULE-SET," + pn + "," + resolve(p.policy, fallback) + rest))
+            }
+            out.append(r)
+        }
+        raw["rules"] = .array(out)
+        raw["proxy-groups"] = .array(groups)
+        raw["rule-providers"] = .object(rp)
+    }
+
+    /// bridge tailscaleStateDir.
+    static func tailscaleStateDir(_ name: String) -> String {
+        let digest = Insecure.SHA1.hash(data: Data(name.utf8))
+        let hash8 = digest.map { String(format: "%02x", $0) }.joined().prefix(8)
+        var base = ""
+        var inUnsafeRun = false
+        for ch in name {
+            if ch.isASCII && (ch.isLetter || ch.isNumber || ch == "." || ch == "_" || ch == "-") {
+                base.append(ch)
+                inUnsafeRun = false
+            } else if !inUnsafeRun {
+                base.append("_")
+                inUnsafeRun = true
+            }
+        }
+        base = base.trimmingCharacters(in: CharacterSet(charactersIn: "_."))
+        if base.count > 24 { base = String(base.prefix(24)) }
+        if base.isEmpty { base = "node" }
+        return "tailscale/" + base + "-" + hash8
+    }
+
+    /// bridge normalizeTailscale: returns the node count.
+    @discardableResult
+    static func normalizeTailscale(_ raw: inout [String: NCJSONValue], home: String) -> Int {
+        var n = 0
+        var proxies = raw.list("proxies")
+        for i in proxies.indices {
+            guard case .object(var m) = proxies[i],
+                  m.str("type").lowercased() == "tailscale" else { continue }
+            n += 1
+            let name = m.str("name")
+            var dir = m.str("state-dir").trimmingCharacters(in: .whitespaces)
+            if dir.isEmpty {
+                dir = tailscaleStateDir(name)
+            } else if (dir as NSString).isAbsolutePath {
+                let clean = (dir as NSString).standardizingPath
+                let homeClean = (home as NSString).standardizingPath
+                if home.isEmpty || !(clean + "/").hasPrefix(homeClean + "/") {
+                    dir = tailscaleStateDir(name)
+                }
+            } else {
+                let c = (dir as NSString).standardizingPath
+                if c == ".." || c.hasPrefix("../") {
+                    dir = tailscaleStateDir(name)
+                }
+            }
+            m["state-dir"] = .string(dir)
+            if m.str("hostname").trimmingCharacters(in: .whitespaces).isEmpty {
+                m["hostname"] = .string("mihomo-ios")
+            }
+            proxies[i] = .object(m)
+        }
+        raw["proxies"] = .array(proxies)
+        return n
     }
 
     /// bridge checkEditedRuleTargets.
