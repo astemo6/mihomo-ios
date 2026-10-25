@@ -74,8 +74,8 @@ final class NativeCoreSSRTests: XCTestCase {
     }
 
     func testAuthSHA1V4() throws {
-        let key = Data((0..<32).map { UInt8($0xa0 + $0) })
-        let iv = Data((0..<16).map { UInt8($0x50 + $0) })
+        let key = Data((0..<32).map { UInt8(0xa0 + $0) })
+        let iv = Data((0..<16).map { UInt8(0x50 + $0) })
         let proto = NCSSRAuthSHA1V4(key: key, iv: iv, auth: (clientID: hex("11223344"), connectionID: 0x010203))
         proto.now = { 1_700_000_000 }
         proto.randomBelow = { _ in 0 } // deterministic: no extra head, randLen 0… see below
@@ -86,14 +86,17 @@ final class NativeCoreSSRTests: XCTestCase {
         payload.append(Data("PAYLOAD".utf8))
         let wire = proto.encode(payload)
         // Parse the auth pack: [len BE][crc LE][rand prefix][authdata][head piece][hmac 10]
-        let packedLen = Int(wire[0]) << 8 | Int(wire[1])
+        let packedHi: Int = Int(wire[0]) << 8
+        let packedLen: Int = packedHi | Int(wire[1])
         // randLen 0 → prefix byte 1, packed = 2+4+1+0+12+piece+10
         XCTAssertEqual(packedLen, 2 + 4 + 1 + 0 + 12 + 7 + 10)
         // CRC covers BE len + salt + key.
         var crcInput = Data(wire.prefix(2))
         crcInput.append("auth_sha1_v4".data(using: .utf8)!)
         crcInput.append(key)
-        let storedCRC = UInt32(wire[2]) | UInt32(wire[3]) << 8 | UInt32(wire[4]) << 16 | UInt32(wire[5]) << 24
+        let crc0: UInt32 = UInt32(wire[2]), crc1: UInt32 = UInt32(wire[3]) << 8
+        let crc2: UInt32 = UInt32(wire[4]) << 16, crc3: UInt32 = UInt32(wire[5]) << 24
+        let storedCRC: UInt32 = crc0 | crc1 | crc2 | crc3
         XCTAssertEqual(NCChecksum.crc32(crcInput), storedCRC)
         // Auth data: time LE, clientID, connID LE at offset 2+4+1 = 7.
         XCTAssertEqual([UInt8](wire[7..<11]), [0x00, 0xf1, 0x53, 0x65]) // 1700000000 LE
@@ -101,7 +104,9 @@ final class NativeCoreSSRTests: XCTestCase {
         XCTAssertEqual([UInt8](wire[15..<19]), [0x03, 0x02, 0x01, 0x00])
         // HMAC tail = HMAC-SHA1(iv+key, everything before it)[..10].
         let pack = Data(wire.prefix(packedLen))
-        let mac = NCHMACSHA1.mac(key: iv + key, message: Data(pack.prefix(packedLen - 10)))
+        var macKey = iv
+        macKey.append(key)
+        let mac = NCHMACSHA1.mac(key: macKey, message: Data(pack.prefix(packedLen - 10)))
         XCTAssertEqual(Data(pack.suffix(10)), Data(mac.prefix(10)))
 
         // The rest of the payload went through packData (auth packs are

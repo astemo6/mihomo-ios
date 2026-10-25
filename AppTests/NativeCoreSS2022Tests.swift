@@ -125,7 +125,7 @@ final class NativeCoreSS2022Tests: XCTestCase {
         var fixed = Data()
         fixed.append(0x01)
         fixed.appendBE64(1735689600)
-        fixed.append(Data((0..<32).map { UInt8(0x99) })) // not our salt
+        fixed.append(Data(repeating: 0x99, count: 32)) // not our salt
         fixed.appendBE16(0)
         var wire = responseSalt
         wire.append(try XCTUnwrap(server.seal(fixed)))
