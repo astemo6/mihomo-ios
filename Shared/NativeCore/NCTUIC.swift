@@ -446,6 +446,24 @@ extension NCConnector {
     private static var tuicRegistry: [String: NCTUICConnection] = [:]
     private static let tuicLock = NSLock()
 
+    /// nc-lifecycle: see NCConnector.closeAllSharedSessions.
+    static var tuicSessionCount: Int {
+        tuicLock.lock(); defer { tuicLock.unlock() }
+        return tuicRegistry.count
+    }
+
+    /// nc-lifecycle: drain the registry and close every connection it held
+    /// (close() flips the state snapshot synchronously and notifies waiters).
+    @discardableResult
+    static func closeAllTUICSessions() -> Int {
+        tuicLock.lock()
+        let all = Array(tuicRegistry.values)
+        tuicRegistry.removeAll()
+        tuicLock.unlock()
+        for c in all { c.close() }
+        return all.count
+    }
+
     static func tuicStream(proxy: NCProxy, target: NCTarget, queue: DispatchQueue,
                            completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let key = "\(proxy.name)|\(proxy.server ?? "")|\(proxy.port ?? 0)"

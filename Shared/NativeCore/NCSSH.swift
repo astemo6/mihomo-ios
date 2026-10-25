@@ -797,6 +797,12 @@ final class NCSSHClient {
         ncOnSessionQueue(queue) {
             guard self.state != .closed else { return }
             self.setState(.closed)
+            // nc-lifecycle: a client closed while still connecting left its
+            // whenReady waiters hanging forever (fail() fires them, close()
+            // did not) — their callers wait on a completion that never comes.
+            let hs = self.readyHandlers
+            self.readyHandlers = []
+            for h in hs { h(Self.err("connection closed")) }
             for ch in self.channels.values { ch.connectionLost(nil) }
             self.channels.removeAll()
             self.raw?.cancel()
@@ -1012,6 +1018,25 @@ final class NCSSHChannel: NCRelayStream {
 extension NCConnector {
     private static var sshRegistry: [String: NCSSHClient] = [:]
     private static let sshLock = NSLock()
+
+    /// nc-lifecycle: see NCConnector.closeAllSharedSessions.
+    static var sshSessionCount: Int {
+        sshLock.lock(); defer { sshLock.unlock() }
+        return sshRegistry.count
+    }
+
+    /// nc-lifecycle: drain the registry and close every client it held
+    /// (close() fails its channels and, since the lifecycle fix, its
+    /// readiness waiters).
+    @discardableResult
+    static func closeAllSSHSessions() -> Int {
+        sshLock.lock()
+        let all = Array(sshRegistry.values)
+        sshRegistry.removeAll()
+        sshLock.unlock()
+        for c in all { c.close() }
+        return all.count
+    }
 
     static func sshStream(proxy: NCProxy, server: String, port: Int, target: NCTarget, queue: DispatchQueue,
                           transport: NCRelayStream?, completion: @escaping (NCRelayStream?, Error?) -> Void) {

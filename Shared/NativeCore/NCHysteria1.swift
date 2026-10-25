@@ -553,6 +553,24 @@ extension NCConnector {
     private static var hy1Registry: [String: NCHysteria1Connection] = [:]
     private static let hy1Lock = NSLock()
 
+    /// nc-lifecycle: see NCConnector.closeAllSharedSessions.
+    static var hy1SessionCount: Int {
+        hy1Lock.lock(); defer { hy1Lock.unlock() }
+        return hy1Registry.count
+    }
+
+    /// nc-lifecycle: drain the registry and close every connection it held
+    /// (close() flips the state snapshot synchronously and notifies waiters).
+    @discardableResult
+    static func closeAllHy1Sessions() -> Int {
+        hy1Lock.lock()
+        let all = Array(hy1Registry.values)
+        hy1Registry.removeAll()
+        hy1Lock.unlock()
+        for c in all { c.close() }
+        return all.count
+    }
+
     /// One shared QUIC session per proxy, reconnected when it failed or closed (openStreamWithReconnect).
     static func hysteria1Stream(proxy: NCProxy, target: NCTarget, queue: DispatchQueue,
                                 completion: @escaping (NCRelayStream?, Error?) -> Void) {
