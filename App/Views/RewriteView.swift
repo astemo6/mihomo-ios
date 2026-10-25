@@ -1,8 +1,9 @@
 import SwiftUI
-import Libmihomo
 import UserNotifications
 
-/// Form model shared with the Go side (mitm.RewriteForm): one form <-> one canonical Surge-syntax line.
+/// Form model for the rewrite editor (formerly shared with the Go side's
+/// mitm.RewriteForm, now converted natively by NCRewriteFormConverter):
+/// one form <-> one canonical Surge-syntax line.
 struct RewriteForm: Codable, Equatable {
     var type: String = "reject"
     var pattern: String = ""
@@ -25,17 +26,12 @@ struct RewriteForm: Codable, Equatable {
     var desc: String? = nil
 
     static func fromLine(_ line: String) -> RewriteForm {
-        guard let d = LibmihomoRewriteFormFromLine(line).data(using: .utf8),
-              let f = try? JSONDecoder().decode(RewriteForm.self, from: d) else { return RewriteForm(type: "raw", line: line) }
-        return f
+        NCRewriteFormConverter.form(fromLine: line)
     }
 
     /// Canonical line + validation through the engine parser.
     func validated() -> RewriteForm {
-        guard let d = try? JSONEncoder().encode(self), let json = String(data: d, encoding: .utf8),
-              let out = LibmihomoRewriteLineFromForm(json).data(using: .utf8),
-              let f = try? JSONDecoder().decode(RewriteForm.self, from: out) else { return self }
-        return f
+        NCRewriteFormConverter.line(fromForm: self)
     }
 }
 
@@ -451,7 +447,7 @@ struct RewriteView: View {
         return out.joined(separator: "\n") + "\n"
     }
 
-    /// Parses the text back; validation through the engine (EngineParseText). Errors block saving.
+    /// Parses the text back; validation through the engine parser (NCEngineParser). Errors block saving.
     func applyRaw() {
         var hosts: [String] = []
         var rules: [EngineItem] = []

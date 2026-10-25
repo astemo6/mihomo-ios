@@ -343,7 +343,8 @@ struct ScriptLogLine: Decodable, Identifiable, Hashable {
     var count: Int?
 }
 
-/// Result of LibmihomoEngineParseText / EngineParseLine.
+/// Result of the module text parser (NCEngineParser, formerly the Go
+/// bridge's EngineParseText / EngineParseLine).
 struct ParsedEngineText: Decodable {
     struct Rule: Decodable, Hashable {
         var kind: String

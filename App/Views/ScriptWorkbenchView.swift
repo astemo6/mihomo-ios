@@ -260,7 +260,7 @@ struct ScriptWorkbenchView: View {
 
     /// name / path / type of a script line, through the engine parser.
     static func scriptInfo(_ line: String) -> (name: String, path: String?, type: String?) {
-        guard let p = ParsedEngineText.parse(LibmihomoEngineParseLine(line, "script")) else { return (line, nil, nil) }
+        let p = NCEngineParser.parseLine(line, section: "script")
         if let r = p.rules.first(where: { $0.kind == "script" }) {
             return (r.script ?? r.path ?? line, r.path, r.phase == "request" ? "http-request" : "http-response")
         }
