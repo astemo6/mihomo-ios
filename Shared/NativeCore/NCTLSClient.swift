@@ -17,6 +17,14 @@ final class NCTLSClientStream: NCRelayStream {
         var alpn: [String] = ["h2", "http/1.1"]
         var reality: NCTLS13.RealityParams? = nil
         var allowInsecure: Bool = false // plain mode only: skip SecTrust result
+        /// Hostname the certificate chain is verified against when it differs from the SNI
+        /// (`serverName`) — restls / plugin `name-cert-verify` (mihomo SetNameCertVerify).
+        var certVerifyName: String? = nil
+        /// SHA-256 fingerprint pinning (restls `fingerprint`, mihomo ca.NewFingerprintVerifier): the
+        /// handshake only proceeds when one of the presented certificates hashes to this value.
+        /// Overrides `allowInsecure`, exactly like mihomo (SetFingerprint forces InsecureSkipVerify
+        /// and does the check in VerifyConnection).
+        var pinnedCertSHA256: Data? = nil
         /// ClientHello shape from the proxy's `fingerprint` field.
         var profile: NCClientHelloProfile = .chrome
         /// Plain mode only: session ID computed from the marshaled hello (zero ID in place) — shadow-tls v3.
@@ -536,21 +544,44 @@ final class NCTLSClientStream: NCRelayStream {
                 fail(TLSError.handshake("REALITY authentication failed"))
                 return
             }
-        } else if !config.allowInsecure {
-            guard secTrustValid() else {
-                fail(TLSError.handshake("certificate not trusted"))
-                return
-            }
+        } else if !certificatePolicyValid() {
+            fail(TLSError.handshake("certificate not trusted"))
+            return
         }
     }
 
-    private func secTrustValid() -> Bool {
-        let certs = certsDER.compactMap { SecCertificateCreateWithData(nil, $0 as CFData) }
-        guard certs.count == certsDER.count, !certs.isEmpty else { return false }
-        let policy = SecPolicyCreateSSL(true, config.serverName as CFString)
+    /// The certificate decision for plain mode (both TLS versions): fingerprint pinning when
+    /// configured, else SecTrust against the system roots — always under `certVerifyName`
+    /// when set (name-cert-verify), else the SNI name. A pin overrides allowInsecure (mihomo
+    /// semantics); without a pin, allowInsecure waives the SecTrust result.
+    private func certificatePolicyValid() -> Bool {
+        if let pin = config.pinnedCertSHA256 {
+            for (i, der) in certsDER.enumerated() where Data(SHA256.hash(data: der)) == pin {
+                // Leaf match: accepted as-is (mihomo's verifier does no hostname check here).
+                // Non-leaf match: that certificate becomes the trust anchor and the leaf chain
+                // (plus hostname) must verify up to it.
+                return i == 0 || secTrustValid(anchoredAt: i)
+            }
+            return false
+        }
+        return config.allowInsecure || secTrustValid(anchoredAt: nil)
+    }
+
+    /// SecTrust evaluation of the presented chain; with `anchoredAt` the chain is truncated at
+    /// that certificate, which also becomes the only trust anchor (fingerprint pinning).
+    private func secTrustValid(anchoredAt anchor: Int?) -> Bool {
+        let presented = anchor.map { Array(certsDER[...$0]) } ?? certsDER
+        let certs = presented.compactMap { SecCertificateCreateWithData(nil, $0 as CFData) }
+        guard certs.count == presented.count, !certs.isEmpty else { return false }
+        let name = config.certVerifyName ?? config.serverName
+        let policy = SecPolicyCreateSSL(true, name as CFString)
         var trust: SecTrust?
         guard SecTrustCreateWithCertificates(certs as CFArray, policy, &trust) == errSecSuccess,
               let trust else { return false }
+        if let anchor {
+            guard SecTrustSetAnchorCertificates(trust, [certs[anchor]] as CFArray) == errSecSuccess,
+                  SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess else { return false }
+        }
         var error: CFError?
         return SecTrustEvaluateWithError(trust, &error)
     }
@@ -878,7 +909,7 @@ extension NCTLSClientStream {
                 fail(TLSError.handshake("ServerKeyExchange signature invalid"))
                 return
             }
-            if !config.allowInsecure, !secTrustValid12() {
+            if !certificatePolicyValid() {
                 fail(TLSError.handshake("certificate not trusted"))
                 return
             }
@@ -920,17 +951,6 @@ extension NCTLSClientStream {
         default:
             if !handshakeDone { transcript.append(message) } // CertificateStatus etc.
         }
-    }
-
-    private func secTrustValid12() -> Bool {
-        let certs = certsDER.compactMap { SecCertificateCreateWithData(nil, $0 as CFData) }
-        guard certs.count == certsDER.count, !certs.isEmpty else { return false }
-        let policy = SecPolicyCreateSSL(true, config.serverName as CFString)
-        var trust: SecTrust?
-        guard SecTrustCreateWithCertificates(certs as CFArray, policy, &trust) == errSecSuccess,
-              let trust else { return false }
-        var error: CFError?
-        return SecTrustEvaluateWithError(trust, &error)
     }
 
     private func sendClientFlight12() {

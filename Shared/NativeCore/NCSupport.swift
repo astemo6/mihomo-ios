@@ -79,11 +79,11 @@ enum NCSupport {
             let v = opts["version"]?.int ?? 2
             return (1...3).contains(v) ? nil : "shadow-tls v\(v)"
         case "restls":
-            // NCRestls (PacketTunnel): version-hint tls12 / tls13, restls-script, client-fingerprint, skip-cert-verify.
+            // NCRestls: version-hint tls12 / tls13 (any other value — tls11, empty, … — is an explicit
+            // error at dial time, mirroring restls-client-go; it is never silently mapped), restls-script,
+            // client-fingerprint, skip-cert-verify, fingerprint (SHA-256 pinning) and name-cert-verify.
             let hint = (opts["version-hint"]?.string ?? "").lowercased()
-            if hint != "tls12" && hint != "tls13" { return "restls version-hint \(hint)" }
-            if !(opts["fingerprint"]?.string ?? "").isEmpty { return "restls fingerprint (证书指纹固定)" }
-            if !(opts["name-cert-verify"]?.string ?? "").isEmpty { return "restls name-cert-verify" }
+            if hint != "tls12" && hint != "tls13" { return "restls version-hint \(hint.isEmpty ? "(空)" : hint)（仅 tls12 / tls13）" }
             return nil
         default:
             return plugin
