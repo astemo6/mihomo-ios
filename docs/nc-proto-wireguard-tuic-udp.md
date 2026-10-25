@@ -29,6 +29,14 @@ extension budget (50 MB jetsam, today ~3.3 MB binary) can afford it, but it is n
 
 ## 2. WireGuard
 
+**Status 2026-10-25 (feat/nc-wg): implemented as option (a)** — `lwip/nc_wg.{h,c}` (WG netifs + netif-bound
+client TCP/UDP PCBs, `LWIP_SINGLE_NETIF 0`, `LWIP_IPV6_SCOPES 0`, TUN stays the default netif, the ip4.c NC PATCH
+only for the TUN netif "tn", lwip_init once per process) and `NCWireGuardCrypto.swift` + `NCWireGuard.swift`
+(Noise_IKpsk2 initiator, timers, multi-peer, reserved, mtu, keepalive, cookie/mac2, AmneziaWG 1.0, remote DNS).
+Compile and device validation pending. Not done: AmneziaWG 1.5/2.0 (i1–i5 ignored; header ranges / s3 / s4
+marked unavailable), refresh-server-ip-interval, WG as a non-first hop of a chain.
+
+
 Pieces and where they live:
 
 1. **Crypto (pure Swift, ~350 lines)**: Curve25519 (CryptoKit), ChaCha20-Poly1305 (CryptoKit `ChaChaPoly`, nonce =
