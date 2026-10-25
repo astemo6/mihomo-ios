@@ -460,9 +460,9 @@ private final class NCChainBuild {
         }
         let includeAll = g.boolOf("include-all")
         if includeAll || g.boolOf("include-all-proxies") {
-            let regs = NCMemberPool.compileRegsPublic(g.str("filter")) ?? []
+            let regs = NCMemberPool.compileRegs(g.str("filter")) ?? []
             for n in proxies.keys.sorted() {
-                let ok = regs.isEmpty || regs.contains { NCMemberPool.matchPublic($0, n) }
+                let ok = regs.isEmpty || regs.contains { NCMemberPool.match($0, n) }
                 if ok { addNode(n, explicit: false) }
             }
         }
