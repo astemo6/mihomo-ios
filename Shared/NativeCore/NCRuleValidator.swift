@@ -584,14 +584,14 @@ enum NCRuleValidator {
 
     // MARK: - Public API (Replacing Libmihomo)
 
-    /// Check one rule line in the editor against the active profile (pure Swift replacement for LibmihomoCheckRuleLine).
+    /// Check one rule line in the editor against the active profile.
     static func checkRuleLine(homeDir: String, profilePath: String, line: String) -> RuleCheck {
         var context = loadProfileContext(homeDir: homeDir, profilePath: profilePath)
         let checks = convertCustom(rules: [CustomRule(id: "1", line: line, enabled: true)], context: &context)
         return checks.first ?? RuleCheck(id: "1", line: line, enabled: true)
     }
 
-    /// JSON string result of checkRuleLine, matching Go's LibmihomoCheckRuleLine.
+    /// JSON string result of checkRuleLine, matching the bridge format.
     static func checkRuleLineJSON(homeDir: String, profilePath: String, line: String) -> String {
         let check = checkRuleLine(homeDir: homeDir, profilePath: profilePath, line: line)
         let enc = JSONEncoder()
@@ -601,14 +601,14 @@ enum NCRuleValidator {
         return str
     }
 
-    /// Check all rules in <home>/rules.json against the profile (pure Swift replacement for LibmihomoCheckCustomRules).
+    /// Check all rules in <home>/rules.json against the profile.
     static func checkCustomRules(homeDir: String, profilePath: String) -> [RuleCheck] {
         var context = loadProfileContext(homeDir: homeDir, profilePath: profilePath)
         let rules = readCustomRules(homeDir: homeDir)
         return convertCustom(rules: rules, context: &context)
     }
 
-    /// JSON string result of checkCustomRules, matching Go's LibmihomoCheckCustomRules.
+    /// JSON string result of checkCustomRules, matching the bridge format.
     static func checkCustomRulesJSON(homeDir: String, profilePath: String) -> String {
         let checks = checkCustomRules(homeDir: homeDir, profilePath: profilePath)
         let enc = JSONEncoder()
