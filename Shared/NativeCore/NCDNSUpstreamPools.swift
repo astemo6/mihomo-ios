@@ -8,8 +8,9 @@ import Foundation
 /// This file lives in Shared (moved from PacketTunnel/NativeCore/
 /// NCUDPSessions.swift, where the classes were unreachable from the unit
 /// tests): the coordinator and pools depend only on NCStream and Data
-/// helpers, both already in Shared, and NCDNSForwarder (which stays in the
-/// tunnel target) calls them through the exact same type names/signatures.
+/// helpers, both already in Shared, and NCDNSForwarder (itself moved to
+/// Shared/NCDNSForwarder.swift by the nc-lifecycle evidence rework) calls
+/// them through the exact same type names/signatures.
 protocol NCDNSPoolStream: AnyObject {
     func start(ready: @escaping (Error?) -> Void)
     func send(_ data: Data)
