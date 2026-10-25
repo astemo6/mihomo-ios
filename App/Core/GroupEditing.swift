@@ -418,4 +418,327 @@ enum NCGroupEditing {
             raw["proxy-groups"] = .array(groups.map { .object($0) })
         }
     }
+
+    // MARK: - GroupPreview
+
+    struct MemberPool {
+        var proxies: [String] = []              // profile proxies in YAML order
+        var types: [String: String] = [:]       // node / group name -> YAML type
+        var providers: [String: [String]] = [:] // proxy-provider -> node names
+    }
+
+    /// Builds a MemberPool from ProfileInspector cached results and profile/node subscription files.
+    static func buildMemberPool(home: URL, path: String, inspector: ProfileInspector? = nil) -> MemberPool {
+        var pool = MemberPool()
+
+        // 1. Seed from ProfileInspector result if available
+        if let ins = inspector {
+            for p in ins.result.proxies {
+                pool.proxies.append(p.name)
+                pool.types[p.name] = p.type
+            }
+            for g in ins.result.groups {
+                pool.types[g.name] = g.type
+            }
+            for pv in ins.result.proxyProviders {
+                let names = pv.proxies?.map(\.name) ?? []
+                pool.providers[pv.name] = names
+                for p in pv.proxies ?? [] {
+                    if pool.types[p.name] == nil {
+                        pool.types[p.name] = p.type
+                    }
+                }
+            }
+        }
+
+        // 2. Read profile YAML to supplement any missing proxies or providers
+        let profileURL = URL(fileURLWithPath: path)
+        if let content = try? String(contentsOf: profileURL, encoding: .utf8),
+           let docVal = NCYAML.parse(content),
+           case .object(let raw) = docVal {
+
+            if pool.proxies.isEmpty, let pxList = raw["proxies"]?.array {
+                for p in pxList {
+                    if let n = p["name"]?.string, !n.isEmpty {
+                        pool.proxies.append(n)
+                        if let t = p["type"]?.string {
+                            pool.types[n] = t
+                        }
+                    }
+                }
+            }
+            if let gList = raw["proxy-groups"]?.array {
+                for g in gList {
+                    if let n = g["name"]?.string, let t = g["type"]?.string {
+                        pool.types[n] = t
+                    }
+                }
+            }
+            if let ppMap = raw["proxy-providers"]?.object {
+                for (name, pVal) in ppMap {
+                    if pool.providers[name] == nil {
+                        if let pObj = pVal.object,
+                           let filePath = pObj["path"]?.string {
+                            let resolvedPath: String
+                            if filePath.hasPrefix("/") {
+                                resolvedPath = filePath
+                            } else {
+                                resolvedPath = home.appendingPathComponent(filePath).path
+                            }
+                            if let pContent = try? String(contentsOfFile: resolvedPath, encoding: .utf8),
+                               let pDoc = NCYAML.parse(pContent),
+                               case .object(let pRaw) = pDoc,
+                               let pxArray = pRaw["proxies"]?.array {
+                                var names: [String] = []
+                                for px in pxArray {
+                                    if let pxName = px["name"]?.string, !pxName.isEmpty {
+                                        names.append(pxName)
+                                        if let pxType = px["type"]?.string, pool.types[pxName] == nil {
+                                            pool.types[pxName] = pxType
+                                        }
+                                    }
+                                }
+                                pool.providers[name] = names
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Node subscriptions in <home>/nodesubs/<id>.yaml
+        let subsURL = home.appendingPathComponent("node-subscriptions.json")
+        if let data = try? Data(contentsOf: subsURL),
+           let subs = try? JSONDecoder().decode([NodeSubscription].self, from: data) {
+            for s in subs where s.enabled && !s.id.isEmpty {
+                let cacheURL = home.appendingPathComponent("nodesubs/\(s.id).yaml")
+                if let pContent = try? String(contentsOf: cacheURL, encoding: .utf8),
+                   let pDoc = NCYAML.parse(pContent),
+                   case .object(let pRaw) = pDoc,
+                   let pxArray = pRaw["proxies"]?.array {
+                    var names: [String] = []
+                    for px in pxArray {
+                        if let pxName = px["name"]?.string, !pxName.isEmpty {
+                            names.append(pxName)
+                            if let pxType = px["type"]?.string, pool.types[pxName] == nil {
+                                pool.types[pxName] = pxType
+                            }
+                        }
+                    }
+                    let baseName = s.name.trimmingCharacters(in: .whitespaces).isEmpty ? "订阅" : s.name.trimmingCharacters(in: .whitespaces)
+                    var provName = baseName
+                    var idx = 2
+                    while pool.providers[provName] != nil {
+                        provName = "\(baseName) \(idx)"
+                        idx += 1
+                    }
+                    pool.providers[provName] = names
+                }
+            }
+        }
+
+        return pool
+    }
+
+    /// Evaluates candidate draft group specs against the member pool.
+    static func preview(specs: [GroupSpec], pool: MemberPool) -> [ProfileInspector.GroupPreviewItem] {
+        return specs.map { previewGroup(spec: $0, pool: pool) }
+    }
+
+    static func previewGroup(spec: GroupSpec, pool: MemberPool) -> ProfileInspector.GroupPreviewItem {
+        let fallback = "COMPATIBLE"
+        let filterRegs = compileRegexes(spec.filter ?? "")
+        if filterRegs == nil {
+            return ProfileInspector.GroupPreviewItem(members: [fallback], empty: true, error: "filter: invalid regular expression")
+        }
+        let excludeRegs = compileRegexes(spec.excludeFilter ?? "")
+        if excludeRegs == nil {
+            return ProfileInspector.GroupPreviewItem(members: [fallback], empty: true, error: "exclude-filter: invalid regular expression")
+        }
+        let excludeTypes: [String]
+        if let et = spec.excludeType, !et.isEmpty {
+            excludeTypes = et.components(separatedBy: "|")
+        } else {
+            excludeTypes = []
+        }
+
+        let includeAll = spec.includeAll == true
+        let includeProviders = includeAll || spec.includeAllProviders == true
+        let includeProxies = includeAll || spec.includeAllProxies == true
+
+        var use = spec.use ?? []
+        if includeProviders {
+            use = Array(pool.providers.keys).sorted()
+        }
+
+        var proxies = spec.proxies
+        var parseFallback = false
+        if includeProxies {
+            let all = pool.proxies.sorted()
+            if let fRegs = filterRegs, !fRegs.isEmpty {
+                for p in all {
+                    for r in fRegs {
+                        if regMatch(r, p) {
+                            proxies.append(p)
+                        }
+                    }
+                }
+            } else {
+                proxies.append(contentsOf: all)
+            }
+            if proxies.isEmpty && use.isEmpty {
+                proxies = [fallback]
+                parseFallback = true
+            }
+        }
+
+        // GetProxies
+        var list: [String] = []
+        var nProviders = 0
+        if !proxies.isEmpty {
+            nProviders += 1
+            list.append(contentsOf: proxies) // Compatible provider: not filtered
+        }
+
+        for u in use {
+            guard let nodes = pool.providers[u] else { continue }
+            nProviders += 1
+            if let fRegs = filterRegs, !fRegs.isEmpty {
+                var seen = Set<String>()
+                for r in fRegs {
+                    for n in nodes {
+                        if !seen.contains(n) && regMatch(r, n) {
+                            seen.insert(n)
+                            list.append(n)
+                        }
+                    }
+                }
+            } else {
+                list.append(contentsOf: nodes)
+            }
+        }
+
+        // Multiple providers & multiple filters: re-order by filter
+        if nProviders > 1, let fRegs = filterRegs, fRegs.count > 1 {
+            var re: [String] = []
+            var seen = Set<String>()
+            for r in fRegs {
+                for n in list {
+                    if !seen.contains(n) && regMatch(r, n) {
+                        seen.insert(n)
+                        re.append(n)
+                    }
+                }
+            }
+            for n in list {
+                if !seen.contains(n) {
+                    seen.insert(n)
+                    re.append(n)
+                }
+            }
+            list = re
+        }
+
+        // Exclude filter
+        if let exRegs = excludeRegs, !exRegs.isEmpty {
+            list = list.filter { n in
+                !exRegs.contains { r in regMatch(r, n) }
+            }
+        }
+
+        // Exclude type
+        if !excludeTypes.isEmpty {
+            list = list.filter { n in
+                let t = adapterTypeName(name: n, yamlType: pool.types[n] ?? "")
+                return !excludeTypes.contains { et in
+                    et.caseInsensitiveCompare(t) == .orderedSame
+                }
+            }
+        }
+
+        if list.isEmpty {
+            return ProfileInspector.GroupPreviewItem(members: [fallback], empty: true)
+        }
+        if parseFallback && list.count == 1 && list[0] == fallback {
+            return ProfileInspector.GroupPreviewItem(members: list, empty: true)
+        }
+
+        // De-duplicate preserving order
+        var seen = Set<String>()
+        var out: [String] = []
+        for n in list {
+            if !seen.contains(n) {
+                seen.insert(n)
+                out.append(n)
+            }
+        }
+
+        return ProfileInspector.GroupPreviewItem(members: out, empty: false)
+    }
+
+    /// JSON export for GroupPreview
+    static func groupPreviewJSON(home: URL, path: String, specsJSON: String) -> String {
+        guard let data = specsJSON.data(using: .utf8),
+              let specs = try? JSONDecoder().decode([GroupSpec].self, from: data) else {
+            return "{\"groups\":[],\"error\":\"invalid specs JSON\"}"
+        }
+        let pool = buildMemberPool(home: home, path: path)
+        let items = preview(specs: specs, pool: pool)
+        struct Res: Encodable {
+            var groups: [ProfileInspector.GroupPreviewItem]
+        }
+        guard let outData = try? JSONEncoder().encode(Res(groups: items)),
+              let str = String(data: outData, encoding: .utf8) else {
+            return "{\"groups\":[]}"
+        }
+        return str
+    }
+
+    // MARK: - Regex and AdapterType Helpers
+
+    private static func compileRegexes(_ s: String) -> [NSRegularExpression]? {
+        if s.isEmpty { return [] }
+        var regs: [NSRegularExpression] = []
+        for rawPat in s.components(separatedBy: "`") {
+            var pat = rawPat
+            var options: NSRegularExpression.Options = []
+            if pat.hasPrefix("(?i)") {
+                pat = String(pat.dropFirst(4))
+                options.insert(.caseInsensitive)
+            }
+            guard let re = try? NSRegularExpression(pattern: pat, options: options) else {
+                return nil
+            }
+            regs.append(re)
+        }
+        return regs
+    }
+
+    private static func regMatch(_ re: NSRegularExpression, _ str: String) -> Bool {
+        let range = NSRange(str.startIndex..., in: str)
+        return re.firstMatch(in: str, range: range) != nil
+    }
+
+    static func adapterTypeName(name: String, yamlType: String) -> String {
+        switch name.uppercased() {
+        case "DIRECT": return "Direct"
+        case "REJECT": return "Reject"
+        case "REJECT-DROP": return "RejectDrop"
+        case "COMPATIBLE": return "Compatible"
+        case "PASS": return "Pass"
+        case "PASS-RULE": return "PassRule"
+        default: break
+        }
+        switch yamlType.lowercased() {
+        case "ss": return "Shadowsocks"
+        case "ssr": return "ShadowsocksR"
+        case "gost-relay": return "GostRelay"
+        case "select": return "Selector"
+        case "url-test": return "URLTest"
+        case "fallback": return "Fallback"
+        case "load-balance": return "LoadBalance"
+        case "": return "Unknown"
+        default: return yamlType
+        }
+    }
 }
