@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -21,7 +21,6 @@ enum NCSupport {
             case "wireguard": return "WireGuard 尚未接入"
             case "tailscale": return "Tailscale 尚未接入"
             case "mieru": return "Mieru 尚未接入"
-            case "ssh": return "SSH 尚未接入"
             default: return "类型 \(t) 尚未接入"
             }
         }
@@ -37,6 +36,8 @@ enum NCSupport {
             if let why = ssrUnsupported(p) { return why }
         case "hysteria":
             if let why = hysteriaUnsupported(p) { return why + " 尚未接入" }
+        case "ssh":
+            if let why = sshUnsupported(p) { return why }
         case "vless":
             if let enc = p.fields["encryption"]?.string?.lowercased(), !enc.isEmpty, enc != "none" {
                 return "VLESS encryption 尚未接入"
@@ -92,6 +93,16 @@ enum NCSupport {
         let proto = (p.fields["obfs-protocol"]?.string ?? p.fields["protocol"]?.string ?? "udp").lowercased()
         if !proto.isEmpty && proto != "udp" { return "Hysteria v1 protocol \(proto)" }
         if p.port == nil { return "Hysteria v1 port hopping (ports)" }
+        return nil
+    }
+
+    /// SSH (NCSSH, feat/nc-proto A3): private keys must be inline PEM (a file path cannot be read in the tunnel)
+    /// and unencrypted.
+    static func sshUnsupported(_ p: NCProxy) -> String? {
+        if let pk = p.fields["private-key"]?.string, !pk.isEmpty, !pk.contains("PRIVATE KEY") {
+            return "SSH 私钥文件路径尚未接入（请内联 PEM）"
+        }
+        if let pp = p.fields["private-key-passphrase"]?.string, !pp.isEmpty { return "SSH 加密私钥尚未接入" }
         return nil
     }
 

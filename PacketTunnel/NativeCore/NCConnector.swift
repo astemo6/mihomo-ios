@@ -536,6 +536,9 @@ enum NCConnector {
                 }
                 completion(stream, nil)
             }
+        case "ssh":
+            sshStream(proxy: proxy, server: server, port: port, target: target, queue: queue,
+                      transport: transport, completion: completion)
         case "hysteria":
             if transport != nil {
                 queue.async { completion(nil, Failure.unsupported("hysteria over a chain transport")) }
