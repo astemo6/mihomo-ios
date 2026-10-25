@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls",
+        "hysteria2", "hy2", "anytls", "hysteria",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -21,7 +21,6 @@ enum NCSupport {
             case "wireguard": return "WireGuard 尚未接入"
             case "tailscale": return "Tailscale 尚未接入"
             case "mieru": return "Mieru 尚未接入"
-            case "hysteria": return "Hysteria v1 尚未接入"
             case "ssh": return "SSH 尚未接入"
             default: return "类型 \(t) 尚未接入"
             }
@@ -36,6 +35,8 @@ enum NCSupport {
             }
         case "ssr":
             if let why = ssrUnsupported(p) { return why }
+        case "hysteria":
+            if let why = hysteriaUnsupported(p) { return why + " 尚未接入" }
         case "vless":
             if let enc = p.fields["encryption"]?.string?.lowercased(), !enc.isEmpty, enc != "none" {
                 return "VLESS encryption 尚未接入"
@@ -82,6 +83,15 @@ enum NCSupport {
         if !ssrProtocols.contains(proto) { return "SSR 协议 \(proto) 尚未接入" }
         let obfs = (p.fields["obfs"]?.string ?? "plain").lowercased()
         if !ssrObfs.contains(obfs) { return "SSR 混淆 \(obfs) 尚未接入" }
+        return nil
+    }
+
+    /// Hysteria v1 (NCHysteria1, feat/nc-proto A3): nil = supported; else why not.
+    static func hysteriaUnsupported(_ p: NCProxy) -> String? {
+        if let o = p.fields["obfs"]?.string, !o.isEmpty { return "Hysteria v1 obfs" }
+        let proto = (p.fields["obfs-protocol"]?.string ?? p.fields["protocol"]?.string ?? "udp").lowercased()
+        if !proto.isEmpty && proto != "udp" { return "Hysteria v1 protocol \(proto)" }
+        if p.port == nil { return "Hysteria v1 port hopping (ports)" }
         return nil
     }
 

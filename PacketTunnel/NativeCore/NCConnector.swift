@@ -536,6 +536,12 @@ enum NCConnector {
                 }
                 completion(stream, nil)
             }
+        case "hysteria":
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("hysteria over a chain transport")) }
+                return
+            }
+            hysteria1Stream(proxy: proxy, target: target, queue: queue, completion: completion)
         case "anytls":
             if transport != nil {
                 queue.async { completion(nil, Failure.unsupported("anytls over a chain transport")) }
