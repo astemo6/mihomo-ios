@@ -51,13 +51,14 @@ enum NCSubscriptionParser {
                 if selfSchemes.contains(scheme) { selfParsed.append(n) } else { uriParsed.append(n) }
             } else if let eq = l.firstIndex(of: "=") {
                 // bridge nodes.go: the key before "=" picks the dialect —
-                // a QX type keyword (qxTypes) goes to parseQXLine, anything
+                // a QX type keyword (qxNodeTypes, a superset of qxTypes) with a
+                // host:port value goes to parseQXLine (isQXNodeLine), anything
                 // else is a Surge/Loon "Name = type, …" line. buildQXNode
                 // accepts any key, so calling it first turned every Surge
                 // line into a bogus node typed after its display name.
                 let key = l[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
                 var dummy = NCImportReport()
-                if Self.qxNodeTypes.contains(key) {
+                if Self.isQXNodeLine(key: key, value: l[l.index(after: eq)...]) {
                     if let qx = NCQXImport.buildQXNode(line: l, report: &dummy) { selfParsed.append(qx) }
                 } else if let parsed = NCConfImport.parseNamedNodeLine(l),
                           let surge = NCConfImport.buildSurgeLikeNode(name: parsed.name, positional: parsed.positional, kv: parsed.kv, order: parsed.order, report: &dummy) {
@@ -68,8 +69,24 @@ enum NCSubscriptionParser {
         return dedup(selfParsed + uriParsed)
     }
 
-    /// bridge nodes.go qxTypes: the QX `type=host:port, …` keywords.
-    static let qxNodeTypes: Set<String> = ["shadowsocks", "vmess", "vless", "trojan", "http", "socks5", "anytls"]
+    /// The QX `type=host:port, …` keywords routed to NCQXImport.buildQXNode. A deliberate SUPERSET of bridge
+    /// nodes.go qxTypes (shadowsocks, vmess, vless, trojan, http, socks5, anytls): it adds every other type
+    /// buildQXNode maps — `ss` (its shadowsocks alias), `snell` (psk / version), and `tuic` / `hysteria2`
+    /// (password / token / uuid / sni, as the Surge spelling maps them; other keys verbatim).
+    /// Go sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
+    /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
+    static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
+                                           "snell", "tuic", "hysteria2"]
+
+    /// A `key=value` subscription line is QX-shaped when the key is a QX type keyword AND the value starts with
+    /// `host:port` (or `[v6]:port`) before its first comma. A Surge / Loon line is `Name = type, host, port, …`:
+    /// its value starts with a bare type word, so a Surge node whose NAME happens to be "snell" / "http" / "ss"
+    /// still goes to the Surge parser.
+    static func isQXNodeLine(key: String, value: Substring) -> Bool {
+        guard qxNodeTypes.contains(key) else { return false }
+        let head = value.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+        return head.contains(":")
+    }
 
     /// bridge nodes.go tryB64: reject when the trimmed text still contains a
     /// space or tab; strip CR/LF (line-wrapped blobs) before decoding.

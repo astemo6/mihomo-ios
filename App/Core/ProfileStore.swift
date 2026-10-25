@@ -440,7 +440,7 @@ final class ProfileStore: ObservableObject {
     func autoUpdateIfNeeded() async -> [SubUpdateResult] {
         var out: [SubUpdateResult] = []
         for p in profiles where p.kind == .remote && p.enabled && p.updateIntervalHours > 0 {
-            let due = (p.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(p.updateIntervalHours * 3600))
+            let due = (p.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(p.updateIntervalHours) * 3600)
             if due < Date() { out.append(SubUpdateResult(name: p.name, error: await refresh(p))) }
         }
         return out

@@ -144,7 +144,9 @@ final class NCTUICConnection {
         udpNative = (proxy.fields["udp-relay-mode"]?.string ?? "native").lowercased() != "quic"
         let overhead = version == 4 ? NCTUICUDP.overheadV4 : NCTUICUDP.overheadV5
         var frame = proxy.fields["max-datagram-frame-size"]?.int ?? 0
-        if frame == 0 { frame = (proxy.fields["max-udp-relay-packet-size"]?.int ?? 1252) + overhead }
+        // Capped before adding the overhead: a config value near Int.max overflowed (trap) on `+ overhead`.
+        // Same result as before for every non-overflowing value (the frame is capped at 1400 below anyway).
+        if frame == 0 { frame = min(proxy.fields["max-udp-relay-packet-size"]?.int ?? 1252, 1400) + overhead }
         udpMaxPacket = min(frame, 1400) - overhead
     }
 

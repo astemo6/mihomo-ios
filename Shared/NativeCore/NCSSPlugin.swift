@@ -155,7 +155,9 @@ enum NCSSPlugin {
     /// (ec_point_formats / supported_groups / signature_algorithms /
     /// encrypt_then_mac / extended_master_secret).
     static func obfsTLSClientHello(host: String, payload: Data) -> Data {
-        let hostBytes = Data(host.utf8)
+        // obfs-host comes from the config: u16 length fields below (UInt16(count + 5) trapped past ~64 KB). A DNS
+        // name is ≤ 253 bytes; anything longer is cut to 255 so the hello stays well-formed.
+        let hostBytes = Data(host.utf8.prefix(255))
         // Record: 5-byte header + 4-byte handshake header + 208 fixed bytes
         // of ClientHello body + extensions (79 + payload + host).
         var hello = Data()

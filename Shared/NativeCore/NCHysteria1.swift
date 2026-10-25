@@ -40,12 +40,20 @@ enum NCHy1 {
         return n
     }
 
+    /// `up-speed` / `down-speed` (Mbps) as bytes per second; 0 when non-positive or it would overflow UInt64.
+    static func mbpsToBytes(_ mbps: Int) -> UInt64 {
+        guard mbps > 0 else { return 0 }
+        let (v, o) = UInt64(mbps).multipliedReportingOverflow(by: 125_000)
+        return o ? 0 : v
+    }
+
     static func clientHello(sendBPS: UInt64, recvBPS: UInt64, auth: Data) -> Data {
         var d = Data([3])
         d.appendBE64(sendBPS)
         d.appendBE64(recvBPS)
-        d.appendBE16(UInt16(auth.count))
-        d.append(auth)
+        let a = auth.prefix(0xffff) // u16 length; init rejects longer, never trap here
+        d.appendBE16(UInt16(a.count))
+        d.append(a)
         return d
     }
 
@@ -173,16 +181,21 @@ final class NCHysteria1Connection {
         if let o = proxy.fields["obfs"]?.string, !o.isEmpty { obfsKey = Data(o.utf8) } else { obfsKey = nil }
         let proto = (proxy.fields["obfs-protocol"]?.string ?? proxy.fields["protocol"]?.string ?? "udp").lowercased()
         wechat = proto == "wechat-video"
+        let authData: Data
         if let a = proxy.fields["auth"]?.string, !a.isEmpty {
             guard let d = Data(base64Encoded: a) else { return nil }
-            auth = d
+            authData = d
         } else {
-            auth = Data((proxy.fields["auth-str"]?.string ?? "").utf8)
+            authData = Data((proxy.fields["auth-str"]?.string ?? "").utf8)
         }
+        // The client hello carries the auth with a u16 length (UInt16(count) trapped past 65535).
+        guard authData.count <= 0xffff else { return nil }
+        auth = authData
         var up = NCHy1.bps(proxy.fields["up"]?.string ?? proxy.fields["up"]?.int.map { String($0) })
         var down = NCHy1.bps(proxy.fields["down"]?.string ?? proxy.fields["down"]?.int.map { String($0) })
-        if let u = proxy.fields["up-speed"]?.int, u > 0 { up = UInt64(u) * 125_000 }
-        if let d = proxy.fields["down-speed"]?.int, d > 0 { down = UInt64(d) * 125_000 }
+        // Mbps → bytes/s; an overflowing value is invalid (0 → node rejected below), like bps() does.
+        if let u = proxy.fields["up-speed"]?.int, u > 0 { up = NCHy1.mbpsToBytes(u) }
+        if let d = proxy.fields["down-speed"]?.int, d > 0 { down = NCHy1.mbpsToBytes(d) }
         guard up > 0, down > 0 else { return nil }
         sendBPS = up; recvBPS = down
         sni = proxy.fields["sni"]?.string ?? server

@@ -452,7 +452,13 @@ final class NCDNSDoHPool {
                 self.failCurrent(key: key, conn: c, host: host, port: port, path: path)
                 return
             }
-            if let (body, consumed, keepAlive) = Self.parseResponse(cur.buffer) {
+            let parsed = Self.parseResponse(cur.buffer)
+            if case .malformed = parsed {
+                // Negative / overflowing chunk size or Content-Length: the stream is junk, not "need more bytes".
+                self.failCurrent(key: key, conn: c, host: host, port: port, path: path)
+                return
+            }
+            if case .complete(let body, let consumed, let keepAlive) = parsed {
                 cur.timeout.cancel()
                 c.current = nil
                 if !keepAlive {
@@ -482,9 +488,16 @@ final class NCDNSDoHPool {
 
     /// One complete HTTP response at the head of `buffer`: its body, how many bytes it
     /// consumed (so the stream stays in sync for the next response), and whether the
-    /// connection may be reused. nil = more bytes needed.
-    private static func parseResponse(_ buffer: Data) -> (body: Data, consumed: Int, keepAlive: Bool)? {
-        guard let headEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+    /// connection may be reused. `.incomplete` = more bytes needed; `.malformed` = framing no valid response has
+    /// (negative or overflowing chunk size / Content-Length — Int arithmetic on them used to trap).
+    enum ResponseParse: Equatable {
+        case incomplete
+        case malformed
+        case complete(body: Data, consumed: Int, keepAlive: Bool)
+    }
+
+    static func parseResponse(_ buffer: Data) -> ResponseParse {
+        guard let headEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else { return .incomplete }
         let head = String(decoding: buffer[buffer.startIndex..<headEnd.lowerBound], as: UTF8.self).lowercased()
         let keepAlive = !head.contains("connection: close")
         let bodyStart = headEnd.upperBound
@@ -492,20 +505,23 @@ final class NCDNSDoHPool {
             var out = Data()
             var pos = bodyStart
             while true {
-                guard let lineEnd = buffer.range(of: Data("\r\n".utf8), options: [], in: pos..<buffer.endIndex) else { return nil }
+                guard let lineEnd = buffer.range(of: Data("\r\n".utf8), options: [], in: pos..<buffer.endIndex) else { return .incomplete }
                 let sizeText = String(decoding: buffer[pos..<lineEnd.lowerBound], as: UTF8.self)
-                guard let size = Int(sizeText.trimmingCharacters(in: .whitespaces), radix: 16) else { return nil }
+                guard let size = Int(sizeText.trimmingCharacters(in: .whitespaces), radix: 16) else { return .incomplete }
+                // Int(_:radix:) accepts "-5" and values up to Int.max: `size + 2` trapped, a negative size made a
+                // reversed range. A chunk larger than the 256 KB stream cap can never complete either.
+                guard size >= 0, size <= 256 * 1024 else { return .malformed }
                 let chunkStart = lineEnd.upperBound
                 if size == 0 {
                     // Terminal chunk: optional trailers end at the first empty line.
                     if buffer.distance(from: chunkStart, to: buffer.endIndex) >= 2,
                        buffer[chunkStart] == 0x0d, buffer[chunkStart + 1] == 0x0a {
-                        return (out, buffer.distance(from: buffer.startIndex, to: chunkStart) + 2, keepAlive)
+                        return .complete(body: out, consumed: buffer.distance(from: buffer.startIndex, to: chunkStart) + 2, keepAlive: keepAlive)
                     }
-                    guard let tailEnd = buffer.range(of: Data("\r\n\r\n".utf8), options: [], in: chunkStart..<buffer.endIndex) else { return nil }
-                    return (out, buffer.distance(from: buffer.startIndex, to: tailEnd.upperBound), keepAlive)
+                    guard let tailEnd = buffer.range(of: Data("\r\n\r\n".utf8), options: [], in: chunkStart..<buffer.endIndex) else { return .incomplete }
+                    return .complete(body: out, consumed: buffer.distance(from: buffer.startIndex, to: tailEnd.upperBound), keepAlive: keepAlive)
                 }
-                guard buffer.distance(from: chunkStart, to: buffer.endIndex) >= size + 2 else { return nil }
+                guard buffer.distance(from: chunkStart, to: buffer.endIndex) >= size + 2 else { return .incomplete }
                 out.append(Data(buffer[chunkStart..<(chunkStart + size)]))
                 pos = chunkStart + size + 2
             }
@@ -514,11 +530,13 @@ final class NCDNSDoHPool {
            let end = head[match.upperBound...].range(of: "\r\n") {
             let lenText = head[match.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespaces)
             if let len = Int(lenText) {
+                // Same as the chunk size: negative or past the 256 KB stream cap → junk (no `bodyOff + len` trap).
+                guard len >= 0, len <= 256 * 1024 else { return .malformed }
                 let bodyOff = buffer.distance(from: buffer.startIndex, to: bodyStart)
-                guard buffer.count >= bodyOff + len else { return nil }
-                return (Data(buffer[bodyStart..<(bodyStart + len)]), bodyOff + len, keepAlive)
+                guard buffer.count >= bodyOff + len else { return .incomplete }
+                return .complete(body: Data(buffer[bodyStart..<(bodyStart + len)]), consumed: bodyOff + len, keepAlive: keepAlive)
             }
         }
-        return nil
+        return .incomplete
     }
 }

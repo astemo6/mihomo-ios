@@ -205,7 +205,11 @@ enum NCScriptManifest {
 
     /// Computes timeout in milliseconds (bridge/mitm/script.go scriptTimeout).
     static func scriptTimeout(sc: NCEngineScript, maxTimeoutMs: Int64, defTimeoutMs: Int64) -> Int64 {
-        var timeoutMs = Int64(sc.timeout) * 1000
+        // A module's `timeout=99999999999999999` overflowed Int64 (trap) on `* 1000`; any such value is past the
+        // cap anyway, so overflow clamps to maxTimeoutMs (negative overflow → the default, like <= 0).
+        let (scaled, overflow) = Int64(sc.timeout).multipliedReportingOverflow(by: 1000)
+        if overflow { return sc.timeout > 0 ? maxTimeoutMs : defTimeoutMs }
+        var timeoutMs = scaled
         if timeoutMs <= 0 {
             timeoutMs = defTimeoutMs
         }

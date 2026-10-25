@@ -85,7 +85,7 @@ enum NCVMess {
         out.append(UInt8(padding.count) << 4 | security)
         out.append(0) // reserved
         out.append(command)
-        out.appendBE16(UInt16(target.port))
+        out.appendBE16(UInt16(clamping: target.port)) // callers check isWireEncodable; never trap regardless
         out.append(NCVLESS.addressEncoded(target)) // VMess uses the same atyp numbering
         out.append(padding)
         out.appendBE32(NCFNV1a.hash32(out))

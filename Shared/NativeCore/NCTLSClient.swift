@@ -170,6 +170,9 @@ final class NCTLSClientStream: NCRelayStream {
             sidPlain = NCTLS13.realitySessionIDPlain(shortID: reality.shortID,
                                                      unixTime: UInt32(Date().timeIntervalSince1970))
         }
+        // A server name past 255 bytes is no DNS name (max 253) and no u16-framed SNI either: fail the handshake
+        // instead of sending a truncated name.
+        guard config.serverName.utf8.count <= 255 else { throw TLSError.handshake("server name too long") }
         var hello = NCTLS13.buildClientHello(random: clientRandom, sessionID: Data(repeating: 0, count: 32),
                                           serverName: config.serverName, alpn: config.alpn,
                                           keyShare: clientShare, profile: config.profile)

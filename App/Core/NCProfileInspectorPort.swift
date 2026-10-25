@@ -380,7 +380,7 @@ enum NCProfileInspectorPort {
         let server = m["server"] as? String
         var port: Int? = nil
         if let p = m["port"] as? Int { port = p }
-        else if let p = m["port"] as? Double { port = Int(p) }
+        else if let p = m["port"] as? Double { port = p.isFinite && p >= Double(Int.min) && p < Double(Int.max) ? Int(p) : nil }
         else if let p = m["port"] as? String { port = Int(p) }
         let udp = m["udp"] as? Bool
         return InspectProxy(
