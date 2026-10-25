@@ -1,6 +1,5 @@
 import SwiftUI
 import Darwin
-import Libmihomo
 
 /// Mirrors <home>/localdns.json (bridge/localdns.go, v0.7): 本地 DNS 映射 (mihomo `hosts:`) and 真实 IP 域名
 /// (added to fake-ip-filter). Applied on top of the profile whether or not the custom DNS override is on.

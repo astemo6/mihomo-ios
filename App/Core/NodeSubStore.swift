@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// 订阅管理 (v0.9): a node-only subscription. Stored in <home>/node-subscriptions.json (the bridge reads
 /// id / name / url / enabled / groups and merges each enabled one into every profile as a proxy-provider);

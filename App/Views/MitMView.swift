@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
-import Libmihomo
 
 // MARK: - Shared helpers
 

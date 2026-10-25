@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// feat/subs-split (user 2026-10-21 「节点订阅里…没有禁用、删除选项」): the user's 停用 / 删除 / 编辑 / 图标 of the
 /// proxy-providers (节点集) a profile declares. Kept per profile in <home>/provider-overrides.json — the override

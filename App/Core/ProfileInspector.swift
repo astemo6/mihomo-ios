@@ -1,6 +1,5 @@
 import Foundation
 import Network
-import Libmihomo
 
 // Offline view of the active profile (bridge/inspect.go): what 策略 / 规则 / 提供者 show while the
 // tunnel is down. Built by NCProfileInspectorPort from the same runtime YAML the core would load.

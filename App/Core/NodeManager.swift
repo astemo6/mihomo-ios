@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 // 节点管理 (v0.16): every node the app knows, grouped by where it comes from. The base list is the offline
 // view of the active profile (ProfileInspector: profile proxies, merged manual nodes, cached provider and

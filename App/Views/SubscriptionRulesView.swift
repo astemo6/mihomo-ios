@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 /// Mirrors bridge/subrules.go SubRules. Stored in <home>/subscriptions.json keyed by profile id and
 /// applied by the Go side whenever the runtime config is built (the downloaded file is untouched).

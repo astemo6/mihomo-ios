@@ -2,7 +2,6 @@ import Foundation
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
-import Libmihomo
 
 /// One entry point for everything that arrives from outside: our own mihomo:// links, pasted links of
 /// other clients (loon:// stash:// surge:/// quantumult-x:/// — recognised, never registered as URL

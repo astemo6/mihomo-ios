@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// One row of the module & resource manager (bridge/resources.go ResourceItem).
 struct ResourceItem: Decodable, Identifiable, Hashable {

@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 // 规则 (live from the controller, or offline from the profile), 自定义规则 (rules.json, Surge / QX /
 // Loon / mihomo syntax with live validation) and 提供者 (live, or offline from the cache files).

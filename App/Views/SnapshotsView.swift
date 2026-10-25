@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 // v0.10 配置快照 and 存储空间 (更多 → 工具与数据).
 

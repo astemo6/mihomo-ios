@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// One HTTP provider of the active profile the app can download itself (bridge ProviderPlan).
 struct ProviderTask: Decodable, Identifiable, Hashable {

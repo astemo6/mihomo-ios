@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 // Surge / Quantumult X .conf → mihomo profile (+ a module for its rewrite / MitM / script sections).
 // Translation happens once, at import (bridge/confimport.go); afterwards it is an ordinary profile.

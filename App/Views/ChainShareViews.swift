@@ -1,7 +1,6 @@
 import SwiftUI
 import CoreImage
 import CoreImage.CIFilterBuiltins
-import Libmihomo
 
 // MARK: - 前置代理 picker
 
