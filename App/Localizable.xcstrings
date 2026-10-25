@@ -103327,6 +103327,40 @@
           }
         }
       }
+    },
+    "完整导出（含脚本数据与密码）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整匯出（含腳本資料與密碼）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Export (incl. Script Data & Passwords)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルエクスポート（スクリプトデータとパスワードを含む）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 내보내기(스크립트 데이터 및 비밀번호 포함)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный экспорт (с данными скриптов и паролями)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

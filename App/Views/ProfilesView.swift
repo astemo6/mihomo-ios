@@ -113,6 +113,10 @@ struct ProfilesView: View {
                                 // 脚本 / MitM 证书和私钥）or the profile's YAML only (the old path).
                                 Menu {
                                     Button { exportFull(p) } label: { Label("完整导出（.conf）", systemImage: "shippingbox") }
+                                    // Opt-in (user 2026-10-25): also script cookies / tokens and controller / LAN passwords.
+                                    Button { exportFull(p, includeSensitive: true) } label: {
+                                        Label("完整导出（含脚本数据与密码）", systemImage: "lock.shield")
+                                    }
                                     Button { export(p) } label: { Label("仅配置文件", systemImage: "doc.text") }
                                 } label: { Label("导出", systemImage: "square.and.arrow.up") }
                                 Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
@@ -189,10 +193,10 @@ struct ProfilesView: View {
     }
 
     /// 完整导出（.conf）: TernFullExport — built off the main thread, shared, deleted when the share sheet closes.
-    func exportFull(_ p: Profile) {
+    func exportFull(_ p: Profile, includeSensitive: Bool = false) {
         busy = true
         Task {
-            let r = await TernFullExport.exportFile(profile: p)
+            let r = await TernFullExport.exportFile(profile: p, includeSensitive: includeSensitive)
             busy = false
             switch r {
             case .success(let u): share = ShareItem(url: u, temporary: true)

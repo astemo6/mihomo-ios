@@ -7,8 +7,9 @@ import Security
 //   argument values and policy mappings, local rewrite and script lines, local script files, the profile's override
 //   scripts, node subscriptions (URL + settings), MitM settings, and the MitM root CA + private key as a
 //   passphrase-encrypted PKCS#12 with the passphrase next to it in plain text (exactly like QX's `passphrase` / `p12`).
-// Left out: logs, request records, traffic statistics, geo databases, downloaded rule-set / node-set caches, and the
-// scripts' key-value store / controller + LAN secrets (store.json, secrets.json — cookies and passwords).
+// Left out: logs, request records, traffic statistics, geo databases, downloaded rule-set / node-set caches.
+// Optional (user 2026-10-25 18:20, off by default): the scripts' key-value store and controller + LAN secrets
+// (engine/store.json, secrets.json — cookies, tokens, passwords) via build(includeSensitive: true).
 //
 // File layout (INI sections, '#' comments; every free-form payload is base64 so a YAML line such as "[general]" can
 // never be read as a section):
@@ -45,6 +46,10 @@ enum TernFullExport {
     static let dataFiles = ["mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json",
                             "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json",
                             "mihomo/group-edits.json", "mihomo/provider-overrides.json", "mihomo/node-settings.json"]
+    /// Opt-in only (完整导出（含脚本数据与密码）): script cookies / tokens and controller + LAN passwords.
+    static let sensitiveDataFiles = ["mihomo/engine/store.json", "mihomo/secrets.json"]
+    /// Import whitelist: whatever of these the file carries is restored.
+    static var allDataFiles: [String] { dataFiles + sensitiveDataFiles }
 
     // Container-relative locations (the same layout as AppShared / EnginePaths / OverrideScriptStore).
     static let profilesIndexRel = "profiles.json"
@@ -174,7 +179,7 @@ enum TernFullExport {
     /// `prefs`: BackupManager.collectPrefs() in the app; nil in unit tests.
     static func build(profileID: String?, root: URL, defaults: UserDefaults, prefs: [String: String]? = nil,
                       appVersion: String, appBuild: String, now: Date = Date(),
-                      passphrase: String = randomPassphrase()) throws -> String {
+                      passphrase: String = randomPassphrase(), includeSensitive: Bool = false) throws -> String {
         let fm = FileManager.default
         func url(_ rel: String) -> URL { root.appendingPathComponent(rel) }
         func readIfPresent(_ rel: String) throws -> Data? {
@@ -337,7 +342,7 @@ enum TernFullExport {
         line()
 
         line("[tern_data]")
-        for rel in dataFiles {
+        for rel in dataFiles + (includeSensitive ? sensitiveDataFiles : []) {
             if let d = try readIfPresent(rel) { kv(esc(rel), d.base64EncodedString()) }
         }
         line()
@@ -652,7 +657,7 @@ enum TernFullExport {
         // [tern_data]
         for (k, v) in keyValues("tern_data") {
             let rel = unesc(k)
-            guard dataFiles.contains(rel) else { continue } // unknown paths are never written
+            guard allDataFiles.contains(rel) else { continue } // unknown paths are never written
             p.dataFiles[rel] = try b64(v, "[tern_data] \(rel)")
         }
 
@@ -795,6 +800,8 @@ enum TernFullExport {
         }
 
         for rel in dataFiles { if let d = p.dataFiles[rel] { w.append(Write(rel: rel, data: d)) } }
+        // Passwords / cookies stay owner-only, like the originals.
+        for rel in sensitiveDataFiles { if let d = p.dataFiles[rel] { w.append(Write(rel: rel, data: d, permissions: 0o600)) } }
 
         if let ca = p.caPEM {
             w.append(Write(rel: caPemRel, data: ca.cert, permissions: 0o644))
@@ -882,13 +889,13 @@ enum TernFullExport {
 
     /// 配置 → 导出 → 完整导出（.conf）: builds the file off the main thread into the share-sheet export folder
     /// (ProfileStore.exportDir, purged when the share sheet closes — it holds the CA private key).
-    static func exportFile(profile: Profile) async -> Result<URL, Error> {
+    static func exportFile(profile: Profile, includeSensitive: Bool = false) async -> Result<URL, Error> {
         let id = profile.id, name = profile.name
         return await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
             do {
                 let text = try TernFullExport.build(profileID: id, root: AppShared.containerURL, defaults: AppShared.defaults,
                                                     prefs: BackupManager.collectPrefs(), appVersion: TernFullExport.appVersion,
-                                                    appBuild: TernFullExport.appBuild)
+                                                    appBuild: TernFullExport.appBuild, includeSensitive: includeSensitive)
                 ProfileStore.purgeExports()
                 let dir = ProfileStore.exportDir
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

@@ -127,7 +127,8 @@ final class TernFullExportTests: XCTestCase {
                                       "userAgent": "clash.meta", "updateIntervalHours": 12, "groups": ["🚀 节点选择"]]]
         fxWrite(root, TernFullExport.nodeSubsRel, try JSONSerialization.data(withJSONObject: subs))
         fxWrite(root, "mihomo/dns.json", Data(#"{"nameserver":["223.5.5.5"]}"#.utf8))
-        fxWrite(root, "mihomo/engine/store.json", Data(#"{"cookie":"secret"}"#.utf8)) // must NOT travel
+        fxWrite(root, "mihomo/engine/store.json", Data(#"{"cookie":"secret"}"#.utf8)) // travels only with includeSensitive
+        fxWrite(root, "mihomo/secrets.json", Data(#"{"controller-secret":"pw"}"#.utf8))
 
         try NCCAManager.generateCA(home: home(root))
         return (root, defaults, p, c)
@@ -219,6 +220,23 @@ final class TernFullExportTests: XCTestCase {
 
         // No staging leftovers.
         XCTAssertFalse(fxFiles(dst).contains { $0.hasPrefix(".tern-import-") })
+    }
+
+    /// 完整导出（含脚本数据与密码）: the opt-in export carries store.json + secrets.json and restores them 0600.
+    func testSensitiveDataOnlyWhenOptedIn() throws {
+        let src = try makeSource()
+        let plain = try export(src)
+        XCTAssertFalse(plain.contains("controller-secret") || plain.contains("mihomo/secrets.json"))
+        let full = try TernFullExport.build(profileID: profileID, root: src.root, defaults: src.defaults,
+                                            appVersion: "0.20.0", appBuild: "1", passphrase: "test-passphrase",
+                                            includeSensitive: true)
+        XCTAssertTrue(full.contains("mihomo/engine/store.json") && full.contains("mihomo/secrets.json"))
+        let dst = fxScratch()
+        _ = try TernFullExport.importText(full, root: dst, defaults: fxSuite())
+        XCTAssertEqual(fxRead(dst, "mihomo/engine/store.json"), Data(#"{"cookie":"secret"}"#.utf8))
+        XCTAssertEqual(fxRead(dst, "mihomo/secrets.json"), Data(#"{"controller-secret":"pw"}"#.utf8))
+        let attrs = try FileManager.default.attributesOfItem(atPath: dst.appendingPathComponent("mihomo/secrets.json").path)
+        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600)
     }
 
     func testExportTwiceIsStableAndReimportable() throws {
