@@ -21,19 +21,16 @@ enum NCSupport {
         if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
-        // ECH (RFC 9849): 自研 TLS 栈（NCTLS13）已支持 ECH 握手能力。
+        // ECH (RFC 9849): 自研 TLS 栈（NCTLS13）已支持 ECH 握手能力；QUIC 路径（TUIC / Hysteria2）走系统 ECH（尽力而为，PR #150 / E6）。
         // 校验互斥与协议栈范围：
         // 1. REALITY 与 ECH 互斥（不能同时启用）。
-        // 2. QUIC 协议（TUIC / Hysteria2）的 ECH 依赖 QUIC 栈接入（留待 E6 接入）。
+        // 2. QUIC 路径（TUIC / Hysteria2）走系统 ECH（尽力而为），不在此判定为不可用。
         // 3. 各出站协议（Trojan/VLESS 等）改走自研 TLS 栈接线留待 E5 完成。
         if let ech = p.fields["ech-opts"]?.object ?? (p.fields["plugin-opts"]?.object?["ech-opts"]?.object),
            ech["enable"]?.bool == true {
             let sec = p.fields["security"]?.string?.lowercased()
             if p.fields["reality-opts"] != nil || sec == "reality" {
                 return "REALITY 与 ECH 互斥，不能同时启用"
-            }
-            if ["tuic", "hysteria2", "hy2"].contains(t) {
-                return "QUIC 路径 ECH 尚未接入（待 E6 支持）"
             }
         }
         switch t {
