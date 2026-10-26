@@ -235,7 +235,13 @@ final class NCH3ProxyConnection {
 
     private func drain(_ ch: NCHy2StreamChannel) {
         ch.receive { [weak self] data, _ in
-            guard let self, data != nil, self.state == .ready || self.state == .connecting else { return }
+            guard let self else { return }
+            guard data != nil, self.state == .ready || self.state == .connecting else {
+                // Stream ended (or the connection is going away): release its slot so the
+                // maxServerStreams budget is not permanently consumed by dead streams.
+                self.serverStreams.removeAll { $0 === ch }
+                return
+            }
             self.drain(ch)
         }
     }
