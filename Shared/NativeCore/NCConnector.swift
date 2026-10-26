@@ -920,6 +920,60 @@ enum NCConnector {
         return combinedData
     }
 
+    /// Single integration injection point for dynamic ECH resolution:
+    /// 1. If static `ech-opts.config` is provided, parse and return it.
+    /// 2. If ECH is enabled (`enable == true`) but no static config exists:
+    ///    - In this PR: explicitly throw `Failure.handshake("ECH enabled but no config available")`.
+    ///    - Later E2 integration point: perform async/dynamic DNS SVCB/HTTPS query here.
+    /// Never silently fall back to plaintext SNI when ECH is requested.
+    static func resolveECHConfigList(_ proxy: NCProxy) throws -> Data? {
+        guard isECHEnabled(proxy) else { return nil }
+        if let staticList = try parseStaticECHConfigList(proxy) {
+            return staticList
+        }
+        // E2 resolver injection point: dynamic HTTPS/SVCB DNS resolution will hook in here.
+        throw Failure.handshake("ECH enabled but no config available")
+    }
+
+    /// Determine default ALPN when the node does not explicitly specify `alpn`.
+    /// - ws transport: ["http/1.1"] (never offer h2, otherwise CF/nginx selects h2 and WebSocket upgrade fails)
+    /// - grpc transport: ["h2"]
+    /// - tcp/other transport: ["h2", "http/1.1"]
+    /// - trojan / https / anytls keep their existing defaults when unrelated to transport:
+    ///   - https: ["http/1.1"]
+    ///   - trojan: ["h2", "http/1.1"]
+    ///   - anytls: ["h2", "http/1.1"]
+    static func defaultALPN(for proxy: NCProxy) -> [String] {
+        switch proxy.type.lowercased() {
+        case "https":
+            return ["http/1.1"]
+        case "anytls":
+            return ["h2", "http/1.1"]
+        case "trojan":
+            return ["h2", "http/1.1"]
+        case "vmess", "vless":
+            let network = proxy.fields["network"]?.string?.lowercased() ?? "tcp"
+            switch network {
+            case "ws":
+                return ["http/1.1"]
+            case "grpc":
+                return ["h2"]
+            default:
+                return ["h2", "http/1.1"]
+            }
+        default:
+            let network = proxy.fields["network"]?.string?.lowercased() ?? "tcp"
+            switch network {
+            case "ws":
+                return ["http/1.1"]
+            case "grpc":
+                return ["h2"]
+            default:
+                return ["h2", "http/1.1"]
+            }
+        }
+    }
+
     /// Whether this proxy requires the native TLS stack (NCTLSClient).
     static func needsNativeTLS(_ proxy: NCProxy) -> Bool {
         if isECHEnabled(proxy) { return true }
@@ -929,17 +983,19 @@ enum NCConnector {
     }
 
     /// Dial TCP and run the hand-rolled TLS 1.3 / 1.2 handshake over it with parity parameters.
-    static func dialNativeTLS(proxy: NCProxy, server: String, port: Int, defaultALPN: [String] = ["h2", "http/1.1"],
+    static func dialNativeTLS(proxy: NCProxy, server: String, port: Int,
+                              serverName: String? = nil,
+                              defaultALPN: [String]? = nil,
                               queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
-        let serverName = proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server
+        let serverName = serverName ?? (proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server)
         let allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
-        let alpn = parseALPN(proxy) ?? defaultALPN
+        let alpn = parseALPN(proxy) ?? defaultALPN ?? self.defaultALPN(for: proxy)
         let profile = NCClientHelloProfile.named(parseClientFingerprint(proxy))
         let pin = parsePinnedCertSHA256(proxy)
 
-        let staticECH: Data?
+        let echConfig: Data?
         do {
-            staticECH = try parseStaticECHConfigList(proxy)
+            echConfig = try resolveECHConfigList(proxy)
         } catch {
             queue.async { completion(nil, error) }
             return
@@ -950,7 +1006,7 @@ enum NCConnector {
         cfg.allowInsecure = allowInsecure
         cfg.pinnedCertSHA256 = pin
         cfg.profile = profile
-        cfg.echConfigList = staticECH
+        cfg.echConfigList = echConfig
         if let outer = echOpts(proxy)?["outer-sni"]?.string ?? echOpts(proxy)?["public-name"]?.string {
             cfg.outerServerName = outer
         }
