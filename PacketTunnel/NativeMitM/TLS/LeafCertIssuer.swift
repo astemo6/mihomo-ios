@@ -69,6 +69,9 @@ public final class LeafCertIssuer {
     /// gap C7: the CA key is RSA (sha256WithRSAEncryption signatures)
     private let caIsRSA: Bool
     private let issuerNameDER: Data             // CA subject, raw TLV from the CA cert
+    /// fix/nc-rsa-ca: the CA's SubjectKeyIdentifier, carried as the leaf's AuthorityKeyIdentifier — RSA CA only
+    /// (an EC CA leaf stays byte-identical: no AKI, as before).
+    private let authorityKeyID: Data?
     private let leafPrivateKey: SecKey          // shared across all hosts (Go semantics)
     private let leafPublicKeyDER: Data          // SubjectPublicKeyInfo, prebuilt once
     private let config: LeafCertConfig
@@ -107,6 +110,7 @@ public final class LeafCertIssuer {
         self.caPrivateKey = caPrivateKey
         self.caIsRSA = isRSA
         self.issuerNameDER = issuerName
+        self.authorityKeyID = isRSA ? Self.extractSubjectKeyIdentifier(fromCertificateDER: caDER) : nil
         self.leafPrivateKey = leafKey
         self.leafPublicKeyDER = DER.spkiECP256(point: point)
         self.config = config
@@ -151,7 +155,8 @@ public final class LeafCertIssuer {
             notBefore: notBefore, notAfter: notAfter,
             spkiDER: leafPublicKeyDER,
             dnsNames: dnsNames, ips: ips,
-            signatureAlgorithm: caIsRSA ? DER.algIdRSASHA256() : DER.algIdECDSA())
+            signatureAlgorithm: caIsRSA ? DER.algIdRSASHA256() : DER.algIdECDSA(),
+            authorityKeyID: authorityKeyID)
 
         var err: Unmanaged<CFError>?
         guard let sig = SecKeyCreateSignature(
@@ -205,6 +210,43 @@ public final class LeafCertIssuer {
         _ = try? b.readAnyTLV()                                    // signature alg
         guard let name = try? b.readRawTLV() else { throw LeafCertError.malformedCACertificate }
         return name
+    }
+
+    /// fix/nc-rsa-ca: the keyIdentifier of the CA's SubjectKeyIdentifier extension (2.5.29.14), nil when absent.
+    static func extractSubjectKeyIdentifier(fromCertificateDER der: Data) -> Data? {
+        var r = DERReader(data: der)
+        guard let certBody = try? r.readTLV(tag: 0x30) else { return nil }
+        var t = DERReader(data: certBody)
+        guard let tbsBody = try? t.readTLV(tag: 0x30) else { return nil }
+        var b = DERReader(data: tbsBody)
+        if b.peekTag() == 0xA0 { _ = try? b.readAnyTLV() }       // version [0]
+        for _ in 0..<6 {                                          // serial, sigAlg, issuer, validity, subject, spki
+            guard (try? b.readAnyTLV()) != nil else { return nil }
+        }
+        while let tag = b.peekTag() {
+            guard tag == 0xA3 else {
+                guard (try? b.readAnyTLV()) != nil else { return nil }
+                continue
+            }
+            guard let wrap = try? b.readTLV(tag: 0xA3) else { return nil }
+            var w = DERReader(data: wrap)
+            guard let exts = try? w.readTLV(tag: 0x30) else { return nil }
+            var e = DERReader(data: exts)
+            while e.peekTag() == 0x30 {
+                guard let ext = try? e.readTLV(tag: 0x30) else { return nil }
+                var x = DERReader(data: ext)
+                guard let oid = try? x.readTLV(tag: 0x06) else { continue }
+                if x.peekTag() == 0x01 { _ = try? x.readAnyTLV() }  // critical
+                guard let val = try? x.readTLV(tag: 0x04) else { continue }
+                if oid == Data([0x55, 0x1D, 0x0E]) {
+                    var v = DERReader(data: val)
+                    guard let ski = try? v.readTLV(tag: 0x04), !ski.isEmpty else { return nil }
+                    return ski
+                }
+            }
+            return nil
+        }
+        return nil
     }
 }
 
@@ -283,6 +325,21 @@ public enum DER {
     /// sha256WithRSAEncryption with its NULL parameters (RFC 4055)
     public static let oidSHA256WithRSA: [Int] = [1, 2, 840, 113549, 1, 1, 11]
     public static func algIdRSASHA256() -> Data { seq(oid(oidSHA256WithRSA), Data([0x05, 0x00])) }
+    public static let oidRSAEncryption: [Int] = [1, 2, 840, 113549, 1, 1, 1]
+    public static let oidAuthorityKeyIdentifier: [Int] = [2, 5, 29, 35]
+    public static let oidSubjectKeyIdentifier: [Int] = [2, 5, 29, 14]
+
+    /// fix/nc-rsa-ca: true for an RSA SecKey (its external representation is PKCS#1, not X9.63).
+    public static func isRSAKey(_ key: SecKey) -> Bool {
+        guard let attrs = SecKeyCopyAttributes(key) as? [CFString: Any] else { return false }
+        return (attrs[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeRSA as String)
+    }
+
+    /// fix/nc-rsa-ca: PKCS#8 PrivateKeyInfo { 0, { rsaEncryption, NULL }, OCTET STRING { RSAPrivateKey } } around the
+    /// PKCS#1 DER SecKeyCopyExternalRepresentation returns for an RSA private key.
+    public static func pkcs8RSA(pkcs1: Data) -> Data {
+        seq(integer(bigEndian: Data([0x00])), seq(oid(oidRSAEncryption), Data([0x05, 0x00])), octetString(pkcs1))
+    }
 
     public static func spkiECP256(point: Data) -> Data {
         seq(seq(oid(oidECPublicKey), oid(oidPrime256v1)), bitString(point))
@@ -300,7 +357,8 @@ public enum DER {
 
     public static func tbsCertificate(serial: Data, issuerNameDER: Data, subjectCN: String,
                                       notBefore: Date, notAfter: Date, spkiDER: Data,
-                                      dnsNames: [String], ips: [Data], signatureAlgorithm: Data = algIdECDSA()) -> Data {
+                                      dnsNames: [String], ips: [Data], signatureAlgorithm: Data = algIdECDSA(),
+                                      authorityKeyID: Data? = nil) -> Data {
         var exts: [Data] = []
         exts.append(extn(oidBasicConstraints, critical: true, valueDER: seq()))
         // KeyUsage digitalSignature: bit 0 set → first byte 0x80, 7 unused bits.
@@ -311,6 +369,10 @@ public enum DER {
             for d in dnsNames { names.append(tlv(0x82, Data(d.utf8))) }        // dNSName [2] IA5
             for ip in ips { names.append(tlv(0x87, ip)) }                      // iPAddress [7]
             exts.append(extn(oidSAN, critical: false, valueDER: seq(names)))
+        }
+        // AuthorityKeyIdentifier { [0] keyIdentifier } = the CA's SKI (RSA CA leaves only; nil keeps EC leaves as before).
+        if let aki = authorityKeyID {
+            exts.append(extn(oidAuthorityKeyIdentifier, critical: false, valueDER: seq(tlv(0x80, aki))))
         }
         let extensions = explicit(3, seq(exts.reduce(Data(), +)))
         return seq(

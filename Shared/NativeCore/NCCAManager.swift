@@ -518,10 +518,17 @@ public final class NCCAManager {
     // MARK: - Validation & Export Helpers
 
     private static func validateCAPair(cert: SecCertificate, certDER: Data, key: SecKey) throws {
-        guard let attrs = SecKeyCopyAttributes(key) as? [CFString: Any],
-              (attrs[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeECSECPrimeRandom as String),
-              (attrs[kSecAttrKeySizeInBits] as? Int) == 256 else {
+        // fix/nc-rsa-ca: EC P-256 (Tern / Go CA) or RSA 2048/3072/4096 (QuanX [mitm] passphrase + p12, other apps).
+        guard let attrs = SecKeyCopyAttributes(key) as? [CFString: Any] else {
             throw NSError(domain: "TernCA", code: -1, userInfo: [NSLocalizedDescriptionKey: "CA 私钥类型不支持"])
+        }
+        let keyType = attrs[kSecAttrKeyType] as? String
+        let bits = (attrs[kSecAttrKeySizeInBits] as? Int) ?? (attrs[kSecAttrKeySizeInBits] as? NSNumber)?.intValue ?? 0
+        let isEC = keyType == (kSecAttrKeyTypeECSECPrimeRandom as String) && bits == 256
+        let isRSA = keyType == (kSecAttrKeyTypeRSA as String) && [2048, 3072, 4096].contains(bits)
+        guard isEC || isRSA else {
+            throw NSError(domain: "TernCA", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "CA 私钥类型不支持（仅支持 EC P-256 或 RSA 2048/3072/4096）"])
         }
         guard let certPub = SecCertificateCopyKey(cert),
               let keyPub = SecKeyCopyPublicKey(key),
@@ -620,6 +627,10 @@ public final class NCCAManager {
         var err: Unmanaged<CFError>?
         guard let ext = SecKeyCopyExternalRepresentation(key, &err) as Data? else {
             throw LeafCertError.keyGenerationFailed
+        }
+        // fix/nc-rsa-ca: an RSA key exports PKCS#1 — wrap it as PKCS#8 (what loadCA's rsaPKCS1(fromPKCS8:) and Go read).
+        if DER.isRSAKey(key) {
+            return DER.pkcs8RSA(pkcs1: ext)
         }
         if ext.first == 0x30 {
             return ext

@@ -1,3 +1,4 @@
+import CommonCrypto
 import Network
 import Security
 import XCTest
@@ -261,5 +262,204 @@ final class NativeCoreMitmLiveTests: XCTestCase {
         next.restore(data: try Data(contentsOf: url))
         XCTAssertEqual(next.host(for: ip), "app.example.com", "a restarted tunnel must still map the address apps cached")
         XCTAssertTrue(next.isFakeAddress(ip))
+    }
+}
+
+/// fix/nc-rsa-ca: an RSA MitM CA (QuanX `[mitm]` passphrase + p12 exports an RSA CA) imports, round-trips through
+/// ca.pem / ca.key and the full-export p12, and signs EC P-256 leaves with sha256WithRSAEncryption that SecTrust accepts
+/// with the CA as the only anchor. The EC P-256 CA path is unchanged (ECDSA leaves, no AKI).
+final class NativeCoreRSACATests: XCTestCase {
+
+    private var tmpRoots: [URL] = []
+
+    override func tearDown() {
+        for u in tmpRoots { try? FileManager.default.removeItem(at: u) }
+        tmpRoots = []
+        super.tearDown()
+    }
+
+    private func tmpHome() throws -> String {
+        let u = FileManager.default.temporaryDirectory.appendingPathComponent("rsa-ca-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+        tmpRoots.append(u)
+        return u.path
+    }
+
+    private func sha1(_ d: Data) -> Data {
+        var out = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
+        d.withUnsafeBytes { _ = CC_SHA1($0.baseAddress, CC_LONG(d.count), &out) }
+        return Data(out)
+    }
+
+    /// A self-signed RSA root like QuanX's: v3, BasicConstraints CA (critical), KeyUsage certSign|cRLSign (critical), SKI.
+    private func makeRSACA(bits: Int, cn: String = "QuanX MitM Test CA") throws -> (cert: SecCertificate, der: Data, key: SecKey, ski: Data) {
+        var err: Unmanaged<CFError>?
+        guard let key = SecKeyCreateRandomKey([kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: bits] as CFDictionary, &err),
+              let pub = SecKeyCopyPublicKey(key),
+              let pkcs1Pub = SecKeyCopyExternalRepresentation(pub, &err) as Data? else {
+            throw XCTSkip("RSA \(bits) key generation failed: \(String(describing: err?.takeRetainedValue()))")
+        }
+        let ski = sha1(pkcs1Pub)
+        let spki = DER.seq(DER.seq(DER.oid(DER.oidRSAEncryption), Data([0x05, 0x00])), DER.bitString(pkcs1Pub))
+        let bc = DER.extn(DER.oidBasicConstraints, critical: true, valueDER: DER.seq(DER.boolean(true)))
+        let ku = DER.extn(DER.oidKeyUsage, critical: true, valueDER: DER.bitString(Data([0x06]), unusedBits: 1))
+        let skiExt = DER.extn(DER.oidSubjectKeyIdentifier, critical: false, valueDER: DER.octetString(ski))
+        let name = DER.seq(DER.set(DER.seq(DER.oid(DER.oidCN), DER.utf8(cn))))
+        let now = Date()
+        let tbs = DER.seq(
+            DER.explicit(0, DER.integer(bigEndian: Data([2]))),
+            DER.integer(bigEndian: Data([0x01, 0x23, 0x45, 0x67])),
+            DER.algIdRSASHA256(),
+            name,
+            DER.seq(DER.utcTime(now.addingTimeInterval(-86400)), DER.utcTime(now.addingTimeInterval(5 * 365 * 86400))),
+            name,
+            spki,
+            DER.explicit(3, DER.seq(bc, ku, skiExt)))
+        let sig = try XCTUnwrap(SecKeyCreateSignature(key, .rsaSignatureMessagePKCS1v15SHA256, tbs as CFData, &err) as Data?)
+        let der = DER.certificate(tbs: tbs, rsaSignature: sig)
+        let cert = try XCTUnwrap(SecCertificateCreateWithData(nil, der as CFData), "CA DER rejected by Security")
+        return (cert, der, key, ski)
+    }
+
+    // MARK: DER walking
+
+    private struct Parsed {
+        var tbsSigAlg: Data
+        var outerSigAlg: Data
+        var issuer: Data
+        var subject: Data
+        var extensions: [Data: Data] = [:]   // OID content → extnValue content
+    }
+
+    private func parse(_ der: Data) throws -> Parsed {
+        var r = DERReader(data: der)
+        let cert = try r.readTLV(tag: 0x30)
+        var c = DERReader(data: cert)
+        let tbs = try c.readTLV(tag: 0x30)
+        let outer = try c.readRawTLV()
+        var t = DERReader(data: tbs)
+        if t.peekTag() == 0xA0 { try t.readAnyTLV() }
+        try t.readAnyTLV()                       // serial
+        let sigAlg = try t.readRawTLV()
+        let issuer = try t.readRawTLV()
+        try t.readAnyTLV()                       // validity
+        let subject = try t.readRawTLV()
+        try t.readAnyTLV()                       // spki
+        var p = Parsed(tbsSigAlg: sigAlg, outerSigAlg: outer, issuer: issuer, subject: subject)
+        if t.peekTag() == 0xA3 {
+            let a3 = try t.readTLV(tag: 0xA3)
+            var w = DERReader(data: a3)
+            let seq = try w.readTLV(tag: 0x30)
+            var e = DERReader(data: seq)
+            while e.peekTag() == 0x30 {
+                let one = try e.readTLV(tag: 0x30)
+                var x = DERReader(data: one)
+                let oid = try x.readTLV(tag: 0x06)
+                if x.peekTag() == 0x01 { try x.readAnyTLV() }
+                p.extensions[oid] = try x.readTLV(tag: 0x04)
+            }
+        }
+        return p
+    }
+
+    private func trusts(leafDER: Data, caDER: Data, host: String) throws -> (Bool, String) {
+        let leaf = try XCTUnwrap(SecCertificateCreateWithData(nil, leafDER as CFData), "leaf DER rejected by Security")
+        let ca = try XCTUnwrap(SecCertificateCreateWithData(nil, caDER as CFData))
+        var trust: SecTrust?
+        XCTAssertEqual(SecTrustCreateWithCertificates([leaf, ca] as CFArray, SecPolicyCreateSSL(true, host as CFString), &trust), errSecSuccess)
+        let tr = try XCTUnwrap(trust)
+        XCTAssertEqual(SecTrustSetAnchorCertificates(tr, [ca] as CFArray), errSecSuccess)
+        XCTAssertEqual(SecTrustSetAnchorCertificatesOnly(tr, true), errSecSuccess)
+        var cfErr: CFError?
+        let ok = SecTrustEvaluateWithError(tr, &cfErr)
+        return (ok, cfErr.map { String(describing: $0) } ?? "")
+    }
+
+    private func checkRSALeaf(_ leafDER: Data, caDER: Data, ski: Data, host: String) throws {
+        let leaf = try parse(leafDER)
+        let ca = try parse(caDER)
+        let rsaAlgId = Data([0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B, 0x05, 0x00])
+        XCTAssertEqual(leaf.tbsSigAlg, rsaAlgId, "tbsCertificate.signature must be sha256WithRSAEncryption + NULL")
+        XCTAssertEqual(leaf.outerSigAlg, rsaAlgId, "signatureAlgorithm must be sha256WithRSAEncryption + NULL")
+        XCTAssertEqual(leaf.issuer, ca.subject, "issuer must be the CA subject DER verbatim")
+        let aki = try XCTUnwrap(leaf.extensions[Data([0x55, 0x1D, 0x23])], "leaf has no AuthorityKeyIdentifier")
+        XCTAssertEqual(aki, DER.seq(DER.tlv(0x80, ski)), "AKI keyIdentifier must equal the CA SKI")
+        // The leaf key stays EC P-256.
+        let leafCert = try XCTUnwrap(SecCertificateCreateWithData(nil, leafDER as CFData))
+        let leafKey = try XCTUnwrap(SecCertificateCopyKey(leafCert))
+        let attrs = try XCTUnwrap(SecKeyCopyAttributes(leafKey) as? [CFString: Any])
+        XCTAssertEqual(attrs[kSecAttrKeyType] as? String, kSecAttrKeyTypeECSECPrimeRandom as String)
+        let (ok, why) = try trusts(leafDER: leafDER, caDER: caDER, host: host)
+        XCTAssertTrue(ok, "SecTrust rejected the RSA-signed leaf: \(why)")
+    }
+
+    // MARK: tests
+
+    func testRSA2048CAImportsFromP12IssuesTrustedLeafAndRoundTrips() throws {
+        let ca = try makeRSACA(bits: 2048)
+        let p12 = try NCPKCS12Exporter.shared.export(leafDER: ca.der, leafKey: ca.key, caDER: Data(), password: "quanx")
+
+        // QX import path: pemPair (validateCAPair) must accept the RSA CA.
+        let pair = try NCCAManager.pemPair(fromP12: p12, password: "quanx")
+        XCTAssertTrue(String(decoding: pair.pemKey, as: UTF8.self).contains("-----BEGIN PRIVATE KEY-----"))
+
+        let home = try tmpHome()
+        let dir = NCCAManager.caDir(home: home)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try pair.pemCert.write(to: dir.appendingPathComponent("ca.pem"))
+        try pair.pemKey.write(to: dir.appendingPathComponent("ca.key"))
+
+        let loaded = try XCTUnwrap(NCCAManager.loadCA(home: home), "loadCA could not read the imported RSA CA")
+        XCTAssertTrue(DER.isRSAKey(loaded.caKey))
+        XCTAssertEqual(SecCertificateCopyData(loaded.caCert) as Data, ca.der)
+        XCTAssertEqual(NCCAManager.caInfo(home: home).algorithm, "RSA")
+
+        let issuer = try LeafCertIssuer(caCertificate: loaded.caCert, caPrivateKey: loaded.caKey)
+        let host = "api.example.com"
+        let leaf = try issuer.issueLeafCertificate(for: host)
+        try checkRSALeaf(leaf.leafCertificateDER, caDER: ca.der, ski: ca.ski, host: host)
+        XCTAssertNotNil(leaf.pkcs12Data)
+        let leafP12 = try XCTUnwrap(leaf.pkcs12Data)
+        XCTAssertNoThrow(try LeafIdentityCache.importPKCS12(leafP12, password: "tern"))
+
+        // trustChain / full export: the RSA CA exports to a p12 that imports again.
+        let chain = try XCTUnwrap(NCCAManager.trustChain(home: home))
+        try checkRSALeaf(chain.leafDER, caDER: chain.caDER, ski: ca.ski, host: chain.hostname)
+        let exported = try NCCAManager.exportP12(home: home, password: "again")
+        let again = try NCCAManager.pemPair(fromP12: exported, password: "again")
+        XCTAssertEqual(again.pemCert, pair.pemCert)
+    }
+
+    func testRSA3072And4096CAsAccepted() throws {
+        for bits in [3072, 4096] {
+            let ca = try makeRSACA(bits: bits)
+            let p12 = try NCPKCS12Exporter.shared.export(leafDER: ca.der, leafKey: ca.key, caDER: Data(), password: "p")
+            XCTAssertNoThrow(try NCCAManager.pemPair(fromP12: p12, password: "p"), "RSA \(bits) CA rejected")
+            let issuer = try LeafCertIssuer(caCertificate: ca.cert, caPrivateKey: ca.key)
+            let leaf = try issuer.issueLeafCertificate(for: "rsa\(bits).example.org")
+            try checkRSALeaf(leaf.leafCertificateDER, caDER: ca.der, ski: ca.ski, host: "rsa\(bits).example.org")
+        }
+    }
+
+    func testECCAPathUnchanged() throws {
+        let home = try tmpHome()
+        let gen = try NCCAManager.generateCA(home: home, reload: false)
+        XCTAssertFalse(DER.isRSAKey(gen.caKey))
+        let loaded = try XCTUnwrap(NCCAManager.loadCA(home: home))
+        let caDER = SecCertificateCopyData(loaded.caCert) as Data
+        let issuer = try LeafCertIssuer(caCertificate: loaded.caCert, caPrivateKey: loaded.caKey)
+        let leaf = try issuer.issueLeafCertificate(for: "ec.example.com")
+        let p = try parse(leaf.leafCertificateDER)
+        XCTAssertEqual(p.tbsSigAlg, DER.algIdECDSA())
+        XCTAssertEqual(p.outerSigAlg, DER.algIdECDSA())
+        let caParsed = try parse(caDER)
+        XCTAssertEqual(p.issuer, caParsed.subject)
+        XCTAssertNil(p.extensions[Data([0x55, 0x1D, 0x23])], "EC leaves carry no AKI (unchanged)")
+        let (ok, why) = try trusts(leafDER: leaf.leafCertificateDER, caDER: caDER, host: "ec.example.com")
+        XCTAssertTrue(ok, "SecTrust rejected the EC leaf: \(why)")
+        // EC CA still exports / re-imports through the p12 path.
+        let p12 = try NCCAManager.exportP12(home: home, password: "ec")
+        let pair = try NCCAManager.pemPair(fromP12: p12, password: "ec")
+        XCTAssertTrue(String(decoding: pair.pemKey, as: UTF8.self).contains("-----BEGIN PRIVATE KEY-----"))
     }
 }
