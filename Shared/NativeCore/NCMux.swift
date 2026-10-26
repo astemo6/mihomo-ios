@@ -251,7 +251,15 @@ final class NCH2MuxCore {
                 while i + 6 <= payload.count {
                     let id = Int(payload[i]) << 8 | Int(payload[i + 1])
                     let value = Int(payload[i + 2]) << 24 | Int(payload[i + 3]) << 16 | Int(payload[i + 4]) << 8 | Int(payload[i + 5])
-                    if id == 0x3 {
+                    if id == 0x4 { // INITIAL_WINDOW_SIZE (0x3 is MAX_CONCURRENT_STREAMS, not a window)
+                        // RFC 9113 §6.9.2: values above 2^31-1 are a FLOW_CONTROL_ERROR connection error.
+                        // Treating MAX_CONCURRENT_STREAMS (250 from Go servers) as the window collapsed every
+                        // open stream's send window to 250 bytes and stalled naiveproxy h2 bulk flows after
+                        // 247 payload bytes. Minimal form of the fix/nc-h2-cidr change; superseded by it.
+                        guard value <= 0x7fff_ffff else {
+                            result.events.append(.goaway)
+                            return
+                        }
                         let delta = value - peerInitialWindow
                         peerInitialWindow = value
                         for k in streamWindows.keys { streamWindows[k, default: 0] += delta }
