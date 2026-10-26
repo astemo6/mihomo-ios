@@ -24,7 +24,10 @@ final class NCWebSocketStream: NCRelayStream {
         self.raw = raw
         self.hostHeader = hostHeader
         self.path = path.hasPrefix("/") ? path : "/" + path
-        self.extraHeaders = headers
+        // fix/nc-e2e-real (E2E 40278215218: every direct xray ws node "ws upgrade refused"): ws-opts.headers usually
+        // carries Host too, and it was sent as a second Host header after the one above — Go's net/http (xray /
+        // v2ray ws servers) answers 400 Bad Request to that; Cloudflare-fronted nodes tolerated it. Host is sent once.
+        self.extraHeaders = headers.filter { $0.key.caseInsensitiveCompare("Host") != .orderedSame }
     }
 
     /// Run the HTTP upgrade; completion fires once the 101 response's headers
@@ -48,8 +51,9 @@ final class NCWebSocketStream: NCRelayStream {
                 head.append(data)
                 if let end = head.range(of: Data("\r\n\r\n".utf8)) {
                     let headText = String(decoding: head[head.startIndex..<end.lowerBound], as: UTF8.self)
-                    guard headText.contains("101") else {
-                        completion(NCConnector.Failure.handshake("ws upgrade refused"))
+                    let status = headText.components(separatedBy: "\r\n").first ?? ""
+                    guard status.contains(" 101") else {
+                        completion(NCConnector.Failure.handshake("ws upgrade refused: " + String(status.prefix(64))))
                         return
                     }
                     self.buffer = Data(head[end.upperBound...])

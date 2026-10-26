@@ -60,6 +60,26 @@ enum E2EHarness {
         return box.get() == 1
     }
 
+    /// HTTP GET from the test process (not through the tunnel): the status a subscription host gives this runner, and
+    /// whether the body is a Cloudflare block page ("error code: 1005" = the runner's ASN is banned). nil = no answer.
+    static func httpStatus(_ urlString: String, timeout: TimeInterval = 10) -> (status: Int, cfBlock: Bool)? {
+        guard let url = URL(string: urlString) else { return nil }
+        var req = URLRequest(url: url, timeoutInterval: timeout)
+        req.setValue("clash.meta", forHTTPHeaderField: "User-Agent")
+        final class Box { let lock = NSLock(); var v: (Int, Bool)?; var done = false }
+        let box = Box()
+        let task = URLSession.shared.dataTask(with: req) { data, resp, _ in
+            let st = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let body = data.map { String(decoding: $0.prefix(4096), as: UTF8.self) } ?? ""
+            box.lock.lock(); box.v = st > 0 ? (st, body.contains("error code: 10")) : nil; box.done = true; box.lock.unlock()
+        }
+        task.resume()
+        _ = E2ENet.waitUntil(timeout + 1) { box.lock.lock(); defer { box.lock.unlock() }; return box.done }
+        task.cancel()
+        box.lock.lock(); defer { box.lock.unlock() }
+        return box.v.map { (status: $0.0, cfBlock: $0.1) }
+    }
+
     final class Flag {
         private let lock = NSLock()
         private var v = 0
@@ -123,7 +143,9 @@ final class E2EController {
     }
 
     /// First message of a websocket stream (/traffic, /memory, /connections, /logs) within `timeout`.
-    func firstStreamMessage(_ path: String, timeout: TimeInterval = 4) -> (ok: Bool, detail: String) {
+    /// `trigger` runs every 0.5 s while waiting — /logs only streams lines written after it attaches, so the caller
+    /// writes one (fix/nc-e2e-real: run 40278215218 had nothing to log during the 4 s wait → false FAIL).
+    func firstStreamMessage(_ path: String, timeout: TimeInterval = 4, trigger: (() -> Void)? = nil) -> (ok: Bool, detail: String) {
         guard let url = URL(string: "ws://127.0.0.1:\(port)\(path)?token=\(secret)") else { return (false, "bad url") }
         let task = session.webSocketTask(with: url)
         let box = StringBox()
@@ -139,7 +161,11 @@ final class E2EController {
             case .failure(let e): box.set("err:" + e.localizedDescription)
             }
         }
-        _ = E2ENet.waitUntil(timeout) { box.get() != nil }
+        var lastTrigger = Date.distantPast
+        _ = E2ENet.waitUntil(timeout) {
+            if let trigger, Date().timeIntervalSince(lastTrigger) >= 0.5 { lastTrigger = Date(); trigger() }
+            return box.get() != nil
+        }
         task.cancel(with: .goingAway, reason: nil)
         let v = box.get() ?? "err:no message in \(Int(timeout)) s"
         return (v.hasPrefix("ok:"), String(v.dropFirst(3)))
@@ -318,6 +344,22 @@ final class E2EMemory {
         }
         t.resume()
         timer = t
+    }
+
+    /// fix/nc-e2e-real: a named reading — current footprint and the peak so far, both minus the baseline (MB).
+    private(set) var checkpoints: [(label: String, nowMB: Double, peakMB: Double)] = []
+    @discardableResult
+    func checkpoint(_ label: String) -> (nowMB: Double, peakMB: Double) {
+        let f = ProcessMemory.footprintBytes()
+        lock.lock(); if f > peak { peak = f }; let p = peak; lock.unlock()
+        let b = Double(baseline)
+        let c = (nowMB: (Double(f) - b) / 1_048_576, peakMB: (Double(p) - b) / 1_048_576)
+        checkpoints.append((label, c.nowMB, c.peakMB))
+        return c
+    }
+
+    var checkpointLine: String {
+        checkpoints.map { String(format: "%@ +%.1f (peak +%.1f)", $0.label, $0.nowMB, $0.peakMB) }.joined(separator: ", ")
     }
 
     func stop() -> (baselineMB: Double, peakMB: Double, deltaMB: Double) {

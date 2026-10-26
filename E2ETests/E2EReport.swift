@@ -161,6 +161,45 @@ final class E2EReport {
         return nil
     }
 
+    /// $TERN_E2E_STATE: a host directory OUTSIDE the uploaded artifact (the workflow sets $RUNNER_TEMP/e2e-state). Stage 1
+    /// copies the app's data root (profiles, mihomo home with the runtime files) there; stage 2 restores it when the
+    /// reinstall between the two `test-without-building` runs left the new data container without them. It holds
+    /// node credentials, so it must never be under $TERN_E2E_OUT.
+    static var stateDir: URL? {
+        guard let p = env("TERN_E2E_STATE"), !p.isEmpty else { return nil }
+        return URL(fileURLWithPath: p, isDirectory: true).appendingPathComponent("container", isDirectory: true)
+    }
+
+    /// Copies every item of `root` except tern-e2e (fixture / handoff) into stateDir. Returns the item count, -1 = no
+    /// state dir.
+    @discardableResult
+    static func snapshotContainer(_ root: URL) -> Int {
+        guard let dst = stateDir else { return -1 }
+        let fm = FileManager.default
+        try? fm.removeItem(at: dst)
+        guard (try? fm.createDirectory(at: dst, withIntermediateDirectories: true)) != nil else { return 0 }
+        var n = 0
+        for name in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] where name != "tern-e2e" {
+            if (try? fm.copyItem(at: root.appendingPathComponent(name), to: dst.appendingPathComponent(name))) != nil { n += 1 }
+        }
+        return n
+    }
+
+    /// Restores the snapshot into `root` (items already there are replaced). Returns the item count, -1 = none.
+    @discardableResult
+    static func restoreContainer(into root: URL) -> Int {
+        guard let src = stateDir, let items = try? FileManager.default.contentsOfDirectory(atPath: src.path) else { return -1 }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        var n = 0
+        for name in items {
+            let to = root.appendingPathComponent(name)
+            try? fm.removeItem(at: to)
+            if (try? fm.copyItem(at: src.appendingPathComponent(name), to: to)) != nil { n += 1 }
+        }
+        return n
+    }
+
     /// The fixture text: $TERN_E2E_FIXTURE (host path), else <Documents>/tern-e2e/fixture.conf (copied in by the
     /// workflow), else nil.
     static func fixtureText() -> (text: String, source: String)? {

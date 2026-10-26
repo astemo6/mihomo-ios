@@ -130,6 +130,13 @@ final class EngineStore: ObservableObject {
         if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) { throw ProfileStore.StoreError.http(h.statusCode) }
         if data.isEmpty { throw ProfileStore.StoreError.empty }
         guard let s = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { throw ProfileStore.StoreError.empty }
+        // fix/nc-e2e-real: a moved / removed module host can answer 200 with a web page (a site's new home page after a
+        // redirect, a bot-challenge page); that used to be saved as the module and parse to nothing, silently.
+        let head = s.prefix(512).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let ctype = ((resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+        if head.hasPrefix("<!doctype html") || head.hasPrefix("<html") || (ctype.contains("text/html") && head.hasPrefix("<")) {
+            throw ProfileStore.StoreError.invalid(String(localized: "链接返回的是网页而不是模块（可能已失效、已迁移或被拦截）"))
+        }
         return s
     }
 

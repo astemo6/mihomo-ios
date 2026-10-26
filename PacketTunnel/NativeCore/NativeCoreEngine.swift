@@ -886,6 +886,34 @@ final class NativeCoreEngine {
         #endif
     }
 
+    /// fix/nc-e2e-real: POST /cache/dns/flush — the rule-matching resolver cache (in-flight lookups still complete).
+    func flushDNSCache() {
+        resolveLock.lock()
+        resolveCache.removeAll()
+        resolveLock.unlock()
+    }
+
+    /// fix/nc-e2e-real: POST /cache/fakeip/flush.
+    func flushFakeIP() {
+        locked { fakeIP }?.flush()
+    }
+
+    #if TERN_TUNNEL
+    /// fix/nc-e2e-real: GET /dns/query (工具 → DNS 查询 answered 404 on the native core). One query of `type` through
+    /// the kernel DNS — hosts first, then the upstream dnsRoute picks (nameserver-policy honoured) — real answers, never
+    /// fake-ip (mihomo's /dns/query uses its resolver the same way). nil = no upstream / no answer.
+    func queryDNS(name: String, type: UInt16, completion: @escaping (Data?) -> Void) {
+        var q = NCDNSMessage()
+        q.id = UInt16.random(in: 1...0xffff)
+        q.recursionDesired = true
+        q.questions = [NCDNSQuestion(name: name, type: type, klass: NCDNSMessage.classIN)]
+        let query = q.serialized()
+        if let local = dnsHostsReply(query) { completion(local); return }
+        guard let upstream = dnsRoute(for: query).primary else { completion(nil); return }
+        resolveForwarder.forward(query, upstream: upstream) { (resp: Data?) in completion(resp) }
+    }
+    #endif
+
     private func finishResolve(_ host: String, ip: NCIP?, ttl: Double, gen: Int) {
         resolveLock.lock()
         // Only the current generation caches: an answer fetched under a

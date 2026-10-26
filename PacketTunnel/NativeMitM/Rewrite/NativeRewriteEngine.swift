@@ -218,6 +218,11 @@ final class NativeRewriteEngine {
     let mitmPorts: Set<Int>
     var hasMitmHosts: Bool { !inc.isEmpty }
     var mitmHostCount: Int { inc.count }
+    /// fix/nc-e2e-real: GET /mitm/status — rewrite rules loaded / how many of them run a script.
+    var ruleCount: Int { rules.count }
+    var scriptRuleCount: Int { rules.reduce(0) { $0 + ($1.kind == "script" ? 1 : 0) } }
+    /// fix/nc-e2e-real: GET /mitm/status hostnames — the MitM host patterns (port suffix when not 443).
+    var mitmHostPatterns: [String] { inc.map { $0.port == 443 || $0.port == 0 ? $0.pat : "\($0.pat):\($0.port)" } }
 
     /// fix/nc-mitm-live: QX `hostname = %APPEND% a, b` / Surge `%INSERT%` markers that reach the snapshot unstripped
     /// would make the first host of a module unmatchable; empty patterns are dropped.

@@ -39,7 +39,8 @@ enum ImportTools {
         }
         if !profilePath.isEmpty {
             let selected = (profilePath as NSString).deletingPathExtension + ".selected.json"
-            for side in [profilePath + ".bak", profilePath + ".gen", selected, profilePath + ".source.conf"] {
+            for side in [profilePath + ".bak", profilePath + ".gen", selected, profilePath + ".source.conf",
+                         profilePath + ".pre-yaml-fix", profilePath + ".yaml-fix-checked"] {
                 try? FileManager.default.removeItem(atPath: side)
             }
         }

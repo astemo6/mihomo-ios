@@ -133,7 +133,7 @@ jobs:
         timeout-minutes: 20
         run: |
           set +e
-          TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_FIXTURE="$RUNNER_TEMP/fixture.conf" \
+          TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_STATE="$RUNNER_TEMP/e2e-state" TEST_RUNNER_TERN_E2E_FIXTURE="$RUNNER_TEMP/fixture.conf" \
           TEST_RUNNER_TERN_E2E_SAMPLE="$SAMPLE" TEST_RUNNER_TERN_E2E_PUBLIC_DNS="$PUBLIC_DNS" TEST_RUNNER_TERN_E2E_INTERNET="$INTERNET" \
           TEST_RUNNER_JSC_useJIT=false \
           xcodebuild -project Mihomo.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
@@ -145,7 +145,7 @@ jobs:
         timeout-minutes: 25
         run: |
           set +e
-          TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_SAMPLE="$SAMPLE" \
+          TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_STATE="$RUNNER_TEMP/e2e-state" TEST_RUNNER_TERN_E2E_SAMPLE="$SAMPLE" \
           TEST_RUNNER_TERN_E2E_PUBLIC_DNS="$PUBLIC_DNS" TEST_RUNNER_TERN_E2E_INTERNET="$INTERNET" TEST_RUNNER_JSC_useJIT=false \
           xcodebuild -project Mihomo.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/e2e -resultBundlePath "$RUNNER_TEMP/stage2.xcresult" \
@@ -176,6 +176,7 @@ jobs:
         run: |
           tools/e2e/start-e2e.sh stop || true
           rm -f "$RUNNER_TEMP/fixture.conf"
+          rm -rf "$RUNNER_TEMP/e2e-state"   # stage 1 data-root snapshot (node credentials) — never uploaded
       - uses: actions/upload-artifact@v6
         if: always()
         with:

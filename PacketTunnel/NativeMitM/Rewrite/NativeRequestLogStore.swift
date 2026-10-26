@@ -257,6 +257,11 @@ final class NativeLogRing {
     private var scripts: [ScriptLine] = []
     private var seq: UInt64 = 0
     private var scriptSeq: Int64 = 0
+    /// fix/nc-e2e-real: GET /mitm/notifications (脚本通知 page answered 404 on the native core) — the last
+    /// `noticeMax` $notification.post / $notify calls, newest last.
+    struct Notice { var time: Double; var script: String; var title: String; var subtitle: String; var body: String; var url: String }
+    private var notices: [Notice] = []
+    private let noticeMax = 100
 
     /// Wires StartupLog into the ring (once, at tunnel start).
     static func install() {
@@ -333,4 +338,25 @@ final class NativeLogRing {
 
     func clearGeneral() { lock.lock(); general.removeAll(); lock.unlock() }
     func clearScripts() { lock.lock(); scripts.removeAll(); lock.unlock() }
+
+    func addNotice(script: String, title: String, subtitle: String, body: String, url: String) {
+        func cap(_ v: String) -> String { v.count > 1000 ? String(v.prefix(1000)) + "…" : v }
+        lock.lock()
+        notices.append(Notice(time: Date().timeIntervalSince1970, script: script, title: cap(title), subtitle: cap(subtitle),
+                              body: cap(body), url: String(url.prefix(2000))))
+        if notices.count > noticeMax { notices.removeFirst(notices.count - noticeMax) }
+        lock.unlock()
+    }
+
+    /// Newest first, the App's ScriptNotice shape (subtitle / body / url omitted when empty).
+    func noticesJSON() -> [[String: Any]] {
+        lock.lock(); let list = notices; lock.unlock()
+        return list.reversed().map { n in
+            var o: [String: Any] = ["time": n.time, "script": n.script, "title": n.title]
+            if !n.subtitle.isEmpty { o["subtitle"] = n.subtitle }
+            if !n.body.isEmpty { o["body"] = n.body }
+            if !n.url.isEmpty { o["url"] = n.url }
+            return o
+        }
+    }
 }

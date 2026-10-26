@@ -261,6 +261,17 @@ final class NCFakeIPPool {
         }
     }
 
+    /// fix/nc-e2e-real: POST /cache/fakeip/flush (DNS 页「清空 Fake-IP 缓存」 answered 404 on the native core). Drops
+    /// every mapping (v4 and v6); the next query for a host allocates afresh, like mihomo's FlushFakeIP.
+    func flush() {
+        lock.lock(); defer { lock.unlock() }
+        hostToIP.removeAll(); ipToHost.removeAll(); ring.removeAll(); ringHead = 0; referenced.removeAll()
+        cursor = firstOff
+        hostToIP6.removeAll(); ipToHost6.removeAll(); ring6.removeAll(); ring6Head = 0; referenced6.removeAll()
+        nextOffset6 = 1
+        mutationCount &+= 1
+    }
+
     func host(for ip: NCIP) -> String? {
         lock.lock(); defer { lock.unlock() }
         switch ip {

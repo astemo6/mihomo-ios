@@ -80,6 +80,32 @@ final class NativeCoreE2EReplayTests: XCTestCase {
             for s in (rep.skipped ?? []).prefix(40) { r.note("import skipped: \(s)") }
         }
         r.record("import", .pass, "\(importMs) ms — \(importDetail.split(separator: "\n").first.map(String.init) ?? "")")
+        // ConfImport.save lists each remote rewrite module that failed to download on its own line after the summary
+        // ("<name>：<error>"). A module whose URL answers 4xx (moved / removed / behind a bot challenge) is the
+        // fixture's environment → INFO; any other failure (timeout, decoding, TLS, …) is our fetcher → FAIL.
+        let mods = EngineStore.shared.config.modules
+        let modNames = Set(mods.map(\.name))
+        let failedModules = importDetail.split(separator: "\n").dropFirst().map(String.init).filter { l in
+            guard let c = l.range(of: "：") else { return false }
+            return modNames.contains(String(l[..<c.lowerBound]))
+        }
+        if !failedModules.isEmpty {
+            var gone: [String] = [], broken: [String] = []
+            for line in failedModules {
+                let name = String(line[..<line.range(of: "：")!.lowerBound])
+                let off = mods.first(where: { $0.name == name }).map { !$0.enabled } ?? false
+                let item = line + (off ? " (disabled in the fixture)" : "")
+                let l = line.lowercased()
+                if l.contains("http 4") { gone.append(item) } else { broken.append(item) }
+            }
+            for f in failedModules { r.note("remote module not downloaded: \(f)") }
+            if !gone.isEmpty {
+                r.record("modules-unavailable", .info, "\(gone.count) remote rewrite module URL(s) answer 4xx (gone / moved / bot challenge — not a Tern fetch bug): " + gone.prefix(8).joined(separator: "; "))
+            }
+            r.record("modules-download", broken.isEmpty ? .pass : .fail,
+                     broken.isEmpty ? "\(rep0RemoteCount(confReport) - gone.count) of \(rep0RemoteCount(confReport)) remote module(s) downloaded; the rest are unavailable upstream"
+                                    : "\(broken.count) remote module(s) failed for a reason other than HTTP 4xx: " + broken.prefix(8).joined(separator: "; "))
+        }
 
         // The switches a user who runs this config has on (重写 / 脚本 / HTTPS 解密); the CA exists (fixture or generated).
         r.note("engine switches on (rewrite / scripts / MitM) + EngineStore.save")
@@ -88,7 +114,7 @@ final class NativeCoreE2EReplayTests: XCTestCase {
         EngineStore.shared.config.mitm = true
         EngineStore.shared.save(reload: false)
 
-        // 2. CA + runtime generation (the connect path's NativeRuntimePrep, see E2EPrep below). Off the main actor
+        // 2. CA + runtime generation (the connect path's NativeRuntimePrep.prepareSyncLocked via prepareSyncForReplay). Off the main actor
         // like NativeRuntimePrep.prepare() (Task.detached): run 40261727985 hung here for 10+ min when it ran on the
         // main thread. A watchdog turns a hang into a named FAIL with the last step reached instead of a silent
         // timeout of the whole job.
@@ -106,7 +132,9 @@ final class NativeCoreE2EReplayTests: XCTestCase {
                 progress("ensureCA")
                 let caOK = NCCAManager.shared.ensureCA(home: home) != nil
                 progress("prepare")
-                let err = E2EPrep.prepare(home: home, profile: profileURL, progress: progress)
+                // The real connect-path generation (NativeRuntimePrep.prepareSyncLocked through its replay seam), not
+                // a copy: the copy this test used to carry could drift from what a device runs.
+                let err = NativeRuntimePrep.prepareSyncForReplay(home: home, profile: profileURL)
                 progress("done")
                 if once.take() { cont.resume(returning: .finished(caOK: caOK, error: err)) }
             }
@@ -134,7 +162,20 @@ final class NativeCoreE2EReplayTests: XCTestCase {
         r.addSecrets(counts.secrets)
         let unloadable = counts.badScripts
         let detail = "\(prepMs) ms — proxies \(counts.proxies), proxy-providers \(counts.providers), groups \(counts.groups), rules \(counts.rules), rule-providers \(counts.ruleProviders), modules \(counts.modules), rewrite rules \(counts.rewriteRules), MitM hosts \(counts.mitmHosts), scripts \(counts.scripts) (\(unloadable.count) unloadable), tasks \(counts.tasks), warnings \(counts.warnings.count)"
-        r.record("runtime-generation", counts.proxies + counts.providers > 0 && counts.rules > 0 ? .pass : .fail, detail)
+        // The runtime must carry at least what the import converted (the probe group / injected rules only add).
+        // E2E 40268229079 passed with proxies 1 / groups 1 / rules 3 against an import of 9 / 29 / 85: the profile
+        // YAML the converter wrote was cut after the first ws node (NCYAMLEmitter nested-mapping indentation).
+        var lost: [String] = []
+        if let rep = confReport {
+            if counts.proxies < (rep.proxies ?? 0) { lost.append("proxies \(counts.proxies) < imported \(rep.proxies ?? 0)") }
+            if counts.groups < (rep.groups ?? 0) { lost.append("groups \(counts.groups) < imported \(rep.groups ?? 0)") }
+            if counts.rules < (rep.rules ?? 0) { lost.append("rules \(counts.rules) < imported \(rep.rules ?? 0)") }
+            if counts.providers + counts.ruleProviders < (rep.providers ?? 0) {
+                lost.append("providers \(counts.providers)+\(counts.ruleProviders) < imported \(rep.providers ?? 0)")
+            }
+        }
+        let rtOK = counts.proxies + counts.providers > 0 && counts.rules > 0 && lost.isEmpty
+        r.record("runtime-generation", rtOK ? .pass : .fail, detail + (lost.isEmpty ? "" : " — LOST vs import: " + lost.joined(separator: ", ")))
         for w in counts.warnings { r.note("prep warning: \(w)") }
         // A real export can name scripts that only exist on the exporting phone (QX local script files) or whose
         // remote URL is gone (HTTP 403/404/410): that is the fixture's environment, not a Tern bug. Those are listed
@@ -161,8 +202,14 @@ final class NativeCoreE2EReplayTests: XCTestCase {
             "ruleProviders": counts.ruleProviders, "mitmHosts": counts.mitmHosts, "scripts": counts.scripts,
             "tasks": counts.tasks, "importMs": importMs, "prepMs": prepMs,
         ])
+        // Stage 2 runs after a reinstall that can hand the app a new, empty data container: keep a copy of the data
+        // root on the runner (outside the artifact) for it to restore.
+        let snap = E2EReport.snapshotContainer(AppShared.containerURL)
+        r.note(snap < 0 ? "no TERN_E2E_STATE: data root not snapshotted for stage 2" : "data root snapshotted for stage 2: \(snap) item(s)")
         r.record("stage-done", .info, "stage 1 finished")
     }
+
+    private func rep0RemoteCount(_ rep: ConfImportResult.Report?) -> Int { rep?.remotes ?? 0 }
 
     // MARK: helpers
 
@@ -314,117 +361,6 @@ final class NativeCoreE2EReplayTests: XCTestCase {
             c.warnings = prep["warnings"] as? [String] ?? []
         }
         return c
-    }
-}
-
-/// The connect path's runtime generation (NativeRuntimePrep.prepareSyncLocked), callable without the App Group
-/// guard: an unsigned simulator build has no App Group container, so `NativeRuntimePrep.prepare()` stops at
-/// `AppShared.containerOK` before doing anything (AppShared falls back to Documents for every other path).
-/// Same calls, same order, same files, same transaction (PrepTransaction) — keep in step with NativeRuntimePrep.swift.
-/// TODO(after fix/app-toggle-hitch lands, it rewrites that file): replace with an internal seam in NativeRuntimePrep
-/// (prepareSync(home:profile:…)) so this copy cannot drift.
-enum E2EPrep {
-    private final class State {
-        var rep: NCRuntimeBuilder.PrepReport
-        var groupOrder: [String] = []
-        init(rep: NCRuntimeBuilder.PrepReport) { self.rep = rep }
-    }
-
-    static func prepare(home: String, profile: URL, progress: @escaping (String) -> Void = { _ in }) -> String? {
-        progress("removeStale")
-        PrepTransaction.removeStale(home: home)
-        let build = NCPrepMarkers.currentBuild
-        let tx = PrepTransaction(home: home)
-        defer { tx.discard() }
-        progress("Request.load")
-        let req = NCRuntimeBuilder.Request.load(home: home, profilePath: profile.path)
-        let safeMode = req.settings.core.safeMode
-        guard let profileData = NCRuntimeFiles.readRuntimeProfile(home: home, path: profile.path, safe: safeMode) else {
-            return "读取配置失败"
-        }
-        var rep = NCRuntimeBuilder.PrepReport()
-        rep.at = Int64(Date().timeIntervalSince1970)
-        rep.profile = (profile.path as NSString).lastPathComponent
-        rep.build = build
-        progress("NCEngineConfig.load + NCMitmBuild.build")
-        let cfg: NCEngineConfig? = safeMode ? nil : NCEngineConfig.load(home: home)
-        let rs: NCEngineRuleset? = cfg.map { NCMitmBuild.build(home: home, cfg: $0) }
-        let box = State(rep: rep)
-        // Optional + guard, like NativeRuntimePrep (no deferred-initialized `let`: build #359 SIL verifier crash shape).
-        var builtOpt: (data: Data, isJSON: Bool, raw: [String: NCJSONValue])? = nil
-        progress("NCRuntimeBuilder.build")
-        do {
-            builtOpt = try NCRuntimeBuilder.build(profile: profileData, req: req, fd: 0) { raw in
-                if let cfg = cfg {
-                    if cfg.anyOn, let rs = rs {
-                        var unresolved: Set<String>? = nil
-                        let pre = NCRuntimeSteps.resolveCoreRules(raw, rules: rs.coreRules, unresolved: &unresolved)
-                        if !pre.isEmpty {
-                            raw["rules"] = .array(pre.map { NCJSONValue.string($0) } + raw.list("rules"))
-                        }
-                        NCRuntimeSteps.addRemoteModuleRules(&raw, coreRules: rs.coreRules, req.settings)
-                    }
-                    if cfg.quic == "all" {
-                        raw["rules"] = .array([.string("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT")] + raw.list("rules"))
-                    }
-                }
-                progress("lowerForNative")
-                NCRuntimeBuilder.lowerForNative(home: home, &raw, &box.rep, stageDir: tx.stage) { box.rep.warnings = (box.rep.warnings ?? []) + [$0] }
-                box.groupOrder = NCRuntimeSteps.runtimeGroupNames(raw)
-            }
-        } catch let err as NCRuntimeBuilder.BuildError {
-            return err.message
-        } catch {
-            return error.localizedDescription
-        }
-        guard let built = builtOpt else { return "native runtime: 构建失败" }
-        rep = box.rep
-        do {
-            tx.adoptStagedDirectory("nativecore-geosite")
-            let scriptRS: NCEngineRuleset? = (cfg != nil && cfg!.anyOn) ? rs : nil
-            var scriptKeep: Set<String>? = nil
-            progress("NCScriptManifest.buildManifest")
-            do {
-                let man = try NCScriptManifest.buildManifest(home: home, cfg: cfg, rs: scriptRS)
-                rep.scripts = man.scripts
-                if man.bad > 0 { rep.warnings = (rep.warnings ?? []) + ["\(man.bad) 个脚本加载失败（见 nativecore-scripts.json）"] }
-                try tx.put(man.data, NCScriptManifest.scriptManifestFile)
-                scriptKeep = man.keep
-            } catch {
-                rep.scripts = 0
-                rep.warnings = (rep.warnings ?? []) + ["脚本清单生成失败，本次未启用脚本：" + error.localizedDescription]
-                try tx.put(try JSONEncoder().encode(NCScriptManifestRoot()), NCScriptManifest.scriptManifestFile)
-            }
-            rep.rewrite = false
-            rep.mitmHosts = 0
-            if let cfg = cfg, let rs = rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
-                progress("NCRewriteSnapshotBuilder.exportData")
-                do {
-                    let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
-                    try tx.put(snap, "nativecore-rewrite.json")
-                    rep.rewrite = true
-                    rep.mitmHosts = hosts
-                } catch let e as PrepTransaction.TxError {
-                    throw e
-                } catch {
-                    rep.warnings = (rep.warnings ?? []) + ["重写 / MitM 快照生成失败，本次未启用：" + error.localizedDescription]
-                    tx.remove("nativecore-rewrite.json")
-                }
-            } else {
-                tx.remove("nativecore-rewrite.json")
-            }
-            try? tx.put(try JSONEncoder().encode(box.groupOrder), "runtime-groups.json")
-            try tx.put(built.data, "runtime.yaml")
-            guard let runtimeJSON = NCRuntimeBuilder.jsonData(built.raw) else { return "native runtime JSON: 序列化失败" }
-            try tx.put(runtimeJSON, "nativecore-runtime.json")
-            try? tx.put(try JSONEncoder().encode(rep), "nativecore-prep.json")
-            progress("commit")
-            try tx.commit()
-            if let keep = scriptKeep { NCScriptManifest.removeObsoleteCode(home: home, keep: keep) }
-        } catch {
-            return error.localizedDescription
-        }
-        return nil
     }
 }
 

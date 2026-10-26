@@ -327,6 +327,20 @@ final class NCController {
         case ("DELETE", "/hark/logs"):
             NativeLogRing.shared.clearGeneral()
             respond(conn, status: 204, json: nil)
+        // fix/nc-e2e-real: DNS 页「清空 DNS 缓存 / 清空 Fake-IP 缓存」, 工具 → DNS 查询 and HTTPS 解密 / 脚本通知 status pages
+        // answered 404 on the native core (E2E 40278215218 contract rows). mihomo-compatible shapes.
+        case ("POST", "/cache/dns/flush"):
+            engine.flushDNSCache()
+            respond(conn, status: 204, json: nil)
+        case ("POST", "/cache/fakeip/flush"):
+            engine.flushFakeIP()
+            respond(conn, status: 204, json: nil)
+        case ("GET", "/dns/query"):
+            respondDNSQuery(conn, query: req.query)
+        case ("GET", "/mitm/status"):
+            respond(conn, status: 200, json: mitmStatusJSON())
+        case ("GET", "/mitm/notifications"):
+            respond(conn, status: 200, json: NativeLogRing.shared.noticesJSON())
         default:
             routeParameterized(conn, req)
         }
@@ -441,6 +455,103 @@ final class NCController {
             return
         }
         respond(conn, status: 404, json: ["message": "not available in native core"])
+    }
+
+    // MARK: fix/nc-e2e-real — /dns/query, /mitm/status
+
+    private static let dnsTypes: [String: UInt16] = ["A": 1, "NS": 2, "CNAME": 5, "SOA": 6, "PTR": 12, "MX": 15, "TXT": 16,
+                                                     "AAAA": 28, "SRV": 33, "SVCB": 64, "HTTPS": 65]
+
+    /// mihomo hub/route/dns.go shape: {Status, Question:[{name,type,Class}], TC, RD, RA, AD, CD, Answer:[{name,type,TTL,data}]}.
+    private func respondDNSQuery(_ conn: NCLoopbackConn, query: [String: String]) {
+        guard let name0 = query["name"]?.trimmingCharacters(in: .whitespaces), !name0.isEmpty else {
+            respond(conn, status: 400, json: ["message": "name is required"]); return
+        }
+        let name = name0.hasSuffix(".") ? String(name0.dropLast()) : name0
+        let tname = (query["type"] ?? "A").uppercased()
+        guard let type = Self.dnsTypes[tname] ?? UInt16(tname) else {
+            respond(conn, status: 400, json: ["message": "invalid query type"]); return
+        }
+        var finished = false
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 10)
+        timer.setEventHandler { [weak self] in
+            guard !finished else { return }
+            finished = true
+            self?.respond(conn, status: 504, json: ["message": "dns query timed out"])
+        }
+        timer.resume()
+        engine.queryDNS(name: name, type: type) { [weak self] data in
+            guard let self else { return }
+            self.queue.async {
+                guard !finished else { return }
+                finished = true
+                timer.cancel()
+                guard let data, let msg = NCDNSMessage.parse(data) else {
+                    self.respond(conn, status: 500, json: ["message": "no answer from the upstream DNS"]); return
+                }
+                self.respond(conn, status: 200, json: Self.dnsJSON(msg, raw: data, name: name, type: type))
+            }
+        }
+    }
+
+    static func dnsJSON(_ msg: NCDNSMessage, raw: Data, name: String, type: UInt16) -> [String: Any] {
+        let answers: [[String: Any]] = msg.answers.map { r in
+            ["name": r.name + ".", "type": Int(r.type), "TTL": Int(r.ttl), "data": dnsRData(r, raw: raw)]
+        }
+        var out: [String: Any] = [
+            "Status": Int(msg.rcode), "TC": msg.truncated, "RD": msg.recursionDesired, "RA": msg.recursionAvailable,
+            "AD": false, "CD": false,
+            "Question": [["name": name + ".", "type": Int(type), "Class": 1]],
+        ]
+        if !answers.isEmpty { out["Answer"] = answers }
+        return out
+    }
+
+    /// Readable rdata: addresses as text, names (CNAME / NS / PTR, which may use compression pointers into the full
+    /// message) decoded against the whole response, TXT as its strings, anything else as hex.
+    static func dnsRData(_ r: NCDNSRecord, raw: Data) -> String {
+        switch r.type {
+        case 1 where r.rdata.count == 4, 28 where r.rdata.count == 16:
+            let b = [UInt8](r.rdata)
+            if b.count == 16 { return NCIP.v6(b).string }
+            let v4: UInt32 = (UInt32(b[0]) << 24) | (UInt32(b[1]) << 16) | (UInt32(b[2]) << 8) | UInt32(b[3])
+            return NCIP.v4(v4).string
+        case 2, 5, 12:
+            if let at = raw.range(of: r.rdata)?.lowerBound, let decoded = NCDNSMessage.decodeName(raw, at) { return decoded.0 + "." }
+            return (NCDNSMessage.decodeName(r.rdata, 0)?.0).map { $0 + "." } ?? ""
+        case 16:
+            var parts: [String] = []
+            var i = r.rdata.startIndex
+            while i < r.rdata.endIndex {
+                let len = Int(r.rdata[i]); i += 1
+                let end = min(i + len, r.rdata.endIndex)
+                parts.append(String(decoding: r.rdata[i..<end], as: UTF8.self)); i = end
+            }
+            return parts.map { "\"\($0)\"" }.joined(separator: " ")
+        default:
+            return r.rdata.map { String(format: "%02x", $0) }.joined()
+        }
+    }
+
+    /// App/Core/Models.swift MitMStatus. The native front has no single listener port (one loopback listener per
+    /// host, opened on demand), so `port` is 0.
+    private func mitmStatusJSON() -> [String: Any] {
+        let rw = NativeRewriteEngine.shared
+        let running = MitmTLSFront.shared.onAccept != nil
+        let ca = NCCAManager.shared.hasIssuer
+        let canonicalHosts = engine.loadedCanonicalConfig?.mitm.hostnames ?? []
+        var hosts = rw.mitmHostPatterns
+        for h in canonicalHosts where !hosts.contains(h) { hosts.append(h) }
+        var errors: [String] = []
+        if !running { errors.append("MitM front not installed (iOS 17+ required)") }
+        if running && !ca && !hosts.isEmpty { errors.append("no CA loaded — generate or import one on the HTTPS 解密 page") }
+        return [
+            "running": running, "port": 0, "enabled": rw.on || !canonicalHosts.isEmpty, "mitm": engine.mitmActive,
+            "caLoaded": ca, "hostnames": hosts, "rules": rw.ruleCount, "scripts": rw.scriptRuleCount, "coreRules": 0,
+            "errors": errors, "unsupported": NativeRewriteEngine.skipStats().values.reduce(0, +),
+            "pinned": NCPinningMemory.shared.pinnedHosts(),
+        ]
     }
 
     // MARK: Payload builders
