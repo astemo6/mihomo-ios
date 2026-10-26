@@ -499,7 +499,8 @@ final class NativeCoreOpenConnectTests: XCTestCase {
             "password": .string("pass"),
             "dtls": .bool(false)
         ])
-        guard let (cfg, _) = NCOpenConnect.Config.parse(p), let config = cfg else {
+        let (cfg, _) = NCOpenConnect.Config.parse(p)
+        guard let config = cfg else {
             XCTFail("Config parse failed")
             return
         }
@@ -521,7 +522,8 @@ final class NativeCoreOpenConnectTests: XCTestCase {
             "password": .string("pass"),
             "dtls": .bool(true)
         ])
-        guard let (cfg, _) = NCOpenConnect.Config.parse(p), let config = cfg else {
+        let (cfg, _) = NCOpenConnect.Config.parse(p)
+        guard let config = cfg else {
             XCTFail("Config parse failed")
             return
         }
@@ -543,7 +545,8 @@ final class NativeCoreOpenConnectTests: XCTestCase {
             "password": .string("pass"),
             "dtls": .bool(true)
         ])
-        guard let (cfg, _) = NCOpenConnect.Config.parse(p), let config = cfg else {
+        let (cfg, _) = NCOpenConnect.Config.parse(p)
+        guard let config = cfg else {
             XCTFail("Config parse failed")
             return
         }
@@ -570,7 +573,8 @@ final class NativeCoreOpenConnectTests: XCTestCase {
             "password": .string("pass"),
             "dtls": .bool(true)
         ])
-        guard let (cfg, _) = NCOpenConnect.Config.parse(p), let config = cfg else {
+        let (cfg, _) = NCOpenConnect.Config.parse(p)
+        guard let config = cfg else {
             XCTFail("Config parse failed")
             return
         }
