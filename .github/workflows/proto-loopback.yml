@@ -39,6 +39,10 @@ jobs:
           XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
+      - name: Set up Go (masque-go loopback peer)
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
       - name: Start loopback servers
         run: |
           tools/loopback/start-servers.sh start
