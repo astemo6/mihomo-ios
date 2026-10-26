@@ -82,6 +82,8 @@ struct RWSnapRule: Decodable {
     var body: [RWSnapBodyOp]?
     var jsonOps: [RWSnapJSONOp]?
     var jq: [RWSnapJQStep]?
+    /// fix/nc-jq-full: the whole jq filter (NativeJQ); preferred over the legacy `jq` step list
+    var jqx: String?
     var bodyOK: Bool?
     var bodyWhy: String?
 }

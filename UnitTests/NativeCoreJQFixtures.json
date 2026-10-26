@@ -1,0 +1,1833 @@
+{
+ "generator": "work/nc/jqfull/gen_fixtures.py",
+ "oracle": "jq-1.7 (jq -c)",
+ "cases": [
+  {
+   "name": "tieba.discover",
+   "filter": ".data.discover_list = []",
+   "input": "{\"error_code\": \"0\", \"data\": {\"discover_list\": [{\"title\": \"热点\", \"id\": 1}, {\"title\": \"广告\", \"id\": 2}], \"tab\": \"x\"}}",
+   "outputs": [
+    "{\"error_code\":\"0\",\"data\":{\"discover_list\":[],\"tab\":\"x\"}}"
+   ],
+   "error": null,
+   "module": "TieBaAds"
+  },
+  {
+   "name": "tieba.sidebar",
+   "filter": "del(.game_center, .tools, .vip_banner, .task_list)",
+   "input": "{\"error_code\": \"0\", \"game_center\": {\"list\": [1]}, \"tools\": [{\"name\": \"签到\"}], \"vip_banner\": {\"img\": \"u\"}, \"task_list\": [], \"forum\": [{\"id\": 9, \"name\": \"李毅\"}]}",
+   "outputs": [
+    "{\"error_code\":\"0\",\"forum\":[{\"id\":9,\"name\":\"李毅\"}]}"
+   ],
+   "error": null,
+   "module": "TieBaAds"
+  },
+  {
+   "name": "tieba.profile",
+   "filter": "del(.duxiaoman, .namoaixud, .namoaixud_entry, .recom_naws_list, .duxiaoman_entry, .vip_banner) | .zone_info |= map(select(.type == \"common_func\" or .type == \"auxiliary_func\"))",
+   "input": "{\"user\": {\"id\": 1, \"name\": \"u\"}, \"duxiaoman\": {\"a\": 1}, \"namoaixud\": 1, \"namoaixud_entry\": {}, \"recom_naws_list\": [1, 2], \"duxiaoman_entry\": \"x\", \"vip_banner\": {}, \"zone_info\": [{\"type\": \"common_func\", \"list\": [1]}, {\"type\": \"ad_func\"}, {\"type\": \"auxiliary_func\", \"list\": []}, {\"type\": \"game\"}]}",
+   "outputs": [
+    "{\"user\":{\"id\":1,\"name\":\"u\"},\"zone_info\":[{\"type\":\"common_func\",\"list\":[1]},{\"type\":\"auxiliary_func\",\"list\":[]}]}"
+   ],
+   "error": null,
+   "module": "TieBaAds"
+  },
+  {
+   "name": "tieba.profile.nozone",
+   "filter": "del(.duxiaoman, .namoaixud, .namoaixud_entry, .recom_naws_list, .duxiaoman_entry, .vip_banner) | .zone_info |= map(select(.type == \"common_func\" or .type == \"auxiliary_func\"))",
+   "input": "{\"user\": {\"id\": 1}, \"zone_info\": null}",
+   "outputs": [],
+   "error": "Cannot iterate over null (null)",
+   "module": "TieBaAds"
+  },
+  {
+   "name": "tieba.forumGuide",
+   "filter": ".hot_search = []",
+   "input": "{\"hot_search\": [{\"w\": \"a\"}], \"like_forum\": [{\"id\": 1}]}",
+   "outputs": [
+    "{\"hot_search\":[],\"like_forum\":[{\"id\":1}]}"
+   ],
+   "error": null,
+   "module": "TieBaAds"
+  },
+  {
+   "name": "tieba.startPage",
+   "filter": "del(.data)",
+   "input": "{\"no\": 0, \"error\": \"success\", \"data\": {\"hot\": [1]}}",
+   "outputs": [
+    "{\"no\":0,\"error\":\"success\"}"
+   ],
+   "error": null,
+   "module": "TieBaAds"
+  },
+  {
+   "name": "goofish.0",
+   "filter": ".data.strategies = [{}]",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"ad\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.1",
+   "filter": ".data.circleList |= map(select(.bizCode != \"saveMoney\"))",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"ad\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.2",
+   "filter": ".data.homeTopList |= [ .[0] ] | .data.sections |= map(select(.data.bizType == \"item\"))",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.3",
+   "filter": ".data.singleShadeWords =[{}]",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"ad\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.4",
+   "filter": ".data.cardList = [{}]",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"ad\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.5",
+   "filter": "del(.data.resultList)",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"ad\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.6",
+   "filter": ".data.ability=[] | .data.container.sections |= map(select(.sectionBizCode | test(\"head|user|trade\")))",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"ad\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.7",
+   "filter": "del(.data.sections)",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.8",
+   "filter": ".data.sections |= map(select(.data.bizType == \"item\"))",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.9",
+   "filter": ".data.resultList |= map(select(.data.item.main.clickParam.args.biz_type == \"item\"))",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"ad\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"mamaAD\"}},{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "goofish.10",
+   "filter": ".data.cardList |= map(select(.cardData.bizType != \"mamaAD\"))",
+   "input": "{\"data\": {\"strategies\": [{\"a\": 1}, {\"b\": 2}], \"circleList\": [{\"bizCode\": \"saveMoney\", \"t\": 1}, {\"bizCode\": \"hot\", \"t\": 2}], \"homeTopList\": [{\"id\": \"top1\"}, {\"id\": \"top2\"}, {\"id\": \"ad\"}], \"sections\": [{\"data\": {\"bizType\": \"item\", \"title\": \"手机\"}}, {\"data\": {\"bizType\": \"ad\"}}, {\"data\": {\"bizType\": \"item\", \"title\": \"相机\"}}], \"singleShadeWords\": [{\"w\": \"x\"}], \"cardList\": [{\"cardData\": {\"bizType\": \"mamaAD\"}}, {\"cardData\": {\"bizType\": \"item\", \"price\": 12.5}}], \"resultList\": [{\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"item\", \"id\": 7}}}}}}, {\"data\": {\"item\": {\"main\": {\"clickParam\": {\"args\": {\"biz_type\": \"ad\"}}}}}}], \"ability\": [1, 2], \"container\": {\"sections\": [{\"sectionBizCode\": \"head_info\"}, {\"sectionBizCode\": \"banner_ad\"}, {\"sectionBizCode\": \"user_card\"}, {\"sectionBizCode\": \"trade_list\"}]}}, \"ret\": [\"SUCCESS::调用成功\"], \"v\": \"1.0\"}",
+   "outputs": [
+    "{\"data\":{\"strategies\":[{\"a\":1},{\"b\":2}],\"circleList\":[{\"bizCode\":\"saveMoney\",\"t\":1},{\"bizCode\":\"hot\",\"t\":2}],\"homeTopList\":[{\"id\":\"top1\"},{\"id\":\"top2\"},{\"id\":\"ad\"}],\"sections\":[{\"data\":{\"bizType\":\"item\",\"title\":\"手机\"}},{\"data\":{\"bizType\":\"ad\"}},{\"data\":{\"bizType\":\"item\",\"title\":\"相机\"}}],\"singleShadeWords\":[{\"w\":\"x\"}],\"cardList\":[{\"cardData\":{\"bizType\":\"item\",\"price\":12.5}}],\"resultList\":[{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"item\",\"id\":7}}}}}},{\"data\":{\"item\":{\"main\":{\"clickParam\":{\"args\":{\"biz_type\":\"ad\"}}}}}}],\"ability\":[1,2],\"container\":{\"sections\":[{\"sectionBizCode\":\"head_info\"},{\"sectionBizCode\":\"banner_ad\"},{\"sectionBizCode\":\"user_card\"},{\"sectionBizCode\":\"trade_list\"}]}},\"ret\":[\"SUCCESS::调用成功\"],\"v\":\"1.0\"}"
+   ],
+   "error": null,
+   "module": "GoofishAds"
+  },
+  {
+   "name": "mail.conf",
+   "filter": ".data |= del(.masterLoginGuideList, .masterOperatorList, .functionOperatorInfoList, .memberOperator, .activityTabInfoList, .extList)",
+   "input": "{\"code\": 200, \"data\": {\"masterLoginGuideList\": [1], \"masterOperatorList\": [], \"functionOperatorInfoList\": [{\"a\": 1}], \"memberOperator\": {}, \"activityTabInfoList\": [], \"extList\": [1], \"keep\": {\"x\": 1.0}}}",
+   "outputs": [
+    "{\"code\":200,\"data\":{\"keep\":{\"x\":1.0}}}"
+   ],
+   "error": null,
+   "module": "NeteaseMailAds"
+  },
+  {
+   "name": "mail.user",
+   "filter": ".result |= del(.assistantInfo, .quotaData)",
+   "input": "{\"code\": \"S_OK\", \"result\": {\"assistantInfo\": {\"a\": 1}, \"quotaData\": {\"q\": 2}, \"uid\": \"u@163.com\"}}",
+   "outputs": [
+    "{\"code\":\"S_OK\",\"result\":{\"uid\":\"u@163.com\"}}"
+   ],
+   "error": null,
+   "module": "NeteaseMailAds"
+  },
+  {
+   "name": "reddit.walk",
+   "filter": " walk(   if type == \"object\" then      (if .isNsfw == true then .isNsfw = false else . end)     | (if .isNsfwMediaBlocked == true then .isNsfwMediaBlocked = false else . end)     | (if .isNsfwContentShown == false then .isNsfwContentShown = true else . end)      | (if (.commentsPageAds | type == \"array\") then (.commentsPageAds = []) else . end)      | (if ( (.node | type == \"object\") and (.node.cells | type == \"array\") and (.node.cells | any(.__typename? == \"AdMetadataCell\" or .isAdPost? == true)) ) then empty else . end)     | (if (.node | type == \"object\") and (.node.adPayload | type == \"object\") then empty else . end)     | (if .__typename == \"AdPost\" then empty else . end)   else .  end)",
+   "input": "{\"data\": {\"home\": {\"elements\": {\"edges\": [{\"node\": {\"__typename\": \"SubredditPost\", \"id\": \"t3_a\", \"isNsfw\": true, \"isNsfwMediaBlocked\": true, \"isNsfwContentShown\": false, \"title\": \"hi\"}}, {\"node\": {\"__typename\": \"AdPost\", \"id\": \"t3_ad\", \"adPayload\": {\"x\": 1}}}, {\"node\": {\"__typename\": \"CellGroup\", \"cells\": [{\"__typename\": \"AdMetadataCell\"}, {\"__typename\": \"TitleCell\"}]}}, {\"node\": {\"__typename\": \"CellGroup\", \"cells\": [{\"__typename\": \"TitleCell\", \"isAdPost\": false}]}}, {\"node\": {\"__typename\": \"SubredditPost\", \"id\": \"t3_b\", \"adPayload\": {\"y\": 2}}}, {\"node\": {\"__typename\": \"SubredditPost\", \"id\": \"t3_c\", \"score\": 12.0, \"awards\": []}}]}}}, \"commentsPageAds\": [{\"ad\": 1}], \"extensions\": {\"isNsfw\": false}}",
+   "outputs": [
+    "{\"data\":{\"home\":{\"elements\":{\"edges\":[{\"node\":{\"__typename\":\"SubredditPost\",\"id\":\"t3_a\",\"isNsfw\":false,\"isNsfwMediaBlocked\":false,\"isNsfwContentShown\":true,\"title\":\"hi\"}},{},{\"node\":{\"__typename\":\"CellGroup\",\"cells\":[{\"__typename\":\"TitleCell\",\"isAdPost\":false}]}},{\"node\":{\"__typename\":\"SubredditPost\",\"id\":\"t3_c\",\"score\":12.0,\"awards\":[]}}]}}},\"commentsPageAds\":[],\"extensions\":{\"isNsfw\":false}}"
+   ],
+   "error": null,
+   "module": "Reddit"
+  },
+  {
+   "name": "reddit.walk.comments",
+   "filter": " walk(   if type == \"object\" then      (if .isNsfw == true then .isNsfw = false else . end)     | (if .isNsfwMediaBlocked == true then .isNsfwMediaBlocked = false else . end)     | (if .isNsfwContentShown == false then .isNsfwContentShown = true else . end)      | (if (.commentsPageAds | type == \"array\") then (.commentsPageAds = []) else . end)      | (if ( (.node | type == \"object\") and (.node.cells | type == \"array\") and (.node.cells | any(.__typename? == \"AdMetadataCell\" or .isAdPost? == true)) ) then empty else . end)     | (if (.node | type == \"object\") and (.node.adPayload | type == \"object\") then empty else . end)     | (if .__typename == \"AdPost\" then empty else . end)   else .  end)",
+   "input": "{\"data\": {\"postInfoById\": {\"commentsPageAds\": [{\"a\": 1}], \"commentForest\": {\"trees\": [{\"node\": {\"__typename\": \"Comment\", \"isNsfw\": true}}, {\"node\": {\"__typename\": \"AdPost\"}}]}}}}",
+   "outputs": [
+    "{\"data\":{\"postInfoById\":{\"commentsPageAds\":[],\"commentForest\":{\"trees\":[{\"node\":{\"__typename\":\"Comment\",\"isNsfw\":false}},{}]}}}}"
+   ],
+   "error": null,
+   "module": "Reddit"
+  },
+  {
+   "name": "jd.0",
+   "filter": "if (getpath([\"data\",\"JDMessage\",\"socketmonitor\"]) | has(\"isSocketEstablishedAhead\")) then (setpath([\"data\",\"JDMessage\",\"socketmonitor\",\"isSocketEstablishedAhead\"]; 0)) else . end",
+   "input": "{\"code\": \"0\", \"data\": {\"JDMessage\": {\"socketmonitor\": {\"isSocketEstablishedAhead\": 1, \"isSocketReport\": 1, \"other\": \"x\"}}, \"JDHttpToolKit\": {\"httpdns\": {\"httpdns\": 1, \"ttl\": 60}}}}",
+   "outputs": [
+    "{\"code\":\"0\",\"data\":{\"JDMessage\":{\"socketmonitor\":{\"isSocketEstablishedAhead\":0,\"isSocketReport\":1,\"other\":\"x\"}},\"JDHttpToolKit\":{\"httpdns\":{\"httpdns\":1,\"ttl\":60}}}}"
+   ],
+   "error": null,
+   "module": "JD"
+  },
+  {
+   "name": "jd.0.missing",
+   "filter": "if (getpath([\"data\",\"JDMessage\",\"socketmonitor\"]) | has(\"isSocketEstablishedAhead\")) then (setpath([\"data\",\"JDMessage\",\"socketmonitor\",\"isSocketEstablishedAhead\"]; 0)) else . end",
+   "input": "{\"code\": \"0\", \"data\": {\"JDMessage\": {\"socketmonitor\": {}}, \"JDHttpToolKit\": {\"httpdns\": {}}}}",
+   "outputs": [
+    "{\"code\":\"0\",\"data\":{\"JDMessage\":{\"socketmonitor\":{}},\"JDHttpToolKit\":{\"httpdns\":{}}}}"
+   ],
+   "error": null,
+   "module": "JD"
+  },
+  {
+   "name": "jd.1",
+   "filter": "if (getpath([\"data\",\"JDMessage\",\"socketmonitor\"]) | has(\"isSocketReport\")) then (setpath([\"data\",\"JDMessage\",\"socketmonitor\",\"isSocketReport\"]; 0)) else . end",
+   "input": "{\"code\": \"0\", \"data\": {\"JDMessage\": {\"socketmonitor\": {\"isSocketEstablishedAhead\": 1, \"isSocketReport\": 1, \"other\": \"x\"}}, \"JDHttpToolKit\": {\"httpdns\": {\"httpdns\": 1, \"ttl\": 60}}}}",
+   "outputs": [
+    "{\"code\":\"0\",\"data\":{\"JDMessage\":{\"socketmonitor\":{\"isSocketEstablishedAhead\":1,\"isSocketReport\":0,\"other\":\"x\"}},\"JDHttpToolKit\":{\"httpdns\":{\"httpdns\":1,\"ttl\":60}}}}"
+   ],
+   "error": null,
+   "module": "JD"
+  },
+  {
+   "name": "jd.1.missing",
+   "filter": "if (getpath([\"data\",\"JDMessage\",\"socketmonitor\"]) | has(\"isSocketReport\")) then (setpath([\"data\",\"JDMessage\",\"socketmonitor\",\"isSocketReport\"]; 0)) else . end",
+   "input": "{\"code\": \"0\", \"data\": {\"JDMessage\": {\"socketmonitor\": {}}, \"JDHttpToolKit\": {\"httpdns\": {}}}}",
+   "outputs": [
+    "{\"code\":\"0\",\"data\":{\"JDMessage\":{\"socketmonitor\":{}},\"JDHttpToolKit\":{\"httpdns\":{}}}}"
+   ],
+   "error": null,
+   "module": "JD"
+  },
+  {
+   "name": "jd.2",
+   "filter": "if (getpath([\"data\",\"JDHttpToolKit\",\"httpdns\"]) | has(\"httpdns\")) then (setpath([\"data\",\"JDHttpToolKit\",\"httpdns\",\"httpdns\"]; 0)) else . end",
+   "input": "{\"code\": \"0\", \"data\": {\"JDMessage\": {\"socketmonitor\": {\"isSocketEstablishedAhead\": 1, \"isSocketReport\": 1, \"other\": \"x\"}}, \"JDHttpToolKit\": {\"httpdns\": {\"httpdns\": 1, \"ttl\": 60}}}}",
+   "outputs": [
+    "{\"code\":\"0\",\"data\":{\"JDMessage\":{\"socketmonitor\":{\"isSocketEstablishedAhead\":1,\"isSocketReport\":1,\"other\":\"x\"}},\"JDHttpToolKit\":{\"httpdns\":{\"httpdns\":0,\"ttl\":60}}}}"
+   ],
+   "error": null,
+   "module": "JD"
+  },
+  {
+   "name": "jd.2.missing",
+   "filter": "if (getpath([\"data\",\"JDHttpToolKit\",\"httpdns\"]) | has(\"httpdns\")) then (setpath([\"data\",\"JDHttpToolKit\",\"httpdns\",\"httpdns\"]; 0)) else . end",
+   "input": "{\"code\": \"0\", \"data\": {\"JDMessage\": {\"socketmonitor\": {}}, \"JDHttpToolKit\": {\"httpdns\": {}}}}",
+   "outputs": [
+    "{\"code\":\"0\",\"data\":{\"JDMessage\":{\"socketmonitor\":{}},\"JDHttpToolKit\":{\"httpdns\":{}}}}"
+   ],
+   "error": null,
+   "module": "JD"
+  },
+  {
+   "name": "didi.0",
+   "filter": ".data.disorder_cards.bottom_nav_list.data |= map(select(.id == \"home_page\" or .id == \"user_center\")) | .data.order_cards.nav_list_card.data |= map(select(.nav_id == \"dache_anycar\" or .nav_id == \"carmate\" or .nav_id == \"driverservice\" or .nav_id == \"zhandianbashi\" or .nav_id == \"yuancheng\" or .nav_id == \"pincheche\" or .nav_id == \"bike\" or .nav_id == \"special_ride\" or .nav_id == \"nav_more_v3\"))",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"user_center\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.1",
+   "filter": "delpaths([[\"data\",\"disorder_cards\",\"communicate_card\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.2",
+   "filter": "delpaths([[\"data\",\"disorder_cards\",\"not_login_bottom_bar\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.3",
+   "filter": "delpaths([[\"data\",\"disorder_cards\",\"riding_code_card\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.4",
+   "filter": "delpaths([[\"data\",\"order_cards\",\"car_owner_widget_card\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.5",
+   "filter": "delpaths([[\"data\",\"order_cards\",\"marketing_card\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.6",
+   "filter": "delpaths([[\"data\",\"order_cards\",\"super_banner_card\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1}},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.7",
+   "filter": "delpaths([[\"data\",\"disorder_cards\",\"car_icon\",\"data\",\"icon_info_new_agreement\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.8",
+   "filter": "delpaths([[\"data\",\"mult_home_banner\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.9",
+   "filter": ".data |= (.instances |= (to_entries | map(select(.key as $k | [\"center_base_info_card\", \"center_tool_card\", \"center_wallet_finance_card\", \"center_order_related_card\"] | index($k))) | from_entries)) | .data.instances.center_wallet_finance_card.data.view_info |= map(select(.title == \"优惠卡券\" or .title == \"余额\" or .title == \"福利金\"))",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{}},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.10",
+   "filter": ".data |= (.instances |= (to_entries | map(select(.key | test(\"feed_back_|dache_main_member|order_container_|dache_main_core_icon|dache_main_card_\"))) | from_entries))",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"feed_back_x\":1,\"dache_main_member\":2,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.11",
+   "filter": ".data |= (if . == null then null else {hot_route_info, legal_info} end) | . as $root | .data.tab_list = ($root.data.tab_list | map(select(.tab_id == \"passenger\")))",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [],
+   "error": "Cannot iterate over null (null)",
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.12",
+   "filter": "delpaths([[\"data\",\"variantInfo\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.13",
+   "filter": ".data |= with_entries(select(.value.isAd != 1))",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [],
+   "error": "Cannot index array with string \"isAd\"",
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.14",
+   "filter": ".data.disorder_components |= (map(select(.name == \"history_order_card\" or .name == \"inprogress_order_card\" or .name == \"station_calendar\" or .name == \"main_card_v2\" or .name == \"user_history_order\")))",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.15",
+   "filter": "delpaths([[\"data\",\"didi-bike-homepage-popup\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"variantInfo\":{\"v\":1},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.16",
+   "filter": "delpaths([[\"data\",\"variantInfo\"]])",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [
+    "{\"errno\":0,\"data\":{\"disorder_cards\":{\"bottom_nav_list\":{\"data\":[{\"id\":\"home_page\"},{\"id\":\"mall\"},{\"id\":\"user_center\"},{\"id\":\"ad\"}]},\"communicate_card\":{\"a\":1},\"not_login_bottom_bar\":{},\"riding_code_card\":{},\"car_icon\":{\"data\":{\"icon_info_new_agreement\":1,\"keep\":2}}},\"order_cards\":{\"nav_list_card\":{\"data\":[{\"nav_id\":\"dache_anycar\"},{\"nav_id\":\"game\"},{\"nav_id\":\"bike\"},{\"nav_id\":\"nav_more_v3\"},{\"nav_id\":\"x\"}]},\"car_owner_widget_card\":{},\"marketing_card\":{\"m\":1},\"super_banner_card\":[1]},\"mult_home_banner\":[1],\"instances\":{\"center_base_info_card\":{\"a\":1},\"center_ad_card\":{},\"center_tool_card\":{\"t\":1},\"center_wallet_finance_card\":{\"data\":{\"view_info\":[{\"title\":\"优惠卡券\"},{\"title\":\"借钱\"},{\"title\":\"余额\"},{\"title\":\"福利金\"}]}},\"center_order_related_card\":{},\"feed_back_x\":1,\"dache_main_member\":2,\"dache_banner\":3,\"order_container_1\":4},\"hot_route_info\":{\"r\":1},\"legal_info\":\"l\",\"tab_list\":[{\"tab_id\":\"passenger\"},{\"tab_id\":\"driver\"}],\"disorder_components\":[{\"name\":\"history_order_card\"},{\"name\":\"ad_card\"},{\"name\":\"main_card_v2\"}],\"didi-bike-homepage-popup\":{},\"k1\":{\"isAd\":1,\"x\":1},\"k2\":{\"isAd\":0}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.17",
+   "filter": ".data |= map(if .name|IN(\"daijia_journey_new_tcp_switch\",\"daijia_tcp_init\",\"daijia_tcp_msg_encrypt\",\"daijia_tcp_site_info\",\"daijia_tcp_site_report\")then.allow=false else. end)",
+   "input": "{\"errno\": 0, \"data\": {\"disorder_cards\": {\"bottom_nav_list\": {\"data\": [{\"id\": \"home_page\"}, {\"id\": \"mall\"}, {\"id\": \"user_center\"}, {\"id\": \"ad\"}]}, \"communicate_card\": {\"a\": 1}, \"not_login_bottom_bar\": {}, \"riding_code_card\": {}, \"car_icon\": {\"data\": {\"icon_info_new_agreement\": 1, \"keep\": 2}}}, \"order_cards\": {\"nav_list_card\": {\"data\": [{\"nav_id\": \"dache_anycar\"}, {\"nav_id\": \"game\"}, {\"nav_id\": \"bike\"}, {\"nav_id\": \"nav_more_v3\"}, {\"nav_id\": \"x\"}]}, \"car_owner_widget_card\": {}, \"marketing_card\": {\"m\": 1}, \"super_banner_card\": [1]}, \"mult_home_banner\": [1], \"instances\": {\"center_base_info_card\": {\"a\": 1}, \"center_ad_card\": {}, \"center_tool_card\": {\"t\": 1}, \"center_wallet_finance_card\": {\"data\": {\"view_info\": [{\"title\": \"优惠卡券\"}, {\"title\": \"借钱\"}, {\"title\": \"余额\"}, {\"title\": \"福利金\"}]}}, \"center_order_related_card\": {}, \"feed_back_x\": 1, \"dache_main_member\": 2, \"dache_banner\": 3, \"order_container_1\": 4}, \"hot_route_info\": {\"r\": 1}, \"legal_info\": \"l\", \"tab_list\": [{\"tab_id\": \"passenger\"}, {\"tab_id\": \"driver\"}], \"disorder_components\": [{\"name\": \"history_order_card\"}, {\"name\": \"ad_card\"}, {\"name\": \"main_card_v2\"}], \"variantInfo\": {\"v\": 1}, \"didi-bike-homepage-popup\": {}, \"k1\": {\"isAd\": 1, \"x\": 1}, \"k2\": {\"isAd\": 0}}}",
+   "outputs": [],
+   "error": "Cannot index array with string \"name\"",
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.toggles",
+   "filter": ".data |= map(if .name|IN(\"daijia_journey_new_tcp_switch\",\"daijia_tcp_init\",\"daijia_tcp_msg_encrypt\",\"daijia_tcp_site_info\",\"daijia_tcp_site_report\")then.allow=false else. end)",
+   "input": "{\"data\": [{\"name\": \"daijia_tcp_init\", \"allow\": true}, {\"name\": \"other\", \"allow\": true}, {\"name\": \"daijia_tcp_site_report\", \"allow\": true}]}",
+   "outputs": [
+    "{\"data\":[{\"name\":\"daijia_tcp_init\",\"allow\":false},{\"name\":\"other\",\"allow\":true},{\"name\":\"daijia_tcp_site_report\",\"allow\":false}]}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.pSFC.null",
+   "filter": ".data |= (if . == null then null else {hot_route_info, legal_info} end) | . as $root | .data.tab_list = ($root.data.tab_list | map(select(.tab_id == \"passenger\")))",
+   "input": "{\"data\": null}",
+   "outputs": [],
+   "error": "Cannot iterate over null (null)",
+   "module": "DiDi"
+  },
+  {
+   "name": "didi.kuaidadi.with_entries",
+   "filter": ".data |= with_entries(select(.value.isAd != 1))",
+   "input": "{\"data\": {\"a\": {\"isAd\": 1}, \"b\": {\"isAd\": 0, \"n\": 1}, \"c\": {}}}",
+   "outputs": [
+    "{\"data\":{\"b\":{\"isAd\":0,\"n\":1},\"c\":{}}}"
+   ],
+   "error": null,
+   "module": "DiDi"
+  },
+  {
+   "name": "wnl.cal_module",
+   "filter": ".data |= map(select(.module_name as $name | [\"实用工具\",\"会员下icon\",\"天气页面_右上角图标\",\"天气页面_24小时\",\"天气页面_15日\",\"每日插屏\",\"下拉屏保\",\"星座Tab（黄历页）\"] | index($name) != null))",
+   "input": "{\"status\": 1000, \"data\": [{\"module_name\": \"实用工具\", \"id\": 1}, {\"module_name\": \"开屏广告\", \"id\": 2}, {\"module_name\": \"每日插屏\", \"id\": 3}, {\"module_name\": \"x\"}]}",
+   "outputs": [
+    "{\"status\":1000,\"data\":[{\"module_name\":\"实用工具\",\"id\":1},{\"module_name\":\"每日插屏\",\"id\":3}]}"
+   ],
+   "error": null,
+   "module": "Etouch"
+  },
+  {
+   "name": "wnl.adspool",
+   "filter": ".data |= map((.layout |= map(select(.key_name == \"实用工具\" or .key_name == \"会员下icon\" or .key_name == \"天气页面_右上角图标\" or .key_name == \"天气页面_24小时\" or .key_name == \"天气页面_15日\" or .key_name == \"每日插屏\" or .key_name == \"下拉屏保\" or .key_name == \"星座Tab（黄历页）\"))) | select(.layout | length > 0))",
+   "input": "{\"status\": 1000, \"data\": [{\"layout\": [{\"key_name\": \"实用工具\"}, {\"key_name\": \"广告\"}]}, {\"layout\": [{\"key_name\": \"广告2\"}]}, {\"layout\": [{\"key_name\": \"下拉屏保\"}, {\"key_name\": \"会员下icon\"}]}]}",
+   "outputs": [
+    "{\"status\":1000,\"data\":[{\"layout\":[{\"key_name\":\"实用工具\"}]},{\"layout\":[{\"key_name\":\"下拉屏保\"},{\"key_name\":\"会员下icon\"}]}]}"
+   ],
+   "error": null,
+   "module": "Etouch"
+  },
+  {
+   "name": "jiaxiao.0",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"homead\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.1",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"h5_promotion_page\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.2",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"advert_interval\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.3",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"abtest_h5url\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.4",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"launchApp\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.5",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"goucheConfig\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.6",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"gouche\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.7",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"mainLiveConfig\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.8",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"discover\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.9",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"adSdkSwitch4testPointVideo\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.10",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"adSdkSwitch4simulationExam\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.11",
+   "filter": "^https:\\/\\/api\\.ksedt\\.com\\/api\\/config\\/ 'delpaths([[\"result\",\"examPageLoadADSwitch\"]])'",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"abtest_h5url\": \"u\", \"launchApp\": 1, \"goucheConfig\": {}, \"gouche\": 1, \"mainLiveConfig\": 1, \"discover\": 1, \"adSdkSwitch4testPointVideo\": 0, \"adSdkSwitch4simulationExam\": 0, \"examPageLoadADSwitch\": 1, \"keep\": 1}}",
+   "outputs": [],
+   "error": "COMPILE",
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.fixed.0",
+   "filter": "delpaths([[\"result\",\"homead\"]])",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"keep\": 1}}",
+   "outputs": [
+    "{\"result\":{\"h5_promotion_page\":2,\"advert_interval\":3,\"keep\":1}}"
+   ],
+   "error": null,
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.fixed.1",
+   "filter": "delpaths([[\"result\",\"h5_promotion_page\"]])",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"keep\": 1}}",
+   "outputs": [
+    "{\"result\":{\"homead\":1,\"advert_interval\":3,\"keep\":1}}"
+   ],
+   "error": null,
+   "module": "JiaXiao"
+  },
+  {
+   "name": "jiaxiao.fixed.2",
+   "filter": "delpaths([[\"result\",\"advert_interval\"]])",
+   "input": "{\"result\": {\"homead\": 1, \"h5_promotion_page\": 2, \"advert_interval\": 3, \"keep\": 1}}",
+   "outputs": [
+    "{\"result\":{\"homead\":1,\"h5_promotion_page\":2,\"keep\":1}}"
+   ],
+   "error": null,
+   "module": "JiaXiao"
+  },
+  {
+   "name": "identity",
+   "filter": ".",
+   "input": "{\"b\": 1, \"a\": [1.0, 100.0, 0, \"é \"]}",
+   "outputs": [
+    "{\"b\":1,\"a\":[1.0,100.0,0,\"é \\u007f\"]}"
+   ],
+   "error": null
+  },
+  {
+   "name": "field.chain",
+   "filter": ".a.b, .a?.b, .[\"a\"][\"b\"], .\"a\".b, .a.[0]?, (.a|.b[1])",
+   "input": "{\"a\": {\"b\": [1, 2]}}",
+   "outputs": [
+    "[1,2]",
+    "[1,2]",
+    "[1,2]",
+    "[1,2]",
+    "2"
+   ],
+   "error": null
+  },
+  {
+   "name": "pipe.comma",
+   "filter": ".a | .[] , 3",
+   "input": "{\"a\": [1, 2]}",
+   "outputs": [
+    "1",
+    "2",
+    "3"
+   ],
+   "error": null
+  },
+  {
+   "name": "slices",
+   "filter": ".[1:], .[:-1], .[-2:], .[1:2.5], .[null:1], (\"aéb\"|.[1:]), (null|.[1:])",
+   "input": "[1, 2, 3]",
+   "outputs": [
+    "[2,3]",
+    "[1,2]",
+    "[2,3]",
+    "[2,3]",
+    "[1]",
+    "\"éb\"",
+    "null"
+   ],
+   "error": null
+  },
+  {
+   "name": "iterate.obj",
+   "filter": "[.[]], [.[]?], [keys[]]",
+   "input": "{\"b\": 1, \"a\": 2}",
+   "outputs": [
+    "[1,2]",
+    "[1,2]",
+    "[\"a\",\"b\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "optional",
+   "filter": "[.[] | .a?], [.[] | try .a catch \"E\"]",
+   "input": "[{\"a\": 1}, 3, null]",
+   "outputs": [
+    "[1,null]",
+    "[1,\"E\",null]"
+   ],
+   "error": null
+  },
+  {
+   "name": "recurse",
+   "filter": "[..], [.. | numbers], [recurse(.[]?; type == \"array\")]",
+   "input": "[[1, {\"a\": 2}]]",
+   "outputs": [
+    "[[[1,{\"a\":2}]],[1,{\"a\":2}],1,{\"a\":2},2]",
+    "[1,2]",
+    "[[[1,{\"a\":2}]],[1,{\"a\":2}]]"
+   ],
+   "error": null
+  },
+  {
+   "name": "arith",
+   "filter": "[.a + .b, .a - .b, .a * .b, .a / .b, .a % .b, -.a, (.s + \"x\"), ([1,2,1] - [1]), ({a:{b:1}} * {a:{c:2}}), (\"ab\" * 3), (\"a,b\" / \",\")]",
+   "input": "{\"a\": 7, \"b\": 2, \"s\": \"q\"}",
+   "outputs": [
+    "[9,5,14,3.5,1,-7,\"qx\",[2],{\"a\":{\"b\":1,\"c\":2}},\"ababab\",[\"a\",\"b\"]]"
+   ],
+   "error": null
+  },
+  {
+   "name": "arith.gen",
+   "filter": "[(1,2) + (10,20)], [(1,2) < (2,1)]",
+   "input": "null",
+   "outputs": [
+    "[11,12,21,22]",
+    "[true,false,false,false]"
+   ],
+   "error": null
+  },
+  {
+   "name": "arith.null",
+   "filter": "null + 1, 1 + null, {} + {a:1}, [] + null",
+   "input": "null",
+   "outputs": [
+    "1",
+    "1",
+    "{\"a\":1}",
+    "[]"
+   ],
+   "error": null
+  },
+  {
+   "name": "compare.order",
+   "filter": "sort, (map(tojson)|sort), unique, min, max",
+   "input": "[{\"a\": 1}, [2], \"s\", 3, true, false, null, -1, \"S\", [1, 2], {\"a\": 0}]",
+   "outputs": [
+    "[null,false,true,-1,3,\"S\",\"s\",[1,2],[2],{\"a\":0},{\"a\":1}]",
+    "[\"\\\"S\\\"\",\"\\\"s\\\"\",\"-1\",\"3\",\"[1,2]\",\"[2]\",\"false\",\"null\",\"true\",\"{\\\"a\\\":0}\",\"{\\\"a\\\":1}\"]",
+    "[null,false,true,-1,3,\"S\",\"s\",[1,2],[2],{\"a\":0},{\"a\":1}]",
+    "null",
+    "{\"a\":1}"
+   ],
+   "error": null
+  },
+  {
+   "name": "compare.objects",
+   "filter": "[{\"b\":1},{\"a\":2}] | sort, ([{\"a\":1,\"b\":2},{\"a\":1}]|sort), ({\"a\":1,\"b\":2} == {\"b\":2,\"a\":1})",
+   "input": "null",
+   "outputs": [
+    "[{\"a\":2},{\"b\":1}]",
+    "[{\"a\":1},{\"a\":1,\"b\":2}]",
+    "true"
+   ],
+   "error": null
+  },
+  {
+   "name": "logic",
+   "filter": "[.[] | . and 1, . or null], [.[] | not], [.[] | if . then \"t\" end]",
+   "input": "[true, false, null, 0]",
+   "outputs": [
+    "[true,true,false,false,false,false,true,true]",
+    "[false,true,true,false]",
+    "[\"t\",false,null,\"t\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "alt",
+   "filter": ".a // \"d\", (.x // .y // 3), [.[] // 9], ((false, null, 1) // 2), (empty // 5)",
+   "input": "{\"a\": null, \"x\": false, \"y\": null}",
+   "outputs": [
+    "\"d\"",
+    "3",
+    "[9]",
+    "1",
+    "5"
+   ],
+   "error": null
+  },
+  {
+   "name": "alt.error",
+   "filter": "[.[] | .a // \"d\"]",
+   "input": "[{\"a\": 1}, 3]",
+   "outputs": [],
+   "error": "Cannot index number with string \"a\""
+  },
+  {
+   "name": "assign.set",
+   "filter": ".a = 1 | .b.c = [2] | .d[2] = true",
+   "input": "{\"z\": 0}",
+   "outputs": [
+    "{\"z\":0,\"a\":1,\"b\":{\"c\":[2]},\"d\":[null,null,true]}"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.set.gen",
+   "filter": "(.a,.b) = (1,2)",
+   "input": "{}",
+   "outputs": [
+    "{\"a\":1,\"b\":1}",
+    "{\"a\":2,\"b\":2}"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.update",
+   "filter": ".a |= . + 1 | .l |= map(. * 10) | .m.n |= \"x\"",
+   "input": "{\"a\": 1, \"l\": [1, 2]}",
+   "outputs": [
+    "{\"a\":2,\"l\":[10,20],\"m\":{\"n\":\"x\"}}"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.update.empty",
+   "filter": "(.[] |= empty), (.a |= empty)?",
+   "input": "{\"a\": 1, \"b\": 2}",
+   "outputs": [
+    "{}",
+    "{\"b\":2}"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.update.empty.arr",
+   "filter": ".[] |= empty",
+   "input": "[1, 2, 3, 4]",
+   "outputs": [
+    "[]"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.update.first",
+   "filter": ".[] |= (., 10)",
+   "input": "[1, 2]",
+   "outputs": [
+    "[1,2]"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.arith",
+   "filter": ".a += 1 | .b -= 1 | .c *= 2 | .d /= 2 | .e %= 3 | .f //= \"def\" | .g //= 0",
+   "input": "{\"a\": 1, \"b\": 1, \"c\": 2, \"d\": 3, \"e\": 7, \"f\": null, \"g\": false}",
+   "outputs": [
+    "{\"a\":2,\"b\":0,\"c\":4,\"d\":1.5,\"e\":1,\"f\":\"def\",\"g\":0}"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.arith.gen",
+   "filter": ".a += (1,2)",
+   "input": "{\"a\": 1}",
+   "outputs": [
+    "{\"a\":2}",
+    "{\"a\":3}"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.slice",
+   "filter": ".a[1:] = [\"x\"], (.a[1:] |= map(.*10)), del(.a[:2])",
+   "input": "{\"a\": [1, 2, 3]}",
+   "outputs": [
+    "{\"a\":[1,\"x\"]}",
+    "{\"a\":[1,20,30]}",
+    "{\"a\":[3]}"
+   ],
+   "error": null
+  },
+  {
+   "name": "assign.getpath",
+   "filter": "getpath([\"a\",\"b\"]) = 5",
+   "input": "null",
+   "outputs": [
+    "{\"a\":{\"b\":5}}"
+   ],
+   "error": null
+  },
+  {
+   "name": "if.elif",
+   "filter": "[.[] | if . == 1 then \"one\" elif . == 2 then \"two\" else \"many\" end]",
+   "input": "[1, 2, 3]",
+   "outputs": [
+    "[\"one\",\"two\",\"many\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "if.gen",
+   "filter": "[if (true, false) then 1 else 2 end]",
+   "input": "null",
+   "outputs": [
+    "[1,2]"
+   ],
+   "error": null
+  },
+  {
+   "name": "reduce",
+   "filter": "reduce .[] as [$x] (0; . + $x), reduce .[] as [$a] (0; . + 1), (reduce empty as $x (3; .+1)), reduce range(3) as $x (0; empty)",
+   "input": "[[1], [2], [3]]",
+   "outputs": [
+    "6",
+    "3",
+    "3",
+    "null"
+   ],
+   "error": null
+  },
+  {
+   "name": "foreach",
+   "filter": "[foreach .[] as $x (0; . + $x)], [foreach .[] as $x (0; . + 1; [$x, .])], [foreach (1,2) as $x (0, 10; . + $x)]",
+   "input": "[1, 2, 3]",
+   "outputs": [
+    "[1,3,6]",
+    "[[1,1],[2,2],[3,3]]",
+    "[1,3,11,13]"
+   ],
+   "error": null
+  },
+  {
+   "name": "vars",
+   "filter": ". as $x | [$x, $x.a], (. as {a: $y, $b} | [$y, $b])",
+   "input": "{\"a\": 1, \"b\": 2}",
+   "outputs": [
+    "[{\"a\":1,\"b\":2},1]",
+    "[1,2]"
+   ],
+   "error": null
+  },
+  {
+   "name": "vars.destructure",
+   "filter": ". as [$a, [$b], {c: $c}] | [$a, $b, $c]",
+   "input": "[1, [2], {\"c\": 3}]",
+   "outputs": [
+    "[1,2,3]"
+   ],
+   "error": null
+  },
+  {
+   "name": "def",
+   "filter": "def f(g): [g, g]; def h($x; $y): [$x, $y]; def fac: if . <= 1 then 1 else . * (. - 1 | fac) end; f(.+1), h(1,2; 3,4), (5|fac), ([.] | map(def inc: .+1; inc))",
+   "input": "1",
+   "outputs": [
+    "[2,2]",
+    "[1,3]",
+    "[1,4]",
+    "[2,3]",
+    "[2,4]",
+    "120",
+    "[2]"
+   ],
+   "error": null
+  },
+  {
+   "name": "def.closure",
+   "filter": "def f: def g: 3; g * 2; def g: 100; f, g",
+   "input": "null",
+   "outputs": [
+    "6",
+    "100"
+   ],
+   "error": null
+  },
+  {
+   "name": "def.recursion.path",
+   "filter": "def r: if type == \"object\" then .a | r else . end; path(r)",
+   "input": "{\"a\": {\"a\": 1}}",
+   "outputs": [
+    "[\"a\",\"a\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "label",
+   "filter": "label $f | range(10) | ., (select(. == 2) | break $f)",
+   "input": "null",
+   "outputs": [
+    "0",
+    "1",
+    "2"
+   ],
+   "error": null
+  },
+  {
+   "name": "try.catch",
+   "filter": "try error(\"x\") catch ., (try error({a:1}) catch .a), (try (1/0) catch .), [.[] | try (if . == 2 then error(\"e\") else . end) catch \"c\"]",
+   "input": "[1, 2, 3]",
+   "outputs": [
+    "\"x\"",
+    "1",
+    "\"number (1) and number (0) cannot be divided because the divisor is zero\"",
+    "[1,\"c\",3]"
+   ],
+   "error": null
+  },
+  {
+   "name": "try.downstream",
+   "filter": "[(try (1, 2) catch \"c\") | if . == 2 then \"two\" else . end]",
+   "input": "null",
+   "outputs": [
+    "[1,\"two\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "try.downstream.error",
+   "filter": "(try 1 catch \"c\") | error(\"after\")",
+   "input": "null",
+   "outputs": [],
+   "error": "after"
+  },
+  {
+   "name": "error.uncaught",
+   "filter": ".[] | if . > 1 then error(\"big \\(.)\") else . end",
+   "input": "[1, 2, 3]",
+   "outputs": [
+    "1"
+   ],
+   "error": "big 2"
+  },
+  {
+   "name": "string.interp",
+   "filter": "\"a\\(.x)b\\(1+2)c\\([1])\\({\"k\":\"v\"})\", \"\\(1,2)-\\(3,4)\"",
+   "input": "{\"x\": \"y\"}",
+   "outputs": [
+    "\"ayb3c[1]{\\\"k\\\":\\\"v\\\"}\"",
+    "\"1-3\"",
+    "\"2-3\"",
+    "\"1-4\"",
+    "\"2-4\""
+   ],
+   "error": null
+  },
+  {
+   "name": "formats",
+   "filter": "@base64 \"x\\(.)y\", @json \"v=\\(.)\", @uri \"q=\\(.)\", @sh \"echo \\(.)\", @text, @json, @html, @uri, @sh, @base64, (@base64|@base64d)",
+   "input": "\"<a b>&'\\\"ü\"",
+   "outputs": [
+    "\"xPGEgYj4mJyLDvA==y\"",
+    "\"v=\\\"<a b>&'\\\\\\\"ü\\\"\"",
+    "\"q=%3Ca%20b%3E%26%27%22%C3%BC\"",
+    "\"echo '<a b>&'\\\\''\\\"ü'\"",
+    "\"<a b>&'\\\"ü\"",
+    "\"\\\"<a b>&'\\\\\\\"ü\\\"\"",
+    "\"&lt;a b&gt;&amp;&apos;&quot;ü\"",
+    "\"%3Ca%20b%3E%26%27%22%C3%BC\"",
+    "\"'<a b>&'\\\\''\\\"ü'\"",
+    "\"PGEgYj4mJyLDvA==\"",
+    "\"<a b>&'\\\"ü\""
+   ],
+   "error": null
+  },
+  {
+   "name": "formats.csv",
+   "filter": "@csv, @tsv, @sh, @html, @text",
+   "input": "[1, \"a\\\"b\", null, true, \"x\\ty\\\\z\", 1.5]",
+   "outputs": [
+    "\"1,\\\"a\\\"\\\"b\\\",,true,\\\"x\\ty\\\\z\\\",1.5\"",
+    "\"1\\ta\\\"b\\t\\ttrue\\tx\\\\ty\\\\\\\\z\\t1.5\"",
+    "\"1 'a\\\"b' null true 'x\\ty\\\\z' 1.5\"",
+    "\"[1,&quot;a\\\\&quot;b&quot;,null,true,&quot;x\\\\ty\\\\\\\\z&quot;,1.5]\"",
+    "\"[1,\\\"a\\\\\\\"b\\\",null,true,\\\"x\\\\ty\\\\\\\\z\\\",1.5]\""
+   ],
+   "error": null
+  },
+  {
+   "name": "object.construct",
+   "filter": "{a, \"b\": .b, (.c): 3, \"x\\(.c)\": 4, $__loc__}, {a: (1,2), b: (3,4)}, ({(\"k1\",\"k2\"): 0})",
+   "input": "{\"a\": 1, \"b\": 2, \"c\": \"kc\"}",
+   "outputs": [
+    "{\"a\":1,\"b\":2,\"kc\":3,\"xkc\":4,\"__loc__\":{\"file\":\"<top-level>\",\"line\":1}}",
+    "{\"a\":1,\"b\":3}",
+    "{\"a\":1,\"b\":4}",
+    "{\"a\":2,\"b\":3}",
+    "{\"a\":2,\"b\":4}",
+    "{\"k1\":0}",
+    "{\"k2\":0}"
+   ],
+   "error": null
+  },
+  {
+   "name": "object.shorthand",
+   "filter": ".a as $v | {$v, a, \"if\": 1, then: 2}",
+   "input": "{\"a\": 5}",
+   "outputs": [
+    "{\"v\":5,\"a\":5,\"if\":1,\"then\":2}"
+   ],
+   "error": null
+  },
+  {
+   "name": "array.construct",
+   "filter": "[.[] | . * 2], [], [empty], [range(3)]",
+   "input": "[1, 2]",
+   "outputs": [
+    "[2,4]",
+    "[]",
+    "[]",
+    "[0,1,2]"
+   ],
+   "error": null
+  },
+  {
+   "name": "numbers.literal",
+   "filter": "., [.[] | tostring], tojson, (.[0] + 0), (.[2] | -(.)), ([.[]|.+0])",
+   "input": "[1.000, 1.10, 100000000000000000001, 1e2, 12.30e2, -0.0, 0.0, 5E-7, 1.7976931348623157e309, 0.00001, 1E400, -1.50e-3]",
+   "outputs": [
+    "[1.000,1.10,100000000000000000001,1E+2,1230,-0.0,0.0,5E-7,1.7976931348623157E+309,0.00001,1E+400,-0.00150]",
+    "[\"1.000\",\"1.10\",\"100000000000000000001\",\"1E+2\",\"1230\",\"-0.0\",\"0.0\",\"5E-7\",\"1.7976931348623157E+309\",\"0.00001\",\"1E+400\",\"-0.00150\"]",
+    "\"[1.000,1.10,100000000000000000001,1E+2,1230,-0.0,0.0,5E-7,1.7976931348623157E+309,0.00001,1E+400,-0.00150]\"",
+    "1",
+    "-1e+20",
+    "[1,1.1,1e+20,100,1230,0,0,5e-07,1.7976931348623157e+308,1e-05,1.7976931348623157e+308,-0.0015]"
+   ],
+   "error": null
+  },
+  {
+   "name": "numbers.format",
+   "filter": "[1/100000, 1/10000, 1e15*10, 1e16*1, 1e17*1, 123456.789*1, 12345678901234567890*1, 1.5*1, 100*1, 1e300*1e8, -1/3, 2/3*1e-10, 1e21*1, 123e18*1, 0.1+0.2, 3.0, -0.0, 1/3*3, infinite, -infinite, nan]",
+   "input": "null",
+   "outputs": [
+    "[1e-05,0.0001,1e+16,1e+16,1e+17,123456.789,12345678901234567000,1.5,100,1e+308,-0.3333333333333333,6.666666666666667e-11,1e+21,1.23e+20,0.30000000000000004,3.0,-0,1,1.7976931348623157e+308,-1.7976931348623157e+308,null]"
+   ],
+   "error": null
+  },
+  {
+   "name": "numbers.math",
+   "filter": "[.[] | floor], [.[] | ceil], [.[] | round], [.[] | fabs], [.[] | sqrt], (2|pow(.;10)), (100|log10), (8|log2), ([.[]|length])",
+   "input": "[1.5, -1.5, 2.0, 0.25]",
+   "outputs": [
+    "[1,-2,2,0]",
+    "[2,-1,2,1]",
+    "[2,-2,2,0]",
+    "[1.5,1.5,2,0.25]",
+    "[1.224744871391589,null,1.4142135623730951,0.5]",
+    "1024",
+    "2",
+    "3",
+    "[1.5,1.5,2,0.25]"
+   ],
+   "error": null
+  },
+  {
+   "name": "nan",
+   "filter": "[1,nan]|sort, (nan < nan), (nan == nan), ([nan]|tojson), ([nan,1]|min), (nan|isnan), (infinite|isinfinite), (1|isnormal)",
+   "input": "null",
+   "outputs": [
+    "[null,1]",
+    "true",
+    "false",
+    "\"[null]\"",
+    "null",
+    "true",
+    "true",
+    "true"
+   ],
+   "error": null
+  },
+  {
+   "name": "length",
+   "filter": "[.[] | length], (\"é\" | utf8bytelength)",
+   "input": "[null, -5, \"é😀\", [1, 2], {\"a\": 1}]",
+   "outputs": [
+    "[0,5,2,2,1]",
+    "2"
+   ],
+   "error": null
+  },
+  {
+   "name": "length.bool",
+   "filter": "length",
+   "input": "true",
+   "outputs": [],
+   "error": "boolean (true) has no length"
+  },
+  {
+   "name": "keys.has",
+   "filter": "keys, keys_unsorted, has(\"é\"), has(\"z\"), ([1,2] | has(1), has(2)), to_entries",
+   "input": "{\"é\": 1, \"a\": 2, \"b\": {}}",
+   "outputs": [
+    "[\"a\",\"b\",\"é\"]",
+    "[\"é\",\"a\",\"b\"]",
+    "true",
+    "false",
+    "true",
+    "false",
+    "[{\"key\":\"é\",\"value\":1},{\"key\":\"a\",\"value\":2},{\"key\":\"b\",\"value\":{}}]"
+   ],
+   "error": null
+  },
+  {
+   "name": "has.error",
+   "filter": "has(0)",
+   "input": "{}",
+   "outputs": [],
+   "error": "Cannot check whether object has a number key"
+  },
+  {
+   "name": "contains",
+   "filter": "contains({a:[1]}), contains({a:[3]}), ([\"foobar\",\"baz\"] | contains([\"bar\"])), (\"foobar\" | contains(\"bar\")), inside({a:[1,2],b:3}), ({\"a\":1}|contains({}))",
+   "input": "{\"a\": [1, 2]}",
+   "outputs": [
+    "true",
+    "false",
+    "true",
+    "true",
+    "true",
+    "true"
+   ],
+   "error": null
+  },
+  {
+   "name": "contains.error",
+   "filter": "true | contains(false)",
+   "input": "null",
+   "outputs": [],
+   "error": "boolean (true) and boolean (false) cannot have their containment checked"
+  },
+  {
+   "name": "strings",
+   "filter": "startswith(\"a\"), endswith(\"c\"), ltrimstr(\"a\"), rtrimstr(\"c\"), ltrimstr(1), explode, (explode|implode), ascii_upcase, ascii_downcase, split(\"\"), split(\"b\"), (.+\"bab\" | split(\"b\")), index(\"b\"), rindex(\"b\"), indices(\"b\")",
+   "input": "\"abc\"",
+   "outputs": [
+    "true",
+    "true",
+    "\"bc\"",
+    "\"ab\"",
+    "\"abc\"",
+    "[97,98,99]",
+    "\"abc\"",
+    "\"ABC\"",
+    "\"abc\"",
+    "[\"a\",\"b\",\"c\"]",
+    "[\"a\",\"c\"]",
+    "[\"a\",\"c\",\"a\",\"\"]",
+    "1",
+    "1",
+    "[1]"
+   ],
+   "error": null
+  },
+  {
+   "name": "strings.bytes",
+   "filter": "indices(\"é\"), index(\",\"), (\"aéb\"|indices(\"b\")), (\"aaa\"|indices(\"aa\"))",
+   "input": "\"éaé,\"",
+   "outputs": [
+    "[0,3]",
+    "5",
+    "[3]",
+    "[0,1]"
+   ],
+   "error": null
+  },
+  {
+   "name": "strings.join",
+   "filter": "join(\",\"), ([1,null,\"a\",true]|join(\"-\")), ([]|join(\"x\")), ([\"a\"]|join(\", \"))",
+   "input": "[\"a\", \"b\"]",
+   "outputs": [
+    "\"a,b\"",
+    "\"1--a-true\"",
+    "\"\"",
+    "\"a\""
+   ],
+   "error": null
+  },
+  {
+   "name": "strings.tonumber",
+   "filter": "[.[] | tonumber], ([.[] | tostring])",
+   "input": "[\"1.50\", \"1e2\", \" 3\", \"-0\", \"10\"]",
+   "outputs": [
+    "[1.50,1E+2,3,-0,10]",
+    "[\"1.50\",\"1e2\",\" 3\",\"-0\",\"10\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "strings.tojson",
+   "filter": "tojson, (tojson|fromjson), ([1,{\"a\":\"\\n\"}]|tojson)",
+   "input": "\"\\u0000\\u001f  \\\"\\\\\"",
+   "outputs": [
+    "\"\\\"\\\\u0000\\\\u001f\\\\u007f  \\\\\\\"\\\\\\\\\\\"\"",
+    "\"\\u0000\\u001f\\u007f  \\\"\\\\\"",
+    "\"[1,{\\\"a\\\":\\\"\\\\n\\\"}]\""
+   ],
+   "error": null
+  },
+  {
+   "name": "strings.fromjson",
+   "filter": "fromjson",
+   "input": "\"{\\\"a\\\":1.50,\\\"b\\\":[true]}\"",
+   "outputs": [
+    "{\"a\":1.50,\"b\":[true]}"
+   ],
+   "error": null
+  },
+  {
+   "name": "regex.test",
+   "filter": "test(\"B\"), test(\"B\"; \"i\"), test(\"a.c\"), test([\"A\", \"i\"]), [.[]?]",
+   "input": "\"abc\"",
+   "outputs": [
+    "false",
+    "true",
+    "true",
+    "true",
+    "[]"
+   ],
+   "error": null
+  },
+  {
+   "name": "regex.match",
+   "filter": "match(\"(?<x>b)(c)?(d)?\"), [match(\"a\";\"g\").offset], [match(\"b|\";\"g\")|.offset], [match(\"A\";\"gi\").string]",
+   "input": "\"abca\"",
+   "outputs": [
+    "{\"offset\":1,\"length\":2,\"string\":\"bc\",\"captures\":[{\"offset\":1,\"length\":1,\"string\":\"b\",\"name\":\"x\"},{\"offset\":2,\"length\":1,\"string\":\"c\",\"name\":null},{\"offset\":-1,\"string\":null,\"length\":0,\"name\":null}]}",
+    "[0,3]",
+    "[0,1,2,3,4]",
+    "[\"a\",\"a\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "regex.match.unicode",
+   "filter": "[match(\"é\";\"g\") | [.offset, .length]], [match(\"(?<w>[a-z]+)\";\"g\") | .captures[0].offset]",
+   "input": "\"éaé, bé c\"",
+   "outputs": [
+    "[[0,1],[2,1],[6,1]]",
+    "[1,5,8]"
+   ],
+   "error": null
+  },
+  {
+   "name": "regex.capture.scan",
+   "filter": "capture(\"(?<a>a)(?<n>z)?\"), [scan(\"(a)(b)\")], [scan(\"[a-c]\")], [scan(\"c\"; \"g\")]",
+   "input": "\"abcab\"",
+   "outputs": [
+    "{\"a\":\"a\",\"n\":null}",
+    "[[\"a\",\"b\"],[\"a\",\"b\"]]",
+    "[\"a\",\"b\",\"c\",\"a\",\"b\"]",
+    "[\"c\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "regex.sub",
+   "filter": "sub(\"(?<x>.)\";\"\\(.x)\\(.x)\";\"g\"), gsub(\"(?<x>b)|(?<y>z)\";\"<\\(.x)\\(.y)>\"), sub(\"b\";\"1\",\"2\"), gsub(\"\"; \"-\"), sub(\"$\"; \"!\"), gsub(\"A\";\"x\";\"i\"), sub(\"nomatch\"; \"x\")",
+   "input": "\"abcA\"",
+   "outputs": [
+    "\"aabbccAA\"",
+    "\"a<bnull>cA\"",
+    "\"a1cA\"",
+    "\"a2cA\"",
+    "\"-a-b-c-A-\"",
+    "\"abcA!\"",
+    "\"xbcx\"",
+    "\"abcA\""
+   ],
+   "error": null
+  },
+  {
+   "name": "regex.split",
+   "filter": "[splits(\", *\")], split(\", *\"; null), [splits(\"a\";\"g\")], ([splits(\"\")]|length)",
+   "input": "\"a, b,c,  d\"",
+   "outputs": [
+    "[\"a\",\"b\",\"c\",\"d\"]",
+    "[\"a\",\"b\",\"c\",\"d\"]",
+    "[\"\",\", b,c,  d\"]",
+    "12"
+   ],
+   "error": null
+  },
+  {
+   "name": "regex.flags.x",
+   "filter": "test(\"a b c\"; \"x\"), [match(\"^\\\\w+$\"; \"g\").string]",
+   "input": "\"abc\"",
+   "outputs": [
+    "true",
+    "[\"abc\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "regex.error.input",
+   "filter": "test(\"a\")",
+   "input": "{\"a\": 1}",
+   "outputs": [],
+   "error": "object ({\"a\":1}) cannot be matched, as it is not a string"
+  },
+  {
+   "name": "paths",
+   "filter": "[paths], [paths(type == \"number\")], [path(..)], (path(.a[0].b)), [paths(..)]",
+   "input": "{\"a\": [{\"b\": 1}], \"c\": null}",
+   "outputs": [
+    "[[\"a\"],[\"a\",0],[\"a\",0,\"b\"],[\"c\"]]",
+    "[[\"a\",0,\"b\"]]",
+    "[[],[\"a\"],[\"a\",0],[\"a\",0,\"b\"],[\"c\"]]",
+    "[\"a\",0,\"b\"]",
+    "[[\"a\"],[\"a\"],[\"a\"],[\"a\",0],[\"a\",0],[\"a\",0,\"b\"]]"
+   ],
+   "error": null
+  },
+  {
+   "name": "getpath.setpath",
+   "filter": "getpath([\"a\",0,\"b\"]), getpath([\"x\",\"y\"]), setpath([\"a\",0,\"b\"]; 9), setpath([\"n\"]; 1), delpaths([[\"a\",0,\"b\"],[\"c\"]])",
+   "input": "{\"a\": [{\"b\": 1}], \"c\": null}",
+   "outputs": [
+    "1",
+    "null",
+    "{\"a\":[{\"b\":9}],\"c\":null}",
+    "{\"a\":[{\"b\":1}],\"c\":null,\"n\":1}",
+    "{\"a\":[{}]}"
+   ],
+   "error": null
+  },
+  {
+   "name": "getpath.error",
+   "filter": "getpath([\"a\",\"b\"])",
+   "input": "{\"a\": 1}",
+   "outputs": [],
+   "error": "Cannot index number with string \"b\""
+  },
+  {
+   "name": "setpath.negative",
+   "filter": "try setpath([-5]; 1) catch ., setpath([-1]; 9), setpath([3]; 1)",
+   "input": "[1, 2]",
+   "outputs": [
+    "\"Out of bounds negative array index\"",
+    "[1,9]",
+    "[1,2,null,1]"
+   ],
+   "error": null
+  },
+  {
+   "name": "del",
+   "filter": "del(.a), del(.b, .c), del(.l[0, 2]), del(.l[] | select(. == 2)), del(..|select(. == null)), del(.l[1:]), del(.missing.deep)",
+   "input": "{\"a\": 1, \"b\": 2, \"c\": 3, \"l\": [1, 2, 3, 2], \"n\": null}",
+   "outputs": [
+    "{\"b\":2,\"c\":3,\"l\":[1,2,3,2],\"n\":null}",
+    "{\"a\":1,\"l\":[1,2,3,2],\"n\":null}",
+    "{\"a\":1,\"b\":2,\"c\":3,\"l\":[2,2],\"n\":null}",
+    "{\"a\":1,\"b\":2,\"c\":3,\"l\":[1,3],\"n\":null}",
+    "{\"a\":1,\"b\":2,\"c\":3,\"l\":[1,2,3,2]}",
+    "{\"a\":1,\"b\":2,\"c\":3,\"l\":[1],\"n\":null}",
+    "{\"a\":1,\"b\":2,\"c\":3,\"l\":[1,2,3,2],\"n\":null}"
+   ],
+   "error": null
+  },
+  {
+   "name": "del.error",
+   "filter": "del(.[1:])",
+   "input": "{\"a\": 1}",
+   "outputs": [],
+   "error": "Cannot index object with object"
+  },
+  {
+   "name": "delpaths.error",
+   "filter": "delpaths([[0]])",
+   "input": "{\"a\": 1}",
+   "outputs": [],
+   "error": "Cannot delete number field of object"
+  },
+  {
+   "name": "entries",
+   "filter": "to_entries, from_entries?, with_entries(.value += 1), with_entries(select(.value > 1)), with_entries(.key |= ascii_upcase), (to_entries|from_entries)",
+   "input": "{\"a\": 1, \"b\": 2}",
+   "outputs": [
+    "[{\"key\":\"a\",\"value\":1},{\"key\":\"b\",\"value\":2}]",
+    "{\"a\":2,\"b\":3}",
+    "{\"b\":2}",
+    "{\"A\":1,\"B\":2}",
+    "{\"a\":1,\"b\":2}"
+   ],
+   "error": null
+  },
+  {
+   "name": "from_entries.variants",
+   "filter": "from_entries",
+   "input": "[{\"key\": \"a\", \"value\": 1}, {\"name\": \"c\", \"value\": 3}, {\"Name\": \"d\", \"Value\": 4}, {\"Key\": \"f\", \"value\": null}, {\"key\": \"g\"}, {\"key\": false, \"name\": \"n\", \"value\": 1}, {\"name\": \"x\", \"Key\": \"y\", \"value\": 2}, {\"key\": \"z\", \"value\": false, \"Value\": 3}]",
+   "outputs": [
+    "{\"a\":1,\"c\":3,\"d\":4,\"f\":null,\"g\":null,\"n\":1,\"y\":2,\"z\":false}"
+   ],
+   "error": null
+  },
+  {
+   "name": "from_entries.k",
+   "filter": "from_entries",
+   "input": "[{\"k\": \"b\", \"v\": 2}]",
+   "outputs": [],
+   "error": "Cannot use null (null) as object key"
+  },
+  {
+   "name": "from_entries.badkey",
+   "filter": "from_entries",
+   "input": "[{\"key\": 1, \"value\": 2}]",
+   "outputs": [],
+   "error": "Cannot use number (1) as object key"
+  },
+  {
+   "name": "from_entries.false",
+   "filter": "from_entries",
+   "input": "[{\"key\": false, \"value\": 2}]",
+   "outputs": [],
+   "error": "Cannot use null (null) as object key"
+  },
+  {
+   "name": "map.select",
+   "filter": "map(select(. > 1)), map(. * 2), (to_entries | map(.key)), map_values(. + 1), map_values(empty)",
+   "input": "[1, 2, 3]",
+   "outputs": [
+    "[2,3]",
+    "[2,4,6]",
+    "[0,1,2]",
+    "[2,3,4]",
+    "[]"
+   ],
+   "error": null
+  },
+  {
+   "name": "map_values.obj",
+   "filter": "map_values(select(. > 1)), map_values(tostring)",
+   "input": "{\"a\": 1, \"b\": 2}",
+   "outputs": [
+    "{\"b\":2}",
+    "{\"a\":\"1\",\"b\":\"2\"}"
+   ],
+   "error": null
+  },
+  {
+   "name": "sort_by.group_by",
+   "filter": "sort_by(.a), sort_by(.a, .b), group_by(.a), unique_by(.a), min_by(.a), max_by(.a), (map(.a)|unique)",
+   "input": "[{\"a\": 2, \"b\": 1}, {\"a\": 1, \"b\": 2}, {\"a\": 1, \"b\": 1}, {\"a\": null}]",
+   "outputs": [
+    "[{\"a\":null},{\"a\":1,\"b\":2},{\"a\":1,\"b\":1},{\"a\":2,\"b\":1}]",
+    "[{\"a\":null},{\"a\":1,\"b\":1},{\"a\":1,\"b\":2},{\"a\":2,\"b\":1}]",
+    "[[{\"a\":null}],[{\"a\":1,\"b\":2},{\"a\":1,\"b\":1}],[{\"a\":2,\"b\":1}]]",
+    "[{\"a\":null},{\"a\":1,\"b\":2},{\"a\":2,\"b\":1}]",
+    "{\"a\":null}",
+    "{\"a\":2,\"b\":1}",
+    "[null,1,2]"
+   ],
+   "error": null
+  },
+  {
+   "name": "sort.error",
+   "filter": "sort",
+   "input": "{\"a\": 1}",
+   "outputs": [],
+   "error": "object ({\"a\":1}) cannot be sorted, as it is not an array"
+  },
+  {
+   "name": "add.any.all",
+   "filter": "add, any, all, (map(. > 1) | any, all), any(. > 2), all(. > 0), any(.[]; . == 2), ([] | add, any, all), ([\"a\",\"b\"] | add), ([[1],[2]] | add), ([{a:1},{b:2}] | add)",
+   "input": "[1, 2, 3]",
+   "outputs": [
+    "6",
+    "true",
+    "true",
+    "true",
+    "false",
+    "true",
+    "true",
+    "true",
+    "null",
+    "false",
+    "true",
+    "\"ab\"",
+    "[1,2]",
+    "{\"a\":1,\"b\":2}"
+   ],
+   "error": null
+  },
+  {
+   "name": "flatten",
+   "filter": "flatten, flatten(1), flatten(0), (try flatten(-1) catch .)",
+   "input": "[1, [2, [3, [4]]], []]",
+   "outputs": [
+    "[1,2,3,4]",
+    "[1,2,[3,[4]]]",
+    "[1,[2,[3,[4]]],[]]",
+    "\"flatten depth must not be negative\""
+   ],
+   "error": null
+  },
+  {
+   "name": "range",
+   "filter": "[range(5)], [range(1;10;3)], [range(5;0;-2)], [range(0;1;0.3)], [range(3;0)], [range(0, 1; 3, 4)]",
+   "input": "null",
+   "outputs": [
+    "[0,1,2,3,4]",
+    "[1,4,7]",
+    "[5,3,1]",
+    "[0,0.3,0.6,0.8999999999999999]",
+    "[]",
+    "[0,1,2,0,1,2,3,1,2,1,2,3]"
+   ],
+   "error": null
+  },
+  {
+   "name": "limit.first.last",
+   "filter": "[limit(2; .[])], [limit(0; .[])], [limit(-1; .[])], first(.[]), first, last, nth(1), nth(1; .[]), [first(empty)], last(.[]), (try nth(-1; 1) catch .)",
+   "input": "[3, 4, 5]",
+   "outputs": [
+    "[3,4]",
+    "[]",
+    "[3,4,5]",
+    "3",
+    "3",
+    "5",
+    "4",
+    "4",
+    "[]",
+    "5",
+    "\"nth doesn't support negative indices\""
+   ],
+   "error": null
+  },
+  {
+   "name": "until.while.repeat",
+   "filter": "until(. > 100; . * 2), [while(. < 10; . + 3)], [limit(4; repeat(. * 2))]",
+   "input": "1",
+   "outputs": [
+    "128",
+    "[1,4,7]",
+    "[2,2,2,2]"
+   ],
+   "error": null
+  },
+  {
+   "name": "in.inside.IN",
+   "filter": "[.[] | in({\"a\":1})], ([1,2] | IN(1,2)), [.[] | IN(\"a\", \"c\")], (2 | IN([1,2,3][])), (\"x\" | inside(\"xyz\"))",
+   "input": "[\"a\", \"b\"]",
+   "outputs": [
+    "[true,false]",
+    "false",
+    "[true,false]",
+    "true",
+    "true"
+   ],
+   "error": null
+  },
+  {
+   "name": "INDEX",
+   "filter": "INDEX(.id), INDEX(.[]; .name)",
+   "input": "[{\"id\": 1, \"name\": \"x\"}, {\"id\": 2, \"name\": \"y\"}]",
+   "outputs": [
+    "{\"1\":{\"id\":1,\"name\":\"x\"},\"2\":{\"id\":2,\"name\":\"y\"}}",
+    "{\"x\":{\"id\":1,\"name\":\"x\"},\"y\":{\"id\":2,\"name\":\"y\"}}"
+   ],
+   "error": null
+  },
+  {
+   "name": "combinations",
+   "filter": "[combinations], ([[1,2]] | [combinations(2)])",
+   "input": "[[1, 2], [3, 4]]",
+   "outputs": [
+    "[[1,3],[1,4],[2,3],[2,4]]",
+    "[[[1,2],[1,2]]]"
+   ],
+   "error": null
+  },
+  {
+   "name": "walk",
+   "filter": "walk(if type == \"number\" then . + 1 else . end), walk(if type == \"number\" then empty else . end), walk(if type == \"object\" then del(.x) else . end)",
+   "input": "{\"b\": \"x\", \"a\": 1, \"c\": [1, {\"x\": 1, \"y\": 2}], \"d\": {\"x\": 0}}",
+   "outputs": [
+    "{\"b\":\"x\",\"a\":2,\"c\":[2,{\"x\":2,\"y\":3}],\"d\":{\"x\":1}}",
+    "{\"b\":\"x\",\"c\":[{}],\"d\":{}}",
+    "{\"b\":\"x\",\"a\":1,\"c\":[1,{\"y\":2}],\"d\":{}}"
+   ],
+   "error": null
+  },
+  {
+   "name": "walk.arrays",
+   "filter": "walk(if type == \"array\" then sort else . end)",
+   "input": "[3, [2, 1], {\"k\": [9, 8]}]",
+   "outputs": [
+    "[3,[1,2],{\"k\":[8,9]}]"
+   ],
+   "error": null
+  },
+  {
+   "name": "tostream.pick",
+   "filter": "[tostream], pick(.a.b), pick(.c[1])",
+   "input": "{\"a\": {\"b\": 1, \"x\": 2}, \"c\": [1, 2, 3]}",
+   "outputs": [
+    "[[[\"a\",\"b\"],1],[[\"a\",\"x\"],2],[[\"a\",\"x\"]],[[\"c\",0],1],[[\"c\",1],2],[[\"c\",2],3],[[\"c\",2]],[[\"c\"]]]",
+    "{\"a\":{\"b\":1}}",
+    "{\"c\":[null,2]}"
+   ],
+   "error": null
+  },
+  {
+   "name": "type.filters",
+   "filter": "[.[] | type], [.[] | numbers], [.[] | strings], [.[] | values], [.[] | nulls], [.[] | booleans], [.[] | iterables], [.[] | scalars], [.[] | objects], [.[] | arrays]",
+   "input": "[1, \"a\", null, true, [1], {\"a\": 1}]",
+   "outputs": [
+    "[\"number\",\"string\",\"null\",\"boolean\",\"array\",\"object\"]",
+    "[1]",
+    "[\"a\"]",
+    "[1,\"a\",true,[1],{\"a\":1}]",
+    "[null]",
+    "[true]",
+    "[[1],{\"a\":1}]",
+    "[1,\"a\",null,true]",
+    "[{\"a\":1}]",
+    "[[1]]"
+   ],
+   "error": null
+  },
+  {
+   "name": "splits.ascii",
+   "filter": "ascii_downcase, ascii_upcase, ([splits(\"b\")])",
+   "input": "\"aBcÉé\"",
+   "outputs": [
+    "\"abcÉé\"",
+    "\"ABCÉé\"",
+    "[\"aBcÉé\"]"
+   ],
+   "error": null
+  },
+  {
+   "name": "reverse",
+   "filter": "reverse, (null|reverse), ([] | reverse)",
+   "input": "[1, 2, 3]",
+   "outputs": [
+    "[3,2,1]",
+    "[]",
+    "[]"
+   ],
+   "error": null
+  },
+  {
+   "name": "abs.env",
+   "filter": "[.[] | abs], ($ENV|type), (env|type)",
+   "input": "[-1, 0, 2.5, \"a\"]",
+   "outputs": [
+    "[1,0,2.5,\"a\"]",
+    "\"object\"",
+    "\"object\""
+   ],
+   "error": null
+  },
+  {
+   "name": "error.messages",
+   "filter": "try (1 - \"a\") catch ., try ({} * 1) catch ., try ([] / 1) catch ., try (5 % 0) catch ., try (1 + \"a\") catch ., try ([]|.a) catch ., try ({}|.[0]) catch ., try (\"a\"|.[0]) catch ., try (1|.[]) catch ., try (null|keys) catch ., try ({}|sort) catch ., try ([1]|has(\"a\")) catch ., try (\"abc\"|startswith(1)) catch ., try (1|ascii_downcase) catch ., try ({a:1}|.[]|.x) catch ., try error(null) catch ., try error catch .",
+   "input": "null",
+   "outputs": [
+    "\"number (1) and string (\\\"a\\\") cannot be subtracted\"",
+    "\"object ({}) and number (1) cannot be multiplied\"",
+    "\"array ([]) and number (1) cannot be divided\"",
+    "\"number (5) and number (0) cannot be divided (remainder) because the divisor is zero\"",
+    "\"number (1) and string (\\\"a\\\") cannot be added\"",
+    "\"Cannot index array with string \\\"a\\\"\"",
+    "\"Cannot index object with number\"",
+    "\"Cannot index string with number\"",
+    "\"Cannot iterate over number (1)\"",
+    "\"null (null) has no keys\"",
+    "\"object ({}) cannot be sorted, as it is not an array\"",
+    "\"Cannot check whether array has a string key\"",
+    "\"startswith() requires string inputs\"",
+    "\"explode input must be a string\"",
+    "\"Cannot index number with string \\\"x\\\"\"",
+    "null",
+    "null"
+   ],
+   "error": null
+  },
+  {
+   "name": "error.trunc",
+   "filter": "try ({\"a\":\"bcdefghijklmnopqrstuvwxyz\"} | .[0]) catch ., try (\"abcdefghijklmnopqrstuvwxyz\"|.[]) catch ., try ({\"aaaaaaaaaaaaaaaa\":1} + 1) catch .",
+   "input": "null",
+   "outputs": [
+    "\"Cannot index object with number\"",
+    "\"Cannot iterate over string (\\\"abcdefghij...)\"",
+    "\"object ({\\\"aaaaaaaaa...) and number (1) cannot be added\""
+   ],
+   "error": null
+  },
+  {
+   "name": "loc",
+   "filter": "$__loc__, {$__loc__}",
+   "input": "null",
+   "outputs": [
+    "{\"file\":\"<top-level>\",\"line\":1}",
+    "{\"__loc__\":{\"file\":\"<top-level>\",\"line\":1}}"
+   ],
+   "error": null
+  },
+  {
+   "name": "comments",
+   "filter": "# leading comment\n.a # trailing\n| . + 1",
+   "input": "{\"a\": 1}",
+   "outputs": [
+    "2"
+   ],
+   "error": null
+  },
+  {
+   "name": "big.realistic",
+   "filter": ".data.list |= map(select(.ad != true) | del(.track)) | .data.banner = [] | .data.meta.count = (.data.list | length)",
+   "input": "{\"code\": 0, \"data\": {\"list\": [{\"id\": 0, \"ad\": true, \"track\": \"t\", \"title\": \"标题0\", \"score\": 0.0}, {\"id\": 1, \"ad\": false, \"track\": \"t\", \"title\": \"标题1\", \"score\": 1.5}, {\"id\": 2, \"ad\": false, \"track\": \"t\", \"title\": \"标题2\", \"score\": 3.0}, {\"id\": 3, \"ad\": true, \"track\": \"t\", \"title\": \"标题3\", \"score\": 4.5}, {\"id\": 4, \"ad\": false, \"track\": \"t\", \"title\": \"标题4\", \"score\": 6.0}, {\"id\": 5, \"ad\": false, \"track\": \"t\", \"title\": \"标题5\", \"score\": 7.5}, {\"id\": 6, \"ad\": true, \"track\": \"t\", \"title\": \"标题6\", \"score\": 9.0}, {\"id\": 7, \"ad\": false, \"track\": \"t\", \"title\": \"标题7\", \"score\": 10.5}, {\"id\": 8, \"ad\": false, \"track\": \"t\", \"title\": \"标题8\", \"score\": 12.0}, {\"id\": 9, \"ad\": true, \"track\": \"t\", \"title\": \"标题9\", \"score\": 13.5}, {\"id\": 10, \"ad\": false, \"track\": \"t\", \"title\": \"标题10\", \"score\": 15.0}, {\"id\": 11, \"ad\": false, \"track\": \"t\", \"title\": \"标题11\", \"score\": 16.5}, {\"id\": 12, \"ad\": true, \"track\": \"t\", \"title\": \"标题12\", \"score\": 18.0}, {\"id\": 13, \"ad\": false, \"track\": \"t\", \"title\": \"标题13\", \"score\": 19.5}, {\"id\": 14, \"ad\": false, \"track\": \"t\", \"title\": \"标题14\", \"score\": 21.0}, {\"id\": 15, \"ad\": true, \"track\": \"t\", \"title\": \"标题15\", \"score\": 22.5}, {\"id\": 16, \"ad\": false, \"track\": \"t\", \"title\": \"标题16\", \"score\": 24.0}, {\"id\": 17, \"ad\": false, \"track\": \"t\", \"title\": \"标题17\", \"score\": 25.5}, {\"id\": 18, \"ad\": true, \"track\": \"t\", \"title\": \"标题18\", \"score\": 27.0}, {\"id\": 19, \"ad\": false, \"track\": \"t\", \"title\": \"标题19\", \"score\": 28.5}, {\"id\": 20, \"ad\": false, \"track\": \"t\", \"title\": \"标题20\", \"score\": 30.0}, {\"id\": 21, \"ad\": true, \"track\": \"t\", \"title\": \"标题21\", \"score\": 31.5}, {\"id\": 22, \"ad\": false, \"track\": \"t\", \"title\": \"标题22\", \"score\": 33.0}, {\"id\": 23, \"ad\": false, \"track\": \"t\", \"title\": \"标题23\", \"score\": 34.5}, {\"id\": 24, \"ad\": true, \"track\": \"t\", \"title\": \"标题24\", \"score\": 36.0}, {\"id\": 25, \"ad\": false, \"track\": \"t\", \"title\": \"标题25\", \"score\": 37.5}, {\"id\": 26, \"ad\": false, \"track\": \"t\", \"title\": \"标题26\", \"score\": 39.0}, {\"id\": 27, \"ad\": true, \"track\": \"t\", \"title\": \"标题27\", \"score\": 40.5}, {\"id\": 28, \"ad\": false, \"track\": \"t\", \"title\": \"标题28\", \"score\": 42.0}, {\"id\": 29, \"ad\": false, \"track\": \"t\", \"title\": \"标题29\", \"score\": 43.5}, {\"id\": 30, \"ad\": true, \"track\": \"t\", \"title\": \"标题30\", \"score\": 45.0}, {\"id\": 31, \"ad\": false, \"track\": \"t\", \"title\": \"标题31\", \"score\": 46.5}, {\"id\": 32, \"ad\": false, \"track\": \"t\", \"title\": \"标题32\", \"score\": 48.0}, {\"id\": 33, \"ad\": true, \"track\": \"t\", \"title\": \"标题33\", \"score\": 49.5}, {\"id\": 34, \"ad\": false, \"track\": \"t\", \"title\": \"标题34\", \"score\": 51.0}, {\"id\": 35, \"ad\": false, \"track\": \"t\", \"title\": \"标题35\", \"score\": 52.5}, {\"id\": 36, \"ad\": true, \"track\": \"t\", \"title\": \"标题36\", \"score\": 54.0}, {\"id\": 37, \"ad\": false, \"track\": \"t\", \"title\": \"标题37\", \"score\": 55.5}, {\"id\": 38, \"ad\": false, \"track\": \"t\", \"title\": \"标题38\", \"score\": 57.0}, {\"id\": 39, \"ad\": true, \"track\": \"t\", \"title\": \"标题39\", \"score\": 58.5}], \"banner\": [{\"img\": \"x\"}], \"meta\": {\"count\": 40, \"ver\": \"1.0\"}}}",
+   "outputs": [
+    "{\"code\":0,\"data\":{\"list\":[{\"id\":1,\"ad\":false,\"title\":\"标题1\",\"score\":1.5},{\"id\":2,\"ad\":false,\"title\":\"标题2\",\"score\":3.0},{\"id\":4,\"ad\":false,\"title\":\"标题4\",\"score\":6.0},{\"id\":5,\"ad\":false,\"title\":\"标题5\",\"score\":7.5},{\"id\":7,\"ad\":false,\"title\":\"标题7\",\"score\":10.5},{\"id\":8,\"ad\":false,\"title\":\"标题8\",\"score\":12.0},{\"id\":10,\"ad\":false,\"title\":\"标题10\",\"score\":15.0},{\"id\":11,\"ad\":false,\"title\":\"标题11\",\"score\":16.5},{\"id\":13,\"ad\":false,\"title\":\"标题13\",\"score\":19.5},{\"id\":14,\"ad\":false,\"title\":\"标题14\",\"score\":21.0},{\"id\":16,\"ad\":false,\"title\":\"标题16\",\"score\":24.0},{\"id\":17,\"ad\":false,\"title\":\"标题17\",\"score\":25.5},{\"id\":19,\"ad\":false,\"title\":\"标题19\",\"score\":28.5},{\"id\":20,\"ad\":false,\"title\":\"标题20\",\"score\":30.0},{\"id\":22,\"ad\":false,\"title\":\"标题22\",\"score\":33.0},{\"id\":23,\"ad\":false,\"title\":\"标题23\",\"score\":34.5},{\"id\":25,\"ad\":false,\"title\":\"标题25\",\"score\":37.5},{\"id\":26,\"ad\":false,\"title\":\"标题26\",\"score\":39.0},{\"id\":28,\"ad\":false,\"title\":\"标题28\",\"score\":42.0},{\"id\":29,\"ad\":false,\"title\":\"标题29\",\"score\":43.5},{\"id\":31,\"ad\":false,\"title\":\"标题31\",\"score\":46.5},{\"id\":32,\"ad\":false,\"title\":\"标题32\",\"score\":48.0},{\"id\":34,\"ad\":false,\"title\":\"标题34\",\"score\":51.0},{\"id\":35,\"ad\":false,\"title\":\"标题35\",\"score\":52.5},{\"id\":37,\"ad\":false,\"title\":\"标题37\",\"score\":55.5},{\"id\":38,\"ad\":false,\"title\":\"标题38\",\"score\":57.0}],\"banner\":[],\"meta\":{\"count\":26,\"ver\":\"1.0\"}}}"
+   ],
+   "error": null
+  },
+  {
+   "name": "dup.keys",
+   "filter": "keys_unsorted, .",
+   "input": "{\"b\":1,\"a\":2,\"b\":3}",
+   "outputs": [
+    "[\"b\",\"a\"]",
+    "{\"b\":3,\"a\":2}"
+   ],
+   "error": null
+  },
+  {
+   "name": "compile.unknown",
+   "filter": "foo_bar_baz",
+   "input": "null",
+   "outputs": [],
+   "error": "COMPILE"
+  },
+  {
+   "name": "compile.syntax",
+   "filter": ".a | | .b",
+   "input": "null",
+   "outputs": [],
+   "error": "COMPILE"
+  }
+ ]
+}

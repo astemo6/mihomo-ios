@@ -1,4 +1,4 @@
-// Native MitM stage 3b — body rewrites (regex / Loon json / jq subset) in Swift, for requests the native rewrite
+// Native MitM stage 3b — body rewrites (regex / Loon json / jq) in Swift, for requests the native rewrite
 // engine forwards itself (switch `nativeMitmBody`, default OFF; it only acts when `nativeMitmRewrite` is on too).
 //
 // What Go does for a body rule (bridge/mitm/handler.go requestPhase / modifyResponse + applyBodyRule) is replayed
@@ -101,6 +101,8 @@ final class NativeBodyRule {
     private(set) var regexOps: [RegexOp] = []
     private(set) var jsonOps: [(op: String, path: [BodyJSONKey], value: BodyJSON)] = []
     private(set) var jqSteps: [JQStep] = []
+    /// fix/nc-jq-full: the full jq filter (NativeJQ), compiled once per rule
+    private(set) var jqProgram: NativeJQ.Program?
 
     /// nil: Go did not mark the rule portable, or Swift cannot build it exactly (then Go handles the request).
     init?(_ r: RWSnapRule) {
@@ -132,6 +134,15 @@ final class NativeBodyRule {
                 jsonOps.append((op.op, op.path, v))
             }
         case "jq":
+            if let src = r.jqx {
+                do {
+                    jqProgram = try NativeJQ.compile(src)
+                } catch {
+                    NativeBodyRule.warn("jq rule #\(r.i) not loaded (\(error)) — its bodies pass through unchanged")
+                    return nil
+                }
+                break
+            }
             for s in r.jq ?? [] {
                 switch s.op {
                 case "set":
@@ -176,7 +187,13 @@ final class NativeBodyRule {
         return .rx2(rx, tp)
     }
 
-    enum Applied { case body(Data), handBack(String) }
+    /// skipped: the rule did not apply (jq: body not JSON / filter error / no output) — the body stays as it was and
+    /// the rule is not listed as matched (a warning goes to the log).
+    enum Applied { case body(Data), handBack(String), skipped(String) }
+
+    static func warn(_ line: String) {
+        NCDiagLimiter.shared.line("[Rewrite] \(line)", level: "warning")
+    }
 
     /// applyBodyRule(rule, body) where Go succeeds; .handBack where Go would fail (it then skips the rule — a
     /// result Swift does not reproduce) or where Swift cannot be sure.
@@ -189,6 +206,16 @@ final class NativeBodyRule {
             guard let out = v.encoded() else { return .handBack("encode") }
             return .body(out)
         case "jq":
+            if let prog = jqProgram {
+                switch NativeJQ.apply(prog, body: body) {
+                case .body(let out):
+                    return .body(out)
+                case .skip(let why):
+                    NativeRewriteEngine.noteSkip("jq: " + why)
+                    NativeBodyRule.warn("jq rule #\(index) skipped, body passed through: \(why)")
+                    return .skipped(why)
+                }
+            }
             guard var v = BodyJSON.parse(body) else { return .handBack("not json") }
             do {
                 for s in jqSteps {
@@ -289,6 +316,7 @@ enum NativeBodyExec {
             switch r.apply(b) {
             case .body(let nb): b = nb
             case .handBack(let why): return .handBack(why)
+            case .skipped: continue
             }
         }
         return .body(b)
@@ -365,6 +393,8 @@ enum NativeBodyExec {
                     setBody(nb)
                 case .handBack(let why):
                     return .handBack(why)
+                case .skipped:
+                    break
                 }
             }
         }
