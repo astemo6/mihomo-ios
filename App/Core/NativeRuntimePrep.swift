@@ -107,6 +107,17 @@ enum NativeRuntimePrep {
         }
     }
 
+    /// The connect path's generation for an explicit home + profile, without the App Group / active-profile guards
+    /// of `prepare()` and without the generation cache: the E2E replay (UnitTests/NativeCoreE2EReplayTests) runs it on
+    /// an unsigned simulator build, which has no App Group container. Same lock, same body as a real connect.
+    static func prepareSyncForReplay(home: String, profile: URL) -> String? {
+        let key = (home as NSString).appendingPathComponent(".nativecore-prepare.lock")
+        return NCPathLock.shared.withLock(for: key) { () -> String? in
+            NativeRuntimePrepCache.invalidate(home: home)
+            return prepareSyncLocked(home: home, profile: profile)
+        }
+    }
+
     private static func prepareSyncLocked(home: String, profile: URL) -> String? {
         PrepTransaction.removeStale(home: home)
         // fix/nc-vpn-start-crash: a marker still here = the previous prepare died inside the app process (a trap

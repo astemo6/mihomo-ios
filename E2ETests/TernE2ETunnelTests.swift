@@ -571,9 +571,19 @@ final class TernE2ETunnelTests: XCTestCase {
     /// the App Group container is stable, so rewrite the old container prefix to the current one before starting.
     private func relocate(home h: String, from old: String?) -> String {
         let now = NSHomeDirectory()
-        guard let old, !old.isEmpty, old != now, h.hasPrefix(old) else { return h }
-        let newHome = now + h.dropFirst(old.count)
         let fm = FileManager.default
+        let moved = old.map { !$0.isEmpty && $0 != now && h.hasPrefix($0) } ?? false
+        let newHome = moved ? now + h.dropFirst(old!.count) : h
+        // The new container may not have the old one's files (the reinstall gave a fresh data container): restore stage
+        // 1's snapshot ($TERN_E2E_STATE, a runner path outside the artifact) into the home's parent (= the data root).
+        let rt = (newHome as NSString).appendingPathComponent("nativecore-runtime.json")
+        if !fm.fileExists(atPath: rt) {
+            let root = URL(fileURLWithPath: (newHome as NSString).deletingLastPathComponent, isDirectory: true)
+            let n = E2EReport.restoreContainer(into: root)
+            r.note(n < 0 ? "runtime files missing under the stage 2 home and no stage 1 snapshot (TERN_E2E_STATE unset)"
+                         : "runtime files missing under the stage 2 home: restored \(n) item(s) of stage 1's data root from the snapshot")
+        }
+        guard moved, let old else { return newHome }
         let oldEsc = old.replacingOccurrences(of: "/", with: "\\/"), nowEsc = now.replacingOccurrences(of: "/", with: "\\/")
         var n = 0
         if let en = fm.enumerator(atPath: newHome) {
