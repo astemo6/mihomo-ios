@@ -59,11 +59,18 @@ enum NCVision {
     }
 }
 
-enum NCVisionError: Error, Equatable {
+enum NCVisionError: Error, Equatable, LocalizedError {
     /// First server frame carried a UUID different from the user's.
     case unknownServerUUID
     /// Server sent a padding command other than continue/end/direct.
     case unknownCommand(UInt8)
+
+    var errorDescription: String? {
+        switch self {
+        case .unknownServerUUID: return "vision: server answered with a different UUID"
+        case .unknownCommand(let c): return "vision: unknown padding command \(c)"
+        }
+    }
 }
 
 /// Port of filter.go's FilterTLS: watches the first few buffers of the

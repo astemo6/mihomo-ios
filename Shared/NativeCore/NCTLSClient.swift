@@ -35,9 +35,17 @@ final class NCTLSClientStream: NCRelayStream {
         var restls: NCRestlsSession? = nil
     }
 
-    enum TLSError: Error {
+    enum TLSError: Error, LocalizedError {
         case handshake(String)
         case closed
+
+        // fix/nc-delay-test: readable in logs / the delay API instead of "NCTLSClientStream.TLSError 0".
+        var errorDescription: String? {
+            switch self {
+            case .handshake(let why): return "TLS handshake failed: \(why)"
+            case .closed: return "TLS connection closed by the peer"
+            }
+        }
     }
 
     private let raw: NCRelayStream

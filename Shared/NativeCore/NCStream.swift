@@ -47,19 +47,49 @@ final class NCStream {
     }
 
     /// Starts the connection; `ready` fires exactly once (nil error on success).
+    ///
+    /// fix/nc-delay-test: when the queue carries an NCDialTrace (a delay probe), the connect is traced (DNS / TCP /
+    /// TLS split from NWConnection's establishment report) and `.waiting` fails at once with its reason, the way a Go
+    /// dial returns its error — before, a probe whose DNS or route failed sat in `.waiting` until the probe timeout and
+    /// was reported as a bare 超时. Real flows keep NWConnection's waiting behaviour; a slow one (≥ slowDialMs) gets
+    /// one rate-limited `[dial]` line with the same split.
     func start(ready: @escaping (Error?) -> Void) {
         var fired = false
+        let trace = NCDialTrace.on(queue)
+        let t0 = DispatchTime.now()
+        let connectStartMs = trace?.elapsedMs ?? 0
+        trace?.begin("connect")
+        let label = Self.label(conn.endpoint)
         conn.stateUpdateHandler = { [weak self] state in
             guard !fired else { return }
             switch state {
             case .ready:
                 fired = true
+                let total = NCDialTrace.ms(from: t0, to: .now())
+                if let trace {
+                    trace.end("connect")
+                    self?.conn.requestEstablishmentReport(queue: self?.queue ?? .global()) { report in
+                        if let report { trace.absorb(report, connectStartMs: connectStartMs) }
+                    }
+                } else if total >= Self.slowDialMs, NCDialTrace.logSink != nil, let conn = self?.conn {
+                    Self.logSlowDial(conn: conn, label: label, totalMs: total)
+                }
                 ready(nil)
+            case .waiting(let e) where trace != nil:
+                fired = true
+                trace?.end("connect", error: e)
+                trace?.connectFailed(e)
+                trace?.fail("connect \(label): \(NCDialTrace.describe(e)) (waiting: no route / DNS failure)")
+                ready(e)
             case .failed(let e):
                 fired = true
+                trace?.end("connect", error: e)
+                trace?.connectFailed(e)
+                trace?.fail("connect \(label): \(NCDialTrace.describe(e))")
                 ready(e)
             case .cancelled:
                 fired = true
+                trace?.end("connect")
                 ready(NSError(domain: "NativeCore", code: 2, userInfo: [NSLocalizedDescriptionKey: "connection cancelled"]))
             default:
                 break
@@ -67,6 +97,35 @@ final class NCStream {
             _ = self
         }
         conn.start(queue: queue)
+    }
+
+    /// Real dials slower than this get a `[dial]` diagnostic line (rate-limited).
+    static let slowDialMs = 500
+    private static let slowDialLimiter = NCLineLimiter(perWindow: 5, window: 1)
+
+    private static func label(_ e: NWEndpoint) -> String {
+        if case .hostPort(let host, let port) = e {
+            switch host {
+            case .name(let n, _): return "\(n):\(port)"
+            case .ipv4(let a): return "\(a):\(port)"
+            case .ipv6(let a): return "[\(a)]:\(port)"
+            @unknown default: return "\(e)"
+            }
+        }
+        return "\(e)"
+    }
+
+    private static func logSlowDial(conn: NWConnection, label: String, totalMs: Int) {
+        let (ok, dropped) = slowDialLimiter.admit()
+        guard ok else { return }
+        conn.requestEstablishmentReport(queue: .global(qos: .utility)) { report in
+            guard let sink = NCDialTrace.logSink else { return }
+            if dropped > 0 { sink("[dial] \(dropped) slow-dial line(s) suppressed", false) }
+            let t = NCDialTrace()
+            if let report { t.absorb(report, connectStartMs: 0) }
+            let split = t.summary
+            sink("[dial] \(label) ready in \(totalMs) ms" + (split.isEmpty ? "" : ": " + split), false)
+        }
     }
 
     func send(_ data: Data) {
