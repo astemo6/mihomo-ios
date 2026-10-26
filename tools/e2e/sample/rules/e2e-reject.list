@@ -1,0 +1,3 @@
+# E2E reject list (QX filter_remote, no policy column — force-policy=reject)
+host, e2e-reject.localtest.me
+host-suffix, ads.e2e.invalid

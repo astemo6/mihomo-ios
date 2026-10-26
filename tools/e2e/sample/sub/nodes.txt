@@ -1,0 +1,2 @@
+shadowsocks=127.0.0.1:18001, method=aes-256-gcm, password=nc-loop-ss-pw, fast-open=false, udp-relay=false, tag=Sub-SS-Loop
+vmess=127.0.0.1:18003, method=aes-128-gcm, password=b831381d-6324-4d53-ad4f-8cda48b30811, fast-open=false, udp-relay=false, tag=Sub-VMess-Loop
