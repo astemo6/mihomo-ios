@@ -372,14 +372,14 @@ final class ProfileStoreLogicTests: XCTestCase {
         var current = before
         current.name = "Renamed"
         current.updateIntervalHours = 6
-        current.userAgent = "mihomo"
+        current.userAgent = SubscriptionUA.metaCore
         var downloaded = before
         downloaded.userInfo = SubscriptionUserInfo(upload: 1, download: 2, total: 3, expire: 0)
         downloaded.lastUpdated = Date(timeIntervalSince1970: 100)
         let m = ProfileStore.mergeRefreshed(current: current, downloaded: downloaded)
         XCTAssertEqual(m.name, "Renamed")
         XCTAssertEqual(m.updateIntervalHours, 6)
-        XCTAssertEqual(m.userAgent, "mihomo")
+        XCTAssertEqual(m.userAgent, SubscriptionUA.metaCore)
         XCTAssertEqual(m.userInfo, downloaded.userInfo)
         XCTAssertEqual(m.lastUpdated, downloaded.lastUpdated)
         var unnamed = current

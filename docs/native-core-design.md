@@ -1,22 +1,22 @@
 # 原生内核（NativeCore）设计与契约
 
 创建：2026-10-24。目标：用原生 Swift（控制面）+ C（数据面，后续 lwIP）写一个新内核，
-逐步替换 PacketTunnel 里的 mihomo（Go）内核，解决扩展内存平台期 40 MB、余量 ~10 MB、
-被 jetsam 杀的问题（实测见 bridge/memshed.go）。App 与 UI 不动。
+逐步替换 PacketTunnel 里的旧内核，解决扩展内存平台期 40 MB、余量 ~10 MB、
+被 jetsam 杀的问题（旧内核的内存实测）。App 与 UI 不动。
 
-> **现状注记（2026-10-25）**：本设计已落地——NativeCore 是唯一内核，`bridge/` 与 gomobile 已删除（Go-zero），无 `LibmihomoStart` 回退与 Go 侧配置导出；下文的过渡方案（开关回退、差分测试、按进程分批替换）均为历史设计，现状以代码、`README.md` 与 `CI.md` 为准。
+> **现状注记（2026-10-25）**：本设计已落地——NativeCore 是唯一内核，旧内核与其桥接层已删除，无旧内核回退与旧内核侧配置导出；下文的过渡方案（开关回退、差分测试、按进程分批替换）均为历史设计，现状以代码、`README.md` 与 `CI.md` 为准。
 
 ## 原则
 
 1. **先独立写、后替换**：新内核先作为独立模块长出来，用仓库现有测试语料验收；
-   接入时只动 PacketTunnel 启动路径，带开关，启动失败自动回退 `LibmihomoStart`。
-2. **mihomo 是规格书 + 对照组**：规则/DNS/策略组/Vision/Reality/嗅探的语义以 mihomo
-   实现为准 1:1 复刻；同一配置喂新旧内核做差分测试（沿用 bridge 的 e2e 模式）。
-3. **按进程拆替换面**：Swift 侧共调用 131 个 Libmihomo 函数，其中只有约 20–30 个
+   接入时只动 PacketTunnel 启动路径，带开关，启动失败自动回退旧内核。
+2. **Clash.Meta 是规格书 + 对照组**：规则/DNS/策略组/Vision/Reality/嗅探的语义以 Clash.Meta
+   参考实现为准 1:1 复刻；同一配置喂新旧内核做差分测试（沿用旧桥接层的 e2e 模式）。
+3. **按进程拆替换面**：Swift 侧共调用 131 个旧内核桥接函数，其中只有约 20–30 个
    属于隧道进程（Start/Reload/Stop、内存、网络变化）；其余约 100 个是 App 进程的
    工具函数（订阅解析、导入、规则校验、Geo、CA），不占 NE 内存配额，过渡期原样
-   保留 Go，最后再逐批移植。
-4. **配置格式不变**：新内核直接吃 mihomo YAML 语义。过渡期由 Go 侧新增导出
+   保留旧实现，最后再逐批移植。
+4. **配置格式不变**：新内核直接吃 Clash.Meta YAML 语义。过渡期由旧内核侧新增导出
    `NativeConfigJSON(homeDir)`：把 buildRuntime 已生成的 runtime.yaml 转成 JSON
    喂给原生侧（JSON 是 YAML 子集，语义与现网一致），原生侧不引入 YAML 解析器。
 
@@ -40,7 +40,7 @@
 - 生命周期：`start(home:profilePath:tunFd:) throws`、`reload(profilePath:hot:) throws`、
   `stop()`、`isRunning: Bool`、`version: String`
 - 内存：`shedMemory(level:reason:) -> String`、`freeMemory()`、`memoryStats() -> String`
-  （返回形状与 LibmihomoMemoryStats 一致，PacketTunnelProvider 的内存治理逻辑不改）
+  （返回形状与旧内核的内存统计一致，PacketTunnelProvider 的内存治理逻辑不改）
 - 网络：`setNetworkState(type:ssid:)`、`notifyNetworkChanged(json:) -> Int`、
   `flushDNSCache()`
 - 控制器 REST：监听与现控制器相同端口/secret，至少 /version、/proxies、
@@ -61,7 +61,7 @@
 ## 验收
 
 - 每批：单元测试（UnitTests/NativeCoreTests.swift）+ CI（checks + ios build_only）全绿。
-- 协议/规则语义：与 mihomo 差分（同配置、同输入，比命中策略/DNS 应答/REST 输出）。
+- 协议/规则语义：与 Clash.Meta 参考实现差分（同配置、同输入，比命中策略/DNS 应答/REST 输出）。
 - 真机（用户负责）：装包后看诊断 → 隧道内存曲线，对照现版本 26–29 MB 起步 /
   40 MB 平台期；浸泡与 jetsam 观察按 C 线清单执行。
 
@@ -91,7 +91,7 @@
   obfs 的 tls1.2_ticket_auth / http_post / random_head——命中这些组合时
   连接器返回明确的 unsupported 说明。
 - **SS 的 simple-obfs 插件（plugin: obfs）已实现**（http/tls 两模式，
-  NCSSPlugin/NCSSPluginStream，规格取自 mihomo 的 Go 移植）：插件包住整条
+  NCSSPlugin/NCSSPluginStream，规格取自 Clash.Meta 参考实现）：插件包住整条
   SS 流（含请求头），只作用于 TCP，与 SSR obfs 是两套东西。
   **v2ray-plugin（websocket 模式，含 mux 与 tls=）已实现**，复用隧道侧
   NCWebSocketStream 帧层。**shadow-tls 插件未实现**（需完整 TLS 1.3

@@ -1,7 +1,7 @@
 # Brook 出站（feat/nc-brook）
 
-纯 Swift 实现 txthinking/brook 客户端协议，零 Go。协议细节以 brook 官方源码为准
-（streamclient.go / packetclient.go / simplestreamclient.go / simplepacketclient.go / websocket.go / brooklink.go / quic.go）。
+纯 Swift 实现 txthinking/brook 客户端协议。协议细节以 brook 官方源码为准
+（stream / packet / simple stream / simple packet 客户端、websocket、brook link、quic）。
 
 ## 支持范围
 
@@ -31,7 +31,7 @@
   udp-over-stream: false   # quicserver
   without-brook-protocol: false
   skip-cert-verify: false  # link: insecure
-  ca: "-----BEGIN CERTIFICATE-----…"   # 仅信任此 CA（Go RootCAs 语义）
+  ca: "-----BEGIN CERTIFICATE-----…"   # 仅信任此 CA（替换系统根证书集）
   client-fingerprint: chrome           # wss：手写 ClientHello（link: tlsfingerprint）
   client-hkdf-info: brook
   server-hkdf-info: brook
@@ -40,7 +40,7 @@
 
 ## brook:// 链接
 
-`brook://KIND?KIND=<server>&password=…&name=…`（Go url.Values：键排序、QueryEscape、空格为 `+`）。
+`brook://KIND?KIND=<server>&password=…&name=…`（brook 的查询串编码：键排序、查询转义、空格为 `+`）。
 导入（NCSubscriptionParser → NCBrookLink.parse）与分享（NCShareLink → NCBrookLink.encode）互逆；
 `brook://socks5?...` 导入为普通 socks5 节点。
 

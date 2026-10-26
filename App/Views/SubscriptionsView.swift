@@ -36,7 +36,7 @@ struct NodeSubEditor: View {
                 Section("选项") {
                     Picker("User-Agent", selection: $ua) {
                         Text("clash.meta").tag("clash.meta")
-                        Text(verbatim: "mihomo").tag("mihomo")
+                        Text(verbatim: "Clash.Meta (Meta core)").tag(SubscriptionUA.metaCore)
                         Text("Quantumult X").tag("Quantumult%20X/1.5.2")
                         Text("Shadowrocket").tag("Shadowrocket/2070")
                     }

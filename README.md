@@ -1,12 +1,12 @@
-# Tern（NativeCore 原生内核的 iOS 客户端，原名 Mihomo iOS）
+# Tern（NativeCore 原生内核的 iOS 客户端）
 
-内核为自研 **NativeCore**（纯 Swift，协议 / 规则 / DNS 语义对标 [mihomo](https://github.com/MetaCubeX/mihomo) 与 Surge / Loon / Quantumult X）的个人 iOS 代理客户端：卡片界面（深色 / 浅色），五个标签页——首页、策略、请求、工具、更多；首页只放最常用的东西，功能页在「工具」，设置在「更多」，进阶选项收在「更多 → 高级设置」。
+内核为自研 **NativeCore**（纯 Swift，协议 / 规则 / DNS 语义对标 [Clash.Meta](https://github.com/MetaCubeX/mihomo) 与 Surge / Loon / Quantumult X）的个人 iOS 代理客户端：卡片界面（深色 / 浅色），五个标签页——首页、策略、请求、工具、更多；首页只放最常用的东西，功能页在「工具」，设置在「更多」，进阶选项收在「更多 → 高级设置」。
 
 > 本项目以 **GPL-3.0** 发布（见 `LICENSE` 与 `NOTICE`）。仓库里没有任何节点、证书或密钥。
 
 ## 设计原则
 
-1. **一个内部模型**：任何来源格式（mihomo YAML、Surge / Quantumult X / Loon / Stash / Egern 的 .conf 与模块）只在导入边缘翻译一次为规范模型（见 `docs/native-config-model.md`），引擎只消费规范模型，不存在第二套运行逻辑；覆写 / 模块存储是我们自己的。
+1. **一个内部模型**：任何来源格式（Clash.Meta YAML、Surge / Quantumult X / Loon / Stash / Egern 的 .conf 与模块）只在导入边缘翻译一次为规范模型（见 `docs/native-config-model.md`），引擎只消费规范模型，不存在第二套运行逻辑；覆写 / 模块存储是我们自己的。
 2. **一种设计语言**：项目自己的深色卡片（`Theme` / `Card`），新页面不照搬其他客户端的布局。
 3. **首页极简**：连接开关、出站模式、IP 卡片、流量和可选的首页面板。功能页是「工具」里的卡片（节点与订阅、规则、模块、重写、脚本、任务、HTTPS 解密、DNS、日志、网络工具）；「更多」放配置、统计、备份和 App 设置，连接方式 / 内核 / 测速等进阶项在「更多 → 高级设置」。
 4. **模块只有一个入口**：所有格式的模块和远程资源（规则集、脚本）都在「工具 → 模块」，用角标标出来源格式。
@@ -21,7 +21,7 @@
 | 策略 | 已连接：实时策略组、点选切换、组测速；长按策略组：测速、置顶、换图标、编辑；拖动或「编辑排序」调整策略组顺序；自动 / 故障转移组可开「智能选择」；任意策略组可设**前置代理**并显示策略链。**未连接：「未连接 · 来自配置文件」离线策略页**——读取当前配置（含节点集缓存、合并的手动节点），可以选节点（按配置保存，下次连接时自动应用）、直接测速 |
 | 请求 | 实时连接、最近关闭、MitM 解密的 HTTP 请求（头部 / 内容查看、**复制为 cURL、重放、编辑后重放**、导出 HAR）、请求时间线 |
 | 工具 → 节点与订阅 | 配置订阅与节点订阅分开管理：流量 / 到期（`subscription-userinfo`）、左右滑（更新、复制链接）、长按（编辑、停用、图标、节点处理、删除）；全部节点、手动节点（添加 / 编辑 / 分享 / 凭据查看）、节点集（停用 / 删除 / 编辑）、筛选节点（按地区 / 关键词生成策略组）、离线测速 |
-| 工具 → 分流规则 | 规则（实时或离线，命中计数）+ **自定义规则**（Surge / QX / Loon / mihomo 写法，表单或文本模式，实时校验并显示转换结果与策略组；远程 RULE-SET / DOMAIN-SET / QX filter_remote；拖动排序） |
+| 工具 → 分流规则 | 规则（实时或离线，命中计数）+ **自定义规则**（Surge / QX / Loon / Clash.Meta 写法，表单或文本模式，实时校验并显示转换结果与策略组；远程 RULE-SET / DOMAIN-SET / QX filter_remote；拖动排序） |
 | 工具 → 模块 / 重写 / 脚本 / 定时任务 / HTTPS 解密 | **模块**（全部格式一个入口，格式角标；远程规则集 / 重写集 / 脚本各自的更新间隔、开关、错误、全部更新；一键添加 BoxJS；**模块库**浏览 / 搜索 / 预览；Loon `[Argument]` 参数；**策略映射**）、**本地模块**（重写规则 + MitM 主机名：表单编辑、拖动排序、文本模式）、**脚本调试台**、定时（cron）与通用脚本任务、HTTPS 解密（CA 证书、主机名、QUIC 选项） |
 | 工具 → DNS / 日志 / 网络 | DNS（国内 / 国外分流、引导 DNS、nameserver-policy、Fake-IP 过滤、本地映射）、运行日志、DNS 日志、连接分析（按天保存）、网络工具（Ping / TCP / DNS，经过内核规则并显示策略链）、网速测试（带宽 / NAT 类型）、**解锁检测**（按策略 / 节点）、内网 IP 与路由器 |
 | 更多 | 配置（**配置编辑器**：YAML 高亮、内核实时校验并标出错误行列；订阅配置只读，可「复制为本地配置」；**节点处理**：过滤、重命名、旗帜、去重、排序 + 实时预览；**覆写脚本**；订阅 / 本地 YAML / 剪贴板 / 文件；**Surge / Quantumult X / Loon / Clash `.conf` 导入**先显示转换报告）、流量统计（Swift Charts，按天保存约 120 天）、配置快照、**备份与恢复**（文件 / 分享 / iCloud、WebDAV 多版本可加密、iCloud 云盘同步文件夹）、更新资源、存储空间、深色与浅色、App 图标、开始标签页、首页流量统计范围、新手引导、诊断与反馈（**一键导出诊断包**、App Group 与候选组、扩展 ID、启动日志、隧道内存）、关于 |
@@ -58,6 +58,7 @@
 - 内核 **NativeCore**（纯 Swift）：共享层 `Shared/NativeCore/` 放配置规范模型、导入器、规则、DNS、协议与控制器协议，App 与隧道共用；`PacketTunnel/NativeCore/` 放数据面（lwIP）、拨号与引擎生命周期。隧道启动时由 `NativeCoreEngine` 加载经导入器归一的配置。
 - 设置文件（App Group 容器 `tern/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
+- 改名（2026-10-27）：Bundle ID `com.astemo6.tern`（`.tunnel` / `.widget`）、App Group `group.com.astemo6.tern`、URL scheme `tern://`、容器目录 `tern/`。这是一个新 App，旧版的数据不会自动带过来：在旧版里导出备份（文件 / WebDAV / 同步文件夹 / 完整导出），在 Tern 里「更多 → 备份与恢复」导入即可，旧格式的备份照常识别（`App/Core/LegacyImport.swift`）。
 
 ### 编程语言分工（现状）
 
@@ -83,7 +84,7 @@ NativeCore（纯 Swift）实现的出站协议：Shadowsocks（含 2022，以及
 | 格式 | 示例 |
 | --- | --- |
 | 分享链接 | `ss://` `ssr://` `vmess://`（v2rayN JSON）`vless://` `trojan://` `hysteria://` `hysteria2://` `hy2://` `tuic://` `wireguard://` `wg://` `snell://` `anytls://` `mierus://` `socks5://` `socks://` `http(s)://user:pass@host:port` |
-| 订阅 | base64 编码的链接列表；mihomo / Clash YAML |
+| 订阅 | base64 编码的链接列表；Clash.Meta / Clash YAML |
 | Surge / Egern | `名称 = ss, host, 8388, encrypt-method=aes-128-gcm, password=…`（ss / vmess / trojan / snell / http / https / socks5 / socks5-tls / hysteria2 / tuic / anytls / ssh） |
 | Quantumult X | `shadowsocks=host:port, method=…, password=…, tag=名称`（shadowsocks / vmess / vless / trojan / http / socks5） |
 
@@ -91,7 +92,7 @@ NativeCore（纯 Swift）实现的出站协议：Shadowsocks（含 2022，以及
 
 ## 内核
 
-NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/NativeCore/`），随 App 一起构建发布，没有上游内核版本与自动升级流程——原 mihomo 内核与 `core-update.yml` 已随 Go-zero 一并移除。协议 / 规则 / DNS 语义对标 mihomo 与 Surge / Loon / QX，差异以仓库测试为准。
+NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/NativeCore/`），随 App 一起构建发布，没有上游内核版本与自动升级流程。协议 / 规则 / DNS 语义对标 Clash.Meta 与 Surge / Loon / QX，差异以仓库测试为准。
 
 ## CI
 
