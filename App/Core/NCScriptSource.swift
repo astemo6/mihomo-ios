@@ -13,7 +13,7 @@ enum NCScriptSource {
 
     /// mitm CachePath: <home>/engine/cache/<sha1(url) hex>.
     static func cachePath(home: String, url: String) -> String {
-        let h = Insecure.SHA1.hash(data: Data(url.utf8)).map { String(format: "%02x", $0) }.joined()
+        let h = Insecure.SHA1.hash(data: Data(url.utf8)).ncHex
         return URL(fileURLWithPath: home).appendingPathComponent("engine/cache").appendingPathComponent(h).path
     }
 

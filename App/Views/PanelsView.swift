@@ -48,15 +48,6 @@ final class PanelsModel: ObservableObject {
         HomePanelStore.shared.sync() // feat/panels: hidden / pinned scripts / engine config
     }
 
-    /// Refreshes pinned script panels that were never run or whose interval passed (Home only).
-    func refreshStalePinned() async {
-        let now = Date().timeIntervalSince1970
-        for p in pinnedPanels where p.script != nil {
-            let interval = Double(max(p.interval ?? 0, 60))
-            if (p.updated ?? 0) == 0 || now - (p.updated ?? 0) > interval { await refresh(p) }
-        }
-    }
-
     func load() async {
         if demo { return }
         guard VPNManager.shared.isConnected else { panels = []; loadError = nil; return }

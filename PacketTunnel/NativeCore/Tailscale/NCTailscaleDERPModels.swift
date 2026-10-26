@@ -11,6 +11,5 @@ import Foundation
 
 // MARK: - Compatibility Typealiases
 
-typealias DERPNode = NCTailscaleDERPNode
 typealias DERPRegion = NCTailscaleDERPRegion
 typealias DERPMap = NCTailscaleDERPMap

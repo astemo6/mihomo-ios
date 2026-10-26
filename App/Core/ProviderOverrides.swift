@@ -121,10 +121,6 @@ final class ProviderOverrideStore: ObservableObject {
 
     // MARK: 配置规则 / Final (bridge/profileruleoverrides.go)
 
-    func profileRuleOverrides(_ profileID: String?) -> [ProfileRuleOverride] {
-        overrides(profileID)[ProviderOverride.profileRulesKey]?.rules ?? []
-    }
-
     /// Changes the override of one profile rule (an override left empty is removed).
     func updateProfileRule(_ profileID: String, rule: String, index: Int, _ change: (inout ProfileRuleOverride) -> Void) {
         update(profileID, ProviderOverride.profileRulesKey) { o in

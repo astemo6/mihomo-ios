@@ -76,16 +76,6 @@ enum NCGroupEditing {
         return GroupSpecsResult(groups: gs, providers: pv, proxies: px, chains: chains)
     }
 
-    /// JSON string export for bridge compatibility.
-    static func groupSpecsJSON(home: URL, profilePath: String) -> String {
-        let r = specs(home: home, profilePath: profilePath)
-        guard let data = try? JSONEncoder().encode(r),
-              let str = String(data: data, encoding: .utf8) else {
-            return "{\"groups\":[],\"providers\":[],\"proxies\":[],\"chains\":[]}"
-        }
-        return str
-    }
-
     // MARK: - GroupEditCheck
 
     /// Validates candidate group edits for the profile:
@@ -585,24 +575,6 @@ enum NCGroupEditing {
         }
 
         return ProfileInspector.GroupPreviewItem(members: out, empty: false)
-    }
-
-    /// JSON export for GroupPreview
-    static func groupPreviewJSON(home: URL, path: String, specsJSON: String) -> String {
-        guard let data = specsJSON.data(using: .utf8),
-              let specs = try? JSONDecoder().decode([GroupSpec].self, from: data) else {
-            return "{\"groups\":[],\"error\":\"invalid specs JSON\"}"
-        }
-        let pool = buildMemberPool(home: home, path: path)
-        let items = preview(specs: specs, pool: pool)
-        struct Res: Encodable {
-            var groups: [ProfileInspector.GroupPreviewItem]
-        }
-        guard let outData = try? JSONEncoder().encode(Res(groups: items)),
-              let str = String(data: outData, encoding: .utf8) else {
-            return "{\"groups\":[]}"
-        }
-        return str
     }
 
     // MARK: - Regex and AdapterType Helpers

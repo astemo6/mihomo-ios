@@ -32,12 +32,6 @@ final class CustomRulesStore: ObservableObject {
         Task { if let e = await saveAndReload() { message = e } }
     }
 
-    /// r7: non-drag reorder (swipe / VoiceOver). `by` = -1 up, +1 down.
-    func canStep(_ id: CustomRule.ID, by: Int) -> Bool {
-        guard let i = rules.firstIndex(where: { $0.id == id }) else { return false }
-        return rules.indices.contains(i + by)
-    }
-
     func step(_ id: CustomRule.ID, by: Int) {
         guard let i = rules.firstIndex(where: { $0.id == id }), rules.indices.contains(i + by) else { return }
         rules.swapAt(i, i + by)
@@ -846,43 +840,6 @@ struct RemoteRefusedLine: View {
 }
 
 // MARK: - Providers
-
-struct OfflineProviderRow: View {
-    let p: InspectProvider
-    var error: String? = nil
-
-    var cacheSummary: String {
-        var parts: [String] = [String(localized: "已缓存")]
-        if p.count >= 0 {
-            parts.append(p.kind == "proxy" ? String(localized: "\(p.count) 个节点") : String(localized: "\(p.count) 条"))
-        } else {
-            parts.append(String(localized: "二进制格式"))
-        }
-        if let s = p.size { parts.append(Fmt.bytes(s)) }
-        if let d = p.cachedDate { parts.append(d.formatted(.relative(presentation: .named))) }
-        return parts.joined(separator: " · ")
-    }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(p.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                RuleTypeTag(type: p.vehicle.uppercased())
-                if let b = p.behavior, !b.isEmpty { RuleTypeTag(type: b) }
-            }
-            if p.cached {
-                Text(cacheSummary).font(.caption2).foregroundStyle(.secondary)
-            } else {
-                Text(p.vehicle == "inline" ? "内联" : "尚未下载 · 轻点右侧按钮下载").font(.caption2).foregroundStyle(Theme.warn)
-            }
-            if let error {
-                Text(error).font(.caption2).foregroundStyle(Theme.bad).lineLimit(2)
-            }
-            if let u = p.url, !u.isEmpty {
-                Text(u).scaledFont(9, design: .monospaced).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
-        }
-    }
-}
 
 struct OfflineProviderDetail: View {
     let p: InspectProvider

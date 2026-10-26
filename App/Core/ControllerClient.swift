@@ -223,7 +223,6 @@ final class ControllerClient {
     func harkClearLogs(kind: String) async throws {
         try await send("/hark/logs", method: "DELETE", query: [URLQueryItem(name: "kind", value: kind)])
     }
-    func mitmRefresh(url: String) async throws { try await send("/mitm/refresh", method: "POST", body: ["url": url], timeout: 40) }
 
     func select(group: String, node: String) async throws {
         try await send("/proxies/\(Self.enc(group))", method: "PUT", body: ["name": node])
@@ -284,28 +283,6 @@ final class ControllerClient {
 
     /// 测速设置 → TCP 握手延迟: TCP nodes report the TCP connect time to their server (bridge netextras.go).
     static var tcpHandshake: Bool { CoreOverrides.load().tcpHandshakeDelay }
-
-    enum DelayResult {
-        /// name → ms for members that answered; members missing from the map timed out.
-        case measured([String: Int])
-        /// The core answered 504: every member timed out.
-        case allTimedOut
-    }
-
-    /// GET /group/{name}/delay. Tests every member in parallel inside the core (through each node).
-    func groupDelay(_ group: String, url: String? = nil, timeoutMs: Int? = nil) async throws -> DelayResult {
-        let st = Self.testSettings
-        let ms = timeoutMs ?? st.timeoutMs
-        do {
-            let data = try await send("/group/\(Self.enc(group))/delay", query: [
-                URLQueryItem(name: "url", value: url ?? st.url), URLQueryItem(name: "timeout", value: String(ms)),
-            ], timeout: Self.delayWindow(ms) + 10)
-            let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            return .measured(obj.compactMapValues { ($0 as? NSNumber)?.intValue })
-        } catch APIError.http(504, _) {
-            return .allTimedOut
-        }
-    }
 
     /// v0.15.2: tests the given members with at most `limit` (10) running at once (GET /proxies/{name}/delay
     /// each) instead of GET /group/{name}/delay, which starts every member at the same moment inside the

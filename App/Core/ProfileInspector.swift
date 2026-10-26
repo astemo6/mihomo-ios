@@ -176,10 +176,6 @@ final class ProfileInspector: ObservableObject {
         var empty: Bool?
         var error: String?
     }
-    private struct GroupPreviewResult: Codable {
-        var groups: [GroupPreviewItem]?
-        var error: String?
-    }
 
     /// B16: members the core would give each draft group in the active profile (bridge GroupPreview, the
     /// same expansion as the inspector), for 策略组编辑 previews and 筛选节点 counts. nil on failure.

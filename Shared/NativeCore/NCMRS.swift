@@ -82,9 +82,6 @@ enum NCMRS {
     /// MRS container magic bytes: 'M', 'R', 'S', 0x01
     static let mrsMagic: [UInt8] = [0x4D, 0x52, 0x53, 0x01]
 
-    /// Zstandard frame header magic: 0xFD2FB528 (little-endian: 0x28, 0xB5, 0x2F, 0xFD)
-    static let zstdMagic: [UInt8] = [0x28, 0xB5, 0x2F, 0xFD]
-
     /// Optional pluggable decompressor hook for environments with zstd available.
     /// If unset and zstd-compressed data is fed, an explicit `.unsupportedZstandard` error is thrown.
     static var decompressor: ((Data) throws -> Data)? = nil
@@ -364,45 +361,6 @@ struct NCMRSDomainSet: Equatable {
         return Self.getBit(leaves, nodeId)
     }
 
-    /// Traverse the trie and emit decoded domain patterns.
-    /// Internal keys are reversed; keys ending in '+' denote suffix patterns.
-    func forEachPattern(_ callback: (String) -> Void) {
-        var currentKey = [UInt8]()
-        func traverse(nodeId: Int, bmIdx0: Int) {
-            if Self.getBit(leaves, nodeId) {
-                if !currentKey.isEmpty {
-                    var k = currentKey
-                    if k.last == 0x2B { // '+'
-                        k.removeLast()
-                    }
-                    let pattern = String(decoding: k.reversed(), as: UTF8.self)
-                    callback(pattern)
-                }
-            }
-
-            var bmIdx = bmIdx0
-            while true {
-                if Self.getBit(labelBitmap, bmIdx) {
-                    return
-                }
-                let labelIdx = bmIdx - nodeId
-                guard labelIdx < labels.count else { return }
-                let nextLabel = labels[labelIdx]
-                currentKey.append(nextLabel)
-                let nextNodeId = bmIdx - nodeId + 1
-                guard nextNodeId - 1 < oneIndices.count else {
-                    currentKey.removeLast()
-                    return
-                }
-                let nextBmIdx = oneIndices[nextNodeId - 1] + 1
-                traverse(nodeId: nextNodeId, bmIdx0: nextBmIdx)
-                currentKey.removeLast()
-                bmIdx += 1
-            }
-        }
-
-        traverse(nodeId: 0, bmIdx0: 0)
-    }
 }
 
 // MARK: - IPCIDR Set (Behavior: ipcidr)

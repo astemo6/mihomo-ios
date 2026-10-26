@@ -66,7 +66,7 @@ enum NCSHA256 {
 /// in a later batch): hex(SHA-224(password)) + CRLF + CMD + ATYP target + CRLF.
 enum NCTrojan {
     static func passwordHashHex(_ password: String) -> String {
-        NCSHA256.hash(Data(password.utf8), variant224: true).map { String(format: "%02x", $0) }.joined()
+        NCSHA256.hash(Data(password.utf8), variant224: true).ncHex
     }
 
     static func requestHead(password: String, target: NCTarget, udp: Bool = false) -> Data {

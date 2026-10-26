@@ -326,7 +326,7 @@ enum NCShareLink {
                let metaData = try? Data(contentsOf: metaURL),
                let meta = try? JSONSerialization.jsonObject(with: metaData) as? [String: Any],
                let srcHash = meta["source"] as? String {
-                let actualHash = NCSHA256.hash(srcData).map { String(format: "%02x", $0) }.joined()
+                let actualHash = NCSHA256.hash(srcData).ncHex
                 if !srcHash.isEmpty && srcHash == actualHash,
                    let out = try? Data(contentsOf: yamlURL), !out.isEmpty {
                     data = out

@@ -39,10 +39,6 @@ enum NCTailscaleKeyEncoding {
         discokeyPrefix + hexString(raw32)
     }
 
-    static func encodePrivateKey(_ key: Curve25519.KeyAgreement.PrivateKey) -> String {
-        privkeyPrefix + hexString(Data(key.rawRepresentation))
-    }
-
     /// Strips any known prefix ("mkey:", "nodekey:", "discokey:", "privkey:") or custom prefix,
     /// and decodes the 64-character hexadecimal string into 32 raw bytes.
     static func decodeKeyHex(_ text: String, expectedPrefix: String? = nil) -> Data? {
@@ -84,7 +80,7 @@ enum NCTailscaleKeyEncoding {
     }
 
     static func hexString(_ data: Data) -> String {
-        data.map { String(format: "%02x", $0) }.joined()
+        data.ncHex
     }
 }
 
@@ -510,12 +506,6 @@ struct NCTailscaleDERPNode: Codable, Equatable, Sendable {
         return 443
     }
 
-    /// Effective STUN UDP port (default 3478).
-    var effectiveSTUNPort: Int {
-        if let p = STUNPort, p > 0 { return p }
-        return 3478
-    }
-
     /// Server name used for TLS ClientHello SNI and certificate validation.
     /// Prefers `CertName` if set, otherwise falls back to `HostName`.
     var effectiveServerName: String {
@@ -588,7 +578,6 @@ struct NCTailscaleDERPRegion: Codable, Equatable, Sendable {
     var regionCode: String { RegionCode }
     var regionName: String? { RegionName }
     var avoid: Bool? { Avoid }
-    var noMeasureNoHome: Bool? { NoMeasureNoHome }
     var nodes: [NCTailscaleDERPNode] { Nodes ?? [] }
 
     /// All nodes in this region capable of DERP packet relaying.

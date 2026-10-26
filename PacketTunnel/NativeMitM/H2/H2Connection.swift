@@ -127,7 +127,6 @@ final class H2Connection {
     }
 
     var activeStreams: Int { streams.count }
-    var bufferedOut: Int { ctrlBytes + streams.values.reduce(0) { $0 + $1.outBytes } }
 
     /// Client side: another stream may be opened now.
     var canOpenStream: Bool {

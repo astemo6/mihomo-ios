@@ -491,7 +491,7 @@ final class OverrideScriptStore: ObservableObject {
 
     nonisolated static func fileSHA(_ url: URL) -> String {
         guard let d = try? Data(contentsOf: url) else { return "" }
-        return SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined()
+        return SHA256.hash(data: d).ncHex
     }
 
     /// fix/app-toggle-hitch: nonisolated — hashes the profile and every script file, so it runs in the detached

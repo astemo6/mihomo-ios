@@ -492,15 +492,6 @@ final class NCDERPSession {
         }
     }
 
-    /// Sends an explicit KeepAlive frame to the DERP server.
-    func sendKeepAlive() {
-        queue.async { [weak self] in
-            guard let self = self, self.state == .ready, let tls = self.tlsStream else { return }
-            let frame = NCDERPFrameCodec.encodeKeepAlive()
-            tls.send(frame)
-        }
-    }
-
     private func flushSendQueue(tls: NCTLSClientStream) {
         guard !sendQueue.isEmpty else { return }
         for item in sendQueue {

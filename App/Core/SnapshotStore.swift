@@ -100,7 +100,7 @@ final class SnapshotStore: ObservableObject {
             h.update(data: files[k] ?? Data())
             h.update(data: Data([0]))
         }
-        return h.finalize().map { String(format: "%02x", $0) }.joined()
+        return h.finalize().ncHex
     }
 
     // MARK: v0.19.8 dedupe

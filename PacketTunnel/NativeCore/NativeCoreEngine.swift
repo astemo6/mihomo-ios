@@ -674,13 +674,6 @@ final class NativeCoreEngine {
         locked { dnsPolicy }?.hostsReply(queryData: query)
     }
 
-    /// Upstream for a query that neither hosts nor fake-IP answered: the
-    /// per-domain assignment (nameserver-policy / [Host] server: / QX
-    /// server=/) when one exists, else the first configured default.
-    func dnsUpstream(for query: Data) -> NCDNSUpstream? {
-        dnsRoute(for: query).primary
-    }
-
     /// Full DNS routing for a forwarded query (mihomo dns.fallback /
     /// fallback-filter): the primary upstream as dnsUpstream picks it,
     /// plus the first fallback server when dns.fallback is configured.

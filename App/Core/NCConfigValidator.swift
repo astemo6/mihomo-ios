@@ -11,7 +11,7 @@ import CryptoKit
 /// locate patterns and FriendlyError hints keep matching.
 ///
 /// Used by every caller that had the Go parse: ProfileStore.validate (import / save), TestBridge.validate,
-/// ProfileCheck (editor), NCProfileNodes / NCProfileRefRename commit (node edit, rename) and NCOverrideOutput
+/// ProfileCheck (editor), NCProfileNodes commit (node edit, rename) and NCOverrideOutput
 /// (覆写脚本 output).
 ///
 /// DIVERGENCES (declared): mihomo also *constructs* every adapter (cipher tables, TLS configs, transport options)

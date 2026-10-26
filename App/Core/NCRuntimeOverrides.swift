@@ -235,7 +235,7 @@ struct NCRuntimeSettings {
         if !ok {
             return String(format: "tern-%llx-%d", UInt64(Date().timeIntervalSince1970 * 1e9), ProcessInfo.processInfo.processIdentifier)
         }
-        return bytes.map { String(format: "%02x", $0) }.joined()
+        return bytes.ncHex
     }
 
     private static let processSecretLock = NSLock()

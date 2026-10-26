@@ -29,13 +29,6 @@ enum NCTailscaleConsts {
     /// Official reference: `tailscale.com/control/controlhttp/ts2021.go` `upgradeHeader = "tailscale-control-protocol"`.
     static let upgradeHeaderValue: String = "tailscale-control-protocol"
 
-    /// HTTP Connection header value for upgrading connections.
-    static let connectionUpgradeValue: String = "Upgrade"
-
-    /// Magic prefix header bytes optionally transmitted before the ts2021 Noise handshake.
-    /// Official reference: `tailscale.com/control/controlhttp/ts2021.go` `handshakeHeader = []byte("ts2021")`.
-    static let ts2021HandshakeHeader: [UInt8] = Array("ts2021".utf8)
-
     // MARK: - Noise Protocol & Prologue
 
     /// Noise protocol handshake suite identifier for ts2021.
@@ -59,14 +52,6 @@ enum NCTailscaleConsts {
     /// HTTP Upgrade header value for DERP sessions.
     /// Official reference: `tailscale.com/derp/derphttp` `Upgrade: DERP`.
     static let derpUpgradeHeaderValue: String = "DERP"
-
-    /// 4-byte ASCII magic identifier for DERP framing.
-    /// Official reference: `tailscale.com/derp` `magic = "DERP"`.
-    static let derpMagic: UInt32 = 0x4445_5250 // ASCII "DERP"
-
-    /// Length of a standard DERP frame header (1 byte type + 4 bytes big-endian length).
-    /// Official reference: `tailscale.com/derp.frameHeaderLen = 5`.
-    static let derpHeaderLength: Int = 5
 
     /// Official DERP frame type enumeration.
     /// Official reference: `tailscale.com/derp/derp.go` `FrameType` definitions.
@@ -140,9 +125,6 @@ enum NCTailscaleConsts {
     /// Memory watchdog check interval in seconds.
     /// Aligns with Go bridge specification: `tsWatchInterval = 2 * time.Second`.
     static let watchdogInterval: TimeInterval = 2.0
-
-    /// Target resident memory footprint for Tailscale in bytes (< 8 MB).
-    static let targetResidentLimit: Int64 = 8 << 20
 
     // MARK: - Error Text Formatting (Aligned with GoText / Go Bridge)
 

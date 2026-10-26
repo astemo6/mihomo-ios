@@ -337,7 +337,7 @@ enum NCGroupOrder {
     // MARK: - File & Hash Helpers
 
     static func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        SHA256.hash(data: data).ncHex
     }
 
     static func copyGenPath(_ copyPath: String) -> String {

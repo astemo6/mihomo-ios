@@ -75,7 +75,6 @@ final class NCTLSClientStream: NCRelayStream {
     private var transcript = Data() // concatenated handshake messages
     private var clientPrivate: Curve25519.KeyAgreement.PrivateKey?
     private var clientRandom = Data()
-    private var serverFinishedHash: Data?
     private var certsDER: [Data] = []
     private var certVerify: (scheme: UInt16, signature: Data)?
     private var handshakeHandler: ((Error?) -> Void)?

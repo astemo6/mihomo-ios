@@ -34,8 +34,6 @@ final class VPNManager: ObservableObject {
     private var configObserver: NSObjectProtocol?
 
     var isConnected: Bool { status == .connected }
-    var isTransitioning: Bool { pendingStart || pendingStop || [.connecting, .disconnecting, .reasserting].contains(status) }
-
     /// fix/app-toggle-hitch: what the Home switch shows — the requested state while a tap is pending.
     var switchOn: Bool {
         if pendingStop { return false }

@@ -85,13 +85,6 @@ struct NCWGConfig {
         return out.allSatisfy({ $0 == 0 }) ? nil : out
     }
 
-    static func uint32(_ v: NCJSONValue?) -> UInt32? {
-        guard let v else { return nil }
-        if let n = v.number, n >= 0, n <= Double(UInt32.max) { return UInt32(n) }
-        if let s = v.string, let n = UInt32(s.trimmingCharacters(in: .whitespaces)) { return n }
-        return nil
-    }
-
     static func cidrs(_ v: NCJSONValue?) -> [NCCIDR] {
         let list = v?.array?.compactMap { $0.string } ?? []
         let out = list.compactMap { NCCIDR($0.trimmingCharacters(in: .whitespaces)) }

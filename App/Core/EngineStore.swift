@@ -286,10 +286,6 @@ final class EngineStore: ObservableObject {
         }
     }
 
-    func updateAllModules() async {
-        for m in config.modules where !m.url.isEmpty { await updateModule(m) }
-    }
-
     func deleteModule(_ m: EngineModule) {
         SnapshotStore.shared.capture(String(localized: "删除模块「\(m.name)」前"))
         config.modules.removeAll { $0.id == m.id }
@@ -300,15 +296,6 @@ final class EngineStore: ObservableObject {
 
     func moduleText(_ m: EngineModule) -> String {
         (try? String(contentsOf: EnginePaths.moduleURL(m.id), encoding: .utf8)) ?? ""
-    }
-
-    /// Hostnames contributed by enabled modules (read-only in the MitM page).
-    var moduleHostnames: [String] {
-        var out: [String] = []
-        for m in config.modules where m.enabled {
-            for h in moduleInfo[m.id]?.hostnames ?? [] where !out.contains(h) { out.append(h) }
-        }
-        return out
     }
 
     // MARK: scripts
