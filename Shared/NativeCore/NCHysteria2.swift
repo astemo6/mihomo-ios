@@ -895,9 +895,10 @@ final class NCHysteria2Connection {
 
     /// How the fragments of one packet go out (see sendFrames). 0 = back-to-back burst (the first cut),
     /// 1 = each fragment after the previous one's send completion, 2 = as 1 plus a 1 ms gap.
-    /// 3/4/5/6 are experiment-only modes for the fragmentation ladder (feat/nc-hy2-frag; never the
-    /// default, nothing outside the loopback test selects them): 3 = all fragments inside one
-    /// NWConnection.batch, 4/5/6 = fixed 10/20/50 ms inter-fragment gap, NOT gated on completions.
+    /// 3/4/5/6/7 are experiment-only modes for the fragmentation ladder (feat/nc-hy2-frag; never
+    /// the default, nothing outside the loopback test selects them): 3 = all fragments inside one
+    /// NWConnection.batch, 4/5/6/7 = fixed 10/20/50/1000 ms inter-fragment gap, NOT gated on
+    /// completions (7 exists to kill timing theories outright: singles 1 s apart always work).
     private var fragmentPacing = 2
 
     /// Test seam: pick the fragment pacing mode (session queue hop).
@@ -942,7 +943,7 @@ final class NCHysteria2Connection {
             // Experiment: fixed inter-fragment gap on a timer, deliberately NOT gated on the
             // previous send's completion (the completion only does the error bookkeeping), so the
             // ladder separates "spacing helps" from "completion chaining helps".
-            let gapMs = [10, 20, 50][min(pacing - 4, 2)]
+            let gapMs = [10, 20, 50, 1000][min(pacing - 4, 3)]
             flow.send(content: frame, completion: .contentProcessed { [weak self] error in
                 guard let self else { return }
                 ncOnSessionQueue(self.queue) { self.noteDatagramSent(frame: frame, error: error) }

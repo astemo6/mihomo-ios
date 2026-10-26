@@ -615,17 +615,17 @@ final class NativeCoreLoopbackTests: XCTestCase {
         XCTAssertNotNil(self.echoStats(), "echo backend did not answer \"stats\" — no direction accounting possible")
 
         let addr = NCHysteria2Connection.udpAddress(target)
-        func payload(_ seed: Int) -> Data {
-            var d = Data(count: 3000)
-            for j in 0..<3000 { d[j] = UInt8(truncatingIfNeeded: j * 13 + seed) }
+        func payload(_ seed: Int, size: Int = 3000) -> Data {
+            var d = Data(count: size)
+            for j in 0..<size { d[j] = UInt8(truncatingIfNeeded: j * 13 + seed) }
             return d
         }
-        // One round = one send of one 3000-byte packet; success is its byte-equal echo.
-        func fragRound(mode: Int, seed: Int) -> String {
+        // One round = one send of one packet; success is its byte-equal echo.
+        func fragRound(mode: Int, seed: Int, size: Int = 3000) -> String {
             conn.setUDPFragmentPacingForTesting(mode)
             conn.setUDPDatagramLimitForTesting(1197)
             Thread.sleep(forTimeInterval: 0.3) // settle: stragglers land before the baseline
-            let p = payload(seed)
+            let p = payload(seed, size: size)
             let pieces = NCHy2UDP.fragment(sessionID: sessionID, packetID: 0, address: addr,
                                             payload: p, maxDatagramSize: 1197).count
             let s0 = self.echoStats()
@@ -660,25 +660,84 @@ final class NativeCoreLoopbackTests: XCTestCase {
         for round in 0..<2 {
             Thread.sleep(forTimeInterval: 0.3)
             let s0 = self.echoStats()
-            var want = Set<Data>()
+            var want: [Data: Int] = [:]
             let n = 6
             let count = 600 - NCHy2UDP.headerSize(address: addr)
             for i in 0..<n {
                 var p = Data(count: count)
                 let seed = round * 977 + i * 31 + 600
                 for j in 0..<count { p[j] = UInt8(truncatingIfNeeded: j * 7 + seed) }
-                want.insert(p)
+                want[p] = i
                 conn.sendUDP(sessionID: sessionID, target: target, payload: p)
             }
-            var got = 0
+            var matched: [Int] = []
             let until = Date().addingTimeInterval(2.0)
-            while Date() < until, got < n, let r = replies.wait(timeout: until.timeIntervalSinceNow) {
-                if want.remove(r) != nil { got += 1 }
+            while Date() < until, matched.count < n, let r = replies.wait(timeout: until.timeIntervalSinceNow) {
+                if let i = want.removeValue(forKey: r) { matched.append(i) }
             }
             Thread.sleep(forTimeInterval: 0.25)
             let s1 = self.echoStats()
-            lines.append("burst6x600r\(round):\(got)/\(n)[echoRx=\((s1?.rx ?? -1) - (s0?.rx ?? 0))]")
+            lines.append("burst6x600r\(round):\(matched.count)/\(n)\(matched)[echoRx=\((s1?.rx ?? -1) - (s0?.rx ?? 0))]")
         }
+        // Discriminator rungs (added after run 40262220512: every mode lost every fragmented
+        // packet except one batch round, and bursts arrived 1/6 — these separate "which piece
+        // dies" from "whether spacing matters at all"):
+        // - batch x3 more: is the single batch success reproducible or a fluke?
+        var batchMore: [String] = []
+        for r in 0..<3 { batchMore.append(fragRound(mode: 3, seed: 900 + r)) }
+        lines.append("batchMore:" + batchMore.joined(separator: ","))
+        // - two2000: a 2000-byte packet needs only 2 fragments — does failure scale with pieces?
+        var two: [String] = []
+        for r in 0..<3 { two.append(fragRound(mode: 2, seed: 700 + r, size: 2000)) }
+        lines.append("two2000:" + two.joined(separator: ","))
+        // - slow1s: fragments 1000 ms apart (mode 7). Singles 1 s apart are rock solid; if this
+        //   still loses, every timing theory is dead and the loss is structural per packet.
+        var slow: [String] = []
+        for r in 0..<2 { slow.append(fragRound(mode: 7, seed: 800 + r)) }
+        lines.append("slow1s:" + slow.joined(separator: ","))
+        // - primer: one small packet 30 ms before the fragmented packet (mode 0) — a wake-up /
+        //   first-datagram-eaten effect would show up as primer rounds succeeding.
+        conn.setUDPDatagramLimitForTesting(1197)
+        var primer: [String] = []
+        for r in 0..<3 {
+            conn.setUDPFragmentPacingForTesting(0)
+            Thread.sleep(forTimeInterval: 0.3)
+            let s0 = self.echoStats()
+            conn.sendUDP(sessionID: sessionID, target: target, payload: Self.dnsQuery)
+            Thread.sleep(forTimeInterval: 0.03)
+            let p = payload(600 + r)
+            conn.sendUDP(sessionID: sessionID, target: target, payload: p)
+            var ok = false
+            var sawPrimer = false
+            let until = Date().addingTimeInterval(2.5)
+            while Date() < until, let got = replies.wait(timeout: until.timeIntervalSinceNow) {
+                if got == p { ok = true; break }
+                if got == Self.dnsQuery { sawPrimer = true }
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+            let s1 = self.echoStats()
+            primer.append("\(ok ? 1 : 0)[primerEcho=\(sawPrimer ? 1 : 0) echoRx=\((s1?.rx ?? -1) - (s0?.rx ?? 0))]")
+        }
+        lines.append("primer:" + primer.joined(separator: ","))
+        // - dup5: the SAME 3000-byte payload as five separate packets (distinct packet IDs),
+        //   150 ms apart, shipped pacing. Completions counted over a 3 s window.
+        conn.setUDPFragmentPacingForTesting(2)
+        conn.setUDPDatagramLimitForTesting(1197)
+        Thread.sleep(forTimeInterval: 0.3)
+        let s0dup = self.echoStats()
+        let dupPayload = payload(4242)
+        for _ in 0..<5 {
+            conn.sendUDP(sessionID: sessionID, target: target, payload: dupPayload)
+            Thread.sleep(forTimeInterval: 0.15)
+        }
+        var dupGot = 0
+        let dupUntil = Date().addingTimeInterval(3.0)
+        while Date() < dupUntil, let got = replies.wait(timeout: dupUntil.timeIntervalSinceNow) {
+            if got == dupPayload { dupGot += 1 }
+        }
+        Thread.sleep(forTimeInterval: 0.25)
+        let s1dup = self.echoStats()
+        lines.append("dup5:\(dupGot)/5[echoRx=\((s1dup?.rx ?? -1) - (s0dup?.rx ?? 0))]")
         // Restore the shipped defaults for whatever runs after us on this shared connection.
         conn.setUDPFragmentPacingForTesting(2)
         conn.setUDPDatagramLimitForTesting(0)
