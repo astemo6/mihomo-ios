@@ -542,6 +542,12 @@ enum SelfCheckLogic {
     // MARK: errors / urls
 
     /// A URL for display: "host/…/last" (no query, no user info), like the tunnel's rule-set log names.
+    /// fix/nc-diag-439 (F): a script path that is only a file name (no scheme, no directory) — a QX local script.
+    static func isBareLocalScript(_ path: String) -> Bool {
+        let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !p.isEmpty && !p.contains("://") && !p.contains("/")
+    }
+
     static func shortURL(_ s: String) -> String {
         guard let c = URLComponents(string: s.trimmingCharacters(in: .whitespacesAndNewlines)), let h = c.host, !h.isEmpty else {
             return s.count > 60 ? String(s.prefix(60)) + "…" : s

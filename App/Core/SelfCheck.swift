@@ -572,23 +572,37 @@ final class SelfCheck: ObservableObject {
 
         // Scripts: entries the App could not load (local file absent, download failed …).
         var scriptCount = 0
+        // fix/nc-diag-439 (F): a script given as a bare file name (QX `CloudflareIP.js` = a file in the QX iCloud
+        // Scripts folder) never travels with an imported profile — not a broken download, so WARN with what to do.
+        var warn: [String] = []
         if let sc = Self.json("nativecore-scripts.json") as? [String: Any] {
             let all = (sc["scripts"] as? [[String: Any]] ?? []) + (sc["tasks"] as? [[String: Any]] ?? [])
             scriptCount = all.count
             for s in all {
                 guard let e = s["err"] as? String, !e.isEmpty else { continue }
-                let src = (s["path"] as? String).map { " · " + SelfCheckLogic.shortURL($0) } ?? ""
-                bad.append(String(localized: "脚本 \(s["name"] as? String ?? "?")\(src)：\(e)"))
+                let path = s["path"] as? String
+                let name = s["name"] as? String ?? "?"
+                if let path, SelfCheckLogic.isBareLocalScript(path) {
+                    warn.append(String(localized: "脚本 \(name) · \(path)：本地脚本未随配置导入"))
+                    continue
+                }
+                let src = path.map { " · " + SelfCheckLogic.shortURL($0) } ?? ""
+                bad.append(String(localized: "脚本 \(name)\(src)：\(e)"))
             }
         }
         for l in SelfCheckLogic.lines(log, containing: "跳过脚本：").suffix(5) { bad.append(String(l.prefix(200))) }
         info.append(String(localized: "脚本 \(scriptCount) 个"))
 
+        var warnLines: [String] = []
+        if !warn.isEmpty {
+            warnLines = SelfCheckLogic.capped(warn, 10)
+            warnLines.append(String(localized: "这些脚本是 Quantumult X 本地（iCloud Scripts 目录）里的文件，导入配置时不会一起带过来：把脚本加到「模块 / 脚本」里，或把配置里的文件名换成脚本的 URL。"))
+        }
         if bad.isEmpty {
-            set("resources", .pass, info.joined(separator: " · "))
+            set("resources", warn.isEmpty ? .pass : .known, (warnLines + [info.joined(separator: " · ")]).joined(separator: "\n"))
         } else {
             let head = String(localized: "\(bad.count) 项远程资源缺失：") + bad[0]
-            set("resources", .fail, ([head] + SelfCheckLogic.capped(Array(bad.dropFirst()), 20) + [info.joined(separator: " · ")]).joined(separator: "\n"))
+            set("resources", .fail, ([head] + SelfCheckLogic.capped(Array(bad.dropFirst()), 20) + warnLines + [info.joined(separator: " · ")]).joined(separator: "\n"))
         }
     }
 
