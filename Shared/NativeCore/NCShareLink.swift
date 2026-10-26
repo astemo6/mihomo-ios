@@ -292,6 +292,9 @@ enum NCShareLink {
             if !hk.isEmpty { q.add("host-key", hk.joined(separator: "|")) }
             return "ssh://\(user)@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
+        case "masque":
+            return try NCMASQUE.encodeShareLink(m)
+
         default:
             throw ShareLinkError.message("\(typ) 类型没有通用的分享链接格式")
         }

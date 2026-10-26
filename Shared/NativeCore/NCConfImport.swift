@@ -264,6 +264,7 @@ enum NCConfImport {
             type = "hysteria2"
             report.warnings.append("node '\(name)': hysteria v1 approximated as hysteria2")
         case "wireguard": type = "wireguard"
+        case "masque": type = "masque"
         case "direct": type = "direct"
         case "reject", "reject-tinygif": type = "reject"
         default:
@@ -330,6 +331,18 @@ enum NCConfImport {
             else if positional.count >= 4 { fields["username"] = .string(positional[3]) }
             if let p = take("password") { fields["password"] = .string(p) }
             else if positional.count >= 5 { fields["password"] = .string(positional[4]) }
+        case "masque":
+            if let u = take("username") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            if let priv = take("private-key") ?? take("privatekey") { fields["private-key"] = .string(priv) }
+            if let pub = take("public-key") ?? take("publickey") { fields["public-key"] = .string(pub) }
+            if let ip = take("ip") { fields["ip"] = .string(ip) }
+            if let ipv6 = take("ipv6") { fields["ipv6"] = .string(ipv6) }
+            if let sni = take("sni") { fields["sni"] = .string(sni) }
+            if let alpn = take("alpn") { fields["alpn"] = .string(alpn) }
+            if let uri = take("uri") ?? take("template") { fields["uri"] = .string(uri) }
+            if let ph = take("port-hopping") { fields["port-hopping"] = .string(ph) }
+            if let phi = take("port-hopping-interval") { fields["port-hopping-interval"] = .string(phi) }
         default:
             break
         }

@@ -39,7 +39,7 @@ enum NCSubscriptionParser {
         // converted afterwards. Member order and dedup numbering follow.
         var selfParsed: [NCProxy] = []
         var uriParsed: [NCProxy] = []
-        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https"]
+        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https", "masque"]
         for line in body.components(separatedBy: .newlines) {
             let l = line.trimmingCharacters(in: .whitespaces)
             if l.isEmpty || l.hasPrefix("#") || l.hasPrefix("//") || l.hasPrefix(";") || l.hasPrefix("[") {
@@ -76,7 +76,7 @@ enum NCSubscriptionParser {
     /// Go sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
     /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
     static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
-                                           "snell", "tuic", "hysteria2"]
+                                           "snell", "tuic", "hysteria2", "masque"]
 
     /// A `key=value` subscription line is QX-shaped when the key is a QX type keyword AND the value starts with
     /// `host:port` (or `[v6]:port`) before its first comma. A Surge / Loon line is `Name = type, host, port, …`:
@@ -133,6 +133,7 @@ enum NCSubscriptionParser {
         case "socks", "socks5", "socks5h", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
         case "anytls": return parseAnyTLS(rest)
         case "mieru", "mierus": return parseMieru(rest)
+        case "masque": return NCMASQUE.parseShadowrocket(uri)
         default: return nil
         }
     }
