@@ -105240,6 +105240,391 @@
           }
         }
       }
+    },
+    "VPN 断开时测延迟（App 内直接测）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latency test with the VPN off (measured in the app)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 斷開時測延遲（App 內直接測）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN オフでの遅延テスト（アプリ内で測定）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 끈 상태 지연 테스트(앱에서 직접 측정)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задержка при выключенном VPN (измеряется в приложении)"
+          }
+        }
+      }
+    },
+    "配置完整性（配置 → 运行时 → 内核）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile integrity (profile → runtime → core)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置完整性（配置 → 執行時 → 核心）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定の整合性（設定 → ランタイム → コア）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성 무결성(구성 → 런타임 → 코어)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Целостность профиля (профиль → среда → ядро)"
+          }
+        }
+      }
+    },
+    "远程资源（规则集 / 重写模块 / 脚本）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote resources (rule sets / rewrite modules / scripts)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端資源（規則集 / 重寫模組 / 腳本）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートリソース（ルールセット / 書き換えモジュール / スクリプト）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 리소스(규칙 세트 / 재작성 모듈 / 스크립트)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалённые ресурсы (наборы правил / модули перезаписи / скрипты)"
+          }
+        }
+      }
+    },
+    "逐个节点测延迟（普通节点 + 订阅节点）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latency test per node (local + subscription nodes)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逐個節點測延遲（普通節點 + 訂閱節點）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードごとの遅延テスト（通常 + サブスクリプション）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드별 지연 테스트(일반 + 구독 노드)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задержка по каждому узлу (обычные + из подписок)"
+          }
+        }
+      }
+    },
+    "首页出口 IP 查询": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home exit IP lookup"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁出口 IP 查詢"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームの出口 IP 照会"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 출구 IP 조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрос выходного IP на главном экране"
+          }
+        }
+      }
+    },
+    "数据面计数（TCP / UDP / DNS、Fake-IP、IPv6）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data plane counters (TCP / UDP / DNS, Fake-IP, IPv6)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料面計數（TCP / UDP / DNS、Fake-IP、IPv6）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データプレーンのカウンター（TCP / UDP / DNS、Fake-IP、IPv6）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데이터 플레인 카운터(TCP / UDP / DNS, Fake-IP, IPv6)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Счётчики плоскости данных (TCP / UDP / DNS, Fake-IP, IPv6)"
+          }
+        }
+      }
+    },
+    "MitM 自检与证书（类型 / 信任）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM self-test and certificate (type / trust)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 自檢與憑證（類型 / 信任）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM セルフテストと証明書（種類 / 信頼）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 자체 점검과 인증서(유형 / 신뢰)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Самопроверка MitM и сертификат (тип / доверие)"
+          }
+        }
+      }
+    },
+    "触发一条重写规则并确认日志": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trigger a rewrite rule and confirm the log"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "觸發一條重寫規則並確認日誌"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換えルールを 1 つ発動してログを確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성 규칙 하나를 실행하고 로그 확인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сработать правило перезаписи и проверить журнал"
+          }
+        }
+      }
+    },
+    "明文 HTTP（80 端口）重写": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain HTTP (port 80) rewrite"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明文 HTTP（80 埠）重寫"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平文 HTTP（ポート 80）の書き換え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "평문 HTTP(포트 80) 재작성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапись открытого HTTP (порт 80)"
+          }
+        }
+      }
+    },
+    "隧道内存（各步骤后，对比系统上限）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel memory (after each step, against the system limit)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道記憶體（各步驟後，對比系統上限）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルのメモリ（各ステップ後、システム上限と比較）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널 메모리(각 단계 후, 시스템 한도와 비교)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Память туннеля (после каждого шага, против системного лимита)"
+          }
+        }
+      }
+    },
+    "依次检查：断开时测延迟、启动 VPN、内核接口、配置完整性（配置 → 运行时 → 内核）、远程资源、策略组与逐个节点测延迟、首页出口 IP、经隧道访问网址与数据面计数、MitM 证书与重写、脚本日志、断开重连后的 Fake-IP、隧道内存。会断开并重新连接 VPN 两次，每一步都有时限。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks in order: latency with the VPN off, starting the VPN, the core API, profile integrity (profile → runtime → core), remote resources, group and per-node latency, the home exit IP, URLs through the tunnel and data plane counters, MitM certificate and rewrites, script logs, Fake-IP after a reconnect, and tunnel memory. The VPN is disconnected and reconnected twice; every step has a time limit."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依次檢查：斷開時測延遲、啟動 VPN、核心介面、配置完整性（配置 → 執行時 → 核心）、遠端資源、策略組與逐個節點測延遲、首頁出口 IP、經隧道存取網址與資料面計數、MitM 憑證與重寫、腳本日誌、斷開重連後的 Fake-IP、隧道記憶體。會斷開並重新連線 VPN 兩次，每一步都有時限。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順に確認します：VPN オフでの遅延、VPN の起動、コア API、設定の整合性（設定 → ランタイム → コア）、リモートリソース、グループとノードごとの遅延、ホームの出口 IP、トンネル経由の URL アクセスとデータプレーンのカウンター、MitM 証明書と書き換え、スクリプトのログ、再接続後の Fake-IP、トンネルのメモリ。VPN を 2 回切断・再接続し、各ステップに制限時間があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "순서대로 점검합니다: VPN 끈 상태 지연, VPN 시작, 코어 API, 구성 무결성(구성 → 런타임 → 코어), 원격 리소스, 그룹 및 노드별 지연, 홈 출구 IP, 터널을 통한 URL 접근과 데이터 플레인 카운터, MitM 인증서와 재작성, 스크립트 로그, 재연결 후 Fake-IP, 터널 메모리. VPN을 두 번 끊었다가 다시 연결하며 각 단계에는 시간 제한이 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверяется по порядку: задержка без VPN, запуск VPN, API ядра, целостность профиля (профиль → среда → ядро), удалённые ресурсы, задержка групп и узлов, выходной IP, доступ к URL через туннель и счётчики плоскости данных, сертификат MitM и перезапись, журналы скриптов, Fake-IP после переподключения и память туннеля. VPN дважды отключается и подключается снова; у каждого шага есть лимит времени."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
