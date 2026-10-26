@@ -13,7 +13,8 @@
 # Stages (two test bundles, one simulator, one app container):
 #   1. MihomoUnitTests/NativeCoreE2EReplayTests — import + runtime generation (App module)
 #   2. TernE2ETunnelTests/TernE2ETunnelTests    — NativeCore in-process (PacketTunnel sources)
-# The job fails only on a FAIL that is not listed in tools/e2e/known-gaps.txt (shown as KNOWN).
+# The job fails only on a FAIL that is not listed in tools/e2e/known-gaps.txt (shown as KNOWN), or when a stage did not
+# reach its `stage-done` line (hang / crash / step timeout).
 name: E2E replay
 
 on:
@@ -54,7 +55,7 @@ jobs:
   replay:
     if: github.repository == 'astemo6/mihomo-ios'
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 80
     env:
       OUT: ${{ github.workspace }}/e2e-out
     steps:
@@ -129,6 +130,7 @@ jobs:
           cp "$RUNNER_TEMP/fixture.conf" "$C/Documents/tern-e2e/fixture.conf"
           echo "CONTAINER=$C" >> "$GITHUB_ENV"
       - name: Stage 1 — import + runtime generation
+        timeout-minutes: 20
         run: |
           set +e
           TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_FIXTURE="$RUNNER_TEMP/fixture.conf" \
@@ -140,6 +142,7 @@ jobs:
           echo "stage 1 exit $?"
           grep -E "E2E-RESULT|Test Case|error:|Executed" stage1.log | tail -n 60
       - name: Stage 2 — NativeCore in-process
+        timeout-minutes: 25
         run: |
           set +e
           TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_SAMPLE="$SAMPLE" \
@@ -159,7 +162,7 @@ jobs:
           for f in stage1.log stage2.log; do [ -f "$f" ] && grep -E "E2E-RESULT|E2E-NOTE|error:|Test Case.*failed|Fatal error" "$f" > "$OUT/$f.extract.txt"; done
           INPUTS="$OUT/stage1.log.extract.txt $OUT/stage2.log.extract.txt"
           [ -f "$OUT/results.jsonl" ] && INPUTS="$OUT/results.jsonl $INPUTS"
-          python3 tools/e2e/summarize.py "$OUT/summary.md" --known tools/e2e/known-gaps.txt --title "E2E replay ($FIXTURE_KIND fixture)" $INPUTS
+          python3 tools/e2e/summarize.py "$OUT/summary.md" --known tools/e2e/known-gaps.txt --title "E2E replay ($FIXTURE_KIND fixture)" --expect-stages app,tunnel $INPUTS
           echo "RC=$?" >> "$GITHUB_ENV"
           # Never upload a secret: scrub every file (and refuse what still matches).
           python3 tools/e2e/mask.py scrub "$RUNNER_TEMP/fixture.conf" "$OUT"/* stage1.log stage2.log build-e2e.log

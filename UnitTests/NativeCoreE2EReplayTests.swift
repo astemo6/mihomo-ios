@@ -82,18 +82,49 @@ final class NativeCoreE2EReplayTests: XCTestCase {
         r.record("import", .pass, "\(importMs) ms — \(importDetail.split(separator: "\n").first.map(String.init) ?? "")")
 
         // The switches a user who runs this config has on (重写 / 脚本 / HTTPS 解密); the CA exists (fixture or generated).
+        r.note("engine switches on (rewrite / scripts / MitM) + EngineStore.save")
         EngineStore.shared.config.enabled = true
         EngineStore.shared.config.scriptsEnabled = true
         EngineStore.shared.config.mitm = true
         EngineStore.shared.save(reload: false)
-        if NCCAManager.shared.ensureCA(home: home) == nil {
-            r.record("mitm-ca", .fail, "no MitM CA (fixture CA unreadable and none could be generated)")
-        }
 
-        // 2. Runtime generation (the connect path's NativeRuntimePrep, see E2EPrep below).
+        // 2. CA + runtime generation (the connect path's NativeRuntimePrep, see E2EPrep below). Off the main actor
+        // like NativeRuntimePrep.prepare() (Task.detached): run 40261727985 hung here for 10+ min when it ran on the
+        // main thread. A watchdog turns a hang into a named FAIL with the last step reached instead of a silent
+        // timeout of the whole job.
         let t1 = Date()
-        let prepErr = E2EPrep.prepare(home: home, profile: profile.fileURL)
+        let profileURL = profile.fileURL
+        let step = E2EStep()
+        let progress: @Sendable (String) -> Void = { [r] s in
+            step.set(s)
+            r.note(String(format: "prep +%.1fs: %@", Date().timeIntervalSince(t1), s))
+        }
+        let limit = Double(E2EReport.env("TERN_E2E_PREP_TIMEOUT").flatMap(Int.init) ?? 600)
+        let outcome: E2EPrepOutcome = await withCheckedContinuation { (cont: CheckedContinuation<E2EPrepOutcome, Never>) in
+            let once = E2EOnce()
+            DispatchQueue.global(qos: .userInitiated).async {
+                progress("ensureCA")
+                let caOK = NCCAManager.shared.ensureCA(home: home) != nil
+                progress("prepare")
+                let err = E2EPrep.prepare(home: home, profile: profileURL, progress: progress)
+                progress("done")
+                if once.take() { cont.resume(returning: .finished(caOK: caOK, error: err)) }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + limit) {
+                if once.take() { cont.resume(returning: .timedOut(step: step.get())) }
+            }
+        }
         let prepMs = Int(Date().timeIntervalSince(t1) * 1000)
+        var prepErr: String? = nil
+        switch outcome {
+        case .timedOut(let at):
+            r.record("runtime-generation", .fail, "hung: no result after \(Int(limit)) s, last step \(at)")
+            XCTFail("prepare hung at \(at)")
+            return
+        case .finished(let caOK, let err):
+            if !caOK { r.record("mitm-ca", .fail, "no MitM CA (fixture CA unreadable and none could be generated)") }
+            prepErr = err
+        }
         if let prepErr {
             r.record("runtime-generation", .fail, "\(prepMs) ms: \(prepErr)")
             XCTFail("prepare failed"); return
@@ -117,6 +148,7 @@ final class NativeCoreE2EReplayTests: XCTestCase {
             "ruleProviders": counts.ruleProviders, "mitmHosts": counts.mitmHosts, "scripts": counts.scripts,
             "tasks": counts.tasks, "importMs": importMs, "prepMs": prepMs,
         ])
+        r.record("stage-done", .info, "stage 1 finished")
     }
 
     // MARK: helpers
@@ -249,11 +281,13 @@ enum E2EPrep {
         init(rep: NCRuntimeBuilder.PrepReport) { self.rep = rep }
     }
 
-    static func prepare(home: String, profile: URL) -> String? {
+    static func prepare(home: String, profile: URL, progress: @escaping (String) -> Void = { _ in }) -> String? {
+        progress("removeStale")
         PrepTransaction.removeStale(home: home)
         let build = NCPrepMarkers.currentBuild
         let tx = PrepTransaction(home: home)
         defer { tx.discard() }
+        progress("Request.load")
         let req = NCRuntimeBuilder.Request.load(home: home, profilePath: profile.path)
         let safeMode = req.settings.core.safeMode
         guard let profileData = NCRuntimeFiles.readRuntimeProfile(home: home, path: profile.path, safe: safeMode) else {
@@ -263,11 +297,13 @@ enum E2EPrep {
         rep.at = Int64(Date().timeIntervalSince1970)
         rep.profile = (profile.path as NSString).lastPathComponent
         rep.build = build
+        progress("NCEngineConfig.load + NCMitmBuild.build")
         let cfg: NCEngineConfig? = safeMode ? nil : NCEngineConfig.load(home: home)
         let rs: NCEngineRuleset? = cfg.map { NCMitmBuild.build(home: home, cfg: $0) }
         let box = State(rep: rep)
         // Optional + guard, like NativeRuntimePrep (no deferred-initialized `let`: build #359 SIL verifier crash shape).
         var builtOpt: (data: Data, isJSON: Bool, raw: [String: NCJSONValue])? = nil
+        progress("NCRuntimeBuilder.build")
         do {
             builtOpt = try NCRuntimeBuilder.build(profile: profileData, req: req, fd: 0) { raw in
                 if let cfg = cfg {
@@ -283,6 +319,7 @@ enum E2EPrep {
                         raw["rules"] = .array([.string("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT")] + raw.list("rules"))
                     }
                 }
+                progress("lowerForNative")
                 NCRuntimeBuilder.lowerForNative(home: home, &raw, &box.rep, stageDir: tx.stage) { box.rep.warnings = (box.rep.warnings ?? []) + [$0] }
                 box.groupOrder = NCRuntimeSteps.runtimeGroupNames(raw)
             }
@@ -297,6 +334,7 @@ enum E2EPrep {
             tx.adoptStagedDirectory("nativecore-geosite")
             let scriptRS: NCEngineRuleset? = (cfg != nil && cfg!.anyOn) ? rs : nil
             var scriptKeep: Set<String>? = nil
+            progress("NCScriptManifest.buildManifest")
             do {
                 let man = try NCScriptManifest.buildManifest(home: home, cfg: cfg, rs: scriptRS)
                 rep.scripts = man.scripts
@@ -311,6 +349,7 @@ enum E2EPrep {
             rep.rewrite = false
             rep.mitmHosts = 0
             if let cfg = cfg, let rs = rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
+                progress("NCRewriteSnapshotBuilder.exportData")
                 do {
                     let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
                     try tx.put(snap, "nativecore-rewrite.json")
@@ -330,6 +369,7 @@ enum E2EPrep {
             guard let runtimeJSON = NCRuntimeBuilder.jsonData(built.raw) else { return "native runtime JSON: 序列化失败" }
             try tx.put(runtimeJSON, "nativecore-runtime.json")
             try? tx.put(try JSONEncoder().encode(rep), "nativecore-prep.json")
+            progress("commit")
             try tx.commit()
             if let keep = scriptKeep { NCScriptManifest.removeObsoleteCode(home: home, keep: keep) }
         } catch {
@@ -337,4 +377,24 @@ enum E2EPrep {
         }
         return nil
     }
+}
+
+enum E2EPrepOutcome {
+    case finished(caOK: Bool, error: String?)
+    case timedOut(step: String)
+}
+
+/// Resumes a continuation exactly once (prep result vs watchdog).
+final class E2EOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func take() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
+}
+
+/// The last prep step reached (for the watchdog's FAIL line).
+final class E2EStep: @unchecked Sendable {
+    private let lock = NSLock()
+    private var s = "start"
+    func set(_ v: String) { lock.lock(); s = v; lock.unlock() }
+    func get() -> String { lock.lock(); defer { lock.unlock() }; return s }
 }

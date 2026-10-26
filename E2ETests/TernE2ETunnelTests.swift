@@ -86,6 +86,7 @@ final class TernE2ETunnelTests: XCTestCase {
         dumpStartupLog()
         let fails = r.counts[.fail] ?? 0
         r.note("tunnel stage: \(r.counts[.pass] ?? 0) pass, \(fails) fail, \(r.counts[.skip] ?? 0) skip")
+        r.record("stage-done", .info, "stage 2 finished")
         // The job decides pass / fail from the summary (known gaps), not from XCTest: always green here.
     }
 

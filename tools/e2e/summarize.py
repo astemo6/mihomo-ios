@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Tern E2E replay — turn the E2E-RESULT lines of both stages into the job summary + report.
 
-  summarize.py OUT_MD [--known tools/e2e/known-gaps.txt] [--title T] INPUT...
+  summarize.py OUT_MD [--known tools/e2e/known-gaps.txt] [--title T] [--expect-stages app,tunnel] INPUT...
+
+--expect-stages: every listed stage must end with its `stage-done` INFO line; a stage that never reported it (hung,
+crashed, timed out, never started) gets a synthetic `<stage>/stage-done` FAIL so a partial run cannot pass.
 
 INPUT: results.jsonl files and/or xcodebuild logs (lines `E2E-RESULT|stage|name|STATUS|detail`, `E2E-NOTE|stage|text`).
 JSONL wins when both carry a scenario (same stage+name: last one).
@@ -38,6 +41,7 @@ def main():
         return 2
     out_md = args.pop(0)
     known_path, title = "tools/e2e/known-gaps.txt", "E2E replay"
+    expect = []
     inputs = []
     while args:
         a = args.pop(0)
@@ -45,6 +49,8 @@ def main():
             known_path = args.pop(0)
         elif a == "--title":
             title = args.pop(0)
+        elif a == "--expect-stages":
+            expect = [x for x in args.pop(0).split(",") if x]
         else:
             inputs.append(a)
     results, notes, order = {}, [], []
@@ -78,6 +84,13 @@ def main():
                     if key not in results:
                         order.append(key)
                     results[key] = rec
+    for st in expect:
+        if (st, "stage-done") not in results:
+            last = [k[1] for k in order if k[0] == st]
+            results[(st, "stage-done")] = {"stage": st, "name": "stage-done", "status": "FAIL",
+                                           "detail": "stage did not finish (hung / crashed / timed out / never ran); last scenario: %s"
+                                           % (last[-1] if last else "none")}
+            order.append((st, "stage-done"))
     known = load_known(known_path)
     rows, unexpected, fixed = [], 0, []
     counts = {}
