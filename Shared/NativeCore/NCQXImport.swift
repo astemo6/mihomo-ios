@@ -61,8 +61,8 @@ enum NCQXImport {
                     var extra: [String: String] = [:]
                     if path.lowercased().hasSuffix(".lua") {
                         extra["engine"] = "lua"
-                        extra["status"] = "pending_s2"
-                        report.warnings.append("quantumultx rewrite: lua script '\(path)' recognized (S1 design, pending S2 implementation)")
+                        extra["status"] = "unsupported"
+                        report.warnings.append("quantumultx rewrite: lua script '\(path)' recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
                     }
                     cfg.scripts.append(NCScriptRule(name: "qx_script", type: type, pattern: pattern, scriptPath: path, extra: extra))
                 }
@@ -272,8 +272,7 @@ enum NCQXImport {
             if let f = take("file") ?? take("script-path") { fields["file"] = .string(f) }
             if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
             if let p = take("password") { fields["password"] = .string(p) }
-            fields["lua-status"] = .string("pending_s2")
-            report.warnings.append("quantumultx [server_local]: lua proxy backend '\(name)' recognized (S1 design, pending S2 implementation)")
+            report.warnings.append("quantumultx [server_local]: lua proxy backend '\(name)' recognized")
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.

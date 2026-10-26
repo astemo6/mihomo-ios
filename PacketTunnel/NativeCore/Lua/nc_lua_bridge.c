@@ -167,7 +167,9 @@ void nc_lua_register_fn(lua_State *L, const char *table_name, const char *fn_nam
 
 void nc_lua_push_bytes(lua_State *L, const char *bytes, size_t len) {
     if (L == NULL) return;
-    if (bytes == NULL) {
+    if (len == 0) {
+        lua_pushlstring(L, "", 0);
+    } else if (bytes == NULL) {
         lua_pushnil(L);
     } else {
         lua_pushlstring(L, bytes, len);
@@ -177,4 +179,82 @@ void nc_lua_push_bytes(lua_State *L, const char *bytes, size_t len) {
 const char* nc_lua_get_bytes(lua_State *L, int idx, size_t *out_len) {
     if (L == NULL) return NULL;
     return lua_tolstring(L, idx, out_len);
+}
+
+void nc_lua_push_closure(lua_State *L, lua_CFunction fn, void *upvalue) {
+    if (L == NULL || fn == NULL) return;
+    lua_pushlightuserdata(L, upvalue);
+    lua_pushcclosure(L, fn, 1);
+}
+
+void* nc_lua_upvalue_ptr(lua_State *L) {
+    if (L == NULL) return NULL;
+    return lua_touserdata(L, lua_upvalueindex(1));
+}
+
+#define NC_CTX_KEY "nc_ctx_table"
+
+void nc_lua_init_context(lua_State *L) {
+    if (L == NULL) return;
+    lua_newtable(L);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, LUA_REGISTRYINDEX, NC_CTX_KEY);
+    lua_pop(L, 1);
+}
+
+void nc_lua_push_context(lua_State *L) {
+    if (L == NULL) return;
+    lua_getfield(L, LUA_REGISTRYINDEX, NC_CTX_KEY);
+}
+
+static void nc_lua_ensure_table(lua_State *L, const char *t1, const char *t2) {
+    lua_getglobal(L, t1);
+    if (lua_type(L, -1) != LUA_TTABLE) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setglobal(L, t1);
+    }
+    if (t2 != NULL) {
+        lua_getfield(L, -1, t2);
+        if (lua_type(L, -1) != LUA_TTABLE) {
+            lua_pop(L, 1);
+            lua_newtable(L);
+            lua_pushvalue(L, -1);
+            lua_setfield(L, -3, t2);
+        }
+        lua_remove(L, -2); /* drop t1, keep t1.t2 on top */
+    }
+}
+
+void nc_lua_register_nested(lua_State *L, const char *t1, const char *t2, const char *fn_name, lua_CFunction fn) {
+    if (L == NULL || t1 == NULL || fn_name == NULL || fn == NULL) return;
+    nc_lua_ensure_table(L, t1, t2);
+    lua_pushcfunction(L, fn);
+    lua_setfield(L, -2, fn_name);
+    lua_pop(L, 1);
+}
+
+void nc_lua_set_table_int(lua_State *L, const char *t1, const char *t2, const char *field, long long v) {
+    if (L == NULL || t1 == NULL || field == NULL) return;
+    nc_lua_ensure_table(L, t1, t2);
+    lua_pushinteger(L, (lua_Integer)v);
+    lua_setfield(L, -2, field);
+    lua_pop(L, 1);
+}
+
+void nc_lua_set_table_string(lua_State *L, const char *t1, const char *t2, const char *field, const char *v) {
+    if (L == NULL || t1 == NULL || field == NULL) return;
+    nc_lua_ensure_table(L, t1, t2);
+    lua_pushstring(L, v ? v : "");
+    lua_setfield(L, -2, field);
+    lua_pop(L, 1);
+}
+
+void nc_lua_set_table_bool(lua_State *L, const char *t1, const char *t2, const char *field, int v) {
+    if (L == NULL || t1 == NULL || field == NULL) return;
+    nc_lua_ensure_table(L, t1, t2);
+    lua_pushboolean(L, v ? 1 : 0);
+    lua_setfield(L, -2, field);
+    lua_pop(L, 1);
 }

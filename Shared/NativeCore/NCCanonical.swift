@@ -345,8 +345,7 @@ extension NCCanonicalConfig {
         out.nodes = cfg.proxies.map { p in
             if p.isLua {
                 var f = p.fields
-                f["lua-status"] = .string("pending_s2")
-                out.report.warnings.append("node '\(p.name)': lua proxy backend recognized (S1 design, pending S2 implementation)")
+                out.report.warnings.append("node '\(p.name)': lua proxy backend recognized")
                 return NCProxy(name: p.name, type: p.type, fields: f)
             }
             return p

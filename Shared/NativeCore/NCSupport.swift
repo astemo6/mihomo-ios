@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale", "lua",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -16,15 +16,18 @@ enum NCSupport {
     static func unsupportedReason(_ p: NCProxy) -> String? {
         let t = p.type.lowercased()
         guard types.contains(t) else {
-            if t == "lua" {
-                return "Lua 自定义后端已识别 (待 S2 接入)"
-            }
             return "类型 \(t) 尚未接入"
         }
         if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
         switch t {
+        case "lua":
+            // feat/nc-lua S2: the connector runs the backend in NCLuaSession; a node without any
+            // script source can never dial, so say so at import/display time already.
+            let hasScript = !(p.fields["script"]?.string ?? "").isEmpty
+            let hasFile = !(p.fields["file"]?.string ?? "").isEmpty
+            if !hasScript && !hasFile { return "Lua 后端缺少脚本 (file/script)" }
         case "ss":
             // One gate for every SS plugin (ssPluginUnsupported): simple-obfs / v2ray-plugin use #101's
             // NCSSPluginOptions parse (same as the connector), gost-plugin / shadow-tls / restls the nc-proto rules.

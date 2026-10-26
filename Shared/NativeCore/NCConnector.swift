@@ -445,6 +445,13 @@ enum NCConnector {
                 guard let raw else { completion(nil, err); return }
                 httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
+        case "lua":
+            // feat/nc-lua S2: Shadowrocket-style Lua custom backend; NCLuaSession drives the
+            // wa_lua_on_* state machine over the raw stream to the backend server.
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                guard let raw else { completion(nil, err); return }
+                NCLuaSession.connect(raw: raw, proxy: proxy, target: target, queue: queue, completion: completion)
+            }
         case "ss":
             guard let cipher = proxy.cipher, let password = proxy.password else {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }

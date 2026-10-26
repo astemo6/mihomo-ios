@@ -330,8 +330,7 @@ enum NCConfImport {
             if let f = take("file") ?? take("script-path") { fields["file"] = .string(f) }
             if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
             if let p = take("password") { fields["password"] = .string(p) }
-            fields["lua-status"] = .string("pending_s2")
-            report.warnings.append("node '\(name)': lua proxy backend recognized (S1 design, pending S2 implementation)")
+            report.warnings.append("node '\(name)': lua proxy backend recognized")
         case "http", "https", "socks5":
             // Surge spells credentials positionally after the port for these
             // types; the k=v form is accepted too.
@@ -794,8 +793,8 @@ enum NCConfImport {
                 }
                 if path.lowercased().hasSuffix(".lua") || type.lowercased() == "lua" || extra["engine"]?.lowercased() == "lua" {
                     extra["engine"] = "lua"
-                    extra["status"] = "pending_s2"
-                    cfg.report.warnings.append("script '\(name)': lua script recognized (S1 design, pending S2 implementation)")
+                    extra["status"] = "unsupported"
+                    cfg.report.warnings.append("script '\(name)': lua script recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
                 }
                 cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody, extra: extra))
             } else if let eq = trimmed.firstIndex(of: "=") {
@@ -820,8 +819,8 @@ enum NCConfImport {
                 }
                 if path.lowercased().hasSuffix(".lua") || type.lowercased() == "lua" || extra["engine"]?.lowercased() == "lua" {
                     extra["engine"] = "lua"
-                    extra["status"] = "pending_s2"
-                    cfg.report.warnings.append("script '\(name)': lua script recognized (S1 design, pending S2 implementation)")
+                    extra["status"] = "unsupported"
+                    cfg.report.warnings.append("script '\(name)': lua script recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
                 }
                 if !pattern.isEmpty {
                     cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody, extra: extra))
