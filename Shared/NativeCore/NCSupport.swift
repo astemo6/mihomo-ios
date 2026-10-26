@@ -8,6 +8,7 @@ enum NCSupport {
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
         "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
+        "brook",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -20,7 +21,7 @@ enum NCSupport {
         guard types.contains(t) else {
             return "类型 \(t) 尚未接入"
         }
-        if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
+        if t != "wireguard", t != "brook", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
         if p.fields["network"]?.string?.lowercased() == "xhttp", let why = NCXHTTPConfig.unsupportedReason(p) {
@@ -43,6 +44,8 @@ enum NCSupport {
             if let why = wireguardUnsupported(p) { return why }
         case "mieru":
             if let why = mieruUnsupported(p) { return why }
+        case "brook":
+            if let why = brookUnsupported(p) { return why }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
@@ -161,6 +164,19 @@ enum NCSupport {
             guard let pattern = NCMieruTrafficPattern.decode(tp) else { return "Mieru traffic-pattern 无效" }
             if pattern.lowEntropyMode != 0 { return "Mieru traffic-pattern lowEntropy 尚未接入" }
         }
+        return nil
+    }
+
+    /// Brook (NCBrook, feat/nc-brook): brook server (TCP + UDP packets / udp-over-tcp), wsserver, wssserver
+    /// (TLS, ca, client-fingerprint) and quicserver (streams + datagrams / udp-over-stream), with or without
+    /// the brook protocol (without-brook-protocol). The brook GUI user system (`token`) is not implemented.
+    static func brookUnsupported(_ p: NCProxy) -> String? {
+        guard NCBrookOptions.kind(p) != nil else {
+            return "Brook transport \(NCBrookOptions.string(p, "transport", "brook-transport", "kind", "mode") ?? "") 无效（server / wsserver / wssserver / quicserver）"
+        }
+        if (p.server ?? "").isEmpty || (p.port ?? 0) == 0 { return "Brook 缺少 server / port" }
+        if (NCBrookOptions.string(p, "password") ?? "").isEmpty { return "Brook 缺少 password" }
+        if let t = NCBrookOptions.string(p, "token"), !t.isEmpty { return "Brook token（用户系统）尚未接入" }
         return nil
     }
 

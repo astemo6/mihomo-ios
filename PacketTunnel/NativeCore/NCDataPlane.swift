@@ -1388,6 +1388,13 @@ final class NCDataPlane {
                 return
             }
             session = sn
+        case .proxy(let proxy) where proxy.type == "brook":
+            // feat/nc-brook: packets / udp-over-tcp / ws(s) stream / quic datagram or stream (NCBrookUDP.swift).
+            guard let br = NCUDPBrook.make(proxy: proxy, target: target, queue: queue) else {
+                udpDropped += 1
+                return
+            }
+            session = br
         default:
             udpDropped += 1
             return

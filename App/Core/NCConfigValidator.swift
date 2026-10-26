@@ -115,6 +115,7 @@ enum NCConfigValidator {
         "ss", "ssr", "socks5", "http", "vmess", "vless", "snell", "trojan", "hysteria", "hysteria2", "wireguard",
         "tuic", "shadowquic", "gost-relay", "direct", "dns", "reject", "rematch", "ssh", "mieru", "anytls", "sudoku",
         "masque", "trusttunnel", "openvpn", "tailscale", "zerotier", "easytier",
+        "brook", // feat/nc-brook: native-core only (not a mihomo type)
     ]
 
     /// config.ParseRawConfig on the runtime tree (the order of the checks is mihomo's).

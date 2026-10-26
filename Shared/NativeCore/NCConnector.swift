@@ -737,6 +737,9 @@ enum NCConnector {
                 return
             }
             tuicStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "brook":
+            // feat/nc-brook: server / wsserver / wssserver / quicserver (NCBrook.swift).
+            brookStream(proxy: proxy, target: target, queue: queue, transport: transport, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
@@ -1132,7 +1135,8 @@ enum NCConnector {
         for c in hy2 { c.close() }
         let closed = ["mux": mux.count, "anytls": anytls.count, "hy2": hy2.count,
                       "hy1": closeAllHy1Sessions(), "tuic": closeAllTUICSessions(),
-                      "ssh": closeAllSSHSessions()]
+                      "ssh": closeAllSSHSessions(),
+                      "brook": NCBrookQUICPool.shared.closeAll()] // feat/nc-brook: pooled quicserver connections
         clearSharedSSRState()
         return closed
     }
