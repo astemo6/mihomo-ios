@@ -412,8 +412,9 @@ final class NativeTunnelCore {
         return ""
     }
 
-    /// LibmihomoFlushDNSCache: NativeCore keeps no resolver cache beyond the fake-IP pool (which must survive).
-    func flushDNSCache() {}
+    /// LibmihomoFlushDNSCache (network change, $httpAPI): the rule-matching resolver cache — answers cached on the
+    /// old network would keep IP rules matching stale addresses. The fake-IP pool must survive (fix/nc-e2e-real).
+    func flushDNSCache() { engine?.flushDNSCache() }
 
     /// LibmihomoNotifyNetworkChanged: infoJSON becomes $network; every enabled network-changed event script runs
     /// (gap C3, NativeTaskRunner). Returns how many were started.
