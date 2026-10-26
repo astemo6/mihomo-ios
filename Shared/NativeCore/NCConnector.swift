@@ -635,7 +635,6 @@ enum NCConnector {
                 return
             }
             let useTLS = proxy.fields["tls"]?.bool ?? false
-            let isVision = visionFlow(proxy)
             if let transport {
                 // Over a chain pipe only the plaintext transports work:
                 // TLS termination and Vision need their own socket.
