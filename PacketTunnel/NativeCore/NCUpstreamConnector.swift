@@ -34,6 +34,13 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
     /// lease's `negotiatedALPN` says what the origin picked (feat/nc-proto2, based on astemo6/Muse NativeCore).
     func open(host: String, port: Int, tls: Bool, policy: String?, insecure: Bool, alpn: [String],
               completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
+        open(host: host, port: port, tls: tls, policy: policy, insecure: insecure, alpn: alpn, route: nil, completion: completion)
+    }
+
+    /// fix/nc-open-6-10 #9: `route` (when given) receives the rule / policy / chain this open used, for
+    /// /app/stats (script requests). The routing itself is unchanged.
+    func open(host: String, port: Int, tls: Bool, policy: String?, insecure: Bool, alpn: [String], route: NCUpstreamRoute?,
+              completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
         let queue = Self.dialQueue
         let target = NCTarget(host: host, port: port)
 
@@ -59,6 +66,25 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
         guard let resolution else {
             completion(.failure(UpstreamError.connectFailed("unknown policy: \(explicit)")))
             return
+        }
+        if let route {
+            if !explicit.isEmpty {
+                route.policy = explicit
+                route.rule = "policy=\(explicit)"
+            } else if let engine = NativeCoreEngine.active {
+                let pr = engine.policyWithRule(for: engine.matchContext(domain: host, ip: NCIP(host), dstPort: port, network: "tcp"))
+                route.policy = pr.policy
+                route.rule = pr.rule ?? ""
+            } else {
+                route.policy = "DIRECT"
+            }
+            route.chain = switch resolution {
+            case .direct: "DIRECT"
+            case .reject: "REJECT"
+            case .proxy(let p): p.name
+            case .chain(let ps): ps.map { $0.name }.joined(separator: " -> ")
+            case .unknown(let n): n
+            }
         }
 
         if case .reject = resolution {
@@ -109,6 +135,13 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
             }
         }
     }
+}
+
+/// fix/nc-open-6-10 #9: what NCUpstreamConnector.open routed a request by (filled before the dial).
+final class NCUpstreamRoute {
+    var policy = ""
+    var rule = ""
+    var chain = ""
 }
 
 final class NCRelayUpstreamLease: MitmUpstreamLease {

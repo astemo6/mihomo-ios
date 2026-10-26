@@ -146,10 +146,55 @@ final class NCStatsRecorder {
         version &+= 1
     }
 
+    // MARK: flows outside the TUN session table (fix/nc-open-6-10 #9)
+
+    /// Bytes of flows the data plane's totals never see (script $httpClient / $task fetches leave through
+    /// NCUpstreamConnector, not the TUN). Cumulative, added to the plane's totals in `sample`, so the speed series
+    /// includes them. Only ever grow (a reload resets the plane's totals, not these).
+    private var sideUp: Int64 = 0, sideDown: Int64 = 0, sideProxyUp: Int64 = 0, sideProxyDown: Int64 = 0
+    private var oneShotSeq: UInt64 = 0
+
+    /// One finished flow that never had a TUN session (a script request): one connection, one rule hit, its bytes
+    /// per policy / host, a closed record and the speed series — all under one lock, nothing kept per flow.
+    /// `network` "tcp"; `idPrefix` makes the closed-record id distinguishable ("script-12").
+    func oneShot(network: String = "tcp", idPrefix: String, rule: String, policy: String, chain: String,
+                 host: String, dstPort: Int, up: Int64, down: Int64, start: Date, end: Date = Date()) {
+        lock.lock(); defer { lock.unlock() }
+        total += 1
+        let r = rule.isEmpty ? "—" : Self.clip(rule)
+        let p = Self.clip(policy.isEmpty ? "DIRECT" : policy)
+        let key = r + "\u{1}" + p
+        clock &+= 1
+        if var h = rules[key] { h.hits += 1; h.touched = clock; rules[key] = h }
+        else { rules[key] = Hit(rule: r, policy: p, hits: 1, touched: clock); Self.evict(&rules, cap: Self.ruleCap) }
+        if up != 0 || down != 0 { bytesLocked(policy: p, host: host, up: up, down: down) }
+        sideUp &+= up; sideDown &+= down
+        let ch = chain.isEmpty ? "DIRECT" : chain
+        if ch != "DIRECT" && ch != "REJECT" { sideProxyUp &+= up; sideProxyDown &+= down }
+        oneShotSeq &+= 1
+        var chains = [Self.clip(ch)]
+        if p != chains[0] { chains.append(p) }
+        seq += 1
+        let c = Closed(seq: seq, id: Self.clip("\(idPrefix)-\(oneShotSeq)"), network: network, srcPort: 0,
+                       dstIP: Self.clip(host), dstPort: dstPort, host: Self.clip(host), remote: Self.clip(host),
+                       chains: chains, rule: r, up: up, down: down,
+                       start: Int64(start.timeIntervalSince1970 * 1000), closedAt: Int64(end.timeIntervalSince1970 * 1000))
+        if ring.count < Self.closedCap {
+            ring.append(c)
+            closedPos = ring.count % Self.closedCap
+        } else {
+            ring[closedPos] = c
+            closedPos = (closedPos + 1) % Self.closedCap
+        }
+        version &+= 1
+    }
+
     /// Cumulative totals (all / proxied) at `now`; the recorder turns them into a 1 s rate point and folds it into the
     /// minute / hour buckets. Totals that went down (new data plane after a reload) restart the baseline.
-    func sample(now: Date = Date(), up: Int64, down: Int64, proxyUp: Int64, proxyDown: Int64) {
+    func sample(now: Date = Date(), up up0: Int64, down down0: Int64, proxyUp proxyUp0: Int64, proxyDown proxyDown0: Int64) {
         lock.lock(); defer { lock.unlock() }
+        let up = up0 &+ sideUp, down = down0 &+ sideDown
+        let proxyUp = proxyUp0 &+ sideProxyUp, proxyDown = proxyDown0 &+ sideProxyDown
         let at = now.timeIntervalSince1970
         defer { lastTotals = (at, up, down, proxyUp, proxyDown) }
         guard let l = lastTotals, at > l.at else { return }

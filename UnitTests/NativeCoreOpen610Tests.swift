@@ -274,4 +274,80 @@ final class NativeCoreOpen610Tests: XCTestCase {
         rs.tasks = [t]
         XCTAssertEqual(NativeRuntimePrep.remoteResources(rs), ["https://x.test/a.js", "https://x.test/body.json", "https://x.test/task.js"])
     }
+    // MARK: - #9 script / UDP traffic in /app/stats
+
+    private func decode(_ o: [String: Any]) throws -> TunnelStats {
+        try JSONDecoder().decode(TunnelStats.self, from: JSONSerialization.data(withJSONObject: o))
+    }
+
+    func testScriptRequestRecordedAsOneShot() throws {
+        let r = NCStatsRecorder(now: Date(timeIntervalSince1970: 1_700_000_000))
+        let t0 = Date(timeIntervalSince1970: 1_700_000_001)
+        r.oneShot(idPrefix: "script", rule: "DOMAIN-SUFFIX,example.com,Proxy", policy: "Proxy", chain: "HK 01",
+                  host: "api.example.com", dstPort: 443, up: 300, down: 4000, start: t0, end: t0.addingTimeInterval(1))
+        r.oneShot(idPrefix: "script", rule: "", policy: "", chain: "", host: "sign.test", dstPort: 80,
+                  up: 10, down: 20, start: t0, end: t0)
+        let s = try decode(r.statsJSON(session: 0, closedAfter: 0, hostLimit: 600, ruleLimit: 300))
+        XCTAssertEqual(s.totalConnections, 2)
+        XCTAssertEqual(s.hosts.first?.name, "api.example.com")
+        XCTAssertEqual(s.hosts.first?.down, 4000)
+        XCTAssertEqual(Set(s.policies.map(\.name)), ["Proxy", "DIRECT"])
+        XCTAssertEqual(s.ruleCount, 2)
+        XCTAssertEqual(s.closed.count, 2)
+        let raw = r.statsJSON(session: 0, closedAfter: 0, hostLimit: 0, ruleLimit: 0)
+        let closed = raw["closed"] as? [[String: Any]] ?? []
+        let ids = closed.compactMap { $0["id"] as? String }
+        XCTAssertTrue(ids.allSatisfy { $0.hasPrefix("script-") }, "\(ids)")
+        let chains = closed.last?["chains"] as? [String]
+        XCTAssertEqual(chains, ["HK 01", "Proxy"])
+    }
+
+    func testOneShotBytesReachSpeedSeries() {
+        let r = NCStatsRecorder(now: Date(timeIntervalSince1970: 1_700_000_000))
+        let t = Date(timeIntervalSince1970: 1_700_000_100)
+        r.sample(now: t, up: 1000, down: 1000, proxyUp: 0, proxyDown: 0)
+        r.oneShot(idPrefix: "script", rule: "MATCH", policy: "Proxy", chain: "JP", host: "x.test", dstPort: 443,
+                  up: 500, down: 5000, start: t)
+        // the plane's own totals did not move; the script's bytes still show as rate
+        r.sample(now: t.addingTimeInterval(1), up: 1000, down: 1000, proxyUp: 0, proxyDown: 0)
+        let sp = r.speedJSON(lastSeconds: 0, buckets: false)
+        let rows = sp["seconds"] as? [[Int64]] ?? []
+        XCTAssertEqual(rows.last?[1], 500)
+        XCTAssertEqual(rows.last?[2], 5000)
+        XCTAssertEqual(rows.last?[3], 500, "proxied (chain JP)")
+        XCTAssertEqual(rows.last?[4], 5000)
+        // a plane reload (totals restart lower) must not produce a negative / bogus point from the side counters
+        r.sample(now: t.addingTimeInterval(2), up: 10, down: 10, proxyUp: 0, proxyDown: 0)
+        XCTAssertEqual((r.speedJSON(lastSeconds: 0, buckets: false)["seconds"] as? [[Int64]])?.count, rows.count)
+    }
+
+    func testUDPClosedRecordShape() throws {
+        // the data plane writes UDP flows as network "udp" closed records (NCDataPlane.recordUDPClosed)
+        let r = NCStatsRecorder(now: Date(timeIntervalSince1970: 1_700_000_000))
+        r.opened(rule: "GEOIP,CN,DIRECT", policy: "DIRECT")
+        r.bytes(policy: "DIRECT", host: "stun.example.cn", up: 120, down: 240)
+        r.closed(.init(seq: 0, id: "udp-7", network: "udp", srcPort: 53000, dstIP: "1.2.3.4", dstPort: 3478,
+                       host: "stun.example.cn", remote: "stun.example.cn", chains: ["DIRECT"], rule: "GEOIP,CN,DIRECT",
+                       up: 120, down: 240, start: 1_700_000_000_000, closedAt: 1_700_000_005_000))
+        let s = try decode(r.statsJSON(session: 0, closedAfter: 0, hostLimit: 600, ruleLimit: 300))
+        XCTAssertEqual(s.closed.count, 1)
+        let raw = r.statsJSON(session: 0, closedAfter: 0, hostLimit: 0, ruleLimit: 0)
+        let md = ((raw["closed"] as? [[String: Any]])?.first?["metadata"]) as? [String: Any]
+        XCTAssertEqual(md?["network"] as? String, "udp")
+        XCTAssertEqual(s.hosts.first?.name, "stun.example.cn")
+    }
+
+    func testOneShotMemoryBounded() {
+        let r = NCStatsRecorder(now: Date(timeIntervalSince1970: 1_700_000_000))
+        let t = Date(timeIntervalSince1970: 1_700_000_001)
+        for i in 0..<2000 {
+            r.oneShot(idPrefix: "script", rule: "DOMAIN,h\(i).test,P", policy: "P", chain: "N", host: "h\(i).test",
+                      dstPort: 443, up: 1, down: 1, start: t)
+        }
+        let raw = r.statsJSON(session: 0, closedAfter: 0, hostLimit: 0, ruleLimit: 0)
+        XCTAssertLessThanOrEqual((raw["closed"] as? [Any])?.count ?? 0, NCStatsRecorder.closedCap)
+        XCTAssertLessThanOrEqual(raw["hostCount"] as? Int ?? 0, NCStatsRecorder.hostCap)
+        XCTAssertLessThanOrEqual(raw["ruleCount"] as? Int ?? 0, NCStatsRecorder.ruleCap)
+        XCTAssertEqual(raw["totalConnections"] as? Int, 2000)
+    }
 }
