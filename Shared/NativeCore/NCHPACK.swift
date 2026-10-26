@@ -79,7 +79,10 @@ enum NCHPACK {
 final class NCHPACKDecoder {
     private var dynamic: [(String, String)] = [] // newest first
     private var dynamicSize = 0
-    private let maxDynamicSize = 4096
+    /// SETTINGS_HEADER_TABLE_SIZE we advertise: we never send one, so the RFC 7541 default 4096 bounds every
+    /// dynamic table size update the peer's encoder may send (fix/nc-h2-cidr). 需同步 feat/nc-kernel.
+    static let settingsMaxDynamicSize = 4096
+    private var maxDynamicSize = NCHPACKDecoder.settingsMaxDynamicSize
 
     func entry(_ index: Int) -> (String, String)? {
         if index >= 1 && index <= NCHPACK.staticTable.count {
@@ -93,8 +96,13 @@ final class NCHPACKDecoder {
     private func insert(_ e: (String, String)) {
         dynamic.insert(e, at: 0)
         dynamicSize += e.0.utf8.count + e.1.utf8.count + 32
-        while dynamicSize > maxDynamicSize && dynamic.count > 1 {
-            let last = dynamic.removeLast()
+        evict()
+    }
+
+    /// RFC 7541 §4.4: evict oldest until the table fits (an entry larger than the limit empties the table).
+    private func evict() {
+        while dynamicSize > maxDynamicSize, let last = dynamic.last {
+            dynamic.removeLast()
             dynamicSize -= last.0.utf8.count + last.1.utf8.count + 32
         }
     }
@@ -113,7 +121,12 @@ final class NCHPACKDecoder {
                 insert(e)
                 out.append(e)
             } else if first & 0xe0 == 0x20 { // dynamic table size update
-                guard reader.integer(prefixBits: 5) != nil else { return nil }
+                // §6.3: the new limit must not exceed our SETTINGS_HEADER_TABLE_SIZE; it applies at once
+                // (was read and ignored, so a peer shrinking its table could index entries we never evicted).
+                guard let size = reader.integer(prefixBits: 5),
+                      size <= NCHPACKDecoder.settingsMaxDynamicSize else { return nil }
+                maxDynamicSize = size
+                evict()
             } else { // literal without / never indexing (0000xxxx / 0001xxxx)
                 guard let e = readLiteral(&reader, prefixBits: 4) else { return nil }
                 out.append(e)
@@ -176,8 +189,6 @@ final class NCHPACKDecoder {
         }
     }
 }
-
-private var huffmanLookupCache: [UInt64: UInt8] = [:]
 
 extension NCHPACK {
     static let huffmanCodes: [UInt32] = [
@@ -249,15 +260,23 @@ extension NCHPACK {
         27, 28, 27, 27, 27, 27, 27, 26,
     ]
 
+    /// (code length << 32 | code) → symbol. A `static let` is initialised lazily and exactly once
+    /// (swift_once / dispatch_once), so concurrent first decodes — the HTTP/2 and Hysteria2/QPACK
+    /// paths run on different session queues — cannot race. It replaces an unsynchronised global
+    /// `var` that every first caller filled in place (a data race on the dictionary storage).
+    static let huffmanLookup: [UInt64: UInt8] = {
+        var table: [UInt64: UInt8] = [:]
+        table.reserveCapacity(huffmanCodes.count)
+        for (sym, code) in huffmanCodes.enumerated() {
+            table[(UInt64(huffmanCodeLens[sym]) << 32) | UInt64(code)] = UInt8(sym)
+        }
+        return table
+    }()
+
     /// Bit-by-bit Huffman decode (blocks are small; clarity over speed).
     /// Trailing EOS padding (all-ones prefix) is tolerated.
     static func huffmanDecode(_ data: Data) -> Data? {
-        if huffmanLookupCache.isEmpty {
-            for (sym, code) in huffmanCodes.enumerated() {
-                huffmanLookupCache[(UInt64(huffmanCodeLens[sym]) << 32) | UInt64(code)] = UInt8(sym)
-            }
-        }
-        let lookup = huffmanLookupCache
+        let lookup = huffmanLookup
         var out = Data()
         var cur: UInt32 = 0
         var curLen: UInt8 = 0

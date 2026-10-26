@@ -3,14 +3,28 @@ import Foundation
 /// What the native core can dial today (feat/native-core-eval). Nodes it cannot are kept in the config — the App
 /// still lists them — but marked unsupported: groups skip them, the controller reports them dead, and the startup
 /// log / 诊断 say why. There is no fallback to another core; later kernel iterations add the missing protocols.
+///
+/// ECH 说明（lane E6）：
+/// Hysteria2 与 TUIC 基于系统 Network.framework QUIC（NWProtocolQUIC），已开启系统实验性 ECH 开关
+/// （sec_protocol_options_set_enable_encrypted_client_hello）。其 ECH 能力定位为「系统 ECH（尽力而为）」：
+/// 生效前提为系统 DNS 解析可自动获取 HTTPS/SVCB 记录中的 ECHConfig；系统 QUIC 无法注入外部或静态配置。
+/// 因此 NCSupport 不将其标为「完全支持 ECH」，节点若显式配置静态 ech-opts.config，在 report/StartupLog 中给出
+/// 可区分提示（静态配置无法生效，仅依赖系统 DNS 尽力而为），避免静默假装生效。
 enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "juicity", "wireguard", "mieru", "tailscale",
+        "brook",
+        "gost-relay",
+        // feat/nc-naive-h2h3 (NCNaive / NCH2ProxySession / NCH3ProxySession): NaïveProxy (h2, or h3 with
+        // quic: true) and Shadowrocket-style HTTP/2 / HTTP/3 CONNECT proxies.
+        "naive", "http2", "h2", "http3", "h3",
     ]
     /// Stream transports (`network:`) the connector implements.
-    static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
+    /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
+    /// mihomo registers no alias for it ("splithttp" is only accepted by the share-link import, as Xray's old name).
+    static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http", "xhttp"]
 
     /// nil = supported; else a short reason (Chinese, shown in 诊断 / the startup log).
     static func unsupportedReason(_ p: NCProxy) -> String? {
@@ -18,10 +32,43 @@ enum NCSupport {
         guard types.contains(t) else {
             return "类型 \(t) 尚未接入"
         }
-        if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
+        if t != "wireguard", t != "brook", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
+        if p.fields["network"]?.string?.lowercased() == "xhttp", let why = NCXHTTPConfig.unsupportedReason(p) {
+            return why
+        }
+        // ECH (RFC 9849), one judgement for every layer, read from p.echOpts (mihomo semantics: enable must be true).
+        // TCP/TLS nodes (trojan / vless / vmess / anytls / https) do ECH in the native TLS stack (static
+        // ech-opts.config, else the HTTPS RR via the kernel DNS); hy2 / tuic use the system QUIC ECH switch
+        // (best effort, DNS only — see report()). REALITY is exclusive; Vision and SS plugins are not wired.
+        if let ech = p.echOpts, ech.enable {
+            let sec = p.fields["security"]?.string?.lowercased()
+            if p.fields["reality-opts"] != nil || sec == "reality" {
+                return "REALITY 与 ECH 互斥，不能同时启用"
+            }
+            if t == "ss" {
+                return "Shadowsocks 插件不支持 ECH"
+            }
+            if t == "vless" {
+                let flow = (p.fields["flow"]?.string ?? "").lowercased()
+                if flow.hasPrefix("xtls-rprx-vision") {
+                    return "VLESS Vision 不支持 ECH"
+                }
+            }
+            if !Self.echTypes.contains(t) {
+                return "\(t) 不支持 ECH（ech-opts）"
+            }
+        }
         switch t {
+        case "snell":
+            if let why = snellUnsupported(p) { return why }
+        case "vmess":
+            // fix/nc-silent-fail: alterId > 0 is the legacy MD5 header auth (mihomo IsAead = alterId == 0); only
+            // AEAD is implemented, so these nodes are marked here rather than failing every dial.
+            if let aid = p.fields["alterId"]?.int, aid > 0 {
+                return "VMess alterId \(aid)（旧版 MD5 认证）尚未接入，请改为 alterId: 0"
+            }
         case "ss":
             // One gate for every SS plugin (ssPluginUnsupported): simple-obfs / v2ray-plugin use #101's
             // NCSSPluginOptions parse (same as the connector), gost-plugin / shadow-tls / restls the nc-proto rules.
@@ -38,9 +85,21 @@ enum NCSupport {
             if let why = wireguardUnsupported(p) { return why }
         case "mieru":
             if let why = mieruUnsupported(p) { return why }
+        case "brook":
+            if let why = brookUnsupported(p) { return why }
+        case "gost-relay":
+            // feat/nc-gost-relay: mihomo `gost-relay` (NCGostRelay) — not the `relay` chain group (groupTypes).
+            // TCP + UDP, tls / mux / forward / auth; Tern extension network: ws (+tls = wss).
+            if let why = NCGostRelay.options(p).1 { return why }
+        case "naive", "http2", "h2", "http3", "h3":
+            if NCH2H3ProxyOptions(proxy: p) == nil { return "\(t) 缺少 server / port" }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
+        case "juicity":
+            let u = (p.uuid ?? "").trimmingCharacters(in: .whitespaces)
+            let pwd = (p.password ?? "").trimmingCharacters(in: .whitespaces)
+            if u.isEmpty || pwd.isEmpty { return "Juicity 缺少 uuid / password" }
         case "vless":
             if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
                 // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).
@@ -59,7 +118,7 @@ enum NCSupport {
     }
 
     /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
-    /// obfs http/tls, v2ray-plugin websocket / http-upgrade (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins; restls in NCRestls).
+    /// obfs http/tls, v2ray-plugin websocket / http-upgrade (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls with pinning / name-cert-verify, smux) are implemented in NCSSPlugins; restls in NCRestls).
     static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
         guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
@@ -72,8 +131,13 @@ enum NCSupport {
                 ? "obfs 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 http/tls）"
                 : "v2ray-plugin 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 websocket / http-upgrade）"
         case "gost-plugin":
-            let mode = opts["mode"]?.string ?? ""
-            return mode == "websocket" ? nil : "gost-plugin mode \(mode)"
+            // NCGostPluginOptions: mihomo's only mode (websocket) with tls / mux / fingerprint /
+            // name-cert-verify; client certificates and ECH are explicit gaps.
+            return NCGostPluginOptions.parse(opts).1
+        case "cloak", "ck-client":
+            return NCCloakPluginOptions.parse(opts, fallbackHost: proxy.fields["server"]?.string).1
+        case "kcptun":
+            return NCKcptunOptions.parse(opts).1
         case "shadow-tls":
             let v = opts["version"]?.int ?? 2
             return (1...3).contains(v) ? nil : "shadow-tls v\(v)"
@@ -87,6 +151,14 @@ enum NCSupport {
         default:
             return plugin
         }
+    }
+
+    /// Snell obfs-opts (fix/nc-silent-fail): simple-obfs http / tls are implemented (NCConnector.snellObfsOptions →
+    /// NCSSPluginStream, TCP and UDP); mihomo's other modes (shadow-tls / restls / jls) are not yet.
+    static func snellUnsupported(_ p: NCProxy) -> String? {
+        let mode = p.fields["obfs-opts"]?.object?["mode"]?.string ?? ""
+        if mode.isEmpty || mode == "http" || mode == "tls" { return nil }
+        return "Snell obfs-opts mode \(mode) 尚未接入（支持 http / tls）"
     }
 
     /// SSR: stream ciphers + none/dummy; every protocol and obfs mihomo v1.19.33 registers (feat/nc-proto A5).
@@ -154,6 +226,19 @@ enum NCSupport {
         return nil
     }
 
+    /// Brook (NCBrook, feat/nc-brook): brook server (TCP + UDP packets / udp-over-tcp), wsserver, wssserver
+    /// (TLS, ca, client-fingerprint) and quicserver (streams + datagrams / udp-over-stream), with or without
+    /// the brook protocol (without-brook-protocol). The brook GUI user system (`token`) is not implemented.
+    static func brookUnsupported(_ p: NCProxy) -> String? {
+        guard NCBrookOptions.kind(p) != nil else {
+            return "Brook transport \(NCBrookOptions.string(p, "transport", "brook-transport", "kind", "mode") ?? "") 无效（server / wsserver / wssserver / quicserver）"
+        }
+        if (p.server ?? "").isEmpty || (p.port ?? 0) == 0 { return "Brook 缺少 server / port" }
+        if (NCBrookOptions.string(p, "password") ?? "").isEmpty { return "Brook 缺少 password" }
+        if let t = NCBrookOptions.string(p, "token"), !t.isEmpty { return "Brook token（用户系统）尚未接入" }
+        return nil
+    }
+
     /// WireGuard (NCWireGuard, feat/nc-wg): same checks as NCWGConfig.parse in the tunnel. AmneziaWG 1.0
     /// (jc/jmin/jmax/s1/s2/h1–h4) and 2.0 (h1–h4 header ranges, s3/s4 padding) are supported;
     /// i1–i5 signature packets are ignored (standard packets are sent instead).
@@ -177,11 +262,33 @@ enum NCSupport {
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.
     static let groupTypes: Set<String> = ["select", "url-test", "fallback", "load-balance", "relay"]
 
+    /// Proxy types whose dial honours ech-opts (native TLS stack, or the system QUIC switch for hy2 / tuic).
+    static let echTypes: Set<String> = ["trojan", "vless", "vmess", "anytls", "https", "hysteria2", "hy2", "tuic"]
+
+    /// hy2 / tuic: whether the system QUIC ECH switch is turned on — only for an explicit `ech-opts.enable: true`
+    /// (nodes without ech-opts stay byte-for-byte unchanged; review #150 item 1).
+    static func systemQUICECHEnabled(_ p: NCProxy) -> Bool {
+        p.echOpts?.enable == true
+    }
+
+    /// Whether the proxy explicitly configures `ech-opts` with a non-empty static `config`.
+    /// System QUIC (NWProtocolQUIC) ECH can only discover ECHConfig dynamically via system DNS (HTTPS/SVCB records),
+    /// so static configs cannot be injected into the system QUIC stack.
+    static func hasStaticECHConfig(_ p: NCProxy) -> Bool {
+        guard let opts = p.echOpts, opts.enable else { return false }
+        return opts.config != nil
+    }
+
     /// One line per unsupported node / group type / rule, for the startup log and 诊断.
     static func report(config: NCConfig, unparsedRules: [String]) -> [String] {
         var out: [String] = []
         for p in config.proxies {
-            if let why = unsupportedReason(p) { out.append("节点「\(p.name)」不可用：\(why)") }
+            if let why = unsupportedReason(p) {
+                out.append("节点「\(p.name)」不可用：\(why)")
+            } else if ["hysteria2", "hy2", "tuic"].contains(p.type.lowercased()),
+                      hasStaticECHConfig(p) {
+                out.append("节点「\(p.name)」带静态 ech-opts.config：系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 自动解析 HTTPS 记录尽力而为，静态配置将被忽略）")
+            }
         }
         for g in config.groups where !groupTypes.contains(g.type.lowercased()) {
             out.append("策略组「\(g.name)」类型 \(g.type) 暂按手动选择处理")

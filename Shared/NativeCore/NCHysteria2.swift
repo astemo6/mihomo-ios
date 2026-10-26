@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 import os
 
 /// Hysteria2 client (protocol v2, apernet/hysteria), built on the Network
@@ -34,11 +35,15 @@ import os
 ///     failed to create connection` and returns nil (proto-loopback run
 ///     40171239186, iOS 18.5 simulator — both this and NCTUIC failed there
 ///     with "cannot open control/auth stream" before any packet was sent).
-///  4. QUIC datagrams: there is no clearly documented Swift-overlay datagram
-///     surface. Datagrams are attempted on a dedicated group connection with
-///     send(content:)/receiveMessage (the same calls UDP connections use).
-///     If a given iOS version does not treat that connection as a datagram
-///     context, UDP sessions will simply never answer — TCP is unaffected.
+///  4. QUIC datagrams (RFC 9221) ride the group's datagram flow: a connection
+///     extracted with the group's own QUIC options flipped to `isDatagram = true`
+///     (NCQUICStreamOptions.datagram — fresh options fail to clone, ENETDOWN),
+///     one send(content:) / receiveMessage per datagram, exactly as NCTUIC does.
+///     The group parameters advertise max_datagram_frame_size (makeQUICOptions).
+///     (The first cut extracted a plain bidirectional stream with `using: nil`
+///     and wrote UDPMessages into it as a byte stream — the server read them as
+///     a malformed HTTP/3 request stream, so hysteria2 UDP never answered.)
+///     UDPMessage framing / fragmentation: NCHysteria2UDPCodec.swift.
 ///  5. HTTP/3 stream discipline (RFC 9114): the client SETTINGS frame goes
 ///     ONLY on a dedicated client-initiated unidirectional control stream,
 ///     prefixed with stream type 0x00; the auth HEADERS exchange rides its
@@ -52,6 +57,13 @@ import os
 ///     the group parameters (see NCTUICConnection.quicStreamOptions for the
 ///     same rule): bare options negotiate without ALPN and the server
 ///     refuses the stream.
+///  6. Experimental ECH via `sec_protocol_options_set_enable_encrypted_client_hello` (Security framework):
+///     Network.framework QUIC supports system ECH when enabled on the transport's securityProtocolOptions.
+///     Precondition and limitations:
+///     - System QUIC discovers ECHConfig exclusively via system DNS resolution of HTTPS/SVCB records;
+///     - External/static ECHConfig cannot be injected via Network.framework API;
+///     - Designated as "系统 ECH（尽力而为）" (best-effort system ECH); if no ECHConfig is found in DNS,
+///       it falls back to standard TLS 1.3 ClientHello. Static configs in `ech-opts` are warned in logs/report.
 
 // MARK: - Pure wire functions
 
@@ -393,12 +405,6 @@ final class NCHy2StreamChannel {
         }
     }
 
-    /// Datagram-style receive (message boundaries preserved), used by the
-    /// attempted QUIC datagram binding only.
-    func receiveMessage(_ handler: @escaping (Data?, Error?) -> Void) {
-        conn.receiveMessage { data, _, _, error in handler(data, error) }
-    }
-
     func cancel() {
         cancelled = true
         conn.stateUpdateHandler = nil
@@ -418,6 +424,7 @@ final class NCHysteria2Connection {
     private let password: String
     private let sni: String?
     private let allowInsecure: Bool
+    private let echEnabled: Bool
     /// nc-races: the connection's own session queue (the #116 pattern, as in NCMuxSession): every piece of
     /// connection and stream state — the NW group, the streams registry, the control-stream parser, the
     /// datagram channel — is touched only here, no matter which caller (connector, data plane, local proxy)
@@ -504,21 +511,47 @@ final class NCHysteria2Connection {
     private var startCompletion: ((Error?) -> Void)?
     private var streams: [ObjectIdentifier: NCHysteria2TCPStream] = [:]
 
-    // Datagram binding (unverified point 4, see file header).
-    private var datagramChannel: NCHy2StreamChannel?
-    /// Datagram sinks by hysteria session ID (session queue only). Was a single `onDatagram` slot: on a
-    /// shared connection every new UDP session overwrote the previous session's handler, so only the
-    /// last-registered session ever received replies. Each session now registers its own sink and keeps
-    /// filtering by session ID, exactly as it did with the slot.
-    private var datagramSinks: [UInt64: (Data) -> Void] = [:]
+    // QUIC datagram flow (file header, point 4). Session queue only.
+    private var datagramFlow: NWConnection?
+    /// A peer-initiated datagram flow that arrived while we already had our own (kept so it stays
+    /// alive and its datagrams are read; never sent on).
+    private var peerDatagramFlow: NWConnection?
+    /// Largest UDPMessage per datagram: sing-quic's 1197, lowered on EMSGSIZE (NWProtocolQUIC.Metadata
+    /// exposes no max datagram size in the iOS SDK — CI build error, so the send error is the signal).
+    private var datagramLimit = NCHy2UDP.maxDatagramSize
+    /// UDP sessions by hysteria session ID (session queue only). Inbound datagrams are demultiplexed on
+    /// the 4-byte session ID (NCHy2UDP.peekSessionID) and handed raw to exactly one sink; the sink's
+    /// session reassembles. Was a fan-out to every sink (each re-parsing every datagram).
+    private var udpSinks: [UInt32: (Data) -> Void] = [:]
+    /// Per-connection packet ID counter (UInt16, wraps). Only fragmented packets need distinct IDs, and
+    /// the server keys reassembly per session, so one counter for all sessions is enough.
+    private var nextPacketID: UInt16 = 0
+    /// Diagnostics (session queue): failed datagram sends and the last error, read by the loopback test.
+    private var udpSendErrors = 0
+    private var lastUDPSendError: String?
+    private var udpRxCount = 0
+    private var udpRxMaxSize = 0
+
+    /// Test seam: override the per-datagram budget (session queue hop).
+    func setUDPDatagramLimitForTesting(_ limit: Int) {
+        ncOnSessionQueue(queue) { self.datagramLimit = limit }
+    }
+
+    /// Snapshot of the UDP datagram path for diagnostics/tests.
+    var udpDiagnostics: String {
+        let read = { "limit=\(self.datagramLimit) flow=\(self.datagramFlow != nil) peerFlow=\(self.peerDatagramFlow != nil) rx=\(self.udpRxCount) rxMax=\(self.udpRxMaxSize) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
+        if NCSessionQueues.isCurrent(queue) { return read() }
+        return queue.sync(execute: read)
+    }
 
     init(server: String, port: Int, password: String, sni: String? = nil,
-         allowInsecure: Bool = false, queue: DispatchQueue) {
+         allowInsecure: Bool = false, echEnabled: Bool = false, queue: DispatchQueue) {
         self.server = server
         self.port = port
         self.password = password
         self.sni = sni
         self.allowInsecure = allowInsecure
+        self.echEnabled = echEnabled
         self.callbackQueue = queue
         self.queue = NCSessionQueues.make("nc.hy2.\(server):\(port)")
     }
@@ -526,9 +559,14 @@ final class NCHysteria2Connection {
     convenience init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let server = proxy.server, let port = proxy.port,
               let password = proxy.password else { return nil }
+        let echEnabled = NCSupport.systemQUICECHEnabled(proxy)
+        if echEnabled && NCSupport.hasStaticECHConfig(proxy) {
+            StartupLog.write("hysteria2「\(proxy.name)」: 节点配置了静态 ech-opts.config，但系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 获取，静态配置不生效）")
+        }
         self.init(server: server, port: port, password: password,
                   sni: proxy.fields["sni"]?.string,
                   allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                  echEnabled: echEnabled,
                   queue: queue)
     }
 
@@ -571,6 +609,15 @@ final class NCHysteria2Connection {
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)
         }
+        // ECH（lane E6）：打开系统 QUIC 的实验性 ECH 开关（Security 框架 C API）。
+        // 生效前提与限制：
+        // 1. 系统 QUIC 的 ECH 只能由系统在 DNS 解析时自动从 HTTPS/SVCB 记录中获取 ECHConfig；
+        // 2. 应用层无法向系统 QUIC 注入外部或静态（E1/E2 / ech-opts.config）获取的 ECHConfig；
+        // 3. 需系统 DNS 解析具备 DoH/HTTPS 记录支持；若无法从 DNS 获取则自动回退为普通 ClientHello。
+        // 因此此处为「系统 ECH（尽力而为）」。
+        if echEnabled {
+            ncSetSystemECH(tlsOptions, true)
+        }
         // RFC 9221 max_datagram_frame_size: our SETTINGS announce H3_DATAGRAM=1, and a
         // quic-go HTTP/3 peer with datagrams enabled closes the connection
         // (H3_SETTINGS_ERROR "missing QUIC Datagram support") when the transport did not
@@ -609,7 +656,13 @@ final class NCHysteria2Connection {
             // drain it — cancelling would reset the peer's control stream, and
             // receiving its SETTINGS is part of a conforming H3 handshake.
             guard let self else { incoming.cancel(); return }
-            self.acceptServerControlStream(incoming)
+            if Self.isDatagramFlow(incoming) {
+                // The peer-side view of the datagram flow (seen on some OS versions instead of / as
+                // well as our extracted one): read datagrams from it, never adopt it as control.
+                self.adoptDatagramFlow(incoming, extracted: false)
+            } else {
+                self.acceptServerControlStream(incoming)
+            }
         }
         group.start(queue: queue)
 
@@ -751,9 +804,13 @@ final class NCHysteria2Connection {
         auth = nil
         serverControl?.cancel()
         serverControl = nil
-        datagramChannel?.cancel()
-        datagramChannel = nil
-        datagramSinks.removeAll()
+        datagramFlow?.stateUpdateHandler = nil
+        datagramFlow?.cancel()
+        datagramFlow = nil
+        peerDatagramFlow?.stateUpdateHandler = nil
+        peerDatagramFlow?.cancel()
+        peerDatagramFlow = nil
+        udpSinks.removeAll()
         group?.cancel()
         group = nil
     }
@@ -790,49 +847,126 @@ final class NCHysteria2Connection {
         return stream
     }
 
-    // MARK: Datagrams (unverified binding — see file header, point 4)
+    // MARK: UDP over QUIC datagrams (file header, point 4)
 
-    /// Register (or, with nil, unregister) the datagram sink for one hysteria UDP session ID.
-    /// The sink is invoked on the session queue with every raw datagram the connection receives;
-    /// sessions filter by their session ID, as they did with the old single slot.
-    func setDatagramSink(sessionID: UInt64, _ handler: ((Data) -> Void)?) {
+    /// Registers a UDP session; returns its fresh random non-zero session ID, or nil when the
+    /// connection is not authenticated or the server did not enable UDP (Hysteria-UDP: false).
+    /// `sink` runs on the session queue with every raw datagram addressed to that session ID.
+    /// Opens the datagram flow on first use so replies have somewhere to land.
+    func registerUDP(_ sink: @escaping (Data) -> Void) -> UInt32? {
+        if NCSessionQueues.isCurrent(queue) { return registerUDPOnQueue(sink) }
+        return queue.sync { registerUDPOnQueue(sink) }
+    }
+
+    private func registerUDPOnQueue(_ sink: @escaping (Data) -> Void) -> UInt32? {
+        guard state == .ready, udpEnabled else { return nil }
+        for _ in 0..<32 {
+            let id = UInt32.random(in: 1...UInt32.max)
+            if udpSinks[id] == nil {
+                udpSinks[id] = sink
+                _ = ensureDatagramFlow()
+                return id
+            }
+        }
+        return nil
+    }
+
+    /// Drops a session's sink. The protocol has no session-close message: the server ages the
+    /// session's port out on inactivity. The datagram flow stays for the connection's life (it is a
+    /// view of the connection, not a stream — nothing to reclaim by closing it).
+    func unregisterUDP(_ sessionID: UInt32) {
+        ncOnSessionQueue(queue) { self.udpSinks.removeValue(forKey: sessionID) }
+    }
+
+    /// Frames (fragmenting above the datagram limit) and sends one UDP packet for `sessionID`.
+    func sendUDP(sessionID: UInt32, target: NCTarget, payload: Data) {
         ncOnSessionQueue(queue) {
-            if let handler {
-                self.datagramSinks[sessionID] = handler
-            } else {
-                self.datagramSinks.removeValue(forKey: sessionID)
+            guard self.state == .ready, self.udpEnabled, self.udpSinks[sessionID] != nil,
+                  let flow = self.ensureDatagramFlow() else { return }
+            let packetID = self.nextPacketID
+            self.nextPacketID &+= 1
+            let frames = NCHy2UDP.fragment(sessionID: sessionID, packetID: packetID,
+                                           address: Self.udpAddress(target), payload: payload,
+                                           maxDatagramSize: self.datagramLimit)
+            for frame in frames {
+                flow.send(content: frame, completion: .contentProcessed { [weak self] error in
+                    guard let self, let error else { return }
+                    ncOnSessionQueue(self.queue) {
+                        self.udpSendErrors += 1
+                        self.lastUDPSendError = "\(error) (\(frame.count) B)"
+                        // Datagram larger than the path allows right now: shrink for the next packets
+                        // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
+                        if case .posix(let code) = error, code == .EMSGSIZE {
+                            self.datagramLimit = max(512, min(self.datagramLimit, frame.count) - 64)
+                        }
+                    }
+                })
             }
         }
     }
 
-    /// Send one raw QUIC datagram payload (already hy2-framed by the codec
-    /// in NCHysteria2UDP.swift).
-    func sendDatagram(_ payload: Data) {
-        ncOnSessionQueue(queue) {
-            guard self.state == .ready, self.udpEnabled else { return }
-            self.ensureDatagramChannel()?.send(payload)
-        }
+    /// "host:port", IPv6 literals bracketed (sing-quic parses the address with M.ParseSocksaddr).
+    static func udpAddress(_ target: NCTarget) -> String {
+        let host = target.host
+        if host.contains(":") && !host.hasPrefix("[") { return "[\(host)]:\(target.port)" }
+        return "\(host):\(target.port)"
     }
 
-    private func ensureDatagramChannel() -> NCHy2StreamChannel? {
-        if let datagramChannel { return datagramChannel }
-        guard let conn = newStreamConnection() else { return nil }
-        let channel = NCHy2StreamChannel(conn: conn)
-        datagramChannel = channel
-        channel.start(queue: queue) { [weak self] error in
-            guard let self, error == nil else { return }
-            self.datagramReceiveLoop()
-        }
-        return channel
+    static func isDatagramFlow(_ conn: NWConnection) -> Bool {
+        (conn.parameters.defaultProtocolStack.transportProtocol as? NWProtocolQUIC.Options)?.isDatagram ?? false
     }
 
-    private func datagramReceiveLoop() {
-        datagramChannel?.receiveMessage { [weak self] data, error in
-            guard let self, self.state != .closed else { return }
-            if let data, !data.isEmpty {
-                for sink in self.datagramSinks.values { sink(data) }
+    /// The connection's RFC 9221 datagram flow, extracted on first use with the group's own QUIC
+    /// options flipped to isDatagram (NCQUICStreamOptions — fresh options fail to clone, ENETDOWN).
+    /// Sends issued before the flow is ready are queued by Network.framework.
+    private func ensureDatagramFlow() -> NWConnection? {
+        if let datagramFlow { return datagramFlow }
+        guard state == .ready, let group,
+              let flow = group.extract(connectionTo: nil,
+                                       using: NCQUICStreamOptions.datagram(from: group, fallback: makeQUICOptions)) else {
+            return nil
+        }
+        adoptDatagramFlow(flow, extracted: true)
+        return flow
+    }
+
+    private func adoptDatagramFlow(_ flow: NWConnection, extracted: Bool) {
+        if extracted || datagramFlow == nil {
+            datagramFlow = flow
+        } else {
+            peerDatagramFlow?.cancel()
+            peerDatagramFlow = flow
+        }
+        flow.stateUpdateHandler = { [weak self, weak flow] st in
+            guard let self, let flow else { return }
+            switch st {
+            case .ready:
+                self.readDatagrams(flow)
+            case .failed, .cancelled:
+                // A dead flow is re-extracted on the next send / registration.
+                if self.datagramFlow === flow { self.datagramFlow = nil }
+                if self.peerDatagramFlow === flow { self.peerDatagramFlow = nil }
+                flow.stateUpdateHandler = nil
+                flow.cancel()
+            default:
+                break
             }
-            if error == nil { self.datagramReceiveLoop() }
+        }
+        flow.start(queue: queue)
+    }
+
+    /// One receiveMessage per datagram; dispatch by session ID to exactly one sink.
+    private func readDatagrams(_ flow: NWConnection) {
+        flow.receiveMessage { [weak self, weak flow] data, _, _, error in
+            guard let self, let flow, self.state == .ready else { return }
+            if let data {
+                self.udpRxCount += 1
+                self.udpRxMaxSize = max(self.udpRxMaxSize, data.count)
+            }
+            if let data, let id = NCHy2UDP.peekSessionID(data), let sink = self.udpSinks[id] {
+                sink(data)
+            }
+            if error == nil { self.readDatagrams(flow) }
         }
     }
 

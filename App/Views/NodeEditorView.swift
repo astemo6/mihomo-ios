@@ -14,7 +14,9 @@ enum NodeProtocols {
     static let all: [(type: String, title: String)] = [
         ("ss", "Shadowsocks"), ("ssr", "ShadowsocksR"), ("vmess", "VMess"), ("vless", "VLESS"),
         ("trojan", "Trojan"), ("hysteria2", "Hysteria2"), ("hysteria", "Hysteria"), ("tuic", "TUIC v5"),
+        ("juicity", "Juicity"),
         ("wireguard", "WireGuard"), ("snell", "Snell"), ("anytls", "AnyTLS"), ("mieru", "Mieru"),
+        ("brook", "Brook"),
         ("ssh", "SSH"), ("socks5", "SOCKS5"), ("http", "HTTP(S)"),
         // v0.13: protocols added to mihomo after v1.19.0 (all in v1.19.33).
         ("sudoku", "Sudoku"), ("masque", "MASQUE"), ("trusttunnel", "TrustTunnel"), ("shadowquic", "ShadowQUIC"),
@@ -42,7 +44,7 @@ enum NodeProtocols {
         case "trusttunnel": return "TrustTunnel：AdGuard 的 HTTP/2 · HTTP/3 隧道协议，用户名与密码由服务端分配。"
         case "shadowquic": return "ShadowQUIC：伪装成普通 QUIC（TLS 1.3）的代理协议，SNI 填被伪装的网站。"
         case "openvpn": return "OpenVPN：由内核在用户态完成连接，不会创建系统 VPN。CA 证书必填；把 .ovpn 中 <ca> 等段的 PEM 内容粘贴进来。"
-        case "gost-relay": return "GOST Relay：GOST v3 的 relay 协议，可选 TLS 与多路复用。"
+        case "gost-relay": return "GOST Relay：GOST v3 的 relay 协议（不是 relay 链式策略组），支持 TCP / UDP，可叠加 TLS、WebSocket（ws / wss）与多路复用。"
         case "tailscale": return "Tailscale：原生内核尚未接入，节点会保留在配置中，但不会被连接。"
         case "ssh": return "私钥可直接粘贴 PEM 全文，也可填文件路径（绝对路径、~/ 开头，或相对配置目录）；加密的 OpenSSH 私钥请在「私钥口令」填写口令。"
         default: return nil
@@ -173,6 +175,16 @@ enum NodeProtocols {
                 FieldSpec(key: "udp-relay-mode", label: "UDP 转发", kind: .choice(["native", "quic"])),
                 FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
             ]
+        case "juicity":
+            return [
+                FieldSpec(key: "uuid", label: "UUID"),
+                FieldSpec(key: "password", label: "密码", kind: .secure),
+                FieldSpec(key: "sni", label: "SNI"),
+                FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h3"),
+                FieldSpec(key: "congestion-controller", label: "拥塞控制", kind: .choice(["bbr", "cubic", "new_reno"])),
+                FieldSpec(key: "pinned-certchain-sha256", label: "证书链 Hash", placeholder: "SHA-256 Base64/Hex"),
+                FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+            ]
         case "wireguard":
             return [
                 FieldSpec(key: "private-key", label: "私钥", kind: .secure),
@@ -292,6 +304,12 @@ enum NodeProtocols {
                 FieldSpec(key: "mux", label: "多路复用", kind: .bool),
                 FieldSpec(key: "udp", label: "UDP", kind: .bool),
                 FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+                FieldSpec(key: "forward", label: "转发模式（不发送目标地址）", kind: .bool),
+                FieldSpec(key: "network", label: "传输", kind: .choice(["tcp", "ws"])),
+                FieldSpec(key: "ws-opts.path", label: "WS 路径", placeholder: "/"),
+                FieldSpec(key: "ws-opts.headers.Host", label: "WS Host"),
+                FieldSpec(key: "client-fingerprint", label: "TLS 指纹", kind: .choice(["", "chrome", "firefox", "safari", "ios", "random"])),
+                FieldSpec(key: "fingerprint", label: "证书 SHA-256 指纹"),
             ]
         case "tailscale":
             return [
@@ -312,6 +330,20 @@ enum NodeProtocols {
                 FieldSpec(key: "transport", label: "传输", kind: .choice(["TCP", "UDP"])),
                 FieldSpec(key: "port-range", label: "端口范围", placeholder: "2090-2099"),
                 FieldSpec(key: "multiplexing", label: "多路复用", kind: .choice(["", "MULTIPLEXING_OFF", "MULTIPLEXING_LOW", "MULTIPLEXING_MIDDLE", "MULTIPLEXING_HIGH"])),
+            ]
+        case "brook":
+            // feat/nc-brook: NCBrookOptions reads exactly these keys.
+            return [
+                FieldSpec(key: "password", label: "密码", kind: .secure),
+                FieldSpec(key: "transport", label: "类型", kind: .choice(["server", "wsserver", "wssserver", "quicserver"])),
+                FieldSpec(key: "host", label: "Host / SNI（ws/wss/quic）", placeholder: "留空为服务器地址"),
+                FieldSpec(key: "path", label: "路径（ws/wss）", placeholder: "/ws"),
+                FieldSpec(key: "udp-over-tcp", label: "UDP over TCP（server）", kind: .bool),
+                FieldSpec(key: "udp-over-stream", label: "UDP over Stream（quic）", kind: .bool),
+                FieldSpec(key: "without-brook-protocol", label: "不使用 Brook 协议加密", kind: .bool),
+                FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+                FieldSpec(key: "client-fingerprint", label: "TLS 指纹（wss）", kind: .choice(["", "chrome"])),
+                FieldSpec(key: "udp", label: "UDP", kind: .bool),
             ]
         case "ssh":
             return [
@@ -348,7 +380,7 @@ enum NodeProtocols {
     static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "http", "socks5", "trusttunnel", "gost-relay"]
     static let smuxTypes: Set<String> = ["ss", "vmess", "vless", "trojan"]
     /// QUIC / UDP-based protocols: TCP Fast Open and MPTCP don't apply.
-    static let udpOnlyTypes: Set<String> = ["hysteria", "hysteria2", "tuic", "wireguard", "masque", "shadowquic"]
+    static let udpOnlyTypes: Set<String> = ["hysteria", "hysteria2", "tuic", "juicity", "wireguard", "masque", "shadowquic"]
 
     static func advanced(for type: String) -> [FieldSpec] {
         var f: [FieldSpec] = []
@@ -358,6 +390,7 @@ enum NodeProtocols {
         if echTypes.contains(type) {
             f.append(FieldSpec(key: "ech-opts.enable", label: "ECH", kind: .bool))
             f.append(FieldSpec(key: "ech-opts.config", label: "ECHConfig", placeholder: "Base64（留空则查询 DNS）"))
+            f.append(FieldSpec(key: "ech-opts.query-server-name", label: "ECH 查询域名", placeholder: "留空则使用 SNI"))
         }
         if pinTypes.contains(type) {
             f.append(FieldSpec(key: "fingerprint", label: "证书指纹", placeholder: "SHA-256（十六进制）"))
@@ -384,9 +417,11 @@ enum NodeProtocols {
         case "vless": return ["network": "tcp", "tls": "true", "udp": "true"]
         case "trojan", "anytls": return ["udp": "true", "network": "tcp"]
         case "tuic": return ["alpn": "h3", "congestion-controller": "bbr", "udp-relay-mode": "native"]
+        case "juicity": return ["alpn": "h3", "congestion-controller": "bbr", "udp": "true"]
         case "wireguard": return ["udp": "true", "ip": "172.16.0.2"]
         case "snell": return ["version": "4", "udp": "true"]
         case "mieru": return ["transport": "TCP"]
+        case "brook": return ["transport": "server", "udp": "true"]
         case "socks5": return ["udp": "true"]
         case "sudoku": return ["aead-method": "chacha20-poly1305", "table-type": "prefer_ascii"]
         case "masque": return ["udp": "true", "ip": "172.16.0.2", "mtu": "1280"]

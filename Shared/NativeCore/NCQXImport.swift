@@ -258,6 +258,16 @@ enum NCQXImport {
             if let t = take("token") { fields["token"] = .string(t) }
             if let u = take("uuid") { fields["uuid"] = .string(u) }
             if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "juicity":
+            if let p = take("password") { fields["password"] = .string(p) }
+            if let u = take("uuid") ?? take("user") { fields["uuid"] = .string(u) }
+            if let s = take("sni") ?? take("peer") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+            if let cc = take("congestion-controller") ?? take("congestion-control") ?? take("congestion_control") {
+                fields["congestion-controller"] = .string(cc)
+            }
+            if let pin = take("pinned-certchain-sha256") ?? take("pinned_certchain_sha256") ?? take("pinned-peer-cert-sha256") ?? take("cert-sha256") {
+                fields["pinned-certchain-sha256"] = .string(pin)
+            }
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
@@ -279,6 +289,7 @@ enum NCQXImport {
         if fields["skip-cert-verify"] == nil, let v = take("skip-cert-verify"), let b = NCConfImport.boolValue(v) {
             fields["skip-cert-verify"] = .bool(b)
         }
+        NCConfImport.applyECH(kv: kv, consumed: &consumed, fields: &fields)
 
         NCConfImport.finishFields(&fields, kv: kv, order: order, consumed: consumed)
         return NCProxy(name: name, type: type, fields: fields)

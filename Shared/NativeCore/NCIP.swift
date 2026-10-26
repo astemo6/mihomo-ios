@@ -143,7 +143,9 @@ struct NCCIDR: Equatable {
                     if n[i] != a[i] { return false }
                     remaining -= 8
                 } else {
-                    let mask = UInt8(0xff << (8 - remaining))
+                    // feat/nc-lan-share: was UInt8(0xff << n) on Int, which traps for any v6 prefix not a
+                    // multiple of 8 (fe80::/10, fc00::/7). 需同步 feat/nc-kernel.
+                    let mask = UInt8(0xff) << UInt8(8 - remaining)
                     return (n[i] & mask) == (a[i] & mask)
                 }
             }

@@ -31,7 +31,11 @@ final class ProviderUpdater: ObservableObject {
     /// Last error per task id ("rule:Name"); cleared on success.
     @Published private(set) var errors: [String: String] = [:]
 
-    struct Result { var ok = 0; var failed = 0 }
+    /// fix/nc-ruleset-fast: `changed` = downloads that wrote new content (a 304 / identical body is ok but unchanged).
+    struct Result { var ok = 0; var failed = 0; var changed = 0 }
+
+    /// fix/nc-ruleset-fast: downloads in flight at once (a sliding window, not batches that wait for their slowest).
+    nonisolated static let maxConcurrent = 6
 
     nonisolated static func plan(profilePath: String) -> [ProviderTask] {
         let json = NCProviderPorts.providerPlan(home: AppShared.homeURL.path, profilePath: profilePath)
@@ -51,27 +55,37 @@ final class ProviderUpdater: ObservableObject {
         total = tasks.count
         defer { running = false }
         var res = Result()
-        // Four at a time: enough to be quick, polite to GitHub and the CDN mirrors.
-        var idx = 0
-        while idx < tasks.count {
-            let batch = Array(tasks[idx..<min(idx + 4, tasks.count)])
-            idx += batch.count
-            for t in batch { busy.insert(t.id) }
-            let outcomes = await withTaskGroup(of: (String, String?).self) { g -> [(String, String?)] in
-                for t in batch { g.addTask { (t.id, await Self.run(t)) } }
-                var out: [(String, String?)] = []
-                for await o in g { out.append(o) }
-                return out
+        // fix/nc-ruleset-fast: six in flight, the next one starts as soon as any finishes (was: batches of four, each
+        // waiting for its slowest list). Conversion runs inside each task, off the main actor.
+        await withTaskGroup(of: (String, Outcome).self) { g in
+            var next = 0
+            while next < min(Self.maxConcurrent, tasks.count) {
+                let t = tasks[next]
+                next += 1
+                busy.insert(t.id)
+                g.addTask { (t.id, await Self.run(t)) }
             }
-            for (id, err) in outcomes {
+            while let r = await g.next() {
+                let id = r.0
                 busy.remove(id)
                 done += 1
-                if let err { errors[id] = err; res.failed += 1 } else { errors[id] = nil; res.ok += 1 }
+                switch r.1 {
+                case .failed(let err): errors[id] = err; res.failed += 1
+                case .unchanged: errors[id] = nil; res.ok += 1
+                case .changed: errors[id] = nil; res.ok += 1; res.changed += 1
+                }
+                if next < tasks.count {
+                    let t = tasks[next]
+                    next += 1
+                    busy.insert(t.id)
+                    g.addTask { (t.id, await Self.run(t)) }
+                }
             }
         }
         await ProfileInspector.shared.load()
         // User 2026-10-22 「不管是订阅还是节点，有更新后自动更新配置文件」: a fresh download takes effect right away.
-        if res.ok > 0, VPNManager.shared.isConnected, p.id == ProfileStore.shared.activeID {
+        // fix/nc-ruleset-fast: only when a list really changed — 304s / identical bodies need no tunnel reload.
+        if res.changed > 0, VPNManager.shared.isConnected, p.id == ProfileStore.shared.activeID {
             _ = await VPNManager.shared.reload()
         }
         return res
@@ -96,22 +110,28 @@ final class ProviderUpdater: ObservableObject {
         await updateAll(only: [id])
     }
 
-    /// Download + convert + write. Returns an error text or nil.
-    nonisolated static func run(_ t: ProviderTask) async -> String? {
-        guard let u = URL(string: t.url), u.scheme?.hasPrefix("http") == true else { return String(localized: "链接无效") }
-        var req = URLRequest(url: u, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        req.setValue(t.userAgent ?? (t.kind == "proxy" ? "clash.meta" : "clash.meta mihomo-ios"), forHTTPHeaderField: "User-Agent")
-        do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
-                return String(localized: "下载失败：HTTP \(h.statusCode)")
-            }
+    enum Outcome: Sendable { case changed, unchanged, failed(String) }
+
+    /// Download + convert + write. fix/nc-ruleset-fast: conditional GET against the cache file (ETag /
+    /// Last-Modified sidecar, NCConditionalFetch); a 304 or a byte-identical body keeps the cache untouched (only its
+    /// 「更新于」 time moves) and is not converted again.
+    nonisolated static func run(_ t: ProviderTask) async -> Outcome {
+        let cache = URL(fileURLWithPath: t.path)
+        let ua = t.userAgent ?? (t.kind == "proxy" ? "clash.meta" : "clash.meta mihomo-ios")
+        switch await NCConditionalFetch.fetch(t.url, cache: cache, userAgent: ua) {
+        case .unchanged:
+            return .unchanged
+        case .failed(let e):
+            if e == "链接无效" { return .failed(String(localized: "链接无效")) }
+            if e.hasPrefix("HTTP "), let code = Int(e.dropFirst(5)) { return .failed(String(localized: "下载失败：HTTP \(code)")) }
+            return .failed(e)
+        case .body(let data, let commit):
             let out = NCProviderPorts.providerStore(home: AppShared.homeURL.path, kind: t.kind, cachePath: t.path, convert: t.convert, data: data)
             struct R: Decodable { var count: Int; var error: String }
-            guard let r = try? JSONDecoder().decode(R.self, from: Data(out.utf8)) else { return String(localized: "写入失败") }
-            return r.error.isEmpty ? nil : r.error
-        } catch {
-            return error.localizedDescription
+            guard let r = try? JSONDecoder().decode(R.self, from: Data(out.utf8)) else { return .failed(String(localized: "写入失败")) }
+            guard r.error.isEmpty else { return .failed(r.error) }
+            commit(cache)
+            return .changed
         }
     }
 }

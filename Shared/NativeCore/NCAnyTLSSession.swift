@@ -24,7 +24,7 @@ final class NCAnyTLSSession {
         }
     }
 
-    private var tls: NCStream?
+    private var tls: NCRelayStream?
     private var parser = NCAnyTLS.FrameParser()
     private var streams: [UInt32: NCAnyTLSStream] = [:]
     private var nextStreamID: UInt32 = 1
@@ -64,7 +64,7 @@ final class NCAnyTLSSession {
         }
     }
 
-    func attach(tls: NCStream, password: String, clientMetadata: String) {
+    func attach(tls: NCRelayStream, password: String, clientMetadata: String) {
         ncOnSessionQueue(queue) {
             self.tls = tls
             self.setSnapshot(state: .ready)

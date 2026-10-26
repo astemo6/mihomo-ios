@@ -1351,7 +1351,7 @@ final class NCDataPlane {
             }
             session = hy2
         case .proxy(let proxy) where (proxy.type == "vmess" || proxy.type == "vless")
-            && NCConnector.smuxEnabled(proxy)
+            && NCConnector.smuxUsable(proxy) // fix/nc-silent-fail: smux / yamux run unmultiplexed
             && !(proxy.fields["smux"]?.object?["only-tcp"]?.bool ?? false):
             session = NCUDPMuxSession(proxy: proxy, queue: queue)
         case .proxy(let proxy) where proxy.type == "vmess":
@@ -1377,6 +1377,9 @@ final class NCDataPlane {
         case .proxy(let proxy) where proxy.type == "tuic":
             // feat/nc-proto2: native (QUIC datagram) / quic (uni stream) relay over the shared TUIC connection.
             session = NCUDPTUICSession(proxy: proxy, queue: queue)
+        case .proxy(let proxy) where proxy.type == "juicity":
+            // Juicity UDP over QUIC stream relay (one stream per source triplet).
+            session = NCUDPJuicitySession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "hysteria":
             // feat/nc-proto2: Hysteria v1 UDP over the shared session (datagrams, obfs / port hopping honoured).
             session = NCUDPHysteria1Session(proxy: proxy, queue: queue)
@@ -1384,6 +1387,12 @@ final class NCDataPlane {
             session = NCUDPMieruSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "anytls":
             session = NCUDPAnyTLSSession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "gost-relay":
+            // feat/nc-gost-relay: CONNECT|UDP relay connection bound to this flow's target (NCGostRelayUDP.swift).
+            session = NCUDPGostRelaySession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type.lowercased() == "naive" && (proxy.fields["udp-over-tcp"]?.bool ?? false):
+            // feat/nc-naive-h2h3: UoT v2 through a naive CONNECT tunnel (sing-box naive udp_over_tcp).
+            session = NCUDPUoTSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "wireguard":
             // feat/nc-wg: UDP from the node's lwIP netif (NCUDPWireGuardSession).
             session = NCUDPWireGuardSession(proxy: proxy, queue: queue)
@@ -1393,6 +1402,13 @@ final class NCDataPlane {
                 return
             }
             session = sn
+        case .proxy(let proxy) where proxy.type == "brook":
+            // feat/nc-brook: packets / udp-over-tcp / ws(s) stream / quic datagram or stream (NCBrookUDP.swift).
+            guard let br = NCUDPBrook.make(proxy: proxy, target: target, queue: queue) else {
+                udpDropped += 1
+                return
+            }
+            session = br
         default:
             udpDropped += 1
             return

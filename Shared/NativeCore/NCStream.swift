@@ -19,7 +19,10 @@ final class NCStream {
 
     /// TLS with proxy-protocol options: explicit SNI (servername) and optional
     /// skip-cert-verify, as Trojan/VLESS/VMess configs carry them.
-    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, alpn: [String]? = nil, queue: DispatchQueue) {
+    /// `alpn`: ALPN protocols to offer (feat/nc-xhttp: XHTTP needs "h2"; fix/nc-diag-439: ws/httpupgrade offer only
+    /// http/1.1). Empty keeps the system default.
+    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, alpn: [String] = [],
+         queue: DispatchQueue) {
         self.queue = queue
         let tlsOptions = NWProtocolTLS.Options()
         if let sni = tlsServerName, !sni.isEmpty {
@@ -27,7 +30,7 @@ final class NCStream {
         }
         // fix/nc-diag-439 (G): explicit ALPN (ws over TLS offers only http/1.1, like mihomo — an edge that is offered
         // h2 may pick it and the ws upgrade then fails).
-        for p in alpn ?? [] where !p.isEmpty {
+        for p in alpn where !p.isEmpty {
             sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, p)
         }
         if allowInsecure {
@@ -38,6 +41,14 @@ final class NCStream {
         let params = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
         NCOutboundBinding.apply(params, host: host)
         conn = NWConnection(to: Self.endpoint(host, port: port), using: params)
+    }
+
+    /// Caller-built parameters (feat/nc-brook: wss with ALPN http/1.1 + a custom CA anchor). The physical-interface
+    /// binding is applied here like every other init.
+    init(to host: String, port: Int, parameters: NWParameters, queue: DispatchQueue) {
+        self.queue = queue
+        NCOutboundBinding.apply(parameters, host: host)
+        conn = NWConnection(to: Self.endpoint(host, port: port), using: parameters)
     }
 
     static func endpoint(_ host: String, port: Int) -> NWEndpoint {

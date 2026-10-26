@@ -112,36 +112,68 @@ final class ResourceStore: ObservableObject {
     // MARK: updates
 
     /// Downloads one resource. Returns true when the cache changed. Does not reload the tunnel.
+    /// fix/nc-ruleset-fast: conditional GET (ETag / Last-Modified sidecar next to the cache file); a 304 or a body
+    /// byte-identical to the last one stored counts as updated (no error, 「更新于」 moves) but not as changed, so
+    /// nothing is re-validated / converted and the tunnel is not reloaded for it.
     @discardableResult
     func download(_ it: ResourceItem) async -> Bool {
         guard it.isRemote else { return false }
         busy.insert(it.key)
         defer { busy.remove(it.key) }
-        let home = self.home
-        do {
-            guard let u = URL(string: it.url) else { throw URLError(.badURL) }
-            var req = URLRequest(url: u, timeoutInterval: 30)
-            req.setValue(it.kind == "script" ? "Surge iOS/3000" : "Surge iOS/3000 Mihomo-iOS", forHTTPHeaderField: "User-Agent")
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
-                NCResourcesPort.resourceSetError(home: home, key: it.key, message: "HTTP \(h.statusCode)")
-                return false
+        let ua = it.kind == "script" ? "Surge iOS/3000" : "Surge iOS/3000 Mihomo-iOS"
+        let r = await Self.fetchAndStore(home: home, key: it.key, url: it.url, userAgent: ua)
+        if r.ok, it.kind == "module" {
+            let es = EngineStore.shared
+            if let i = es.config.modules.firstIndex(where: { $0.id == it.refId }) {
+                es.config.modules[i].updatedAt = Date().timeIntervalSince1970
+                es.save(reload: false)
             }
-            let key = it.key
-            let res = await Task.detached(priority: .utility) { NCResourcesPort.resourceStore(home: home, key: key, data: data) }.value
+        }
+        return r.changed
+    }
+
+    /// Network + validation + write, off the main actor.
+    nonisolated static func fetchAndStore(home: String, key: String, url: String, userAgent: String) async -> (ok: Bool, changed: Bool) {
+        let cp = NCResourcesPort.cachePath(home: home, key: key)
+        let cache = URL(fileURLWithPath: cp ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("nc-resource-none"))
+        switch await NCConditionalFetch.fetch(url, cache: cache, userAgent: userAgent) {
+        case .unchanged:
+            NCResourcesPort.resourceSetError(home: home, key: key, message: "")
+            return (true, false)
+        case .failed(let e):
+            NCResourcesPort.resourceSetError(home: home, key: key, message: e)
+            return (false, false)
+        case .body(let data, let commit):
+            let res = NCResourcesPort.resourceStore(home: home, key: key, data: data)
             struct R: Decodable { var ok: Bool; var error: String? }
-            let r = try? JSONDecoder().decode(R.self, from: Data(res.utf8))
-            if r?.ok == true, it.kind == "module" {
-                let es = EngineStore.shared
-                if let i = es.config.modules.firstIndex(where: { $0.id == it.refId }) {
-                    es.config.modules[i].updatedAt = Date().timeIntervalSince1970
-                    es.save(reload: false)
+            let ok = (try? JSONDecoder().decode(R.self, from: Data(res.utf8)))?.ok == true
+            if ok, cp != nil { commit(cache) }
+            return (ok, ok)
+        }
+    }
+
+    /// fix/nc-ruleset-fast: downloads in flight at once in 全部更新 (was one after another).
+    nonisolated static let maxConcurrent = 6
+
+    /// Downloads `list` six at a time (the next starts when any finishes); true when any cache changed.
+    private func downloadMany(_ list: [ResourceItem]) async -> Bool {
+        guard !list.isEmpty else { return false }
+        return await withTaskGroup(of: Bool.self) { g -> Bool in
+            var next = 0, changed = false
+            while next < min(Self.maxConcurrent, list.count) {
+                let it = list[next]
+                next += 1
+                g.addTask { await self.download(it) }
+            }
+            while let c = await g.next() {
+                if c { changed = true }
+                if next < list.count {
+                    let it = list[next]
+                    next += 1
+                    g.addTask { await self.download(it) }
                 }
             }
-            return r?.ok == true
-        } catch {
-            NCResourcesPort.resourceSetError(home: home, key: it.key, message: error.localizedDescription)
-            return false
+            return changed
         }
     }
 
@@ -174,14 +206,11 @@ final class ResourceStore: ObservableObject {
         if let e = items.first(where: { $0.key == it.key })?.error, !e.isEmpty { message = String(localized: "更新「\(it.name)」失败：\(e)") }
     }
 
-    /// 任务 → 全部更新 (2026-10-23): downloads the given resources (the tasks' remote scripts) one after another and
-    /// reloads the tunnel once when anything changed. Returns how many failed.
+    /// 任务 → 全部更新 (2026-10-23): downloads the given resources (the tasks' remote scripts; fix/nc-ruleset-fast: six
+    /// at a time) and reloads the tunnel once when anything changed. Returns how many failed.
     @discardableResult
     func updateItems(_ list: [ResourceItem]) async -> Int {
-        var changed = false
-        for it in list where it.isRemote {
-            if await download(it) { changed = true }
-        }
+        let changed = await downloadMany(list.filter(\.isRemote))
         await finish(changed: changed)
         let keys = Set(list.map(\.key))
         return items.filter { keys.contains($0.key) && ($0.error ?? "").isEmpty == false }.count
@@ -194,13 +223,11 @@ final class ResourceStore: ObservableObject {
         updatingAll = true
         defer { updatingAll = false }
         reload()
-        var changed = false
-        for it in items where it.kind == "module" && it.enabled && it.isRemote && (!onlyDue || it.isDue) {
-            if await download(it) { changed = true }
-        }
+        // fix/nc-ruleset-fast: each pass downloads six at a time (was one after another).
+        var changed = await downloadMany(items.filter { $0.kind == "module" && $0.enabled && $0.isRemote && (!onlyDue || $0.isDue) })
         if changed { EngineStore.shared.reparseModules(); reload() }
-        for it in items where it.kind != "module" && it.enabled && it.isRemote && (!onlyDue || it.isDue) {
-            if await download(it) { changed = true }
+        if await downloadMany(items.filter { $0.kind != "module" && $0.enabled && $0.isRemote && (!onlyDue || $0.isDue) }) {
+            changed = true
         }
         await finish(changed: changed, quiet: onlyDue)
         if !onlyDue {

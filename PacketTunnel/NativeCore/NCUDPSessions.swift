@@ -501,12 +501,18 @@ final class NCUDPAnyTLSSession: NCUDPSession {
 final class NCUDPSnellSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let raw: NCStream
+    /// fix/nc-silent-fail: what the Snell frames ride — `raw`, or `raw` inside the obfs-opts simple-obfs
+    /// wrapper (mihomo applies obfs to the UDP connection too: ListenPacketContext → StreamConnContext).
+    private let wire: NCRelayStream
     private let version: Int
     private let encoder: NCSnellStreamEncoder?
     private let decoder: NCSnellStreamDecoder?
     private let v4Writer: NCSnellV4Writer?
     private let v4Reader: NCSnellV4Reader?
     private var cancelled = false
+    /// fix/nc-silent-fail: set when the dial fails — the session is dead and send() drops instead of
+    /// encoding into a never-connected stream until the idle reap (NCUDPTrojanSession marks dead alike).
+    private var dead = false
 
     init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let password = proxy.password, let server = proxy.server, let port = proxy.port
@@ -527,19 +533,25 @@ final class NCUDPSnellSession: NCUDPSession {
             decoder = NCSnellStreamDecoder(psk: psk, version: version)
         }
         raw = NCStream(to: server, port: port, queue: queue)
+        if let obfs = NCConnector.snellObfsOptions(proxy) {
+            wire = NCSSPluginStream(raw: raw, options: obfs, serverPort: String(port))
+        } else {
+            wire = raw
+        }
         raw.start { [weak self] err in
-            guard let self, err == nil else { return }
+            guard let self else { return }
+            guard err == nil else { self.dead = true; return }
             if let v4Writer {
-                if let wire = v4Writer.write(NCSnell.udpHeader()) { self.raw.send(wire) }
+                if let w = v4Writer.write(NCSnell.udpHeader()) { self.wire.send(w) }
             } else if let encoder {
-                if let wire = encoder.encode(NCSnell.udpHeader()) { self.raw.send(wire) }
+                if let w = encoder.encode(NCSnell.udpHeader()) { self.wire.send(w) }
             }
             self.receiveLoop()
         }
     }
 
     private func receiveLoop() {
-        raw.receive { [weak self] data, error in
+        wire.receive { [weak self] data, error in
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             if let v4Reader {
@@ -563,17 +575,18 @@ final class NCUDPSnellSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
+        guard !dead, !cancelled else { return }
         let frame = NCSnell.udpFrame(target: target, payload: data)
         if let v4Writer {
-            if let wire = v4Writer.frame(frame) { raw.send(wire) }
+            if let w = v4Writer.frame(frame) { wire.send(w) }
         } else if let encoder {
-            if let wire = encoder.encode(frame) { raw.send(wire) }
+            if let w = encoder.encode(frame) { wire.send(w) }
         }
     }
 
     func cancel() {
         cancelled = true
-        raw.cancel()
+        wire.cancel()
     }
 }
 
@@ -581,7 +594,13 @@ final class NCUDPSnellSession: NCUDPSession {
 /// framed as ATYP + length + CRLF + payload.
 final class NCUDPTrojanSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
-    private let raw: NCStream
+    /// fix/nc-silent-fail: the stream once dialed — TLS, or TLS / REALITY + the ws / grpc / h2 transport
+    /// (NCConnector.trojanTransportBase, as TCP uses). Datagrams sent before then wait in `pending` (capped), so
+    /// none can overtake the request head.
+    private var stream: NCRelayStream?
+    private var pending: [Data] = []
+    private var dead = false
+    static let maxPending = 64
     private var buffer = Data()
     // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
     // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
@@ -595,19 +614,37 @@ final class NCUDPTrojanSession: NCUDPSession {
     private var cancelled = false
 
     init(proxy: NCProxy, firstTarget: NCTarget, queue: DispatchQueue) {
-        raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
-                       tlsServerName: proxy.fields["sni"]?.string ?? proxy.server ?? "",
-                       allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                       queue: queue)
-        raw.start { [weak self] err in
-            guard let self, err == nil, let password = proxy.password else { return }
-            self.raw.send(NCTrojan.requestHead(password: password, target: firstTarget, udp: true))
+        let server = proxy.server ?? ""
+        let port = proxy.port ?? 0
+        let ready: (NCRelayStream?, Error?) -> Void = { [weak self] s, err in
+            guard let self else { s?.cancel(); return }
+            guard let s, err == nil, !self.cancelled, let password = proxy.password else {
+                s?.cancel()
+                self.dead = true
+                self.pending = []
+                return
+            }
+            self.stream = s
+            s.send(NCTrojan.requestHead(password: password, target: firstTarget, udp: true))
+            let queued = self.pending
+            self.pending = []
+            for d in queued { s.send(d) }
             self.receiveLoop()
+        }
+        if NCConnector.trojanUsesTransport(proxy) || NCConnector.realityParams(proxy) != nil {
+            NCConnector.trojanTransportBase(proxy: proxy, server: server, port: port, queue: queue, completion: ready)
+        } else {
+            let raw = NCStream(to: server, port: port,
+                               tlsServerName: proxy.fields["sni"]?.string ?? server,
+                               allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                               queue: queue)
+            raw.start { err in ready(err == nil ? raw : nil, err) }
         }
     }
 
     private func receiveLoop() {
-        raw.receive { [weak self] data, error in
+        guard let stream else { return }
+        stream.receive { [weak self] data, error in
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             self.buffer.append(data)
@@ -654,173 +691,19 @@ final class NCUDPTrojanSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
-        raw.send(NCTrojan.udpPacket(target: target, payload: data))
+        let packet = NCTrojan.udpPacket(target: target, payload: data)
+        if let stream { stream.send(packet); return }
+        if !dead, !cancelled, pending.count < Self.maxPending { pending.append(packet) }
     }
 
     func cancel() {
         cancelled = true
-        raw.cancel()
+        pending = []
+        stream?.cancel()
     }
 }
 
-// NCDNSUpstream moved to Shared/NativeCore/NCDNSUpstream.swift (pure logic; the app unit tests use it).
 
-extension NCDNSForwarder {
-    /// Forward via any upstream kind. nc-dns: single upstreams go through the shared
-    /// coordinator (identical in-flight queries coalesce, the global in-flight cap
-    /// applies — DoQ included, it just does not reuse connections yet). Groups race
-    /// their members (fix/nc-open-6-10, NCDNSRace); each attempt is a separate coordinated query.
-    func forward(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
-        forward(query, upstream: upstream, trace: nil, completion: completion)
-    }
-
-    /// Same, recording what each tried server did into `trace` (per-query failure log, fix/nc-open-6-10 #7).
-    func forward(_ query: Data, upstream: NCDNSUpstream, trace: NCDNSAttemptTrace?,
-                 completion: @escaping (Data?) -> Void) {
-        if case .group(let list) = upstream {
-            forwardGroup(query, list: list, trace: trace, completion: completion)
-            return
-        }
-        let t0 = DispatchTime.now()
-        NCDNSUpstreamCoordinator.shared.submit(
-            key: "\(upstream)|" + Self.mergeKeySuffix(query),
-            id: Self.transactionID(query), callerQueue: queue,
-            execute: { [weak self] done in
-                guard let self else { done(nil); return }
-                self.dispatchOnce(query, upstream: upstream, completion: done)
-            }, completion: { resp in
-                if let trace {
-                    let ms = Int((DispatchTime.now().uptimeNanoseconds &- t0.uptimeNanoseconds) / 1_000_000)
-                    if resp == nil { trace.add("\(upstream.label) no answer \(ms) ms") }
-                    else if let r = resp, !NCDNSRace.isUsable(r) { trace.add("\(upstream.label) rcode \(NCDNSRace.rcode(r)) \(ms) ms") }
-                }
-                completion(resp)
-            })
-    }
-
-    /// One real upstream exchange (the coordinator's execute step; no coalescing here).
-    private func dispatchOnce(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
-        switch upstream {
-        case .udp(let host, let port):
-            forwardUDPOnce(query, server: host, port: port, completion: completion)
-        case .tcp(let host, let port):
-            Self.forwardTCP(query, server: host, port: port, queue: queue, completion: completion)
-        case .dot(let host, let port):
-            Self.forwardDoT(query, host: host, port: port, queue: queue, completion: completion)
-        case .doh(let url):
-            Self.forwardDoH(query, urlString: url, queue: queue, completion: completion)
-        case .doq(let host, let port):
-            Self.forwardDoQ(query, host: host, port: port, queue: queue, completion: completion)
-        case .group:
-            completion(nil) // unreachable: groups are handled in forward()
-        }
-    }
-
-    private static let groupLock = NSLock()
-    private static var groupLastGood: [String: Int] = [:]
-
-    /// Every configured nameserver, raced (fix/nc-open-6-10 #7; was rv2-rules' strictly sequential failover with a
-    /// 2.5 s per-server timeout): at most two exchanges in flight, the second 300 ms after the first, a failed or
-    /// timed-out server starts the next one at once, first usable answer wins (NCDNSRace). The server that answered
-    /// last time goes first. A late answer from a server already given up on is ignored.
-    private func forwardGroup(_ query: Data, list: [NCDNSUpstream], trace: NCDNSAttemptTrace?,
-                              completion: @escaping (Data?) -> Void) {
-        guard !list.isEmpty else { completion(nil); return }
-        let key = "\(list)"
-        Self.groupLock.lock()
-        let start = (Self.groupLastGood[key] ?? 0) % list.count
-        Self.groupLock.unlock()
-        NCDNSRace.run(list: list, start: start, queue: queue, trace: trace, exchange: { [weak self] u, done in
-            guard let self else { done(nil); return }
-            // Members are single upstreams (NCDNSUpstream.of flattens groups); per-member trace lines come
-            // from the race itself, so no trace is passed down here.
-            self.forward(query, upstream: u, trace: nil, completion: done)
-        }, completion: { resp, winner in
-            if let winner, winner != start {
-                Self.groupLock.lock()
-                if Self.groupLastGood.count > 64 { Self.groupLastGood.removeAll() }
-                Self.groupLastGood[key] = winner
-                Self.groupLock.unlock()
-            }
-            completion(resp)
-        })
-    }
-
-    /// DoQ (RFC 9250): one bidirectional QUIC stream per query inside a
-    /// throwaway connection group; the message is length-prefixed exactly
-    /// like DNS-over-TCP, and the send side is closed after the query.
-    private static func forwardDoQ(_ query: Data, host: String, port: Int, queue: DispatchQueue,
-                                   completion: @escaping (Data?) -> Void) {
-        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host),
-                                           port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
-        // QUIC is TLS 1.3-only by construction; no min-version pinning needed.
-        let quicOptions = NWProtocolQUIC.Options(alpn: ["doq"])
-        let params = NWParameters(quic: quicOptions)
-        NCOutboundBinding.apply(params, host: host)
-        let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
-        var done = false
-        func finish(_ data: Data?) {
-            guard !done else { return }
-            done = true
-            group.cancel()
-            completion(data)
-        }
-        group.stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                guard let conn = group.extract(connectionTo: nil, using: nil) else {
-                    finish(nil)
-                    return
-                }
-                conn.stateUpdateHandler = { cstate in
-                    if case .failed = cstate { finish(nil) }
-                }
-                conn.start(queue: queue)
-                var framed = Data()
-                framed.appendBE16(UInt16(query.count))
-                framed.append(query)
-                conn.send(content: framed, contentContext: .defaultMessage, isComplete: true,
-                          completion: .contentProcessed { _ in
-                    conn.receive(minimumIncompleteLength: 2, maximumLength: 2) { lenData, _, _, _ in
-                        guard let lenData, lenData.count == 2 else { finish(nil); return }
-                        let len = Int(lenData[0]) << 8 | Int(lenData[1])
-                        conn.receive(minimumIncompleteLength: len, maximumLength: len) { data, _, _, _ in
-                            finish(data)
-                        }
-                    }
-                })
-            case .failed:
-                finish(nil)
-            default:
-                break
-            }
-        }
-        group.start(queue: queue)
-        queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
-    }
-
-    /// DoT (RFC 7858): length-framed queries over the pooled per-upstream TLS stream
-    /// (NCDNSDoTPool: connection reuse, strict sequencing, discard on error/timeout).
-    private static func forwardDoT(_ query: Data, host: String, port: Int, queue: DispatchQueue,
-                                   completion: @escaping (Data?) -> Void) {
-        NCDNSDoTPool.shared.forward(query, host: host, port: port, callerQueue: queue, completion: completion)
-    }
-
-    /// DoH (RFC 8484): POST the wire query over the pooled per-endpoint HTTPS connection
-    /// (NCDNSDoHPool: keep-alive reuse, one query at a time, exact response framing).
-    private static func forwardDoH(_ query: Data, urlString: String, queue: DispatchQueue,
-                                   completion: @escaping (Data?) -> Void) {
-        guard let url = URL(string: urlString), let host = url.host else {
-            completion(nil)
-            return
-        }
-        let port = url.port ?? 443
-        let path = url.path.isEmpty ? "/dns-query" : url.path
-        NCDNSDoHPool.shared.forward(query, urlString: urlString, host: host, port: port, path: path,
-                                    callerQueue: queue, completion: completion)
-    }
-
-}
 
 /// VMess UDP: a dedicated VMess connection (command 0x02) per destination —
 /// the sing-vmess packet connection: the body is the AEAD chunk stream, one

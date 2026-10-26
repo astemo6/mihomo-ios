@@ -269,6 +269,20 @@ final class NativeCoreEngine {
         // from the previous config complete their waiters, but their answers
         // may no longer enter the cache (fetched under the old DNS policy).
         resolveLock.lock(); resolveCache = [:]; resolveGeneration += 1; resolveLock.unlock()
+        echResolver.clearCache()
+        #if TERN_TUNNEL
+        // ech-rest: dynamic ech-opts (enable without config) — NCConnector.dialNativeTLS asks this engine's
+        // resolver for the HTTPS RR of query-server-name / the TLS server name (kernel upstreams, TTL cache).
+        let ech = echResolver
+        NCConnector.echConfigLookup = { name, done in
+            ech.resolveECH(for: name) { result in
+                switch result {
+                case .success(let res): done(res.echConfigList, nil)
+                case .failure(let err): done(nil, err)
+                }
+            }
+        }
+        #endif
         ruleDiagnostics = Self.diagnose(cfg: cfg, rules: parsed, providers: preProviders, policy: policy,
                                         pool: pool, geoSite: geo, geoIP: geoIPDB != nil, asn: asnDB != nil)
         // Node subscriptions: cached nodes merge into the effective config;
@@ -472,6 +486,8 @@ final class NativeCoreEngine {
         let stranded = resolveWaiters.values.flatMap { $0 }
         resolveWaiters = [:]
         resolveLock.unlock()
+        echResolver.clearCache()
+        echResolver.cancelAll()
         for w in stranded { w(nil) }
         isRunning = false
         _config = nil
@@ -953,6 +969,39 @@ final class NativeCoreEngine {
         let waiters = resolveWaiters.removeValue(forKey: host) ?? []
         resolveLock.unlock()
         for w in waiters { w(ip) }
+    }
+
+    let echResolver: NCECHResolver
+
+    init(echResolver: NCECHResolver? = nil) {
+        let forwarder = self.resolveForwarder
+        let resolver = echResolver ?? NCECHResolver(forwarder: forwarder)
+        self.echResolver = resolver
+        if echResolver == nil {
+            resolver.upstreamProvider = { [weak self] name, type in
+                guard let self else { return (nil, nil, false) }
+                var q = NCDNSMessage()
+                q.id = 1
+                q.questions = [NCDNSQuestion(name: name, type: type, klass: NCDNSMessage.classIN)]
+                let query = q.serialized()
+                return self.dnsRoute(for: query)
+            }
+        }
+    }
+
+    /// Query HTTPS/SVCB DNS records to retrieve ECH configuration for outbound connections.
+    /// Honors query-server-name, kernel nameserver-policy routing, and caches results by TTL.
+    func resolveECH(for host: String, queryServerName: String? = nil,
+                    timeout: TimeInterval = NCECHResolver.defaultTimeout,
+                    callerQueue: DispatchQueue? = nil,
+                    completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
+        echResolver.resolveECH(for: host, queryServerName: queryServerName, timeout: timeout, callerQueue: callerQueue, completion: completion)
+    }
+
+    @available(iOS 13.0, macOS 10.15, *)
+    func resolveECH(for host: String, queryServerName: String? = nil,
+                    timeout: TimeInterval = NCECHResolver.defaultTimeout) async throws -> NCECHResolution {
+        try await echResolver.resolveECH(for: host, queryServerName: queryServerName, timeout: timeout)
     }
 
     /// Load-time diagnostics (one line each, capped).

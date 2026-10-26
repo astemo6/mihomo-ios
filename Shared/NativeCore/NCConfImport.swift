@@ -159,6 +159,64 @@ enum NCConfImport {
         fields["plugin-opts"] = .object(opts)
     }
 
+    /// Shadowsocks cloak and kcptun plugin options in conf lines
+    static func applySSPlugin(kv: [String: String], consumed: inout Set<String>,
+                              fields: inout [String: NCJSONValue]) {
+        guard let rawPlugin = kv["plugin"] else { return }
+        consumed.insert("plugin")
+        let plugin = rawPlugin.lowercased()
+        if plugin.contains("cloak") || plugin.contains("ck-client") {
+            fields["plugin"] = .string("cloak")
+            var opts: [String: NCJSONValue] = [:]
+            let cloakKeys: Set<String> = [
+                "servername", "publickey", "uid", "browsersig", "encryptionmethod",
+                "transport", "numconn", "streamtimeout", "alternativenames",
+                "cdnoriginhost", "cdnwsurlpath", "host", "path"
+            ]
+            for (k, v) in kv {
+                let norm = k.lowercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+                if cloakKeys.contains(norm) {
+                    consumed.insert(k)
+                    opts[k] = coerce(v)
+                }
+            }
+            if !opts.isEmpty { fields["plugin-opts"] = .object(opts) }
+        } else if plugin.contains("kcptun") {
+            fields["plugin"] = .string("kcptun")
+            var opts: [String: NCJSONValue] = [:]
+            let kcptunKeys: Set<String> = [
+                "key", "crypt", "mode", "conn", "autoexpire", "scavengettl", "mtu",
+                "sndwnd", "rcvwnd", "datashard", "parityshard", "dscp", "nocomp",
+                "acknodelay", "nodelay", "interval", "resend", "nc", "nocongestion",
+                "sockbuf", "smuxver", "smuxbuf", "framesize", "streambuf", "keepalive"
+            ]
+            for (k, v) in kv {
+                let norm = k.lowercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+                if kcptunKeys.contains(norm) {
+                    consumed.insert(k)
+                    opts[k] = coerce(v)
+                }
+            }
+            if !opts.isEmpty { fields["plugin-opts"] = .object(opts) }
+        }
+    }
+
+    /// Apply Surge/Loon `ech=...` / `ech-opts=...` / `ech-config=...` options into `fields["ech-opts"]`.
+    static func applyECH(kv: [String: String], consumed: inout Set<String>,
+                         fields: inout [String: NCJSONValue]) {
+        guard kv["ech"] != nil || kv["ech-opts"] != nil || kv["ech-config"] != nil else { return }
+        var q: [String: String] = [:]
+        if let v = kv["ech"] { consumed.insert("ech"); q["ech"] = v }
+        if let v = kv["ech-opts"] { consumed.insert("ech-opts"); q["ech"] = v }
+        if let v = kv["ech-config"] { consumed.insert("ech-config"); q["ech-config"] = v }
+        if let v = kv["ech-qsn"] { consumed.insert("ech-qsn"); q["ech-qsn"] = v }
+        if let v = kv["ech-query-server-name"] { consumed.insert("ech-query-server-name"); q["ech-qsn"] = v }
+        if let v = kv["query-server-name"] { consumed.insert("query-server-name"); q["ech-qsn"] = v }
+        if let opts = NCECHOpts.parse(query: q) {
+            fields["ech-opts"] = .object(opts.toObject())
+        }
+    }
+
     /// Parse a Surge `ws-headers` value ("Host:cdn.example.com", several
     /// headers separated by '|') into a header map.
     static func parseWSHeaders(_ value: String) -> [String: String] {
@@ -259,11 +317,15 @@ enum NCConfImport {
         case "https": type = "https"
         case "snell": type = "snell"
         case "tuic": type = "tuic"
+        case "juicity": type = "juicity"
         case "hysteria2", "hy2": type = "hysteria2"
         case "hysteria":
             type = "hysteria2"
             report.warnings.append("node '\(name)': hysteria v1 approximated as hysteria2")
         case "wireguard": type = "wireguard"
+        // feat/nc-gost-relay: Shadowrocket `Name = relay, host, port, user, pass, …` (GOST relay; a [Proxy] node
+        // line, unrelated to the `relay` chain group) and the mihomo spelling.
+        case "relay", "gost-relay", "gostrelay": type = "gost-relay"
         case "direct": type = "direct"
         case "reject", "reject-tinygif": type = "reject"
         default:
@@ -284,13 +346,15 @@ enum NCConfImport {
         // Common parameters.
         if let v = take("udp-relay") ?? take("udp"), let b = boolValue(v) { fields["udp"] = .bool(b) }
         if let v = take("tfo") ?? take("fast-open"), let b = boolValue(v) { fields["tfo"] = .bool(b) }
-        if let v = take("skip-cert-verify"), let b = boolValue(v) { fields["skip-cert-verify"] = .bool(b) }
+        if let v = take("skip-cert-verify") ?? take("allow-insecure") ?? take("allowInsecure"), let b = boolValue(v) { fields["skip-cert-verify"] = .bool(b) }
+        applyECH(kv: kv, consumed: &consumed, fields: &fields)
 
         switch type {
         case "ss":
             if let c = take("encrypt-method") ?? take("method") { fields["cipher"] = .string(c) }
             if let p = take("password") { fields["password"] = .string(p) }
             applySimpleObfs(kv: kv, consumed: &consumed, fields: &fields)
+            applySSPlugin(kv: kv, consumed: &consumed, fields: &fields)
         case "vmess":
             // Surge/Loon spell the UUID `username`.
             if let u = take("username") ?? take("uuid") { fields["uuid"] = .string(u) }
@@ -320,9 +384,28 @@ enum NCConfImport {
             // it identically, but tuic auth is either password or token).
             if let t = take("token") { fields["token"] = .string(t) }
             if let s = take("sni") { fields["sni"] = .string(s) }
+        case "juicity":
+            if let u = take("uuid") ?? take("user") ?? take("username") { fields["uuid"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            if let s = take("sni") ?? take("peer") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+            if let cc = take("congestion-controller") ?? take("congestion-control") ?? take("congestion_control") {
+                fields["congestion-controller"] = .string(cc)
+            }
+            if let pin = take("pinned-certchain-sha256") ?? take("pinned_certchain_sha256") ?? take("pinned-peer-cert-sha256") ?? take("cert-sha256") {
+                fields["pinned-certchain-sha256"] = .string(pin)
+            }
+            if let alpn = take("alpn") {
+                let parts = alpn.replacingOccurrences(of: "|", with: ",").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+                fields["alpn"] = .array(parts.map { .string($0) })
+            }
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") { fields["sni"] = .string(s) }
+        case "gost-relay":
+            if positional.count >= 4, !positional[3].isEmpty, kv["username"] == nil { fields["username"] = .string(positional[3]) }
+            if positional.count >= 5, !positional[4].isEmpty, kv["password"] == nil { fields["password"] = .string(positional[4]) }
+            if fields["udp"] == nil { fields["udp"] = .bool(true) }
+            consumed.formUnion(NCGostRelay.applyParams(kv, into: &fields))
         case "http", "https", "socks5":
             // Surge spells credentials positionally after the port for these
             // types; the k=v form is accepted too.

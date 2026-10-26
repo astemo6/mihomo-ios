@@ -95,6 +95,9 @@ final class NCV2RayUpgradeStream: NCRelayStream {
         let pending = waiters
         waiters = []
         for w in pending { w(nil, error) }
+        // fix/nc-silent-fail: tear the refused connection down (as NCV2RayWSStream.fail does) — leaving
+        // raw open let later sends complete into a connection the server already rejected.
+        raw.cancel()
     }
 
     private func flushWaiters() {
@@ -108,8 +111,10 @@ final class NCV2RayUpgradeStream: NCRelayStream {
 
     func send(_ data: Data, completion: @escaping () -> Void) {
         // Fast-open sends go out before validation by design; a non-fast-open
-        // stream only receives sends after startHandshake completed.
-        guard !closed else { completion(); return }
+        // stream only receives sends after startHandshake completed. Once
+        // validation has failed the stream is dead: fire the completion
+        // without writing (the NCWebSocketStream closed-send convention).
+        guard !closed, failure == nil else { completion(); return }
         raw.send(data, completion: completion)
     }
 

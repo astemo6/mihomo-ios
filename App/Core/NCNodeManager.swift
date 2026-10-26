@@ -79,7 +79,7 @@ enum NCNodeManager {
         set("network", ncStr(m["network"]).lowercased())
         var tls = ncBool(m["tls"])
         switch typ {
-        case "trojan", "hysteria", "hysteria2", "tuic", "anytls", "shadowquic", "masque", "trusttunnel": tls = true
+        case "trojan", "hysteria", "hysteria2", "tuic", "juicity", "anytls", "shadowquic", "masque", "trusttunnel": tls = true
         default: break
         }
         var security = ""
