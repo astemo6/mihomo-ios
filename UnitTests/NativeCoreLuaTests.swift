@@ -72,7 +72,7 @@ final class NativeCoreLuaTests: XCTestCase {
         [rewrite_local]
         ^https?://example\\.com url script-response-body test_rewrite.lua
         """
-        let c = NCQXImport.quantumultX(text)
+        let c = NCQXImport.quantumultx(text)
 
         let node = c.nodeMap["QX-Lua"]
         XCTAssertNotNil(node)
