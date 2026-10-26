@@ -24,7 +24,7 @@ final class NativeCoreH2Tests: XCTestCase {
         _ = core.start(headers: [(":method", "POST"), (":path", "/"), (":scheme", "https"), (":authority", "h")])
         // Server SETTINGS with INITIAL_WINDOW_SIZE 100000.
         var settings = Data()
-        settings.append(contentsOf: [0x00, 0x03, 0x00, 0x01, 0x86, 0xa0])
+        settings.append(contentsOf: [0x00, 0x04, 0x00, 0x01, 0x86, 0xa0]) // id 0x4 (fix/nc-h2-cidr: was 0x3)
         var inbound = NCH2ClientCore.frame(type: 0x4, flags: 0, streamID: 0, payload: settings)
         inbound.append(NCH2ClientCore.frame(type: 0x0, flags: 0, streamID: 1, payload: Data("hello".utf8)))
         let result = core.feed(inbound)
