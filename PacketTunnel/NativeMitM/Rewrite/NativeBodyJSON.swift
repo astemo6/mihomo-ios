@@ -1,8 +1,8 @@
 // Native MitM stage 3b — JSON exactly as the Go body rules see and write it.
 //
 // Go (bridge/mitm/handler.go applyBodyRule) decodes a body with encoding/json + UseNumber (r6limits.go
-// decodeJSONNumber: one value, only whitespace after it), edits the value tree (Loon json ops: jsonEdit; jq: gojq
-// setpath / delpaths), and encodes it with encodeJSON (json.Encoder, SetEscapeHTML(false), no trailing newline).
+// decodeJSONNumber: one value, only whitespace after it), edits the value tree (Loon json ops: jsonEdit; legacy jq
+// step lists: setpath / delpaths), and encodes it with encodeJSON (json.Encoder, SetEscapeHTML(false), no trailing newline).
 // This file reproduces that byte for byte:
 //
 //   - strings and object keys are kept as raw UTF-8 bytes (Swift String equality / ordering is Unicode-canonical,
@@ -25,7 +25,7 @@ indirect enum BodyJSON: Equatable {
     case string([UInt8])            // UTF-8 bytes (decoded escapes)
     case array([BodyJSON])
     case object([[UInt8]: BodyJSON])
-    case deleted                    // gojq's delpaths marker (never encoded)
+    case deleted                    // delpaths marker (never encoded)
 
     // MARK: parse (encoding/json + UseNumber, then "only whitespace after the value")
 
@@ -365,13 +365,13 @@ enum BodyJSONEdit {
     }
 }
 
-// MARK: - jq subset (gojq setpath / delpaths)
+// MARK: - legacy jq step lists (snapshots without `jqx`; full jq filters run in NativeJQ.swift)
 
 enum BodyJQ {
     struct Failure: Error {}
     static let maxIndex = 0x20000000
 
-    /// gojq update(v, path, n): n == .deleted marks for delpaths. Throws where gojq errors.
+    /// update(v, path, n): n == .deleted marks for delpaths. Throws where jq errors.
     static func update(_ v: BodyJSON, _ path: ArraySlice<BodyJSONKey>, _ n: BodyJSON) throws -> BodyJSON {
         guard let first = path.first else { return n }
         let deleting = n == .deleted
@@ -449,7 +449,7 @@ enum BodyJQ {
         return deleteEmpty(u)
     }
 
-    // MARK: P |= map(select(C)) (gojq _modify with getpath, map = [.[] | f], select = if f then . else empty end)
+    // MARK: P |= map(select(C)) (_modify with getpath, map = [.[] | f], select = if f then . else empty end)
 
     indirect enum Cond {
         case or(Cond, Cond), and(Cond, Cond), not(Cond)
