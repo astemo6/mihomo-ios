@@ -60,7 +60,7 @@ enum NativeBodyConformance {
     struct Fixtures: Decodable { var version: Int; var suites: [Suite] }
 
     struct Report {
-        var total = 0, native = 0, handedBack = 0, mismatch = 0, goFreeSkipped = 0
+        var total = 0, native = 0, handedBack = 0, mismatch = 0, nativeSkipped = 0
         var reasons: [String: Int] = [:]
         var skipReasons: [String: Int] = [:]
         var failures: [String] = []
@@ -68,7 +68,7 @@ enum NativeBodyConformance {
         var summary: String {
             let top = reasons.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
             let skips = skipReasons.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-            return "body exchanges \(total): native & identical \(native), handed back to Go \(handedBack), mismatches \(mismatch), Go-free rule skips \(goFreeSkipped) (\(skips)); hand-back reasons: \(top)"
+            return "body exchanges \(total): native & identical \(native), handed back to Go \(handedBack), mismatches \(mismatch), native rule skips \(nativeSkipped) (\(skips)); hand-back reasons: \(top)"
         }
     }
 
@@ -77,13 +77,13 @@ enum NativeBodyConformance {
                        connHost: c.connHost, connPort: c.connPort, tls: true)
     }
 
-    enum Outcome { case native, handBack(String), mismatch(String), goFreeSkip(String) }
+    enum Outcome { case native, handBack(String), mismatch(String), nativeSkip(String) }
 
     /// The skip note of a decision that skipped a rule the native engine cannot run (NativeRewriteEngine.skipRule).
     static func skipNote(_ d: RewriteDecision) -> String? {
         let notes: [String]
         switch d {
-        case .go: return nil
+        case .deferred: return nil
         case .drop(let l): notes = l.notes
         case .local(let l): notes = l.log.notes
         case .forward(let f): notes = f.log.notes
@@ -94,18 +94,18 @@ enum NativeBodyConformance {
     static func check(_ c: Case, _ engine: NativeRewriteEngine, labels: [String]) -> Outcome {
         let d = engine.decide(request(c), bodies: true)
         let out = check(d, c, engine, labels: labels)
-        // Go-zero (nc-integrate, NativeRewriteEngine.goFree): nothing stands behind .go any more — a rule the native
+        // Go-zero (nc-integrate): nothing stands behind .deferred any more — a rule the native
         // engine cannot run (a regexp2-only body pattern, a response script next to body rules…) is skipped on its
         // own and noted in the request log (gap C5). Go's answer in the fixture includes that rule's effect, so a
         // difference is expected exactly when such a skip happened; any other difference stays a mismatch.
-        if case .mismatch(let why) = out, NativeRewriteEngine.goFree, let note = skipNote(d) { return .goFreeSkip("\(note): \(why)") }
+        if case .mismatch(let why) = out, let note = skipNote(d) { return .nativeSkip("\(note): \(why)") }
         return out
     }
 
     static func check(_ decision: RewriteDecision, _ c: Case, _ engine: NativeRewriteEngine, labels: [String]) -> Outcome {
         let e = c.expect
         switch decision {
-        case .go(let why):
+        case .deferred(let why):
             return .handBack("request: \(why)")
         case .drop:
             return e.action == "drop" ? .native : .mismatch("native drop, Go \(e.action)")
@@ -194,8 +194,8 @@ enum NativeBodyConformance {
                     rep.handedBack += 1; h += 1
                     let key = why.split(separator: ":").prefix(2).joined(separator: ":")
                     rep.reasons[key, default: 0] += 1
-                case .goFreeSkip(let why):
-                    rep.goFreeSkipped += 1; k += 1
+                case .nativeSkip(let why):
+                    rep.nativeSkipped += 1; k += 1
                     rep.skipReasons[String(why.split(separator: ":").first ?? "").prefix(60).description, default: 0] += 1
                 case .mismatch(let why):
                     rep.mismatch += 1; m += 1
@@ -398,7 +398,7 @@ final class NativeMitmBodyTests: XCTestCase {
         // lane regexp2: body ops on regexp2's path (look-around, \b, $) and Go's RE2 nested repeats run natively —
         // 297 skipped exchanges before, 166 after (run 40196702919): what remains is jq forms outside the native
         // subset (3 rules × 53) and chunked request bodies (7), no regex rule
-        XCTAssertLessThanOrEqual(rep.goFreeSkipped, 166)
+        XCTAssertLessThanOrEqual(rep.nativeSkipped, 166)
     }
 
     /// Go's encoding/json output for the corner cases the corpus may not hold.

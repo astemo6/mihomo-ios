@@ -569,7 +569,7 @@ final class NativeMitmSession {
     private func apply(_ d: FlowDecision, head: HTTPRequestHead, reqFraming: HTTPBodyFraming, requestBodyConsumed: Bool) {
         switch d.action {
         case .needBody:
-            guard d.which == FlowBodyWhich.request.rawValue else { return fail(S2Error.go("need-body \(d.which) in request phase"), status: 502) }
+            guard d.which == FlowBodyWhich.request.rawValue else { return fail(S2Error.flow("need-body \(d.which) in request phase"), status: 502) }
             let go = { [self] in
                 pushClientBody(reqFraming) { [self] in
                     apply(driver.await(flowID), head: head, reqFraming: reqFraming, requestBodyConsumed: true)
@@ -589,9 +589,9 @@ final class NativeMitmSession {
         case .drop:
             endFlow("drop"); finish(cancelled: nil)
         case .busy:
-            fail(S2Error.go("busy"), status: 503)
+            fail(S2Error.flow("busy"), status: 503)
         case .error, .respond, .upgrade, .unknown:
-            fail(S2Error.go(d.note ?? "error"), status: 502)
+            fail(S2Error.flow(d.note ?? "error"), status: 502)
         }
     }
 
@@ -608,7 +608,7 @@ final class NativeMitmSession {
                 if !c.payload.isEmpty && !stopped {
                     switch pushToGo(.request, c.payload) {
                     case .stop: stopped = true
-                    case .gone: return fail(S2Error.go("flow gone"), status: 502)
+                    case .gone: return fail(S2Error.flow("flow gone"), status: 502)
                     default: break
                     }
                 }
@@ -649,7 +649,7 @@ final class NativeMitmSession {
         if let q = url.percentEncodedQuery { target += "?" + q }
         let mode = d.body ?? .none
         if mode == .client && requestBodyConsumed && reqFraming != .none {
-            return fail(S2Error.go("body client after the body was pushed"), status: 502)
+            return fail(S2Error.flow("body client after the body was pushed"), status: 502)
         }
         var headers = d.headerFields.filter { !Self.framingHeader($0.name) }
         let hostValue = d.host ?? (url.port.map { "\(host):\($0)" } ?? host)
@@ -665,7 +665,7 @@ final class NativeMitmSession {
         case .client, .read, .lane:
             headers.append(len >= 0 ? ("Content-Length", String(len)) : ("Transfer-Encoding", "chunked"))
         case .upstream:
-            return fail(S2Error.go("body upstream in forward"), status: 502)
+            return fail(S2Error.flow("body upstream in forward"), status: 502)
         }
         let method = d.method ?? head.method
         let upHead = HTTPRequestHead(method: method, target: target, version: "HTTP/1.1", headers: headers)
@@ -744,7 +744,7 @@ final class NativeMitmSession {
         case .read:
             pullFromGo(.request, feed: bodyPushed ? nil : BodyFeed(codec.makeDecoder(reqFraming)), out: out, done: fin)
         case .lane:
-            guard let lane else { return fail(S2Error.go("lane without handle"), status: 502) }
+            guard let lane else { return fail(S2Error.flow("lane without handle"), status: 502) }
             pullFromLane(lane, out: out, done: fin)
         }
     }
@@ -775,7 +775,7 @@ final class NativeMitmSession {
             case .taken: f.pending = Data(); return cont()
             case .full: return cont()
             case .stop: f.pending = Data(); f.cleanEnd = false; return end("")
-            case .gone: return fail(S2Error.go("flow gone"), status: nil)
+            case .gone: return fail(S2Error.flow("flow gone"), status: nil)
             }
         }
         do {
@@ -819,19 +819,19 @@ final class NativeMitmSession {
             // Streaming "read" (design §12: "more" → push the next piece of the same body): Go reads the source body
             // as it is pushed. Before 2026-10-24 this was fatal, so every plain response through the native front
             // got its head and then a cut (memory bench: native 0/100).
-            guard let feed else { return fail(S2Error.go("read wants more of a body native does not push"), status: 502) }
+            guard let feed else { return fail(S2Error.flow("read wants more of a body native does not push"), status: 502) }
             feedGo(which, feed) { [self] in pullFromGo(which, feed: feed, out: out, done: done) }
-        case .failed(let e): fail(S2Error.go(e), status: 502)
+        case .failed(let e): fail(S2Error.flow(e), status: 502)
         }
     }
 
     private func pullFromLane(_ lane: FlowDecision.Lane, off: Int64 = 0, out: @escaping (Data, @escaping () -> Void) -> Void,
                               done: @escaping () -> Void) {
         let total = bodies.len(lane.handle, raw: lane.raw)
-        if total < 0 { return fail(S2Error.go("lane handle gone"), status: 502) }
+        if total < 0 { return fail(S2Error.flow("lane handle gone"), status: 502) }
         if off >= total { return done() }
         guard let d = bodies.read(lane.handle, raw: lane.raw, off: off, n: Int64(NativeMitmRuntime.ioChunk)), !d.isEmpty else {
-            return fail(S2Error.go("lane read failed"), status: 502)
+            return fail(S2Error.flow("lane read failed"), status: 502)
         }
         arm(Self.timeouts.bodyStall, "lane body")
         out(d) { [self] in pullFromLane(lane, off: off + Int64(d.count), out: out, done: done) }
@@ -867,7 +867,7 @@ final class NativeMitmSession {
             }
         case .respond:
             let mode = d.body ?? .none
-            if mode == .upstream && bodyPushed { return fail(S2Error.go("body upstream after push"), status: 502) }
+            if mode == .upstream && bodyPushed { return fail(S2Error.flow("body upstream after push"), status: 502) }
             var len = d.length
             if mode == .upstream { switch framing { case .contentLength(let n): len = n; case .none: len = 0; default: len = -1 } }
             // read over a body not pushed yet: Go streams it, the session feeds it on "more"
@@ -881,7 +881,7 @@ final class NativeMitmSession {
                 if ok && keep { requestsServed += 1; nextRequest() } else { finish(cancelled: nil) }
             }
         case .upgrade:
-            guard up.status == 101 else { return fail(S2Error.go("upgrade on \(up.status)"), status: 502) }
+            guard up.status == 101 else { return fail(S2Error.flow("upgrade on \(up.status)"), status: 502) }
             var hs = d.headerFields.filter { !Self.framingHeader($0.name) }
             hs.append(("Connection", "Upgrade"))
             if let u = up.value(for: "Upgrade") { hs.append(("Upgrade", u)) }
@@ -889,7 +889,7 @@ final class NativeMitmSession {
             guard let wire = serialized(h) else { return }
             writeClient(wire) { [self] in tunnel() }
         case .error, .busy, .drop, .unknown, .forward, .local:
-            fail(S2Error.go(d.note ?? "response \(d.action)"), status: 502)
+            fail(S2Error.flow(d.note ?? "response \(d.action)"), status: 502)
         }
     }
 
@@ -904,7 +904,7 @@ final class NativeMitmSession {
                 if !c.payload.isEmpty && !stopped {
                     switch pushToGo(.response, c.payload) {
                     case .stop: stopped = true   // Go no longer wants it: stop reading the origin
-                    case .gone: return fail(S2Error.go("flow gone"), status: 502)
+                    case .gone: return fail(S2Error.flow("flow gone"), status: 502)
                     default: break
                     }
                 }
@@ -962,10 +962,10 @@ final class NativeMitmSession {
             case .none: fin()
             case .read: pullFromGo(.response, feed: feed, out: out, done: fin)
             case .lane:
-                guard let lane else { return fail(S2Error.go("lane without handle"), status: nil) }
+                guard let lane else { return fail(S2Error.flow("lane without handle"), status: nil) }
                 pullFromLane(lane, out: { [self] d, n in sentBody += Int64(d.count); out(d, n) }, done: fin)
             case .upstream: relayUpstreamBody(upFraming, out: out, done: fin)
-            case .client: fail(S2Error.go("body client in response"), status: nil)
+            case .client: fail(S2Error.flow("body client in response"), status: nil)
             }
         }
     }

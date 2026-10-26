@@ -346,7 +346,7 @@ final class NCScriptHookRunner {
         setup[phase] = payload
         guard let sd = try? JSONSerialization.data(withJSONObject: setup),
               let ss = String(data: sd, encoding: .utf8) else { return nil }
-        let run = NativeScriptRun(gen: 0, rule: entry.i, go: host, js: JSCScriptEngine.shared,
+        let run = NativeScriptRun(gen: 0, rule: entry.i, hostAPI: host, js: JSCScriptEngine.shared,
                                   lane: nil, nativeBase: NativeBodyStore.defaultBlobBase, laneOK: false)
         let timeout = p.timeoutMs ?? entry.timeoutMs ?? Self.fallbackTimeoutMs
         let out = run.run(key: key, setup: ss, timeoutMs: timeout) {

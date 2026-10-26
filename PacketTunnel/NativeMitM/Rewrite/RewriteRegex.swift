@@ -27,7 +27,7 @@ final class RWRegex {
         // Go-zero (lane regexp2): a pattern the snapshot could not translate (ok false: x mode, \p in a union,
         // capture in a look-ahead, …) gets the Unicode-faithful regexp2 → ICU translation (RX2ICU) instead of
         // being skipped; what RX2ICU refuses stays untranslatable (.unknown → the rule is skipped).
-        if !src.ok, NativeRewriteEngine.goFree, let t = RX2ICU.snapRegex(src.p, lit: src.lit, fold: src.fold) {
+        if !src.ok, let t = RX2ICU.snapRegex(src.p, lit: src.lit, fold: src.fold) {
             self.src = t
         } else {
             self.src = src

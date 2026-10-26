@@ -147,7 +147,7 @@ final class NativeMemoryGovernor {
 
     let config: Config
     private let memory: NativeMemorySampling
-    private let go: RuntimeMemoryControlling
+    private let control: RuntimeMemoryControlling
     private let reclaimers: [NativeReclaimer]
     private let now: () -> TimeInterval
     private let log: (String) -> Void
@@ -170,15 +170,15 @@ final class NativeMemoryGovernor {
     private var limitAsked: Int64 = -1
     private(set) var limitInEffect: Int64 = 0
     private(set) var lastSample = NativeMemorySample(footprint: 0, available: 0)
-    private(set) var lastGo: RuntimeMemoryInfo?
+    private(set) var lastRuntime: RuntimeMemoryInfo?
     private(set) var counters = Counters()
 
-    init(config: Config = Config(), memory: NativeMemorySampling, go: RuntimeMemoryControlling, reclaimers: [NativeReclaimer] = [],
+    init(config: Config = Config(), memory: NativeMemorySampling, control: RuntimeMemoryControlling, reclaimers: [NativeReclaimer] = [],
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          log: @escaping (String) -> Void = { _ in }) {
         self.config = config
         self.memory = memory
-        self.go = go
+        self.control = control
         self.reclaimers = reclaimers
         self.now = now
         self.log = log
@@ -321,10 +321,10 @@ final class NativeMemoryGovernor {
             let n = r.reclaim(level)
             if n > 0 { est += n; parts.append("\(r.name) \(Self.kb(n))") } else if n < 0 { parts.append(r.name) }
         }
-        let freedOS = go.freeOSMemory()
+        let freedOS = control.freeOSMemory()
         let after = memory.sample()
         let fpDelta = Int(clamping: Int64(before.footprint) - Int64(after.footprint))
-        log("memory reclaim (\(why)): \(parts.isEmpty ? "nothing native" : parts.joined(separator: ", "))\(freedOS ? ", go FreeOSMemory" : ""); footprint \(Self.mb(before.footprint)) → \(Self.mb(after.footprint)), available \(Self.mb(before.available)) → \(Self.mb(after.available))")
+        log("memory reclaim (\(why)): \(parts.isEmpty ? "nothing native" : parts.joined(separator: ", "))\(freedOS ? ", FreeOSMemory" : ""); footprint \(Self.mb(before.footprint)) → \(Self.mb(after.footprint)), available \(Self.mb(before.available)) → \(Self.mb(after.available))")
         return max(est, fpDelta)
     }
 
@@ -347,10 +347,10 @@ final class NativeMemoryGovernor {
     func tick(trigger: Trigger = .timer) -> [String] {
         let s = memory.sample()
         let t = now()
-        let goInfo = go.info()
+        let rtInfo = control.info()
         var did: [String] = []
         lock.lock()
-        lastGo = goInfo
+        lastRuntime = rtInfo
         let (old, lvl) = updateLevelLocked(s, t)
         if old != lvl { did.append("level \(old) → \(lvl)") }
 
@@ -358,10 +358,10 @@ final class NativeMemoryGovernor {
         let want: Int64
         switch lvl {
         case .normal, .elevated: want = 0
-        case .high: want = max(0, (goInfo?.configured ?? 0) - config.limitCutHigh)
-        case .critical: want = max(0, (goInfo?.configured ?? 0) - config.limitCutCritical)
+        case .high: want = max(0, (rtInfo?.configured ?? 0) - config.limitCutHigh)
+        case .critical: want = max(0, (rtInfo?.configured ?? 0) - config.limitCutCritical)
         }
-        let askLimit = goInfo != nil && !(goInfo?.loan ?? false) && want != limitAsked
+        let askLimit = rtInfo != nil && !(rtInfo?.loan ?? false) && want != limitAsked
         if askLimit { limitAsked = want }
 
         // shed: on rising level at once, else rate-limited with backoff while sheds free nothing
@@ -396,14 +396,14 @@ final class NativeMemoryGovernor {
         lock.unlock()
 
         if askLimit {
-            let v = go.setLimit(want)
+            let v = control.setLimit(want)
             lock.lock(); limitInEffect = v; lock.unlock()
-            did.append("GOMEMLIMIT \(Self.mb(v))")
+            did.append("heap limit \(Self.mb(v))")
         }
         if let sl = shedLevel {
             // native first (no stop), then Go's shed — whose single FreeOSMemory (from `high`) is the only stop
             let freedNative = runNativeOnly(upTo: lvl)
-            let line = go.shed(level: sl, flags: flags, reason: "\(trigger.rawValue), level \(lvl)")
+            let line = control.shed(level: sl, flags: flags, reason: "\(trigger.rawValue), level \(lvl)")
             let after = memory.sample()
             let freed = Int64(s.footprint) - Int64(after.footprint)
             lock.lock()
@@ -424,7 +424,7 @@ final class NativeMemoryGovernor {
             let low2 = a2.map { $0 < config.emergencyAvail } ?? false
             if s2.footprint >= config.emergencyFP || low2 {
                 let percent = (a2.map { $0 < 2 << 20 } ?? false) ? 50 : 25
-                let n = go.shedConnections(percent: percent)
+                let n = control.shedConnections(percent: percent)
                 lock.lock()
                 emergencyArmed = false
                 lastEmergency = now()
@@ -455,8 +455,8 @@ final class NativeMemoryGovernor {
         let c = counters
         let refusedBy = c.refusedBy.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")
         var s = "native governor \(level): available \(Self.mb(lastSample.available)), footprint \(Self.mb(lastSample.footprint))"
-        if let g = lastGo {
-            s += ", GOMEMLIMIT \(Self.mb(limitInEffect > 0 ? limitInEffect : g.limit)) (floor \(Self.mb(g.floor)), go non-garbage \(Self.mb(g.nonGarbage)))"
+        if let g = lastRuntime {
+            s += ", heap limit \(Self.mb(limitInEffect > 0 ? limitInEffect : g.limit)) (floor \(Self.mb(g.floor)), non-garbage \(Self.mb(g.nonGarbage)))"
         }
         s += "; admitted \(c.admitted), refused \(c.refused)\(refusedBy.isEmpty ? "" : " (\(refusedBy))"), reclaims \(c.reclaims) (\(Self.mb(c.reclaimedBytes))), sheds \(c.sheds), dns clears \(c.dnsClears), emergencies \(c.emergencies)"
         return s

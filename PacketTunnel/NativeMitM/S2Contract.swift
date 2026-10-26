@@ -27,7 +27,7 @@ enum S2Error: Error, Equatable {
     case protocolError(String)
     case unsupported(String)   // → the session falls back (before first byte) or cuts (after)
     case upstream(String)
-    case go(String)
+    case flow(String)
 }
 
 /// A bidirectional byte stream. NWConnection (plain), the TLS lane's decrypted client side and the upstream

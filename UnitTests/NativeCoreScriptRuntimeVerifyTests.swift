@@ -374,7 +374,7 @@ final class NativeCoreScriptRuntimeVerifyTests: XCTestCase {
     }
 
     /// A rewrite driver over the production snapshot for the home's
-    /// ruleset, with the real pass-through inner driver; its scriptGo
+    /// ruleset, with the real pass-through inner driver; its scriptHost
     /// stays the default (NativeScriptHost.shared, loaded by
     /// buildAndLoad) — nothing about the script path is faked.
     private func makeDriver(_ dir: String) throws -> NativeRewriteDriver {

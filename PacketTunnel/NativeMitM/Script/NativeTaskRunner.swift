@@ -681,7 +681,7 @@ final class NativeTaskRunner {
         guard let sd = try? JSONSerialization.data(withJSONObject: setup), let ss = String(data: sd, encoding: .utf8) else {
             return (nil, "脚本参数错误")
         }
-        let run = NativeScriptRun(gen: 0, rule: t.i, go: host, js: JSCScriptEngine.shared, lane: nil,
+        let run = NativeScriptRun(gen: 0, rule: t.i, hostAPI: host, js: JSCScriptEngine.shared, lane: nil,
                                   nativeBase: NativeBodyStore.defaultBlobBase, laneOK: false)
         let out = run.run(key: key, setup: ss, timeoutMs: p.timeoutMs ?? t.timeoutMs ?? 30_000) {
             let p2 = host.prepare(gen: 0, rule: t.i, slot: 0, reload: true)

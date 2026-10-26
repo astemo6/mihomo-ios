@@ -5,7 +5,7 @@
 // NativeRewriteDriver is a MitmFlowDriving in front of the Go driver. For each request it asks the native engine
 // first (only when the switch `nativeMitmRewrite` is on — default OFF — and a snapshot for the running engine's
 // current generation is loaded); a native decision gets a negative flow id and every later call for that id
-// (response head, local body reads, end / cancel) is answered here without Go. A deferral (.go), the switch off, no
+// (response head, local body reads, end / cancel) is answered here without Go. A deferral (.deferred), the switch off, no
 // snapshot, an unknown snapshot version or any inconsistency → the Go flow exactly as before. The session is not
 // changed: it cannot tell a native decision from a Go one.
 //
@@ -270,7 +270,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     let provider: NativeRewriteProvider
     let recorder: NativeRequestRecorder?
     /// Lane s3-script: what the native script dispatcher uses (production: Go bridge, JavaScriptCore, NativeBodyStore).
-    var scriptGo: ScriptHostAPI = NativeScriptHost.shared
+    var scriptHost: ScriptHostAPI = NativeScriptHost.shared
     var scriptJS: () -> NativeJSEngine? = {
         JSCScriptEngine.nativeBlobs != nil && JSCScriptEngine.shared.canInterrupt ? JSCScriptEngine.shared : nil
     }
@@ -339,13 +339,13 @@ final class NativeRewriteDriver: MitmFlowDriving {
         let t0 = DispatchTime.now().uptimeNanoseconds
         let withHead = head != nil && conn != nil
         var plain: RewriteDecision?
-        if scripts, let head, let conn, inner is MitmScriptedFlowStarting, let js = scriptJS(), scriptGo.ready() {
+        if scripts, let head, let conn, inner is MitmScriptedFlowStarting, let js = scriptJS(), scriptHost.ready() {
             // native-final: http-request scripts run here
             var pause: RequestScriptPause?
             let state = RequestScriptState()
             let d0 = engine.decide(q, bodies: bodies, scripts: true, requestScripts: state, pause: &pause)
             if pause != nil {
-                let rs = NativeRequestScripts(gen: engine.generation, go: scriptGo, js: js, store: scriptStore(), nativeBase: nativeBlobBase)
+                let rs = NativeRequestScripts(gen: engine.generation, hostAPI: scriptHost, js: js, store: scriptStore(), nativeBase: nativeBlobBase)
                 let rf = ReqScriptFlow(q: q, engine: engine, head: head, conn: conn, rewrite: rewrite, scripts: scripts, bodies: bodies,
                                        wall: wall, t0: t0, rs: rs)
                 return runRequestScripts(rf, flowID: nil)
@@ -360,11 +360,11 @@ final class NativeRewriteDriver: MitmFlowDriving {
             return forwardDecision(id, f, bodyMode: f.bodyMode, length: f.length)
         }
         if !rewrite {
-            if case .go(let why) = decision { count(\.deferred, reason: why) } else { count(\.off) }
+            if case .deferred(let why) = decision { count(\.deferred, reason: why) } else { count(\.off) }
             return nil
         }
         switch decision {
-        case .go(let why):
+        case .deferred(let why):
             count(\.deferred, reason: why)
             return nil
         case .drop(let log):
@@ -650,7 +650,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         guard d.action == .forward, let h = bf.respHead else {
             inner.cancel(bf.goID, why: "native adopt: request phase changed")
             bf.stage = .failed
-            return FlowDecision(id: id, action: .error, note: "adopt: Go answered \(d.action.rawValue)")
+            return FlowDecision(id: id, action: .error, note: "adopt: inner driver answered \(d.action.rawValue)")
         }
         var r = inner.responsePhase(bf.goID, head: h, length: bf.respLength)
         if !buffered { return mapped(id, r) }
@@ -984,11 +984,11 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     /// The response phase of a native script flow: natively (NativeScriptResponse), or handed back to the Go flow.
     private func scriptResponse(_ id: Int64, _ sf: ScriptFlow, head: HTTPResponseHead, length: Int64) -> FlowDecision {
-        guard let steps = sf.plan.scripts, let js = scriptJS(), let store = scriptStore(), scriptGo.ready() else {
+        guard let steps = sf.plan.scripts, let js = scriptJS(), let store = scriptStore(), scriptHost.ready() else {
             return handBack(id, sf, head: head, length: length, why: "engine")
         }
         let view = ScriptRequestView(url: sf.plan.url, method: sf.plan.method, header: sf.plan.requestHeader, host: sf.plan.requestHost)
-        let r = NativeScriptResponse(gen: sf.engine.generation, steps: steps, request: view, go: scriptGo, js: js, store: store,
+        let r = NativeScriptResponse(gen: sf.engine.generation, steps: steps, request: view, hostAPI: scriptHost, js: js, store: store,
                                      nativeBase: nativeBlobBase)
         sf.response = r
         switch r.head(status: head.status, headers: headerPairs(head.headers), length: length) {
@@ -1012,7 +1012,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         let d = goBegin(sf.head, sf.conn, gen: sf.engine.generation, scripted: sf.scripted, clientBody: sf.clientBody, alreadySent: true)
         guard d.action == .forward, d.id > 0 else {
             if d.id > 0 { inner.cancel(d.id, why: "native hand-back") }
-            return FlowDecision(id: id, action: .error, note: "hand-back: Go answered \(d.action) (\(d.note ?? ""))")
+            return FlowDecision(id: id, action: .error, note: "hand-back: inner driver answered \(d.action) (\(d.note ?? ""))")
         }
         sf.goID = d.id
         return relabel(inner.responsePhase(d.id, head: head, length: length), id)
@@ -1128,7 +1128,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     /// The engine's decision after the request scripts.
     private func finishRequestScripts(_ rf: ReqScriptFlow, _ decision: RewriteDecision, flowID: Int64?) -> FlowDecision {
         let rs = rf.rs
-        if case .go(let why) = decision { return handOver(rf, why: why, flowID: flowID) }
+        if case .deferred(let why) = decision { return handOver(rf, why: why, flowID: flowID) }
         if case .forward(let f) = decision, f.requestBody != nil || f.response.hasBody {
             return handOver(rf, why: "request script with body rules", flowID: flowID) // (the engine hands these over already)
         }
@@ -1140,7 +1140,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         }
         countReqScript(handedOver: nil)
         switch decision {
-        case .go:
+        case .deferred:
             return FlowDecision(id: flowID ?? 0, action: .error, note: "unreachable")
         case .drop(var log):
             log.notes = rs.notes
@@ -1152,7 +1152,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         case .local(var l):
             l.log.notes = rs.notes
             if let w = rs.mockWarn {
-                _ = scriptGo.host(gen: engine.generation, rule: w.rule, op: "log", arg: "warn\n脚本返回的状态码 \(w.status) 无效，按 200 处理")
+                _ = scriptHost.host(gen: engine.generation, rule: w.rule, op: "log", arg: "warn\n脚本返回的状态码 \(w.status) 无效，按 200 处理")
             }
             rs.end()
             count(\.local)

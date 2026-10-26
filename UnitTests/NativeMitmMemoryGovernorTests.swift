@@ -16,7 +16,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         }
     }
 
-    final class FakeGo: RuntimeMemoryControlling {
+    final class FakeControl: RuntimeMemoryControlling {
         var active = false
         var configured: Int64 = 26 << 20
         var nonGarbage: Int64 = 12 << 20
@@ -57,15 +57,15 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
     }
 
     var mem: FakeMemory!
-    var go: FakeGo!
+    var control: FakeControl!
     var clock: TimeInterval = 1000
     var logs: [String] = []
 
     override func setUp() {
         super.setUp()
         mem = FakeMemory()
-        go = FakeGo()
-        go.memory = mem
+        control = FakeControl()
+        control.memory = mem
         clock = 1000
         logs = []
     }
@@ -76,7 +76,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
     }
 
     func make(_ reclaimers: [NativeReclaimer] = []) -> NativeMemoryGovernor {
-        NativeMemoryGovernor(memory: mem, go: go, reclaimers: reclaimers, now: { [unowned self] in self.clock },
+        NativeMemoryGovernor(memory: mem, control: control, reclaimers: reclaimers, now: { [unowned self] in self.clock },
                              log: { [unowned self] in self.logs.append($0) })
     }
 
@@ -121,22 +121,22 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         mem.set(availMB: 20)
         g.onPressureEvent(critical: true)
         XCTAssertEqual(g.level, .elevated)
-        XCTAssertEqual(go.sheds.count, 1)
-        XCTAssertEqual(go.sheds[0].level, 1)
-        XCTAssertEqual(go.sheds[0].flags, [], "calm: caches only")
-        XCTAssertEqual(go.freeOS, 0)
+        XCTAssertEqual(control.sheds.count, 1)
+        XCTAssertEqual(control.sheds[0].level, 1)
+        XCTAssertEqual(control.sheds[0].flags, [], "calm: caches only")
+        XCTAssertEqual(control.freeOS, 0)
         // 8.5 MB available (a few seconds into the burst): high → one stop (freeOS flag), idle conns, no DNS
         mem.set(availMB: 8.5)
         clock += 1
         g.onPressureEvent(critical: true)
         XCTAssertEqual(g.level, .high)
-        let last = go.sheds.last!
+        let last = control.sheds.last!
         XCTAssertEqual(last.level, 1)
         XCTAssertTrue(last.flags.contains(.freeOS))
         XCTAssertTrue(last.flags.contains(.idleConns))
         XCTAssertFalse(last.flags.contains(.dns))
         XCTAssertFalse(last.flags.contains(.engineCritical))
-        XCTAssertEqual(go.freeOS, 0, "the shed's own FreeOSMemory is the only stop")
+        XCTAssertEqual(control.freeOS, 0, "the shed's own FreeOSMemory is the only stop")
         // the event hold ends: back to the reading's level
         mem.set(availMB: 20)
         clock += 11
@@ -151,23 +151,23 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         mem.set(availMB: 4.5)
         g.tick()
         XCTAssertEqual(g.level, .critical)
-        var s = go.sheds.last!
+        var s = control.sheds.last!
         XCTAssertEqual(s.level, 2)
         XCTAssertTrue(s.flags.contains(.engineCritical))
         XCTAssertFalse(s.flags.contains(.dns), "fresh critical (burst): no DNS clear")
         clock += 31
         g.onPressureEvent(critical: true)
-        XCTAssertFalse(go.sheds.last!.flags.contains(.dns), "event: never DNS")
+        XCTAssertFalse(control.sheds.last!.flags.contains(.dns), "event: never DNS")
         clock += 5
         g.tick()
-        s = go.sheds.last!
+        s = control.sheds.last!
         XCTAssertTrue(s.flags.contains(.dns), "sustained critical on the timer")
         clock += 30
         g.tick()
-        XCTAssertFalse(go.sheds.last!.flags.contains(.dns), "rate limit 2 min")
+        XCTAssertFalse(control.sheds.last!.flags.contains(.dns), "rate limit 2 min")
         clock += 121
         g.tick()
-        XCTAssertTrue(go.sheds.last!.flags.contains(.dns))
+        XCTAssertTrue(control.sheds.last!.flags.contains(.dns))
         XCTAssertEqual(g.counters.dnsClears, 2)
     }
 
@@ -175,46 +175,46 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         let g = make()
         mem.set(availMB: 12) // elevated
         g.tick()
-        XCTAssertEqual(go.sheds.count, 1)
+        XCTAssertEqual(control.sheds.count, 1)
         clock += 3; g.tick() // gap 3 s + backoff 5 s
-        XCTAssertEqual(go.sheds.count, 1)
+        XCTAssertEqual(control.sheds.count, 1)
         clock += 5; g.tick()
-        XCTAssertEqual(go.sheds.count, 2)
+        XCTAssertEqual(control.sheds.count, 2)
         clock += 8; g.tick() // backoff now 10 s
-        XCTAssertEqual(go.sheds.count, 2)
+        XCTAssertEqual(control.sheds.count, 2)
         mem.set(availMB: 8) // level rose: at once
         clock += 1; g.tick()
-        XCTAssertEqual(go.sheds.count, 3)
+        XCTAssertEqual(control.sheds.count, 3)
     }
 
-    // MARK: GOMEMLIMIT
+    // MARK: heap limit
 
     func testLimitFollowsLevelWithAntiThrashFloor() {
         let g = make()
         mem.set(availMB: 20)
         g.tick()
-        XCTAssertEqual(go.limitCalls, [0])
+        XCTAssertEqual(control.limitCalls, [0])
         mem.set(availMB: 8)
         clock += 1; g.tick()
-        XCTAssertEqual(go.limitCalls.last, 22 << 20)
-        XCTAssertEqual(go.limit, 22 << 20)
+        XCTAssertEqual(control.limitCalls.last, 22 << 20)
+        XCTAssertEqual(control.limit, 22 << 20)
         clock += 1; g.tick()
-        XCTAssertEqual(go.limitCalls.count, 2, "unchanged ask is not repeated")
+        XCTAssertEqual(control.limitCalls.count, 2, "unchanged ask is not repeated")
         // critical with 30 MB of non-garbage Go memory: the ask (18 MB) is clamped up to 32 MB (no GC thrash)
-        go.nonGarbage = 30 << 20
+        control.nonGarbage = 30 << 20
         mem.set(availMB: 4)
         clock += 1; g.tick()
-        XCTAssertEqual(go.limitCalls.last, 18 << 20)
-        XCTAssertEqual(go.limit, 32 << 20)
+        XCTAssertEqual(control.limitCalls.last, 18 << 20)
+        XCTAssertEqual(control.limit, 32 << 20)
         XCTAssertEqual(g.limitInEffect, 32 << 20)
-        // a script's GOMEMLIMIT loan: hands off
-        go.loan = true
+        // a heap-limit loan: hands off
+        control.loan = true
         mem.set(availMB: 20)
         clock += 20; g.tick()
-        XCTAssertEqual(go.limitCalls.count, 3)
-        go.loan = false
+        XCTAssertEqual(control.limitCalls.count, 3)
+        control.loan = false
         clock += 1; g.tick()
-        XCTAssertEqual(go.limitCalls.last, 0)
+        XCTAssertEqual(control.limitCalls.last, 0)
     }
 
     // MARK: admission
@@ -252,13 +252,13 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
             NativeReclaimer(name: "tls", from: .high) { _ in ran.append("tls"); return 10 << 10 },
             NativeReclaimer(name: "pool", from: .critical) { _ in ran.append("pool"); return 0 },
         ])
-        go.freeOSGives = 1 << 20
+        control.freeOSGives = 1 << 20
         // high (8.5 MB): a 512 KB body is big → refused at first; reclaim gives 2 (jsc) + 1 (FreeOSMemory) MB →
         // 11.5 MB = elevated again → 9 + 2 × 0.5 MB needed → admitted
         mem.set(availMB: 8.5)
         XCTAssertTrue(g.admit(.body, bytes: 512 << 10))
         XCTAssertEqual(ran, ["bodies", "jsc", "tls"], "reclaimers up to high, cheapest first (pool only at critical)")
-        XCTAssertEqual(go.freeOS, 1)
+        XCTAssertEqual(control.freeOS, 1)
         XCTAssertEqual(g.counters.reclaims, 1)
         XCTAssertEqual(g.counters.refused, 0)
         // a second refusal within 1 s does not reclaim again
@@ -266,7 +266,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         mem.set(availMB: 8.5)
         XCTAssertFalse(g.admit(.body, bytes: 2 << 20))
         XCTAssertEqual(ran, [])
-        XCTAssertEqual(go.freeOS, 1)
+        XCTAssertEqual(control.freeOS, 1)
         // after the window: 6 MB → reclaim → 9 MB, still high (exit at 11 MB): big work needs 11 + 2 × size → refused
         clock += 1.5
         mem.set(availMB: 6)
@@ -295,14 +295,14 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         let g = make()
         mem.set(availMB: 2.5, fpMB: 46)
         g.tick()
-        XCTAssertEqual(go.connShed, [25])
+        XCTAssertEqual(control.connShed, [25])
         clock += 3
         g.tick()
-        XCTAssertEqual(go.connShed, [25], "not again before re-arm (30 s or footprint < 42 MB)")
+        XCTAssertEqual(control.connShed, [25], "not again before re-arm (30 s or footprint < 42 MB)")
         mem.set(availMB: 1.5, fpMB: 46)
         clock += 31
         g.tick()
-        XCTAssertEqual(go.connShed, [25, 50])
+        XCTAssertEqual(control.connShed, [25, 50])
         XCTAssertEqual(g.counters.emergencies, 2)
     }
 
@@ -315,7 +315,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         _ = g.admit(.body, bytes: -1)
         let line = g.diagnosticsLine()
         XCTAssertTrue(line.hasPrefix("native governor high"), line)
-        XCTAssertTrue(line.contains("GOMEMLIMIT 22.0 MB"), line)
+        XCTAssertTrue(line.contains("heap limit 22.0 MB"), line)
         XCTAssertTrue(line.contains("refused 1 (body 1)"), line)
         let f = g.snapshotFields()
         XCTAssertEqual(f["level"] as? String, "high")

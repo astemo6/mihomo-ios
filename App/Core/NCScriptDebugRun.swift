@@ -146,7 +146,7 @@ enum NCScriptDebug {
         defer { js.drop(key) }
 
         let host = DebugScriptHost(start: start, timeoutMs: Int64(timeout) * 1000, maxLogs: maxLogs)
-        let run = NativeScriptRun(gen: 0, rule: 0, go: host, js: js, lane: nil, nativeBase: Int64(1) << 52, laneOK: false)
+        let run = NativeScriptRun(gen: 0, rule: 0, hostAPI: host, js: js, lane: nil, nativeBase: Int64(1) << 52, laneOK: false)
         let isHTTP = typ == "http-request" || typ == "http-response"
         run.requestPhase = typ == "http-request"
 

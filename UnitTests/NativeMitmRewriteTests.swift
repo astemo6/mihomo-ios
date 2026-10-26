@@ -86,7 +86,7 @@ final class NativeMitmRewriteTests: XCTestCase {
     private static func compare(_ d: RewriteDecision, _ c: Case, _ engine: NativeRewriteEngine) -> String? {
         let e = c.expect
         switch d {
-        case .go:
+        case .deferred:
             return nil
         case .drop:
             return e.action == "drop" ? nil : "native drop, Go \(e.action)"
@@ -128,7 +128,7 @@ final class NativeMitmRewriteTests: XCTestCase {
     private static func skipNoted(_ d: RewriteDecision) -> Bool {
         let notes: [String]
         switch d {
-        case .go: return false
+        case .deferred: return false
         case .drop(let l): notes = l.notes
         case .local(let l): notes = l.log.notes
         case .forward(let f): notes = f.log.notes
@@ -140,7 +140,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         let fx = try fixtures()
         XCTAssertEqual(fx.version, RWSnapshot.supportedVersion)
         XCTAssertGreaterThanOrEqual(fx.suites.count, 4)
-        var total = 0, native = 0, deferred = 0, mismatch = 0, mustDefer = 0, goNative = 0, hostsOK = 0, goFreeSkipped = 0
+        var total = 0, native = 0, deferred = 0, mismatch = 0, mustDefer = 0, goNative = 0, hostsOK = 0, nativeSkipped = 0
         var reasons: [String: Int] = [:]
         var perSuite: [String] = []
         for s in fx.suites {
@@ -151,17 +151,17 @@ final class NativeMitmRewriteTests: XCTestCase {
                 let expectNative = c.expect.action == "local" || c.expect.action == "drop" || c.expect.action == "forward"
                 if expectNative { goNative += 1 }
                 let d = engine.decide(Self.request(c))
-                if case .go(let why) = d {
+                if case .deferred(let why) = d {
                     deferred += 1; sd += 1
                     reasons[why, default: 0] += 1
                     continue
                 }
                 if c.needsGo == true || !expectNative {
-                    // Go-zero (nc-integrate, NativeRewriteEngine.goFree): nothing stands behind .go any more. A rule Go
+                    // Go-zero (nc-integrate): nothing stands behind .deferred any more. A rule Go
                     // ran as a script / body rule that the stage-3a engine cannot run is skipped on its own and noted
                     // in the request log (gap C5); the fixture's Go answer includes that rule's effect, so the decision
                     // is not compared. A native decision without such a skip note is still a violation.
-                    if NativeRewriteEngine.goFree && Self.skipNoted(d) { goFreeSkipped += 1; continue }
+                    if Self.skipNoted(d) { nativeSkipped += 1; continue }
                     mustDefer += 1
                     XCTFail("[\(s.name)] \(c.name): Go \(c.expect.action)\(c.needsGo == true ? " (script/body)" : "") but native decided \(d)")
                     continue
@@ -181,7 +181,7 @@ final class NativeMitmRewriteTests: XCTestCase {
             perSuite.append("\(s.name) \(sn)/\(sn + sd)")
         }
         let top = reasons.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-        print("NativeMitmRewrite conformance: \(fx.suites.count) suites, \(total) cases; native == Go \(native), deferred \(deferred) (\(top)), mismatches \(mismatch), must-defer violations \(mustDefer), Go-free rule skips \(goFreeSkipped); Go-native cases \(goNative); hosts ok \(hostsOK)")
+        print("NativeMitmRewrite conformance: \(fx.suites.count) suites, \(total) cases; native == Go \(native), deferred \(deferred) (\(top)), mismatches \(mismatch), must-defer violations \(mustDefer), Go-free rule skips \(nativeSkipped); Go-native cases \(goNative); hosts ok \(hostsOK)")
         print("NativeMitmRewrite per suite (native/total): " + perSuite.joined(separator: "; "))
         XCTAssertEqual(mismatch, 0)
         XCTAssertEqual(mustDefer, 0)
@@ -419,12 +419,8 @@ final class NativeMitmRewriteTests: XCTestCase {
         let tp = RWSnapTemplate(s: ["[", "|", "|", "|", "|", "|", "|$]"], r: [0, -6, 1, -7, 2, -8, 3, -2, 4, -4, 5, -3, 6])
         XCTAssertEqual(r.replaceFirst("xabcy", tp), "x[a|c|b|b|x|y|$]y")
         XCTAssertEqual(r.replaceAll("abcabc", RWSnapTemplate(s: ["-"], r: [0])), "--")
-        if RWRegex.lenient {
-            // Go-zero: no Go to hand non-ASCII input to — the ICU translation runs on it (RWRegex.lenient, gap C5)
-            XCTAssertEqual(r.replaceFirst("é abc", tp), "é [a|c|b|b|é ||$]", "non-ASCII input: native (Go-free)")
-        } else {
-            XCTAssertNil(r.replaceFirst("é abc", tp), "non-ASCII input: Go decides")
-        }
+        // non-ASCII input: the ICU translation runs on it (RWRegex.lenient, gap C5)
+        XCTAssertEqual(r.replaceFirst("é abc", tp), "é [a|c|b|b|é ||$]", "non-ASCII input: native")
         // empty matches are walked like regexp2 does
         let e = rx("x*", icu: "x*", groups: 0)
         XCTAssertEqual(e.replaceAll("axb", RWSnapTemplate(s: ["-"], r: [0])), "-a--b-")
@@ -476,7 +472,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(m.status, 200)
         XCTAssertEqual(m.length, 0)
         XCTAssertEqual(m.bodyMode, .none)
-        if case .go = e.decide(q("/r")) {} else { XCTFail("missing remote file: Go downloads it") }
+        if case .deferred = e.decide(q("/r")) {} else { XCTFail("missing remote file: Go downloads it") }
         guard case .local(let b) = e.decide(q("/b")) else { return XCTFail("large file") }
         XCTAssertEqual(b.length, Int64(600 << 10))
         XCTAssertEqual(b.body.count, 600 << 10)

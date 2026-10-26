@@ -13,10 +13,12 @@ struct ProcessMemorySampler: NativeMemorySampling {
     }
 }
 
-/// Pure Swift memory control (no-op stand-in when Go is not running).
+/// The tunnel has no second runtime with its own heap limit: no limit to set, nothing to shed beyond the native
+/// reclaimers. info() is nil, so the governor never asks for a limit and its diagnostics line carries no limit part
+/// (it used to print an all-zero "GOMEMLIMIT 0 B" section).
 final class NativeNoopMemoryControl: RuntimeMemoryControlling {
     func setActive(_ on: Bool) {}
-    func info() -> RuntimeMemoryInfo? { RuntimeMemoryInfo() }
+    func info() -> RuntimeMemoryInfo? { nil }
     func setLimit(_ bytes: Int64) -> Int64 { bytes }
     func freeOSMemory() -> Bool { true }
     func shed(level: Int, flags: MemoryShedFlags, reason: String) -> String { "" }
@@ -87,7 +89,7 @@ extension BoundedLRU {
 /// snapshot. All on one serial queue.
 final class NativeMemoryGovernorSampler {
     let governor: NativeMemoryGovernor
-    private let go: RuntimeMemoryControlling
+    private let control: RuntimeMemoryControlling
     private let queue = DispatchQueue(label: "tern.nativememgovernor", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
@@ -98,24 +100,24 @@ final class NativeMemoryGovernorSampler {
     /// Called on every tick with footprint / available (the tunnel writes the 隧道内存 snapshot here).
     private let onSample: (UInt64, Int) -> Void
 
-    init(governor: NativeMemoryGovernor, go: RuntimeMemoryControlling, onSample: @escaping (UInt64, Int) -> Void = { _, _ in }) {
+    init(governor: NativeMemoryGovernor, control: RuntimeMemoryControlling, onSample: @escaping (UInt64, Int) -> Void = { _, _ in }) {
         self.governor = governor
-        self.go = go
+        self.control = control
         self.onSample = onSample
     }
 
     /// Production: process readings, Go bridge, standard reclaimers, logs to the startup log.
     static func makeDefault(onSample: @escaping (UInt64, Int) -> Void) -> NativeMemoryGovernorSampler {
-        let go = NativeNoopMemoryControl()
-        let g = NativeMemoryGovernor(memory: ProcessMemorySampler(), go: go, reclaimers: NativeMemoryGovernor.standardReclaimers(),
+        let control = NativeNoopMemoryControl()
+        let g = NativeMemoryGovernor(memory: ProcessMemorySampler(), control: control, reclaimers: NativeMemoryGovernor.standardReclaimers(),
                                      log: { StartupLog.write($0) })
-        return NativeMemoryGovernorSampler(governor: g, go: go, onSample: onSample)
+        return NativeMemoryGovernorSampler(governor: g, control: control, onSample: onSample)
     }
 
     func start() {
         queue.async { [self] in
             guard !stopped else { return }
-            go.setActive(true)
+            control.setActive(true)
             NativeMemoryGovernor.setActive(governor)
             let p = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
             p.setEventHandler { [weak self] in
@@ -143,7 +145,7 @@ final class NativeMemoryGovernorSampler {
             pressure?.cancel()
             pressure = nil
             NativeMemoryGovernor.setActive(nil)
-            go.setActive(false)
+            control.setActive(false)
         }
     }
 

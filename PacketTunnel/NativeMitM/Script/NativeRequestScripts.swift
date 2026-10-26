@@ -27,7 +27,7 @@ final class NativeRequestScripts {
     }
 
     let gen: Int64
-    private let go: ScriptHostAPI
+    private let hostAPI: ScriptHostAPI
     private let js: NativeJSEngine
     private let store: JSCNativeBlobProvider?
     private let nativeBase: Int64
@@ -54,9 +54,9 @@ final class NativeRequestScripts {
     private(set) var pushFailed = false
     private var finished = false
 
-    init(gen: Int64, go: ScriptHostAPI, js: NativeJSEngine, store: JSCNativeBlobProvider?, nativeBase: Int64) {
+    init(gen: Int64, hostAPI: ScriptHostAPI, js: NativeJSEngine, store: JSCNativeBlobProvider?, nativeBase: Int64) {
         self.gen = gen
-        self.go = go
+        self.hostAPI = hostAPI
         self.js = js
         self.store = store
         self.nativeBase = nativeBase
@@ -69,26 +69,26 @@ final class NativeRequestScripts {
     // MARK: one script
 
     func step(_ p: RequestScriptPause) -> Step {
-        if token == 0 { token = go.token() }
-        let ans = go.reserve(gen: gen, rule: p.rule, token: token)
+        if token == 0 { token = hostAPI.token() }
+        let ans = hostAPI.reserve(gen: gen, rule: p.rule, token: token)
         guard let slot = ans.slot, slot > 0 else {
             if ans.gone == true { return .handOver("script rule gone") }
             record(p.rule, load: false, skip: ans.note ?? "", engine: RequestScriptOutcome(kind: .skipped))
             return .next
         }
         if p.requiresBody {
-            let limit = go.reqLimit(gen: gen, rule: p.rule)
-            if limit < 0 { go.release(slot: slot, ran: false); return .handOver("script rule gone") }
+            let limit = hostAPI.reqLimit(gen: gen, rule: p.rule)
+            if limit < 0 { hostAPI.release(slot: slot, ran: false); return .handOver("script rule gone") }
             if bodyLoaded {
                 if bodyOK && Int64(body?.count ?? 0) <= limit { return run(p, slot: slot) }
                 return skipBody(p, slot: slot, limit: limit)
             }
             if p.contentLength < 0 {
-                go.release(slot: slot, ran: false)
+                hostAPI.release(slot: slot, ran: false)
                 return .handOver("chunked request body")
             }
-            let a = go.reqBodyAdmit(gen: gen, rule: p.rule, url: p.url, contentLength: p.contentLength, token: token)
-            if a.gone == true { go.release(slot: slot, ran: false); return .handOver("script rule gone") }
+            let a = hostAPI.reqBodyAdmit(gen: gen, rule: p.rule, url: p.url, contentLength: p.contentLength, token: token)
+            if a.gone == true { hostAPI.release(slot: slot, ran: false); return .handOver("script rule gone") }
             bodyLoaded = true
             guard a.ok == true else {
                 if a.retry == true { bodyLoaded = false } // a later script with a larger limit may read it
@@ -130,7 +130,7 @@ final class NativeRequestScripts {
         state.bodyLoaded = true
         if pushFailed || Int64(bodyIn.count) > bodyCap {
             // readCapped failed: Go would forward what it has plus the rest — let Go take it with the bytes
-            go.release(slot: pd.slot, ran: false)
+            hostAPI.release(slot: pd.slot, ran: false)
             bodyLoaded = false
             return .handOver("request body read failed")
         }
@@ -144,30 +144,30 @@ final class NativeRequestScripts {
     }
 
     private func skipBody(_ p: RequestScriptPause, slot: Int64, limit: Int64) -> Step {
-        go.release(slot: slot, ran: false)
+        hostAPI.release(slot: slot, ran: false)
         let blen: Int64 = bodyLoaded && bodyOK ? Int64(body?.count ?? 0) : -1
-        let note = go.reqBodySkip(gen: gen, rule: p.rule, why: reqSkip, blen: blen)
+        let note = hostAPI.reqBodySkip(gen: gen, rule: p.rule, why: reqSkip, blen: blen)
         record(p.rule, load: true, skip: note, engine: RequestScriptOutcome(kind: .skipped))
         return .next
     }
 
     /// Match, prepare, run, parse $done (slot held).
     private func run(_ p: RequestScriptPause, slot: Int64) -> Step {
-        let pr = go.prepare(gen: gen, rule: p.rule, slot: slot, reload: false)
+        let pr = hostAPI.prepare(gen: gen, rule: p.rule, slot: slot, reload: false)
         guard pr.ok, let key = pr.key else {
-            go.release(slot: slot, ran: true)
-            let f = go.fail(gen: gen, rule: p.rule, mode: "msg", detail: pr.err ?? "脚本运行时内部错误", stop: 0, timeoutMs: 0, afterDone: false)
+            hostAPI.release(slot: slot, ran: true)
+            let f = hostAPI.fail(gen: gen, rule: p.rule, mode: "msg", detail: pr.err ?? "脚本运行时内部错误", stop: 0, timeoutMs: 0, afterDone: false)
             record(p.rule, load: p.requiresBody, fail: f.note ?? "", engine: RequestScriptOutcome(kind: .failed))
             return .next
         }
-        let run = NativeScriptRun(gen: gen, rule: p.rule, go: go, js: js, lane: store, nativeBase: nativeBase, laneOK: false)
+        let run = NativeScriptRun(gen: gen, rule: p.rule, hostAPI: hostAPI, js: js, lane: store, nativeBase: nativeBase, laneOK: false)
         run.requestPhase = true
         let setup = setupJSON(base: pr.setupJSON, run: run, p: p)
-        let outcome = run.run(key: key, setup: setup, timeoutMs: pr.timeoutMs ?? 10_000) { [go, gen] in
-            let p2 = go.prepare(gen: gen, rule: p.rule, slot: slot, reload: true)
+        let outcome = run.run(key: key, setup: setup, timeoutMs: pr.timeoutMs ?? 10_000) { [hostAPI, gen] in
+            let p2 = hostAPI.prepare(gen: gen, rule: p.rule, slot: slot, reload: true)
             return p2.ok ? p2.key : nil
         }
-        go.release(slot: slot, ran: true)
+        hostAPI.release(slot: slot, ran: true)
         run.releaseNatives(keep: 0)
         switch outcome {
         case .failed(let note):
@@ -239,10 +239,10 @@ final class NativeRequestScripts {
         finished = true
         if let pd = pending {
             pending = nil
-            go.release(slot: pd.slot, ran: false)
+            hostAPI.release(slot: pd.slot, ran: false)
         }
-        if ticket > 0 { go.bodyRelease(ticket: ticket); ticket = 0 }
-        if token != 0 { go.cancel(token); token = 0 }
+        if ticket > 0 { hostAPI.bodyRelease(ticket: ticket); ticket = 0 }
+        if token != 0 { hostAPI.cancel(token); token = 0 }
     }
 
     /// FlowHead.Scripted as JSON-ready objects.
