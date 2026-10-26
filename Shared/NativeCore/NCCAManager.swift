@@ -69,7 +69,10 @@ public final class NCCAManager {
             return nil
         }
         do {
-            let generated = try Self.generateCA(home: home)
+            // feat/nc-e2e: no reload here — generateCA's reloadCA takes `lock`, which this function already holds
+            // (NSLock is not recursive): ensureCA on a home without a CA deadlocked forever (E2E replay run
+            // 40264987994: stage 1 hung 600 s in ensureCA; in the tunnel, leafP12 → ensureCA would hang the MitM flow).
+            let generated = try Self.generateCA(home: home, reload: false)
             caCert = generated.caCert
             caKey = generated.caKey
             initIssuerLocked(cert: generated.caCert, key: generated.caKey)
@@ -354,7 +357,8 @@ public final class NCCAManager {
 
     /// Generates a new 10-year ECDSA P-256 root CA in Swift and writes to disk.
     @discardableResult
-    public static func generateCA(home: String) throws -> (caCert: SecCertificate, caKey: SecKey) {
+    /// `reload: false` only from `ensureCA`, which holds `lock` and installs the result itself.
+    public static func generateCA(home: String, reload: Bool = true) throws -> (caCert: SecCertificate, caKey: SecKey) {
         let dir = caDir(home: home)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
 
@@ -425,7 +429,7 @@ public final class NCCAManager {
         try writeAtomic(url: keyURL, data: pemKey, posixPermissions: 0o600)
         try writeAtomic(url: pemURL, data: pemCert, posixPermissions: 0o644)
 
-        shared.reloadCA(home: home)
+        if reload { shared.reloadCA(home: home) }
 
         return (caCert, caKey)
     }
