@@ -40,6 +40,11 @@ final class NativeCoreEngine {
     private var asnDB: NCMMDB?
     private var geoSiteDB: NCGeoSiteDB?
     private var ruleProviders: NCRuleProviderStore?
+    /// Whether the live rule-provider store has an index for `name` (provider name or URL alias) — cache or fetch.
+    /// fix/nc-mem-providers: the E2E replay checks the core's own store instead of loading every list a second time.
+    func ruleProviderIsLoaded(_ name: String) -> Bool {
+        locked { ruleProviders }?.isLoaded(name: name) ?? false
+    }
     private var dnsPolicy: NCDNSPolicy?
     private var nodeSubStore: NCNodeSubscriptionStore?
     private var nodeSubs: [NCNodeSubscription] = []
