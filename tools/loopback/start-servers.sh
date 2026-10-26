@@ -82,7 +82,7 @@ find_sudoku_bin() {
     esac
     local bin="$RUN/bin/sudoku"
     if [ ! -x "$bin" ]; then
-        local name="sudoku-${SUDOKU_VERSION}-${os}-${arch}"
+        local name="sudoku-${os}-${arch}"
         log "downloading sudoku v${SUDOKU_VERSION} (${os}-${arch})"
         # Release tarball is flat: sudoku server.config.json client.config.json …
         curl -fsSL "https://github.com/SUDOKU-ASCII/sudoku/releases/download/v${SUDOKU_VERSION}/${name}.tar.gz" \
