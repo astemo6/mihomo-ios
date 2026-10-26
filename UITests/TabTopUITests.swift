@@ -28,7 +28,7 @@ extension MihomoUITests {
             guard bar.exists else { return }
             tops[names[i]] = bar.frame.minY
             barHeights[names[i]] = bar.frame.height
-            let t = bar.staticTexts[L(titles[i])].firstMatch
+            let t = bar.staticTexts.matching(NSPredicate(format: "label == %@", L(titles[i]))).firstMatch
             if t.exists { titleMid[names[i]] = t.frame.midY; titleLeft[names[i]] = t.frame.minX }
             let buttons = bar.buttons.allElementsBoundByIndex.filter { $0.exists && $0.frame.minX > bar.frame.midX }
             if let b = buttons.first { buttonMid[names[i]] = b.frame.midY }

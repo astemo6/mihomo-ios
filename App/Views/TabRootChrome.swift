@@ -21,12 +21,14 @@ import SwiftUI
 /// bold left-aligned title row above 首页's pinned header.
 ///
 /// fix/app-policy-ui #5 / #5b (user 2026-10-26 21:25 / 21:28, IMG_3622 / IMG_3623): 首页's title sat higher than
-/// 策略 / 工具's (those had an empty-looking button row above a large title), and the large title cost a whole row. Now
-/// every tab root shows its title IN the bar row, leading, bold, on the same line as its trailing buttons
-/// (`.toolbarTitleDisplayMode(.inlineLarge)`, iOS 17+; the system's own layout, no spacer views), so the five titles
-/// sit on one baseline and the page gains ~52 pt. 首页 joins in with a real bar (its floating + moved there).
-/// Pushed sub-pages are unchanged: they set `.large` themselves (UIKit's `.automatic` would inherit the root's
-/// inline-large mode).
+/// 策略 / 工具's (those had a button row above a separate large-title row), and the large title cost a whole row.
+/// Now every tab root draws its title IN the bar row — leading, bold 28 pt, vertically centred with its trailing
+/// buttons — so the five titles share one line and the page gains ~52 pt. 首页 joins in with a real bar (its floating
+/// + moved there). The bar is the standard inline bar (fixed height at every text size); the centred inline title is
+/// replaced by an empty principal item, the navigation title itself stays (VoiceOver, UI tests, back buttons).
+/// `.toolbarTitleDisplayMode(.inlineLarge)` was tried first: on iOS 18 it draws the title half a row below the
+/// buttons and the bar grows / shrinks with scrolling at large text sizes.
+/// Pushed sub-pages are unchanged: they set `.large` themselves (UIKit's `.automatic` would inherit the root's mode).
 struct TabRootChrome: ViewModifier {
     let title: LocalizedStringKey
     var showsTitle: Bool = true
@@ -34,19 +36,54 @@ struct TabRootChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .navigationTitle(title)
-            .modifier(TabRootTitleMode())
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
+            .modifier(TabRootLeadingTitle(title: title, enabled: showsTitle))
     }
 }
 
-/// Title in the bar row, leading (iOS 17+ inline-large); iOS 16: the standard centred inline title.
-struct TabRootTitleMode: ViewModifier {
+/// The tab root's title as the bar's leading item (and nothing in the centre). iOS 26: without the shared glass
+/// background a bar item gets there.
+struct TabRootLeadingTitle: ViewModifier {
+    let title: LocalizedStringKey
+    var enabled = true
+
     @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 17.0, *) {
-            content.toolbarTitleDisplayMode(.inlineLarge)
+        if !enabled {
+            content
+        } else if #available(iOS 26.0, *) {
+            content.toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { TabRootTitleText(title: title) }
+                    .sharedBackgroundVisibility(.hidden)
+                ToolbarItem(placement: .principal) { TabRootTitleText.centreHider }
+                    .sharedBackgroundVisibility(.hidden)
+            }
         } else {
-            content.navigationBarTitleDisplayMode(.inline)
+            content.toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { TabRootTitleText(title: title) }
+                ToolbarItem(placement: .principal) { TabRootTitleText.centreHider }
+            }
         }
+    }
+}
+
+struct TabRootTitleText: View {
+    let title: LocalizedStringKey
+
+    var body: some View {
+        Text(title)
+            .font(.title.weight(.bold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .dynamicTypeSize(...DynamicTypeSize.xLarge) // the bar row has a fixed height
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("tabroot.title")
+    }
+
+    /// Takes the centre slot so the bar does not draw the inline title a second time.
+    static var centreHider: some View {
+        Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
     }
 }
 
@@ -74,9 +111,10 @@ struct TabRootPinnedChrome<Header: View>: ViewModifier {
             .navigationTitle(title)
             // fix/app-policy-ui #5b: the real bar (title + Home's trailing buttons in one row, like the other tabs);
             // its own background stays hidden — the pinned header's background below reaches up behind it.
-            .modifier(TabRootTitleMode())
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .toolbarBackground(.hidden, for: .navigationBar)
+            .modifier(TabRootLeadingTitle(title: title))
             .onPreferenceChange(TabRootScrollKey.self) { tracker.probeMoved(to: $0) }
             .safeAreaInset(edge: .top, spacing: 0) {
                 // The offset wrapper is the only view that re-renders per pull frame; the header inside it is

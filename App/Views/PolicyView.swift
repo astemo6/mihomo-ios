@@ -515,7 +515,8 @@ struct PolicyView: View {
                 } else if vpn.isConnected { liveList } else { offlineList }
             }
             .background(Theme.bg.ignoresSafeArea())
-            .tabRootChrome(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"))
+            // fix/app-policy-ui #5b: 编辑排序 keeps the centred title (取消 takes the leading slot).
+            .tabRootChrome(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"), showsTitle: !reorderMode)
             .toolbar {
               if reorderMode {
                 ToolbarItem(placement: .cancellationAction) {

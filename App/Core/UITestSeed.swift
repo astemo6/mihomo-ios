@@ -103,7 +103,7 @@ enum UITestSeed {
                 let p = try await store.addLocal(name: "UITest Chain", text: policyChainYAML)
                 _ = await store.setActive(p)
             }
-            // fix/app-policy-ui #3 / #4: a profile with three rule sets (file providers, already on disk) for 分流规则 →
+            // fix/app-policy-ui #3 / #4: a profile with three remote rule sets (http providers, already on disk — never fetched) for 分流规则 →
             // 编辑排序 and the 策略 / 分流规则 row-height comparison.
             if args.contains("-UITestRuleSets"), !store.profiles.contains(where: { $0.name == "UITest RuleSets" }) {
                 try FileManager.default.createDirectory(at: home.appendingPathComponent("ruleset"), withIntermediateDirectories: true)
@@ -385,9 +385,9 @@ enum UITestSeed {
         profileYAML.replacingOccurrences(of: "\nrules:\n", with: """
 
         rule-providers:
-          China: {type: file, behavior: domain, path: ./ruleset/uitest-china.yaml}
-          AI: {type: file, behavior: domain, path: ./ruleset/uitest-ai.yaml}
-          Facebook: {type: file, behavior: domain, path: ./ruleset/uitest-facebook.yaml}
+          China: {type: http, behavior: domain, url: "https://rules.example.invalid/china.yaml", path: ./ruleset/uitest-china.yaml, interval: 86400}
+          AI: {type: http, behavior: domain, url: "https://rules.example.invalid/ai.yaml", path: ./ruleset/uitest-ai.yaml, interval: 86400}
+          Facebook: {type: http, behavior: domain, url: "https://rules.example.invalid/facebook.yaml", path: ./ruleset/uitest-facebook.yaml, interval: 86400}
         rules:
           - RULE-SET,China,DIRECT
           - RULE-SET,AI,Proxy
