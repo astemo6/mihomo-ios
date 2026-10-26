@@ -235,11 +235,15 @@ final class NativeCoreDelayProbeTests: XCTestCase {
             accepted += 1
             active += 1
             maxActive = max(maxActive, active)
-            c.onClose = { [unowned self] in
-                self.active -= 1
-                self.conns.removeValue(forKey: id)
-            }
+            c.onClose = { [unowned self] in self.closed(id) }
             read(c, Data(), served: 0)
+        }
+
+        /// The probe closed its side (EOF) or the socket went away: no longer active (once per connection).
+        private func closed(_ id: ObjectIdentifier) { closed(id: id) }
+        private func closed(id: ObjectIdentifier) {
+            guard conns.removeValue(forKey: id) != nil else { return }
+            active -= 1
         }
 
         private func read(_ c: NCLoopbackConn, _ buf: Data, served: Int) {
@@ -255,7 +259,7 @@ final class NativeCoreDelayProbeTests: XCTestCase {
                     }
                     return
                 }
-                if err != nil || done { c.cancel(); return }
+                if err != nil || done { self.closed(id: ObjectIdentifier(c)); c.cancel(); return }
                 self.read(c, buf, served: served)
             }
         }
