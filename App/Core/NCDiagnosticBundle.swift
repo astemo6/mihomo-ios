@@ -65,6 +65,7 @@ extension DiagnosticSummary {
             out[k] = v
         }
         out["README.txt"] = "Mihomo iOS 诊断包\n\n" +
+            "selfcheck.txt         最近一次「一键自检」的结果（有才包含）\n" +
             "info.txt              App / 扩展 / 内核版本、App Group、VPN 状态\n" +
             "startup-log.txt       启动阶段日志（本次 + 上一次）\n" +
             "last-error.txt        扩展最近一次写下的错误\n" +

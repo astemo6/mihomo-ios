@@ -31,6 +31,8 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: UnitTests
+      # feat/nc-e2e: the E2E replay's result sink (stage 1 = UnitTests/NativeCoreE2EReplayTests.swift).
+      - path: E2ETests/E2EReport.swift
     dependencies:
       - target: Mihomo
     settings:
@@ -42,7 +44,52 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: NO
         CODE_SIGN_ENTITLEMENTS: ""
 
+  # feat/nc-e2e: E2E replay stage 2 — NativeCore in-process. Compiles the PacketTunnel target's sources (same
+  # excludes, bridging header, lwIP headers and TERN_TUNNEL as project.yml) next to E2ETests/, hosted in the app so
+  # it shares the app container with stage 1. Never imports the Mihomo module (that would make every Shared type
+  # ambiguous). Only the TernE2E scheme builds it (.github/workflows/e2e-replay.yml); the MihomoUITests scheme and the
+  # release project are unchanged.
+  TernE2ETunnelTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: E2ETests
+      - path: PacketTunnel
+        excludes: ["**/*.entitlements", "Info.plist", "NativeMitM/Script/TernPrelude.js"]
+      - path: Shared
+        excludes: ["LiveActivityShared.swift", "LiveActivityViews.swift", "TunnelControl.swift"]
+    dependencies:
+      - target: Mihomo
+      - sdk: NetworkExtension.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.astemo6.mihomo.e2etests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Mihomo.app/Mihomo"
+        SWIFT_EMIT_LOC_STRINGS: NO
+        CODE_SIGN_ENTITLEMENTS: ""
+        SWIFT_OBJC_BRIDGING_HEADER: PacketTunnel/NativeCore/NCBridge.h
+        HEADER_SEARCH_PATHS:
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/include
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/port
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) TERN_TUNNEL
+
 schemes:
+  # feat/nc-e2e: e2e-replay.yml only.
+  TernE2E:
+    build:
+      targets:
+        Mihomo: all
+        MihomoUnitTests: [test]
+        TernE2ETunnelTests: [test]
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - name: MihomoUnitTests
+        - name: TernE2ETunnelTests
   MihomoUITests:
     build:
       targets:

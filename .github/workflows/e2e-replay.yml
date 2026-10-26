@@ -1,0 +1,189 @@
+# E2E replay (feat/nc-e2e): a real user config through the App's import path → runtime generation → NativeCore
+# started in-process (real lwIP data plane fed with synthetic packets, real controller, real MitM front), with one
+# named PASS / FAIL / SKIP line per scenario in the job summary and a redacted report artifact. Built to catch on CI
+# the bug classes that were only found on a device (provider nodes 404 on delay, MitM never engaged on the TUN,
+# stale fake-ip, remote rule sets / proxy-providers not loading, controller endpoints missing). See
+# tools/e2e/README.md and work/nc/e2e-report.md.
+#
+# Fixture: tools/e2e/fixture.enc (openssl aes-256-cbc, pbkdf2, 200000 iterations) decrypted with the repository
+# secret TERN_E2E_KEY; without the secret (or with fixture=sample) the sanitized tools/e2e/sample/sample.conf runs
+# against local servers (tools/e2e/start-e2e.sh). Node hosts / passwords / URLs / the MitM passphrase are masked
+# (::add-mask::), redacted in every result line and scrubbed from every uploaded file.
+#
+# Stages (two test bundles, one simulator, one app container):
+#   1. MihomoUnitTests/NativeCoreE2EReplayTests — import + runtime generation (App module)
+#   2. TernE2ETunnelTests/TernE2ETunnelTests    — NativeCore in-process (PacketTunnel sources)
+# The job fails only on a FAIL that is not listed in tools/e2e/known-gaps.txt (shown as KNOWN), or when a stage did not
+# reach its `stage-done` line (hang / crash / step timeout).
+name: E2E replay
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: "auto = the encrypted real fixture when TERN_E2E_KEY is set, else the sample; sample; real"
+        type: choice
+        options: [auto, sample, real]
+        required: false
+        default: auto
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ""
+      fixture:
+        type: string
+        required: false
+        default: auto
+    secrets:
+      TERN_E2E_KEY:
+        required: false
+  push:
+    # Registers the workflow from a test branch (a dispatchable workflow must have run once); commits with
+    # [skip ci] do not trigger it.
+    branches: ['test/nc-e2e', 'test/nc-e2e-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-replay-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  replay:
+    if: github.repository == 'astemo6/mihomo-ios'
+    runs-on: macos-15
+    timeout-minutes: 80
+    env:
+      OUT: ${{ github.workspace }}/e2e-out
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+      - name: Fixture
+        env:
+          TERN_E2E_KEY: ${{ secrets.TERN_E2E_KEY }}
+          WANT: ${{ inputs.fixture || 'auto' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT"
+          KIND=sample
+          if [ "$WANT" != sample ] && [ -n "${TERN_E2E_KEY:-}" ] && [ -f tools/e2e/fixture.enc ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in tools/e2e/fixture.enc -pass env:TERN_E2E_KEY -out "$RUNNER_TEMP/fixture.conf"
+            python3 tools/e2e/mask.py add-mask "$RUNNER_TEMP/fixture.conf"
+            KIND=real
+          elif [ "$WANT" = real ]; then
+            echo "::error::fixture=real but TERN_E2E_KEY is not set (or tools/e2e/fixture.enc is missing)"; exit 1
+          fi
+          if [ "$KIND" = sample ]; then cp tools/e2e/sample/sample.conf "$RUNNER_TEMP/fixture.conf"; fi
+          echo "FIXTURE_KIND=$KIND" >> "$GITHUB_ENV"
+          echo "SAMPLE=$([ "$KIND" = sample ] && echo 1 || echo 0)" >> "$GITHUB_ENV"
+          echo "fixture: $KIND ($(wc -c < "$RUNNER_TEMP/fixture.conf") bytes)"
+      - name: Local servers + network pre-checks
+        run: |
+          tools/e2e/start-e2e.sh start
+          DNS=0; NETOK=0
+          python3 -c "import socket,sys; sys.exit(0 if socket.gethostbyname('e2e-direct.localtest.me')=='127.0.0.1' else 1)" && DNS=1 || true
+          curl -sS -m 10 -o /dev/null https://httpbin.org/get && NETOK=1 || true
+          echo "PUBLIC_DNS=$DNS" >> "$GITHUB_ENV"; echo "INTERNET=$NETOK" >> "$GITHUB_ENV"
+          echo "public DNS (localtest.me → 127.0.0.1): $DNS, internet: $NETOK"
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project-uitests.yml
+      - name: Pick simulator
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
+          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
+              m=[(r,x) for r,x in devs if x['name']==want]
+              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
+          ")
+          test -n "$DEV"
+          echo "DEV=$DEV" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEV" || true
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild -project Mihomo.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/e2e \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            build-for-testing 2>&1 | tee build-e2e.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
+          grep -q "TEST BUILD SUCCEEDED" build-e2e.log || { grep -E "error:" build-e2e.log | head -n 80; tail -n 120 build-e2e.log; exit 1; }
+      - name: Stage fixture into the app container
+        run: |
+          xcrun simctl bootstatus "$DEV" -b
+          APP=$(find build/e2e/Build/Products -maxdepth 2 -name Mihomo.app -type d | head -n1)
+          xcrun simctl install "$DEV" "$APP"
+          C=$(xcrun simctl get_app_container "$DEV" com.astemo6.mihomo data)
+          mkdir -p "$C/Documents/tern-e2e"
+          cp "$RUNNER_TEMP/fixture.conf" "$C/Documents/tern-e2e/fixture.conf"
+          echo "CONTAINER=$C" >> "$GITHUB_ENV"
+      - name: Stage 1 — import + runtime generation
+        timeout-minutes: 20
+        run: |
+          set +e
+          TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_FIXTURE="$RUNNER_TEMP/fixture.conf" \
+          TEST_RUNNER_TERN_E2E_SAMPLE="$SAMPLE" TEST_RUNNER_TERN_E2E_PUBLIC_DNS="$PUBLIC_DNS" TEST_RUNNER_TERN_E2E_INTERNET="$INTERNET" \
+          TEST_RUNNER_JSC_useJIT=false \
+          xcodebuild -project Mihomo.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/e2e -resultBundlePath "$RUNNER_TEMP/stage1.xcresult" \
+            -only-testing:MihomoUnitTests/NativeCoreE2EReplayTests test-without-building > stage1.log 2>&1
+          echo "stage 1 exit $?"
+          grep -E "E2E-RESULT|Test Case|error:|Executed" stage1.log | tail -n 60
+      - name: Stage 2 — NativeCore in-process
+        timeout-minutes: 25
+        run: |
+          set +e
+          TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_SAMPLE="$SAMPLE" \
+          TEST_RUNNER_TERN_E2E_PUBLIC_DNS="$PUBLIC_DNS" TEST_RUNNER_TERN_E2E_INTERNET="$INTERNET" TEST_RUNNER_JSC_useJIT=false \
+          xcodebuild -project Mihomo.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/e2e -resultBundlePath "$RUNNER_TEMP/stage2.xcresult" \
+            -only-testing:TernE2ETunnelTests/TernE2ETunnelTests test-without-building > stage2.log 2>&1
+          echo "stage 2 exit $?"
+          grep -E "E2E-RESULT|Test Case|error:|Executed|Fatal|crash" stage2.log | tail -n 120
+      - name: Report
+        if: always()
+        run: |
+          set +e
+          mkdir -p "$OUT"
+          C=$(xcrun simctl get_app_container "$DEV" com.astemo6.mihomo data 2>/dev/null)
+          if [ -n "$C" ] && [ -d "$C/Documents/tern-e2e/out" ]; then cp -n "$C/Documents/tern-e2e/out/"* "$OUT/" 2>/dev/null; fi
+          for f in stage1.log stage2.log; do [ -f "$f" ] && grep -E "E2E-RESULT|E2E-NOTE|error:|Test Case.*failed|Fatal error" "$f" > "$OUT/$f.extract.txt"; done
+          INPUTS="$OUT/stage1.log.extract.txt $OUT/stage2.log.extract.txt"
+          [ -f "$OUT/results.jsonl" ] && INPUTS="$OUT/results.jsonl $INPUTS"
+          python3 tools/e2e/summarize.py "$OUT/summary.md" --known tools/e2e/known-gaps.txt --title "E2E replay ($FIXTURE_KIND fixture)" --expect-stages app,tunnel $INPUTS
+          echo "RC=$?" >> "$GITHUB_ENV"
+          # Never upload a secret: scrub every file (and refuse what still matches).
+          python3 tools/e2e/mask.py scrub "$RUNNER_TEMP/fixture.conf" "$OUT"/* stage1.log stage2.log build-e2e.log
+          python3 tools/e2e/mask.py check "$RUNNER_TEMP/fixture.conf" "$OUT"/* stage1.log stage2.log || { echo "::error::a secret survived scrubbing; logs not uploaded"; rm -f stage1.log stage2.log; }
+          cp stage1.log stage2.log "$OUT/" 2>/dev/null
+          rm -f "$OUT/handoff.json"
+          cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          cp "$OUT/summary.md" "$OUT/report.md"
+      - name: Stop servers
+        if: always()
+        run: |
+          tools/e2e/start-e2e.sh stop || true
+          rm -f "$RUNNER_TEMP/fixture.conf"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: e2e-replay-${{ env.FIXTURE_KIND }}
+          path: e2e-out/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Result
+        if: always()
+        run: |
+          if [ "${RC:-1}" != 0 ]; then echo "E2E replay: unexpected failures (or no result) — see the job summary"; exit 1; fi
