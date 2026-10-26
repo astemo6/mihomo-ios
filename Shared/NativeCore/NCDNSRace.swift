@@ -46,6 +46,8 @@ enum NCDNSRace {
         var active = 0
         var done = false
         var lastResort: Data?
+        /// fix/nc-tails: cancel handles of attempts still unsettled (keyed by launch serial).
+        var cancels: [Int: () -> Void] = [:]
     }
 
     /// Race `list` starting at index `start` (the last server that answered goes first). `exchange` performs one
@@ -59,6 +61,21 @@ enum NCDNSRace {
                     maxParallel: Int = NCDNSRace.maxParallel,
                     exchange: @escaping (NCDNSUpstream, @escaping (Data?) -> Void) -> Void,
                     completion: @escaping (Data?, Int?) -> Void) {
+        run(list: list, start: start, queue: queue, trace: trace, stagger: stagger, attemptTimeout: attemptTimeout,
+            overallTimeout: overallTimeout, maxParallel: maxParallel,
+            cancellableExchange: { u, done in exchange(u, done); return nil }, completion: completion)
+    }
+
+    /// Same race; `cancellableExchange` may return a cancel handle (fix/nc-tails). An attempt that timed out, and
+    /// every attempt still running when the race is decided, is cancelled at once — its coordinator slot and socket
+    /// are freed instead of being held for the transport's full timeout (see NCDNSUpstreamCoordinator.abandon).
+    static func run(list: [NCDNSUpstream], start: Int, queue: DispatchQueue, trace: NCDNSAttemptTrace? = nil,
+                    stagger: TimeInterval = NCDNSRace.stagger,
+                    attemptTimeout: TimeInterval = NCDNSRace.attemptTimeout,
+                    overallTimeout: TimeInterval = NCDNSRace.overallTimeout,
+                    maxParallel: Int = NCDNSRace.maxParallel,
+                    cancellableExchange exchange: @escaping (NCDNSUpstream, @escaping (Data?) -> Void) -> (() -> Void)?,
+                    completion: @escaping (Data?, Int?) -> Void) {
         let count = list.count
         guard count > 0 else { queue.async { completion(nil, nil) }; return }
         let st = State()
@@ -67,6 +84,9 @@ enum NCDNSRace {
         func finish(_ resp: Data?, _ idx: Int?) {
             guard !st.done else { return }
             st.done = true
+            let losers = st.cancels.values
+            st.cancels.removeAll()
+            for c in losers { c() }
             completion(resp, idx)
         }
         func launchNextOrFinish() {
@@ -80,11 +100,13 @@ enum NCDNSRace {
             st.active += 1
             let server = list[idx]
             let began = ms()
+            let serial = st.next
             var settled = false
-            exchange(server) { resp in
+            let cancel = exchange(server) { resp in
                 queue.async {
                     guard !settled else { return }
                     settled = true
+                    st.cancels.removeValue(forKey: serial)
                     st.active -= 1
                     guard !st.done else { return }
                     if let resp, isUsable(resp) { finish(resp, idx); return }
@@ -97,10 +119,12 @@ enum NCDNSRace {
                     launchNextOrFinish()
                 }
             }
+            if !settled, let cancel { st.cancels[serial] = cancel }
             queue.asyncAfter(deadline: .now() + attemptTimeout) {
                 guard !settled else { return }
                 settled = true
                 st.active -= 1
+                st.cancels.removeValue(forKey: serial)?()
                 guard !st.done else { return }
                 trace?.add("\(server.label) timeout \(Int(attemptTimeout * 1000)) ms")
                 launchNextOrFinish()
@@ -119,6 +143,32 @@ enum NCDNSRace {
                 finish(st.lastResort, nil)
             }
         }
+    }
+}
+
+extension NCDNSRace {
+    /// fix/nc-tails: the group race where every attempt is one coordinated upstream exchange (coalescing + global
+    /// cap, NCDNSUpstreamCoordinator) and every attempt the race gives up on is abandoned there — its socket closed
+    /// and its slot freed at once. `execute` performs one real exchange with `u` and may return a cancel handle.
+    /// NCDNSForwarder.forwardGroup (tunnel) runs on this; the unit tests drive it with fake servers.
+    static func runCoordinated(query: Data, list: [NCDNSUpstream], start: Int,
+                               coordinator: NCDNSUpstreamCoordinator = .shared,
+                               queue: DispatchQueue, trace: NCDNSAttemptTrace? = nil,
+                               stagger: TimeInterval = NCDNSRace.stagger,
+                               attemptTimeout: TimeInterval = NCDNSRace.attemptTimeout,
+                               overallTimeout: TimeInterval = NCDNSRace.overallTimeout,
+                               execute: @escaping (NCDNSUpstream, @escaping (Data?) -> Void) -> (() -> Void)?,
+                               completion: @escaping (Data?, Int?) -> Void) {
+        let suffix = NCDNSForwarder.mergeKeySuffix(query)
+        let id = NCDNSForwarder.transactionID(query)
+        run(list: list, start: start, queue: queue, trace: trace, stagger: stagger, attemptTimeout: attemptTimeout,
+            overallTimeout: overallTimeout,
+            cancellableExchange: { u, done in
+                let ticket = coordinator.submitCancellable(
+                    key: "\(u)|" + suffix, id: id, callerQueue: queue,
+                    execute: { finished in execute(u, finished) }, completion: done)
+                return { coordinator.abandon(ticket) }
+            }, completion: completion)
     }
 }
 

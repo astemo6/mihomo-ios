@@ -42,7 +42,10 @@ final class NCDNSForwarder {
         Data(query.dropFirst(min(2, query.count))).base64EncodedString()
     }
 
-    func forwardUDPOnce(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) {
+    /// Returns a cancel handle (fix/nc-tails): tears the socket down and answers nil, for an exchange its caller gave
+    /// up on (the coordinator then frees the slot at once instead of after the 5 s timeout).
+    @discardableResult
+    func forwardUDPOnce(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) -> () -> Void {
         let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
         let conn = NWConnection(host: NWEndpoint.Host(server), port: nwPort, using: NCOutboundBinding.params(.udp, host: server))
         var done = false
@@ -77,9 +80,11 @@ final class NCDNSForwarder {
         }
         conn.start(queue: queue)
         queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
+        return { [queue = self.queue] in queue.async { finish(nil) } }
     }
 
-    static func forwardTCP(_ query: Data, server: String, port: Int = 53, queue: DispatchQueue, completion: @escaping (Data?) -> Void) {
+    @discardableResult
+    static func forwardTCP(_ query: Data, server: String, port: Int = 53, queue: DispatchQueue, completion: @escaping (Data?) -> Void) -> () -> Void {
         let conn = NWConnection(host: NWEndpoint.Host(server), port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any, using: NCOutboundBinding.params(.tcp, host: server))
         var done = false
         func finish(_ data: Data?) {
@@ -108,5 +113,6 @@ final class NCDNSForwarder {
         }
         conn.start(queue: queue)
         queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
+        return { queue.async { finish(nil) } }
     }
 }
