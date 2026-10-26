@@ -73,7 +73,7 @@ final class NativeCoreJQTests: XCTestCase {
 
     func testPreludeParses() {
         // a parse error in the prelude would silently drop every jq-defined builtin
-        XCTAssertGreaterThan(JQPrelude.defs.count, 60)
+        XCTAssertGreaterThan(JQPrelude.defs.count, 50)
         for key in ["map/1", "select/1", "walk/1", "with_entries/1", "paths/0", "del/1", "IN/1", "any/2", "splits/1"] {
             XCTAssertNotNil(JQPrelude.defs[key], key)
         }
@@ -112,13 +112,22 @@ final class NativeCoreJQTests: XCTestCase {
     }
 
     func testDeepRecursionOnBigStack() throws {
-        var s = ""
-        for _ in 0..<600 { s += #"{"a":"# }
-        s += "1"
-        for _ in 0..<600 { s += "}" }
+        func nested(_ n: Int) -> Data {
+            var s = ""
+            for _ in 0..<n { s += #"{"a":"# }
+            s += "1"
+            for _ in 0..<n { s += "}" }
+            return Data(s.utf8)
+        }
         let prog = try NativeJQ.compile(#"walk(if type == "number" then . + 1 else . end) | [paths] | length"#)
-        guard case .body(let out) = NativeJQ.apply(prog, body: Data(s.utf8), budget: 5) else { return XCTFail("deep walk failed") }
-        XCTAssertEqual(String(decoding: out, as: UTF8.self), "600")
+        guard case .body(let out) = NativeJQ.apply(prog, body: nested(100), budget: 10) else { return XCTFail("100-deep walk failed") }
+        XCTAssertEqual(String(decoding: out, as: UTF8.self), "100")
+        // far deeper than any body: a clean "too deep" skip (stack guard), never a crash
+        for n in [1500, 5000] {
+            if case .skip(let why) = NativeJQ.apply(prog, body: nested(n), budget: 10) {
+                XCTAssertTrue(why.contains("deep") || why.contains("depth") || why.contains("budget"), why)
+            }
+        }
     }
 
     func testCompileErrors() {

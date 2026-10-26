@@ -37,10 +37,25 @@ final class JQInterp {
     private var steps = 0
     private var depth = 0
     private var ids = 0
-    static let maxDepth = 2500
+    /// Call-depth cap (secondary; the stack guard below is what keeps unoptimized builds from overflowing).
+    static let maxDepth = 20000
+    /// Stack guard: the address of a local at construction (on the evaluating thread) and how far below it calls may go.
+    private let stackBase: UInt
+    private let stackBudget: UInt
 
     init(budget: TimeInterval) {
         deadline = DispatchTime.now().uptimeNanoseconds &+ UInt64(max(budget, 0.001) * 1e9)
+        var marker: UInt8 = 0
+        stackBase = withUnsafeMutablePointer(to: &marker) { UInt(bitPattern: $0) }
+        var size = Thread.current.stackSize
+        if size <= 0 { size = 512 << 10 }
+        stackBudget = UInt(min(size, NativeJQ.stackSize)) / 10 * 7
+    }
+
+    @inline(never) private func stackUsed() -> UInt {
+        var marker: UInt8 = 0
+        let here = withUnsafeMutablePointer(to: &marker) { UInt(bitPattern: $0) }
+        return stackBase > here ? stackBase - here : 0
     }
 
     func newID() -> Int { ids += 1; return ids }
@@ -228,6 +243,7 @@ final class JQInterp {
 
     private func recurseAll(_ v: JQValue, _ p: JQPath?, _ out: JQEmit) throws {
         try tick()
+        if stackUsed() > stackBudget { throw JQAbort(reason: "recursion too deep") }
         try out(v, p)
         switch v {
         case .array(let a):
@@ -343,7 +359,7 @@ final class JQInterp {
     func call(_ name: String, _ args: [JQNode], _ v: JQValue, _ p: JQPath?, _ env: JQEnv, _ out: JQEmit) throws {
         depth += 1
         defer { depth -= 1 }
-        if depth > Self.maxDepth { throw JQAbort(reason: "recursion too deep") }
+        if depth > Self.maxDepth || stackUsed() > stackBudget { throw JQAbort(reason: "recursion too deep") }
         let arity = args.count
         var e: JQEnv? = env
         while let cur = e {
