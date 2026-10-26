@@ -719,9 +719,21 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported(why)) }
                 return
             }
-            queue.async { completion(nil, Failure.unsupported("sudoku connector dialer (deferred to S2)")) }
+            sudokuStream(proxy: proxy, target: target, transport: transport, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
+        }
+    }
+
+    private static func sudokuStream(proxy: NCProxy, target: NCTarget, transport: NCRelayStream?,
+                                     queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        guard let server = proxy.server, let port = proxy.port else {
+            queue.async { completion(nil, Failure.handshake("sudoku missing server or port")) }
+            return
+        }
+        obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+            guard let raw else { completion(nil, err); return }
+            NCSudokuSession.connect(raw: raw, proxy: proxy, target: target, queue: queue, completion: completion)
         }
     }
 

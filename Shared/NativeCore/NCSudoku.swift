@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Sudoku protocol configuration, validation, and parsing helpers (S1).
 ///
@@ -390,5 +391,37 @@ enum NCSudoku {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
         return "sudoku://" + b64
+    }
+
+    /// Decodes a hexadecimal string to raw Data bytes.
+    static func hexDecode(_ s: String) -> Data? {
+        let clean = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count % 2 == 0 else { return nil }
+        var data = Data(capacity: clean.count / 2)
+        var idx = clean.startIndex
+        while idx < clean.endIndex {
+            let nextIdx = clean.index(idx, offsetBy: 2)
+            guard let b = UInt8(clean[idx..<nextIdx], radix: 16) else { return nil }
+            data.append(b)
+            idx = nextIdx
+        }
+        return data
+    }
+
+    /// Derives the 8-byte user hash for ClientHello:
+    /// First 8 bytes of SHA256(privateKeyBytes) when key is 128 hex chars,
+    /// or first 8 bytes of SHA256(rawBytes) when key is 64 hex chars,
+    /// or fallback to first 8 bytes of SHA256(key.utf8).
+    static func deriveUserHash(from key: String) -> Data {
+        let rawKey: Data
+        if key.count == 128, let d = hexDecode(key) {
+            rawKey = d
+        } else if key.count == 64, let d = hexDecode(key) {
+            rawKey = d
+        } else {
+            rawKey = Data(key.utf8)
+        }
+        let hash = SHA256.hash(data: rawKey)
+        return Data(hash.prefix(8))
     }
 }
