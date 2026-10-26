@@ -318,10 +318,32 @@ enum NCQXImport {
 
     // MARK: - [server_remote]
 
+    /// `<url>, k=v, …` for [server_remote] / [filter_remote]: the leading URL (everything before the first comma)
+    /// is taken as-is, only the options after it are split as `k=v`. A subscription URL with a query
+    /// (`https://x/sub?token=abc`) contains `=`, so classifying it as a token turned it into a key/value pair and
+    /// the line was dropped as unparsable. A leading token that is not a URL keeps the generic classification.
+    static func remoteLineFields(_ line: String) -> (positional: [String], kv: [String: String], order: [String]) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let head: Substring
+        let tail: Substring
+        if let comma = trimmed.firstIndex(of: ",") {
+            head = trimmed[..<comma]
+            tail = trimmed[trimmed.index(after: comma)...]
+        } else {
+            head = trimmed[...]
+            tail = ""
+        }
+        let url = head.trimmingCharacters(in: .whitespaces)
+        guard url.contains("://") else { return NCConfImport.classify(NCConfImport.tokens(line)) }
+        let rest = NCConfImport.classify(NCConfImport.tokens(String(tail)))
+        return ([url] + rest.positional, rest.kv, rest.order)
+    }
+
+
     /// `<url>, update-interval=N, opt-parser=…, tag=X, enabled=…`.
     /// Disabled entries are skipped (QX semantics).
     private static func appendServerRemote(line: String, cfg: inout NCCanonicalConfig, report: inout NCImportReport) {
-        let (positional, kv, order) = NCConfImport.classify(NCConfImport.tokens(line))
+        let (positional, kv, order) = remoteLineFields(line)
         guard let url = positional.first else {
             report.warnings.append("quantumultx [server_remote]: unparsable line skipped: \(line)")
             return
@@ -451,7 +473,7 @@ enum NCQXImport {
 
     /// `<url>, tag=X, force-policy=P, update-interval=N, enabled=…`.
     private static func appendFilterRemote(line: String, cfg: inout NCCanonicalConfig, report: inout NCImportReport) {
-        let (positional, kv, _) = NCConfImport.classify(NCConfImport.tokens(line))
+        let (positional, kv, _) = remoteLineFields(line)
         guard let url = positional.first else {
             report.warnings.append("quantumultx [filter_remote]: unparsable line skipped: \(line)")
             return

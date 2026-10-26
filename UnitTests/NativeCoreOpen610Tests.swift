@@ -407,4 +407,34 @@ final class NativeCoreOpen610Tests: XCTestCase {
         XCTAssertEqual(c.subscriptions.first?.fields["x-origin"]?.string, "qx")
         XCTAssertEqual(NCNodeSubscriptionStore.userAgents(for: c.subscriptions[0]).first, NCNodeSubscriptionStore.qxUserAgent)
     }
+
+    /// [server_remote] / [filter_remote] URLs with a query string (`?token=…`) are kept whole; only the options
+    /// after the first comma are parsed as key=value.
+    func testQXImportKeepsQueryStringRemoteURLs() {
+        let conf = """
+        [server_remote]
+        https://sub.example.com/api/v1/client/subscribe?token=abc123&flag=quanx, tag=薯条, update-interval=3600, opt-parser=false, enabled=true
+        https://off.example.com/s?token=zz, tag=Off, enabled=false
+        https://bare.example.com/s?token=only
+
+        [filter_remote]
+        https://rules.example.com/list.list?token=k1, tag=R, force-policy=PROXY, update-interval=172800, enabled=true
+        """
+        let c = NCQXImport.quantumultx(conf)
+        XCTAssertEqual(c.subscriptions.map(\.url),
+                       ["https://sub.example.com/api/v1/client/subscribe?token=abc123&flag=quanx",
+                        "https://bare.example.com/s?token=only"])
+        guard let s = c.subscriptions.first else { return XCTFail("no subscription") }
+        XCTAssertEqual(s.name, "薯条")
+        XCTAssertEqual(s.interval, 3600)
+        XCTAssertEqual(s.fields["x-origin"]?.string, "qx")
+        XCTAssertNil(s.fields["https://sub.example.com/api/v1/client/subscribe?token"])
+        XCTAssertEqual(c.ruleSets.map(\.url), ["https://rules.example.com/list.list?token=k1"])
+        XCTAssertEqual(c.ruleSets.first?.name, "R")
+        XCTAssertEqual(c.ruleSets.first?.interval, 172800)
+        let f = NCQXImport.remoteLineFields("https://a.test/x?token=1&b=2 , tag = T ,opt-parser=true")
+        XCTAssertEqual(f.positional, ["https://a.test/x?token=1&b=2"])
+        XCTAssertEqual(f.kv["tag"], "T")
+        XCTAssertEqual(f.kv["opt-parser"], "true")
+    }
 }
