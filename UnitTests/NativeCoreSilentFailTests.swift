@@ -244,6 +244,33 @@ final class NativeCoreSilentFailTests: XCTestCase {
         XCTAssertEqual(onQ { raw.takeSent() }, Data("x".utf8))
     }
 
+    func testHTTPUpgradeFastOpenRefusedFailsAndStopsSends() {
+        let raw = FakeRaw(queue: q)
+        let s = NCV2RayUpgradeStream(raw: raw, hostHeader: "h", path: "/", headers: [:], fastOpen: true)
+        let started = expectation(description: "started")
+        q.async { s.startHandshake { err in XCTAssertNil(err); started.fulfill() } }
+        wait(for: [started], timeout: 3)
+        // A fast-open send rides out before validation.
+        onQ { _ = raw.takeSent(); s.send(Data("a".utf8)) }
+        settle()
+        XCTAssertEqual(onQ { raw.takeSent() }, Data("a".utf8))
+        // A receive issued while validation is pending gets the refusal error.
+        let got = expectation(description: "recv fails")
+        q.async { s.receive { d, e in XCTAssertNil(d); XCTAssertNotNil(e); got.fulfill() } }
+        settle()
+        onQ { raw.inject(Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".utf8)) }
+        wait(for: [got], timeout: 3)
+        XCTAssertTrue(onQ { raw.cancelled }, "the refused connection is torn down")
+        // Later sends complete without writing; later receives fail at once with the same error.
+        let done = expectation(description: "send completes")
+        onQ { s.send(Data("b".utf8)) { done.fulfill() } }
+        wait(for: [done], timeout: 3)
+        XCTAssertEqual(onQ { raw.takeSent() }.count, 0)
+        let got2 = expectation(description: "recv fails at once")
+        q.async { s.receive { d, e in XCTAssertNil(d); XCTAssertNotNil(e); got2.fulfill() } }
+        wait(for: [got2], timeout: 3)
+    }
+
     func testWSEarlyDataInHeaderThenRestAsFrame() {
         let o = NCWSTransportOptions(path: "/ed", hostHeader: "h", headers: [:], maxEarlyData: 16,
                                      earlyDataHeaderName: "Sec-WebSocket-Protocol", httpUpgrade: false,
