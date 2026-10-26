@@ -71,6 +71,24 @@ void nc_tcp_abort(void *conn);
 int nc_udp_send(uint32_t session, const uint8_t *data, uint32_t len);
 void nc_udp_close(uint32_t session);
 
+/* fix/nc-tcp0: what the C side did with the packets it was given (诊断 "tcp accepted 0" root-causing). Counters
+   since nc_init; read on the engine queue. */
+typedef struct {
+  uint32_t in_v4, in_v6;          /* packets handed to nc_input */
+  uint32_t in_other;              /* not v4 / v6, or too short */
+  uint32_t syn_v4, syn_v6;        /* TCP SYN (no ACK) seen by the peek */
+  uint32_t listen_fail;           /* no listener could be installed (table full / bind / listen failed) */
+  uint32_t udp_session_fail;      /* no UDP session could be installed */
+  uint32_t v4_not_ours, v6_not_ours; /* lwIP dropped the packet: destination not terminated here */
+  uint32_t accepted;              /* handshake completed, accept callback ran */
+  uint32_t accept_refused;        /* engine returned 0 from tcp_accept */
+  uint32_t conn_full;             /* NC_MAX_TCP_CONNS exhausted: aborted */
+  uint32_t input_err;             /* netif input returned an error / pbuf alloc failed */
+  uint32_t out_pkts, out_synack, out_rst; /* packets emitted toward the apps (SYN-ACK / RST counted apart) */
+  uint32_t out_udp;               /* hand-built UDP replies (DNS answers included) */
+} nc_stats;
+void nc_get_stats(nc_stats *out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -72,6 +72,13 @@ final class NCTunStack {
 
     func poll() { nc_poll() }
 
+    /// fix/nc-tcp0: what the C side did with the packets (nc_get_stats), for 诊断's statsLine.
+    var cStatsLine: String {
+        var st = nc_stats()
+        nc_get_stats(&st)
+        return "c: in v4 \(st.in_v4) v6 \(st.in_v6) other \(st.in_other), syn v4 \(st.syn_v4) v6 \(st.syn_v6), listen fail \(st.listen_fail), udp session fail \(st.udp_session_fail), not-ours v4 \(st.v4_not_ours) v6 \(st.v6_not_ours), accepted \(st.accepted), refused \(st.accept_refused), conn full \(st.conn_full), input err \(st.input_err), out \(st.out_pkts) (syn-ack \(st.out_synack), rst \(st.out_rst), udp \(st.out_udp))"
+    }
+
     /// Returns the number of bytes the stack queued; the caller keeps any
     /// remainder and retries on a later poll tick.
     @discardableResult

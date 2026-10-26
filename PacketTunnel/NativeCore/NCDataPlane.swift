@@ -45,6 +45,14 @@ final class NCDataPlane {
     private var loggedFirstPacket = false
     private var loggedReadArmed = false
     private var loggedFirstPacketCallback = false
+    // fix/nc-tcp0: the first packets each way, one line each in the startup log (诊断), so a device report proves
+    // what iOS routes into the tunnel and what the core answers (with checksum verdicts). Counters on `queue`.
+    static let traceInLimit = 40
+    static let traceOutLimit = 24
+    private var tracedIn = 0
+    private var tracedOut = 0
+    private var packetsOut = 0
+    private var dnsServfail = 0
     // fix/nc-ctrl-bsd: per-connection outcome counters (+15 / +60 s statsLine) and the rate-limited
     // per-connection lines in NativeLogRing (→ /logs, 诊断包 core-log.txt). On `queue`; read racily for the log line.
     private var relayOK = 0
@@ -187,6 +195,11 @@ final class NCDataPlane {
     func start() throws {
         stack.onOutput = { [weak self] packet in
             guard let self, let flow = self.flow, !packet.isEmpty else { return }
+            self.packetsOut &+= 1
+            if self.tracedOut < Self.traceOutLimit {
+                self.tracedOut += 1
+                StartupLog.write("pkt out #\(self.tracedOut): \(NCPacketTrace.summary(packet, checksums: true))", mirror: false)
+            }
             let family: NSNumber = (packet[0] >> 4) == 6 ? NSNumber(value: AF_INET6) : NSNumber(value: AF_INET)
             flow.writePackets([packet], withProtocols: [family])
         }
@@ -262,7 +275,7 @@ final class NCDataPlane {
     }
 
     var statsLine: String {
-        "native: packets in \(packetsIn), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped), relay ok \(relayOK), direct \(relayDirect), relay failed \(relayFailed), rejected \(relayRejected), udp opened \(udpOpened), mitm decrypted \(mitmDecrypted), mitm passthrough \(mitmPassthrough), mitm fallback \(mitmFallbacks)\(mitmFrontDown ? " (front DOWN)" : ""), fake-ip unmapped reset \(fakeUnmappedReset)"
+        "native: packets in \(packetsIn), out \(packetsOut), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped), relay ok \(relayOK), direct \(relayDirect), relay failed \(relayFailed), rejected \(relayRejected), udp opened \(udpOpened), mitm decrypted \(mitmDecrypted), mitm passthrough \(mitmPassthrough), mitm fallback \(mitmFallbacks)\(mitmFrontDown ? " (front DOWN)" : ""), fake-ip unmapped reset \(fakeUnmappedReset), dns servfail \(dnsServfail); \(stack.cStatsLine)"
     }
 
     // MARK: Packet flow
@@ -295,6 +308,10 @@ final class NCDataPlane {
                     StartupLog.write("data plane: first packet processed on the lwIP queue (\(Self.describe(packets.first ?? Data())))")
                 }
                 for p in packets {
+                    if self.tracedIn < Self.traceInLimit {
+                        self.tracedIn += 1
+                        StartupLog.write("pkt in #\(self.tracedIn): \(NCPacketTrace.summary(p))", mirror: false)
+                    }
                     // ICMP echo to fake-IP / tunnel addresses: answer in
                     // place (those destinations aren't stack addresses).
                     if let dst = NCICMPEcho.echoRequestDestination(p),
@@ -935,6 +952,7 @@ final class NCDataPlane {
             guard let primary = route.primary else {
                 udpDropped += 1
                 dnsNoUpstream &+= 1
+                sendServfail(data, session: info.id)
                 if !loggedNoUpstream {
                     // fix/nc-start-empty: used to be silent — every lookup failed and nothing said why.
                     loggedNoUpstream = true
@@ -979,7 +997,7 @@ final class NCDataPlane {
                 guard let self else { return }
                 if let resp { deliver(resp); return }
                 self.dnsForwarder.forward(query, upstream: primary) { resp2 in
-                    if let resp2 { deliver(resp2) }
+                    if let resp2 { deliver(resp2) } else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
                 }
             }
             return
@@ -988,14 +1006,23 @@ final class NCDataPlane {
             guard let self else { return }
             if let resp, !self.engine.dnsAnswerTriggersFallback(resp) { deliver(resp); return }
             guard let fallback else {
-                if let resp { deliver(resp) } else { self.dnsForwardFailed &+= 1 }
+                if let resp { deliver(resp) } else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
                 return
             }
             self.dnsForwarder.forward(query, upstream: fallback) { resp2 in
                 if let resp2 { deliver(resp2) }
                 else if let resp { deliver(resp) }
+                else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
             }
         }
+    }
+
+    /// fix/nc-tcp0: every upstream failed — answer SERVFAIL (mihomo's DNS server does) instead of dropping the query;
+    /// a silent drop leaves iOS's resolver waiting and then backing off from the tunnel DNS server.
+    private func sendServfail(_ query: Data, session: UInt32) {
+        guard let reply = NCPacketTrace.dnsServfail(for: query) else { return }
+        dnsServfail &+= 1
+        stack.udpSend(session: session, reply)
     }
 
     /// rv2-life: the C side ended this session (idle / evicted) or a reply found it gone: drop the relay.

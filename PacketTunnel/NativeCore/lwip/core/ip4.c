@@ -450,6 +450,11 @@ ip4_input_accept(struct netif *netif)
       return 1;
     }
   }
+  /* fix/nc-tcp0: drop-reason counter (nc_get_stats) — a TUN packet nobody terminates. */
+  {
+    extern void nc_lwip_count_not_ours(int is6);
+    if (netif->name[0] == 't' && netif->name[1] == 'n') nc_lwip_count_not_ours(0);
+  }
   return 0;
 }
 
