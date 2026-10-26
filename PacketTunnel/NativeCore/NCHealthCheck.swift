@@ -221,7 +221,9 @@ enum NCTunnelDelayTester {
                 o.error = err ?? trace.lastError
             }
             // The establishment report is delivered on the work queue right after .ready; read the split after it.
+            let pre = o
             workQueue.async {
+                var o = pre
                 o.stages = trace.summary
                 emit(name: name, outcome: o, timeoutMs: timeoutMs, logSuccess: logSuccess)
                 completion(o)
