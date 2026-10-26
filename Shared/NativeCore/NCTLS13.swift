@@ -560,7 +560,9 @@ extension NCTLS13 {
         if tls13Only {
             ext(43, Data([0x02, 0x03, 0x04]))
         } else {
-            ext(43, Data([0x03, 0x03, 0x04, 0x03, 0x03]))
+            // supported_versions: u8 list length 4 = TLS 1.3, TLS 1.2. Was 0x03 (odd length) since 6bcf716: Go
+            // crypto/tls answers decode_error (alert 50) — every non-ECH native-TLS hello was malformed (ech-rest loopback).
+            ext(43, Data([0x04, 0x03, 0x04, 0x03, 0x03]))
         }
         ext(45, Data([0x01, 0x01]))
         var share = Data()

@@ -88,6 +88,8 @@ final class NativeCoreECHRestTests: XCTestCase {
                                                alpn: [], keyShare: share)
         XCTAssertNotNil(with.range(of: Data([0x00, 0x10, 0x00, 0x05, 0x00, 0x03, 0x02, 0x68, 0x32])))
         XCTAssertNil(without.range(of: Data([0x00, 0x10, 0x00, 0x02, 0x00, 0x00])), "no empty ALPN extension on the wire")
+        // supported_versions = {TLS 1.3, TLS 1.2} with an even u8 list length (was 0x03 → Go decode_error).
+        XCTAssertNotNil(with.range(of: Data([0x00, 0x2b, 0x00, 0x05, 0x04, 0x03, 0x04, 0x03, 0x03])))
     }
 
     // MARK: ECHConfigList source (#153 item 2)

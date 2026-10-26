@@ -421,17 +421,20 @@ final class NativeCoreLoopbackTests: XCTestCase {
         try self.assertEcho(stream, payload: Self.payload)
     }
 
-    /// Trojan + TLS ECH retry: client connects with a stale/mismatched ECH config.
-    /// Server cannot decrypt ClientHelloInner, continues outer handshake, and replies with
-    /// retry_configs in outer EncryptedExtensions. Client updates its ECHConfigList and
-    /// retries, establishing connection and passing echo payload.
-    func testTrojanECHRetry() throws {
+    /// Trojan + TLS ECH with a stale config: the server cannot decrypt the inner hello and finishes the outer
+    /// handshake for public_name. sing-box 1.12.24 never sets Go's EncryptedClientHelloKey.SendAsRetry, so no
+    /// retry_configs come back: the client must verify the outer certificate and fail with echRejected (never
+    /// fall through to a connection under the outer name). The retry-once path itself is covered offline by
+    /// NativeCoreECHTLSTests.testEncryptedExtensionsRetryConfigsParsing.
+    func testTrojanECHRejectedWithoutRetryConfigs() throws {
         guard Self.isClientECHImplemented else {
-            throw XCTSkip("client-side ECH retry_configs handling pending E4 (feat/nc-ech-tls)")
+            throw XCTSkip("client-side ECH pending")
         }
-        let stream = try self.connect(proxy: Self.trojanECHStaleProxy, target: Self.echoTarget)
-        defer { stream.cancel() }
-        try self.assertEcho(stream, payload: Self.payload)
+        XCTAssertThrowsError(try self.connect(proxy: Self.trojanECHStaleProxy, target: Self.echoTarget)) { err in
+            guard let tlsErr = err as? NCTLSClientStream.TLSError, case .echRejected = tlsErr else {
+                return XCTFail("expected echRejected, got \(err)")
+            }
+        }
     }
 
     /// Dynamic ECH (ech-rest): `ech-opts: {enable: true}` without `config` — the ECHConfigList comes from the
