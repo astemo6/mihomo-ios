@@ -19,9 +19,12 @@ final class NCStream {
 
     /// TLS with proxy-protocol options: explicit SNI (servername) and optional
     /// skip-cert-verify, as Trojan/VLESS/VMess configs carry them.
-    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, queue: DispatchQueue) {
+    /// `alpn` (feat/nc-xhttp): ALPN protocols to offer — XHTTP needs "h2"; empty keeps the system default.
+    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, alpn: [String] = [],
+         queue: DispatchQueue) {
         self.queue = queue
         let tlsOptions = NWProtocolTLS.Options()
+        for p in alpn { sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, p) }
         if let sni = tlsServerName, !sni.isEmpty {
             sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, sni)
         }

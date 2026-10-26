@@ -550,6 +550,28 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("trojan over a chain transport (TLS termination needs its own socket)")) }
                 return
             }
+            if isXHTTP(proxy) {
+                // feat/nc-xhttp: Trojan over XHTTP — TLS (ALPN h2) or REALITY, then the XHTTP stream carries
+                // the Trojan request (Xray-style; mihomo itself only wires xhttp for VLESS).
+                let finish: (NCRelayStream?, Error?) -> Void = { base, err in
+                    guard let base else { completion(nil, err); return }
+                    xhttpStream(raw: base, proxy: proxy, queue: queue) { x, xerr in
+                        guard let x else { completion(nil, xerr); return }
+                        x.send(NCTrojan.requestHead(password: password, target: target))
+                        completion(x, nil)
+                    }
+                }
+                if realityParams(proxy) != nil {
+                    dialReality(proxy: proxy, server: server, port: port, queue: queue, alpn: ["h2"], completion: finish)
+                    return
+                }
+                let raw = NCStream(to: server, port: port,
+                                   tlsServerName: proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server,
+                                   allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                                   alpn: ["h2"], queue: queue)
+                raw.start { err in finish(err == nil ? raw : nil, err) }
+                return
+            }
             if realityParams(proxy) != nil {
                 dialReality(proxy: proxy, server: server, port: port, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
@@ -585,7 +607,8 @@ enum NCConnector {
                     queue.async { completion(nil, Failure.handshake("vless bad uuid")) }
                     return
                 }
-                dialReality(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
+                dialReality(proxy: proxy, server: server, port: port, queue: queue,
+                            alpn: isXHTTP(proxy) ? ["h2"] : nil) { base0, err in
                     guard let base0 else { completion(nil, err); return }
                     if encVision {
                         vlessEncryptedVision(base0, proxy: proxy, uuid: uuid, head: head, queue: queue, completion: completion)
@@ -635,7 +658,7 @@ enum NCConnector {
                 raw = NCStream(to: server, port: port,
                                tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                               queue: queue)
+                               alpn: xhttpALPN(proxy), queue: queue)
             } else {
                 // Vision needs the hand-rolled TLS client over a raw socket
                 // (the splice must reach the socket), so no NWConnection TLS.
@@ -765,6 +788,7 @@ enum NCConnector {
 
     /// Dial TCP and run the hand-rolled TLS 1.3 REALITY handshake over it.
     static func dialReality(proxy: NCProxy, server: String, port: Int, queue: DispatchQueue,
+                            alpn: [String]? = nil,
                             completion: @escaping (NCRelayStream?, Error?) -> Void) {
         guard let reality = realityParams(proxy) else {
             queue.async { completion(nil, Failure.handshake("reality-opts invalid")) }
@@ -773,10 +797,12 @@ enum NCConnector {
         let raw = NCStream(to: server, port: port, queue: queue)
         raw.start { err in
             guard err == nil else { completion(nil, err); return }
-            let tls = NCTLSClientStream(raw: raw, config: .init(
+            var config = NCTLSClientStream.Config(
                 serverName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                 reality: reality,
-                profile: NCClientHelloProfile.named(proxy.fields["fingerprint"]?.string ?? proxy.fields["client-fingerprint"]?.string)), queue: queue)
+                profile: NCClientHelloProfile.named(proxy.fields["fingerprint"]?.string ?? proxy.fields["client-fingerprint"]?.string))
+            if let alpn { config.alpn = alpn }
+            let tls = NCTLSClientStream(raw: raw, config: config, queue: queue)
             tls.startHandshake { herr in
                 completion(herr == nil ? tls : nil, herr)
             }
@@ -829,6 +855,8 @@ enum NCConnector {
             ]) { err in
                 completion(err == nil ? tunnel : nil, err)
             }
+        case "xhttp":
+            xhttpStream(raw: raw, proxy: proxy, queue: queue, completion: completion)
         case "h2", "http":
             let opts = proxy.fields["h2-opts"]?.object
             let path = opts?["path"]?.string ?? "/"
@@ -846,6 +874,37 @@ enum NCConnector {
             }
         default:
             completion(raw, nil)
+        }
+    }
+
+    // MARK: XHTTP transport (feat/nc-xhttp)
+
+    static func isXHTTP(_ proxy: NCProxy) -> Bool { (proxy.fields["network"]?.string ?? "") == "xhttp" }
+
+    /// XHTTP runs HTTP/2 over the TLS stream, so it must negotiate h2 (mihomo wrapTLS(isH2: true) forces
+    /// NextProtos [h2]); the other transports keep the system default (no ALPN).
+    static func xhttpALPN(_ proxy: NCProxy) -> [String] { isXHTTP(proxy) ? ["h2"] : [] }
+
+    /// Wrap `raw` (TLS / REALITY / plain) in the XHTTP stream for the proxy's xhttp-opts.
+    static func xhttpStream(raw: NCRelayStream, proxy: NCProxy, queue: DispatchQueue,
+                            completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        let cfg: NCXHTTPConfig
+        do {
+            cfg = try NCXHTTPConfig.parse(proxy)
+        } catch {
+            raw.cancel()
+            completion(nil, Failure.handshake("xhttp: \((error as? NCXHTTPError)?.message ?? "\(error)")"))
+            return
+        }
+        if let why = NCXHTTPConfig.unsupportedReason(proxy) {
+            raw.cancel()
+            completion(nil, Failure.unsupported(why))
+            return
+        }
+        let mode = NCXHTTPStream.Mode(rawValue: cfg.effectiveMode(hasReality: realityParams(proxy) != nil)) ?? .packetUp
+        let stream = NCXHTTPStream(raw: raw, config: cfg, mode: mode, callerQueue: queue)
+        stream.start { err in
+            completion(err == nil ? stream : nil, err)
         }
     }
 
@@ -1090,7 +1149,7 @@ enum NCConnector {
             return
         }
         let network = proxy.fields["network"]?.string ?? "tcp"
-        guard ["tcp", "ws", "grpc", "h2", "http"].contains(network) else {
+        guard ["tcp", "ws", "grpc", "h2", "http", "xhttp"].contains(network) else {
             queue.async { completion(nil, Failure.unsupported("vmess network \(network)")) }
             return
         }
@@ -1113,7 +1172,8 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("vmess reality over a chain transport")) }
                 return
             }
-            dialReality(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
+            dialReality(proxy: proxy, server: server, port: port, queue: queue,
+                        alpn: isXHTTP(proxy) ? ["h2"] : nil) { base0, err in
                 guard let base0 else { completion(nil, err); return }
                 transportStream(raw: base0, proxy: proxy, server: server, queue: queue) { base, terr in
                     guard let base else { completion(nil, terr); return }
@@ -1138,7 +1198,7 @@ enum NCConnector {
             raw = NCStream(to: server, port: port,
                            tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                           queue: queue)
+                           alpn: xhttpALPN(proxy), queue: queue)
         } else {
             raw = NCStream(to: server, port: port, queue: queue)
         }

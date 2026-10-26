@@ -10,7 +10,9 @@ enum NCSupport {
         "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
     ]
     /// Stream transports (`network:`) the connector implements.
-    static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
+    /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
+    /// mihomo registers no alias for it ("splithttp" is only accepted by the share-link import, as Xray's old name).
+    static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http", "xhttp"]
 
     /// nil = supported; else a short reason (Chinese, shown in 诊断 / the startup log).
     static func unsupportedReason(_ p: NCProxy) -> String? {
@@ -20,6 +22,9 @@ enum NCSupport {
         }
         if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
+        }
+        if p.fields["network"]?.string?.lowercased() == "xhttp", let why = NCXHTTPConfig.unsupportedReason(p) {
+            return why
         }
         switch t {
         case "ss":
