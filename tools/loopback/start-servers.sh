@@ -25,6 +25,7 @@
 set -euo pipefail
 
 SING_BOX_VERSION="${SING_BOX_VERSION:-1.12.24}"
+TRUSTTUNNEL_VERSION="${TRUSTTUNNEL_VERSION:-1.1.0}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 RUN="${NC_LOOPBACK_DIR:-/tmp/nc-loopback}"
 mkdir -p "$RUN/bin"
@@ -59,6 +60,41 @@ find_sing_box() {
     printf '%s' "$bin"
 }
 
+find_trusttunnel() {
+    if [ -n "${TRUSTTUNNEL_BIN:-}" ]; then
+        printf '%s' "$TRUSTTUNNEL_BIN"
+        return
+    fi
+    if command -v trusttunnel_endpoint >/dev/null 2>&1; then
+        command -v trusttunnel_endpoint
+        return
+    fi
+    local os arch name
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    case "$os" in
+        darwin)
+            name="trusttunnel-v${TRUSTTUNNEL_VERSION}-macos-universal"
+            ;;
+        linux)
+            case "$(uname -m)" in
+                arm64|aarch64) arch="aarch64" ;;
+                x86_64|amd64)  arch="x86_64" ;;
+                *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+            esac
+            name="trusttunnel-v${TRUSTTUNNEL_VERSION}-linux-${arch}"
+            ;;
+        *) echo "unsupported os: $os" >&2; exit 1 ;;
+    esac
+    local bin="$RUN/bin/trusttunnel_endpoint"
+    if [ ! -x "$bin" ]; then
+        log "downloading trusttunnel_endpoint ${TRUSTTUNNEL_VERSION} ($name)"
+        curl -fsSL "https://github.com/TrustTunnel/TrustTunnel/releases/download/v${TRUSTTUNNEL_VERSION}/${name}.tar.gz" \
+            | tar -xz -C "$RUN/bin" --strip-components=1 "$name/trusttunnel_endpoint"
+        chmod +x "$bin"
+    fi
+    printf '%s' "$bin"
+}
+
 gen_cert() {
     if [ -f "$RUN/cert.pem" ] && [ -f "$RUN/key.pem" ]; then
         return
@@ -72,6 +108,33 @@ gen_cert() {
 
 render_config() {
     sed -e "s|__LOOPBACK_DIR__|$RUN|g" "$DIR/sing-box-config.json" > "$RUN/sing-box.json"
+}
+
+render_trusttunnel_config() {
+    cat << EOF > "$RUN/tt-credentials.toml"
+[[client]]
+username = "nc-loop-tt-user"
+password = "nc-loop-tt-pw"
+EOF
+
+    cat << EOF > "$RUN/tt-hosts.toml"
+[[main_hosts]]
+hostname = "localhost"
+cert_chain_path = "$RUN/cert.pem"
+private_key_path = "$RUN/key.pem"
+EOF
+
+    cat << EOF > "$RUN/tt-settings.toml"
+listen_address = "127.0.0.1:18013"
+credentials_file = "$RUN/tt-credentials.toml"
+allow_private_network_connections = true
+
+[listen_protocols.http2]
+
+[listen_protocols.quic]
+
+[forward_protocol.direct]
+EOF
 }
 
 wait_tcp() {
@@ -91,16 +154,18 @@ wait_tcp() {
 alive() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
 
 do_start() {
-    if alive "$RUN/sing-box.pid" && alive "$RUN/echo.pid"; then
-        log "already running (sing-box pid $(cat "$RUN/sing-box.pid"), echo pid $(cat "$RUN/echo.pid"))"
+    if alive "$RUN/sing-box.pid" && alive "$RUN/echo.pid" && alive "$RUN/trusttunnel.pid"; then
+        log "already running (sing-box pid $(cat "$RUN/sing-box.pid"), echo pid $(cat "$RUN/echo.pid"), tt pid $(cat "$RUN/trusttunnel.pid"))"
         return
     fi
     do_stop >/dev/null 2>&1 || true
 
-    local sb
+    local sb tt
     sb="$(find_sing_box)"
+    tt="$(find_trusttunnel)"
     gen_cert
     render_config
+    render_trusttunnel_config
 
     log "sing-box check"
     "$sb" check -c "$RUN/sing-box.json"
@@ -113,21 +178,26 @@ do_start() {
     nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &
     echo $! > "$RUN/sing-box.pid"
 
+    log "starting trusttunnel_endpoint $("$tt" --version 2>&1 | head -n1)"
+    nohup "$tt" "$RUN/tt-settings.toml" "$RUN/tt-hosts.toml" >"$RUN/trusttunnel.log" 2>&1 &
+    echo $! > "$RUN/trusttunnel.pid"
+
     # TCP inbounds + backends can be probed directly. The UDP inbounds
     # (hysteria2 / tuic / wireguard) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
-    for p in 18001 18002 18003 18004 18005 18080 18082; do
+    for p in 18001 18002 18003 18004 18005 18013 18080 18082; do
         wait_tcp "$p"
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082"
+    kill -0 "$(cat "$RUN/trusttunnel.pid")"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 tt :18013 echo :18080/:18081 blackhole :18082"
 }
 
 do_stop() {
     local f
-    for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
+    for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/trusttunnel.pid"; do
         if alive "$f"; then
             kill "$(cat "$f")" 2>/dev/null || true
         fi
@@ -138,7 +208,7 @@ do_stop() {
 
 do_status() {
     local rc=0
-    for name in sing-box echo; do
+    for name in sing-box echo trusttunnel; do
         if alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
         else

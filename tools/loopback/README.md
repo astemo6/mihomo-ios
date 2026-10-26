@@ -45,6 +45,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18006 | sing-box Hysteria2 inbound — `nc-loop-hy2-pw`, TLS ALPN h3 |
 | 18007 | sing-box TUIC inbound — same uuid / `nc-loop-tuic-pw`, ALPN h3, BBR |
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
+| 18013 | trusttunnel_endpoint — H2 (TCP) & H3 (UDP) inbound, Basic auth `nc-loop-tt-user`/`nc-loop-tt-pw` |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
@@ -62,7 +63,7 @@ self-signed cert the start script generates into the runtime dir
 
 ## Coverage notes
 
-- TCP echo: SS, SS2022, VMess, VLESS, Trojan, Hysteria2, TUIC.
+- TCP echo: SS, SS2022, VMess, VLESS, Trojan, Hysteria2, TUIC, TrustTunnel (H2 + H3).
 - Back-pressure (SS, VMess): against the blackhole. If an environment's
   buffers absorb everything sent, the lag never appears and the test skips
   with an explanation instead of failing — the property is then not

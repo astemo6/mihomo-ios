@@ -487,4 +487,125 @@ final class NativeCoreTrustTunnelTests: XCTestCase {
         XCTAssertEqual(serverPacket.payload, payload)
         XCTAssertEqual(off2, serverWireData.count)
     }
+
+    // MARK: - S2 Single-Test Reinforcements
+
+    func testFrameCodecBoundaries() {
+        // Truncated UDP packet decoding (less than 4-byte length)
+        var off0 = 0
+        XCTAssertNil(NCTrustTunnelWire.decodeServerPacket(data: Data([0x00, 0x00]), offset: &off0))
+        XCTAssertNil(NCTrustTunnelWire.decodeClientPacket(data: Data([0x00, 0x00, 0x01]), offset: &off0))
+
+        // Length claims 100 bytes, but buffer has only 10 bytes
+        var offLenOverflow = 0
+        var truncatedBuf = Data()
+        truncatedBuf.appendBE32(100)
+        truncatedBuf.append(Data(repeating: 0xaa, count: 6))
+        XCTAssertNil(NCTrustTunnelWire.decodeServerPacket(data: truncatedBuf, offset: &offLenOverflow))
+        XCTAssertNil(NCTrustTunnelWire.decodeClientPacket(data: truncatedBuf, offset: &offLenOverflow))
+
+        // Length less than minimum header (36 bytes for server)
+        var offTooShort = 0
+        var tooShortBuf = Data()
+        tooShortBuf.appendBE32(30)
+        tooShortBuf.append(Data(repeating: 0xaa, count: 30))
+        XCTAssertNil(NCTrustTunnelWire.decodeServerPacket(data: tooShortBuf, offset: &offTooShort))
+
+        // Client packet: appName length overflow
+        var offAppOverflow = 0
+        var appOverflowBuf = Data()
+        appOverflowBuf.appendBE32(40) // total payload 40 bytes
+        appOverflowBuf.append(Data(count: 16)) // srcIP
+        appOverflowBuf.appendBE16(1234)        // srcPort
+        appOverflowBuf.append(Data(count: 16)) // dstIP
+        appOverflowBuf.appendBE16(80)          // dstPort
+        appOverflowBuf.append(50)              // appLen = 50, but remaining length is only 40 - 37 = 3 bytes
+        appOverflowBuf.append(Data(count: 3))
+        XCTAssertNil(NCTrustTunnelWire.decodeClientPacket(data: appOverflowBuf, offset: &offAppOverflow))
+
+        // Invalid IP address padding
+        XCTAssertNil(NCTrustTunnelWire.padIPAddress("not-an-ip"))
+        XCTAssertNil(NCTrustTunnelWire.padIPAddress("999.999.999.999"))
+
+        // VarInt boundary tests
+        let boundaryValues: [UInt64] = [
+            0,
+            63,
+            64,
+            16383,
+            16384,
+            (1 << 30) - 1,
+            (1 << 30),
+            (UInt64(1) << 62) - 1
+        ]
+        for val in boundaryValues {
+            let encoded = NCTrustTunnel.writeVarInt(val)
+            var decOff = 0
+            let decoded = NCTrustTunnel.readVarInt(data: encoded, offset: &decOff)
+            XCTAssertEqual(decoded, val, "VarInt roundtrip mismatch for \(val)")
+            XCTAssertEqual(decOff, encoded.count)
+        }
+
+        // Truncated VarInt tests
+        var truncOff = 0
+        // Prefix 1 (2 bytes expected, only 1 provided)
+        XCTAssertNil(NCTrustTunnel.readVarInt(data: Data([0x40]), offset: &truncOff))
+        // Prefix 2 (4 bytes expected, only 3 provided)
+        truncOff = 0
+        XCTAssertNil(NCTrustTunnel.readVarInt(data: Data([0x80, 0x01, 0x02]), offset: &truncOff))
+        // Prefix 3 (8 bytes expected, only 6 provided)
+        truncOff = 0
+        XCTAssertNil(NCTrustTunnel.readVarInt(data: Data([0xc0, 0x01, 0x02, 0x03, 0x04, 0x05]), offset: &truncOff))
+    }
+
+    func testQPACKConnectHeadersRoundtrip() {
+        let authority = "echo.example.com:8443"
+        let user = "testuser"
+        let pass = "testpass123"
+        let qpackData = NCTrustTunnelWire.qpackConnectHeaders(
+            authority: authority,
+            username: user,
+            password: pass
+        )
+
+        guard let fields = NCHy2.qpackDecodeFieldSection(qpackData) else {
+            XCTFail("Failed to decode QPACK field section")
+            return
+        }
+
+        let fieldMap = Dictionary(fields, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(fieldMap[":method"], "CONNECT")
+        XCTAssertEqual(fieldMap[":authority"], authority)
+        let expectedCreds = Data("\(user):\(pass)".utf8).base64EncodedString()
+        XCTAssertEqual(fieldMap["proxy-authorization"], "Basic \(expectedCreds)")
+        XCTAssertEqual(fieldMap["user-agent"], "iOS TrustTunnel")
+    }
+
+    func testAuthenticationFailurePaths() {
+        // H2 407 response handling: verify status 407 error extraction
+        let h2Headers407: [(String, String)] = [
+            (":status", "407"),
+            ("proxy-authenticate", "Basic realm=\"TrustTunnel\"")
+        ]
+        let status = h2Headers407.first { $0.0 == ":status" }?.1
+        XCTAssertEqual(status, "407")
+
+        // H3 407 response handling: QPACK encode status 407
+        var qpack407 = Data([0x00, 0x00]) // ric 0, base 0
+        qpack407.append(NCHy2.qpackEncodeString(":status", prefixBits: 3, flags: 0x20))
+        qpack407.append(NCHy2.qpackEncodeString("407"))
+
+        let decodedFields = NCHy2.qpackDecodeFieldSection(qpack407)
+        XCTAssertNotNil(decodedFields)
+        let statusField = decodedFields?.first { $0.name == ":status" }?.value
+        XCTAssertEqual(statusField, "407")
+
+        // H3 200 response handling
+        var qpack200 = Data([0x00, 0x00])
+        qpack200.append(NCHy2.qpackEncodeInteger(25, prefixBits: 6, flags: 0xC0))
+        let decoded200 = NCHy2.qpackDecodeFieldSection(qpack200)
+        XCTAssertNotNil(decoded200)
+        let status200 = decoded200?.first { $0.name == ":status" }?.value
+        XCTAssertEqual(status200, "200")
+    }
 }

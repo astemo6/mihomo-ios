@@ -27,6 +27,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let trustTunnelPort = 18013
     private static let tcpEchoPort = 18080
     private static let udpEchoPort = 18081
     private static let blackholePort = 18082
@@ -40,6 +41,8 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPassword = "nc-loop-trojan-pw"
     private static let hy2Password = "nc-loop-hy2-pw"
     private static let tuicPassword = "nc-loop-tuic-pw"
+    private static let trustTunnelUser = "nc-loop-tt-user"
+    private static let trustTunnelPassword = "nc-loop-tt-pw"
 
     /// Same generator as the validation probe: byte i = (i * 7 + 3) % 256.
     private static let payload = Data((0..<8192).map { UInt8(($0 * 7 + 3) & 0xff) })
@@ -148,6 +151,30 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-tuic", type: "tuic", port: Self.tuicPort, extra: [
             "uuid": .string(Self.uuid), "password": .string(Self.tuicPassword),
             "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    private static var trustTunnelH2Proxy: NCProxy {
+        Self.proxy(name: "loop-trusttunnel-h2", type: "trusttunnel", port: Self.trustTunnelPort, extra: [
+            "username": .string(Self.trustTunnelUser), "password": .string(Self.trustTunnelPassword),
+            "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+            "quic": .bool(false),
+        ])
+    }
+
+    private static var trustTunnelH3Proxy: NCProxy {
+        Self.proxy(name: "loop-trusttunnel-h3", type: "trusttunnel", port: Self.trustTunnelPort, extra: [
+            "username": .string(Self.trustTunnelUser), "password": .string(Self.trustTunnelPassword),
+            "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+            "quic": .bool(true),
+        ])
+    }
+
+    private static var trustTunnelAuthFailProxy: NCProxy {
+        Self.proxy(name: "loop-trusttunnel-authfail", type: "trusttunnel", port: Self.trustTunnelPort, extra: [
+            "username": .string(Self.trustTunnelUser), "password": .string("wrong-password"),
+            "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+            "quic": .bool(false),
         ])
     }
 
@@ -263,7 +290,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
     func testServerPortsReachable() {
         for port in [Self.ssPort, Self.ss2022Port, Self.vmessPort, Self.vlessPort,
-                     Self.trojanPort, Self.tcpEchoPort, Self.blackholePort] {
+                     Self.trojanPort, Self.trustTunnelPort, Self.tcpEchoPort, Self.blackholePort] {
             let conn = NWConnection(host: NWEndpoint.Host(Self.host),
                                     port: NWEndpoint.Port(rawValue: UInt16(port))!,
                                     using: .tcp)
@@ -340,6 +367,29 @@ final class NativeCoreLoopbackTests: XCTestCase {
         let stream = try self.connect(proxy: Self.tuicProxy, target: Self.echoTarget)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testTrustTunnelH2TCPEcho() throws {
+        let stream = try self.connect(proxy: Self.trustTunnelH2Proxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testTrustTunnelH3TCPEcho() throws {
+        let stream = try self.connect(proxy: Self.trustTunnelH3Proxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testTrustTunnelAuthFailure() throws {
+        let exp = self.expectation(description: "trusttunnel auth fail")
+        let queue = DispatchQueue(label: "nc.loopback.tt.authfail")
+        NCConnector.connect(target: Self.echoTarget, proxy: Self.trustTunnelAuthFailProxy, queue: queue) { stream, err in
+            XCTAssertNil(stream, "auth fail must not return stream")
+            XCTAssertNotNil(err, "auth fail must return error")
+            exp.fulfill()
+        }
+        self.wait(for: [exp], timeout: 15)
     }
 
     // WireGuard and Mieru are intentionally absent:
