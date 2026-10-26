@@ -454,6 +454,50 @@ final class NativeCoreLoopbackTests: XCTestCase {
         XCTAssertEqual(decoded.1, Self.dnsQuery)
         XCTAssertEqual(decoded.0.port, Self.udpEchoPort)
     }
+
+    // MARK: - Lua custom backend (feat/nc-lua S2)
+
+    private static let luaPort = 18016
+
+    /// The peer (tools/loopback/lua-mock-server.py) answers the script's
+    /// "HE" greeting with "HO" and echoes every chunk XORed with 0x5A; the
+    /// script's on_read applies the same XOR, so assertEcho verifies the
+    /// whole flags -> handshake -> write/read transform path over real TCP.
+    private static let luaXORScript = """
+    local KEY = 0x5A
+    local function xorBytes(s)
+      return (s:gsub(".", function(c) return string.char(string.byte(c) ~ KEY) end))
+    end
+    function wa_lua_on_flags_cb(ctx)
+      backend.write(ctx, "HE")
+      return 0
+    end
+    function wa_lua_on_handshake_cb(ctx) return _G.hs_done == true end
+    function wa_lua_on_read_cb(ctx, buf)
+      if _G.hs_done ~= true then
+        if buf == "HO" then
+          _G.hs_done = true
+          return backend.RESULT.HANDSHAKE, nil
+        end
+        return backend.RESULT.ERROR, nil
+      end
+      return backend.RESULT.SUCCESS, xorBytes(buf)
+    end
+    function wa_lua_on_write_cb(ctx, buf) return backend.RESULT.SUCCESS, xorBytes(buf) end
+    function wa_lua_on_close_cb(ctx) return 0 end
+    """
+
+    private static var luaProxy: NCProxy {
+        Self.proxy(name: "loop-lua", type: "lua", port: Self.luaPort, extra: [
+            "script": .string(Self.luaXORScript),
+        ])
+    }
+
+    func testLuaCustomBackendEcho() throws {
+        let stream = try self.connect(proxy: Self.luaProxy, target: Self.echoTarget, timeout: 20)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
 }
 
 // MARK: - Small thread-safe helpers

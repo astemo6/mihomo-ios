@@ -109,6 +109,10 @@ do_start() {
     nohup python3 "$DIR/echo_server.py" >"$RUN/echo.log" 2>&1 &
     echo $! > "$RUN/echo.pid"
 
+    log "starting lua-mock-server.py (feat/nc-lua)"
+    nohup python3 "$DIR/lua-mock-server.py" >"$RUN/lua.log" 2>&1 &
+    echo $! > "$RUN/lua.pid"
+
     log "starting sing-box $("$sb" version | head -n1)"
     nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &
     echo $! > "$RUN/sing-box.pid"
@@ -117,17 +121,18 @@ do_start() {
     # (hysteria2 / tuic / wireguard) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
-    for p in 18001 18002 18003 18004 18005 18080 18082; do
+    for p in 18001 18002 18003 18004 18005 18080 18082 18016; do
         wait_tcp "$p"
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082"
+    kill -0 "$(cat "$RUN/lua.pid")"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082 lua :18016"
 }
 
 do_stop() {
     local f
-    for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
+    for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/lua.pid"; do
         if alive "$f"; then
             kill "$(cat "$f")" 2>/dev/null || true
         fi
@@ -138,7 +143,7 @@ do_stop() {
 
 do_status() {
     local rc=0
-    for name in sing-box echo; do
+    for name in sing-box echo lua; do
         if alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
         else

@@ -305,3 +305,33 @@ extension NCProxy {
   1. Remove `"lua"` from `NCSupport.types`.
   2. The configuration parser continues to recognize `type=lua` with status `pending_s2`, preventing any app crashes.
   3. `NCSupport.unsupportedReason` immediately reports `"Lua 暂时禁用"`, cleanly routing traffic around the node in proxy groups without disruption.
+
+---
+
+## 8. S2 Implementation (as built, 2026-10-27)
+
+S2 is implemented and wired live. Summary of what shipped on `feat/nc-lua`:
+
+### 8.1 Structure
+- **Vendored core** (S2 stage 1): `PacketTunnel/NativeCore/Lua/` — trimmed Lua 5.4.6 (MIT) + `nc_lua_bridge.{c,h}`: tracked allocator with a per-state hard ceiling, execution-deadline hook (`LUA_MASKCOUNT`), and the macro-only C API pieces wrapped as real functions for Swift (`nc_lua_push_closure`, `nc_lua_upvalue_ptr`, registry-held ctx table, nested-table registration/field setters).
+- **Engine** (`Shared/NativeCore/NCLuaEngine.swift`): one `lua_State` per connection, 2 MB memory cap, per-callback deadline (flags 2 s / handshake 5 s / data calls 2 s / close 1 s). A script error or deadline trip fails only its own pcall — the state stays usable and other connections are unaffected (verified by unit tests). Host functions never raise `lua_error` from Swift (it would longjmp through Swift frames); bad input returns nil instead.
+- **Host modules**: `backend` (uuid / proxy type / address type+host+bytes+port / write / free / debug + ADDRESS, RESULT, SUPPORT constants), `crypto` (below), `network` (htons, ntohs, inet_pton, inet_ntop), `http` (minimal parse_headers / build_header), and a global `settings` table populated from the node fields (`host`, `port`, `username`, `password`, `method`, plus every custom string/bool/integral field).
+- **Session** (`Shared/NativeCore/NCLuaSession.swift`): `NCConnector` case `lua` opens the raw stream to the backend server and hands it to the session state machine: `wa_lua_on_flags_cb` must return 0; the script sends handshake bytes via `backend.write`, inbound bytes feed `wa_lua_on_read_cb` (returned plaintext is buffered), and `wa_lua_on_handshake_cb` returning true completes setup (64-round cap, 15 s overall timeout). Data phase transforms through `wa_lua_on_write_cb` / `wa_lua_on_read_cb`; a RESULT.ERROR status or Lua error drops the connection. `wa_lua_on_close_cb` runs best-effort on cancel.
+
+### 8.2 Script source resolution
+An inline `script` field wins. Otherwise `file` is honored **by basename only** and read from `LuaScripts/<file>` inside the app-group container — a subscription cannot point the tunnel at arbitrary paths. A node with neither, or a missing file, fails the dial with an explicit handshake error; `NCSupport` already reports "Lua 后端缺少脚本 (file/script)" for source-less nodes at import/display time.
+
+### 8.3 Crypto module coverage
+- Stream ciphers (byte-exact across arbitrary `update` chunking): `aes-128-cfb`, `aes-256-cfb`, `aes-128-cfb8`, `aes-256-cfb8` (CFB built on one-shot ECB block encryptions), `rc4`, `rc4-md5` (key = MD5(key‖iv)), `chacha20` (pure-Swift; RFC 8439 12-byte nonce and DJB 8-byte nonce layouts).
+- AEAD (`aes-128-gcm`, `aes-256-gcm`, `chacha20-poly1305` / `chacha20-ietf-poly1305`) via CryptoKit: message-oriented — `update` buffers and returns empty data, `final` seals/opens the single message using the construction IV as the nonce; wire form is `ciphertext ‖ tag(16)`.
+- Anything else (e.g. `des-cbc`) makes `crypto.encrypt.new` / `crypto.decrypt.new` return nil — a script-visible failure, never a silent substitution.
+
+### 8.4 Scope boundary: HTTP-layer Lua scripts
+`[Script]` / rewrite entries with `.lua` scripts are marked `status: "unsupported"` at import. They are L7 HTTP scripts; that layer belongs to the JSC engine (design §4), and the Lua engine's contract is the L4/L5 proxy-backend ABI. Proxy backend nodes (`type: lua`) are fully live.
+
+### 8.5 Measured size (2026-10-27)
+- Source: the vendored directory (excluding LICENSE/README) is **776,544 bytes**; 58 `.c`/`.h` files, **26,429 lines**.
+- Compiled (local gcc, **x86_64**, `-Os`): all 30 C translation units build clean; static-archive `.text` totals **162,362 bytes (≈158.6 KiB)**, data 3,408 bytes. This is a same-order confirmation of the S1 arm64 estimate (~115–135 KB); the authoritative arm64 figure is the CI IPA size report for this branch.
+
+### 8.6 Rollback
+Remove `"lua"` from `NCSupport.types`: nodes fall back to "recognized but unsupported", groups skip them, and the parser keeps importing them without any crash path.
