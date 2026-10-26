@@ -339,7 +339,7 @@ enum NCFinalConfigReadable {
         }
         dropNamed("proxy-groups", NCProfileCheck.probeGroup)
         if root["listeners"] != nil {
-            dropNamed("listeners", NCRuntimeDNS.probeListener)
+            dropNamed("listeners", NCRuntimeSteps.probeListener)
             if case .array(let a)? = root["listeners"], a.isEmpty { root["listeners"] = nil }
         }
         var notes: [String] = []
