@@ -32,12 +32,22 @@ enum NCSupport {
         // 校验互斥与协议栈范围：
         // 1. REALITY 与 ECH 互斥（不能同时启用）。
         // 2. QUIC 路径（TUIC / Hysteria2）走系统 ECH（尽力而为），不在此判定为不可用。
-        // 3. 各出站协议（Trojan/VLESS 等）改走自研 TLS 栈接线留待 E5 完成。
+        // 3. 各出站协议（Trojan / VLESS / VMess / AnyTLS / HTTPS）已接入自研 TLS 栈（feat/nc-tls-parity）。
+        // 4. Vision 流与 Shadowsocks 插件暂不支持 ECH。
         if let ech = p.fields["ech-opts"]?.object ?? (p.fields["plugin-opts"]?.object?["ech-opts"]?.object),
            ech["enable"]?.bool == true {
             let sec = p.fields["security"]?.string?.lowercased()
             if p.fields["reality-opts"] != nil || sec == "reality" {
                 return "REALITY 与 ECH 互斥，不能同时启用"
+            }
+            if t == "ss" {
+                return "Shadowsocks 插件不支持 ECH"
+            }
+            if t == "vless" {
+                let flow = (p.fields["flow"]?.string ?? "").lowercased()
+                if flow == "xtls-rprx-vision" || flow == "xtls-rprx-vision-udp443" {
+                    return "VLESS Vision 不支持 ECH"
+                }
             }
         }
         switch t {
