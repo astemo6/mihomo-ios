@@ -90,6 +90,52 @@ wait_tcp() {
 
 alive() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
 
+# Wire capture of the hysteria2 UDP path (hy2-frag lane): UDP sizes on loopback for the hy2 inbound
+# (:18006, client <-> sing-box) and the UDP echo backend (:18081, sing-box <-> echo), so a lost
+# datagram can be placed — never sent, sent inside an oversized QUIC packet (> 1452, quic-go's
+# receive buffer), or dropped after reassembly. Needs passwordless sudo (GitHub macOS runners have
+# it); skipped otherwise. NC_LOOPBACK_WIRE=0 disables it.
+start_wire_capture() {
+    [ "${NC_LOOPBACK_WIRE:-1}" = 1 ] || return 0
+    command -v tcpdump >/dev/null 2>&1 || { log "wire capture skipped (no tcpdump)"; return 0; }
+    sudo -n true 2>/dev/null || { log "wire capture skipped (no passwordless sudo)"; return 0; }
+    local ifc=lo0
+    [ "$(uname -s)" = Linux ] && ifc=lo
+    sudo -n tcpdump -i "$ifc" -nn -q -l -s 96 'udp and (port 18006 or port 18081)' \
+        >"$RUN/hy2-wire.txt" 2>"$RUN/tcpdump.err" &
+    echo $! > "$RUN/tcpdump.pid"
+    log "wire capture on $ifc (udp 18006/18081)"
+}
+
+stop_wire_capture() {
+    [ -f "$RUN/tcpdump.pid" ] || return 0
+    sudo -n kill "$(cat "$RUN/tcpdump.pid")" 2>/dev/null || true
+    sudo -n pkill -f "tcpdump -i lo.* -nn -q -l -s 96" 2>/dev/null || true
+    rm -f "$RUN/tcpdump.pid"
+    sleep 1
+    [ -s "$RUN/hy2-wire.txt" ] || { log "wire capture empty ($(head -c 300 "$RUN/tcpdump.err" 2>/dev/null))"; return 0; }
+    # "hh:mm:ss.us IP 127.0.0.1.51234 > 127.0.0.1.18006: UDP, length 1230"
+    awk '
+    function port(a) { sub(/:$/, "", a); n = split(a, p, "."); return p[n] }
+    function bucket(l) { return l <= 1200 ? "le1200" : l <= 1300 ? "le1300" : l <= 1452 ? "le1452" : l <= 2000 ? "le2000" : "gt2000" }
+    / > / && /length/ {
+        src = port($3); dst = port($5); len = $NF + 0
+        if (dst == 18006) k = "c2s"; else if (src == 18006) k = "s2c"; else if (dst == 18081) k = "toEcho"; else if (src == 18081) k = "fromEcho"; else next
+        cnt[k]++; if (len > mx[k]) mx[k] = len; if (len > 1452) over[k]++
+        b[k "," bucket(len)]++
+        if ((k == "c2s" && len > 900) || k == "toEcho") { if (seqn[k] < 400) { seq[k] = seq[k] " " len; seqn[k]++ } }
+    }
+    END {
+        split("c2s s2c toEcho fromEcho", ks, " ")
+        for (i = 1; i <= 4; i++) {
+            k = ks[i]
+            printf "HY2WIRE %s n=%d max=%d over1452=%d le1200=%d le1300=%d le1452=%d le2000=%d gt2000=%d\n", k, cnt[k], mx[k], over[k], b[k ",le1200"], b[k ",le1300"], b[k ",le1452"], b[k ",le2000"], b[k ",gt2000"]
+        }
+        printf "HY2WIRE c2s>900 seq:%s\n", seq["c2s"]
+        printf "HY2WIRE toEcho seq:%s\n", seq["toEcho"]
+    }' "$RUN/hy2-wire.txt" >&2
+}
+
 do_start() {
     if alive "$RUN/sing-box.pid" && alive "$RUN/echo.pid"; then
         log "already running (sing-box pid $(cat "$RUN/sing-box.pid"), echo pid $(cat "$RUN/echo.pid"))"
@@ -104,6 +150,8 @@ do_start() {
 
     log "sing-box check"
     "$sb" check -c "$RUN/sing-box.json"
+
+    start_wire_capture
 
     log "starting echo_server.py"
     nohup python3 "$DIR/echo_server.py" >"$RUN/echo.log" 2>&1 &
@@ -127,6 +175,7 @@ do_start() {
 
 do_stop() {
     local f
+    stop_wire_capture
     for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
         if alive "$f"; then
             kill "$(cat "$f")" 2>/dev/null || true
