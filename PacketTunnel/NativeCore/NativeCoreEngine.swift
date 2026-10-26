@@ -212,6 +212,11 @@ final class NativeCoreEngine {
         if let data = try? Data(contentsOf: fakeIPFile) {
             pool.restore(data: data)
         }
+        if redirHostMode, pool.size > 0 {
+            // fix/nc-mitm-live: redir-host answers real IPs, but apps may still hold fake IPs handed out by an earlier
+            // fake-ip session; the restored table keeps those reachable (derefFakeIP consults it in every mode).
+            StartupLog.write("redir-host: kept \(pool.size) fake-ip mapping(s) from earlier sessions for apps still holding 198.18.x.x answers")
+        }
         fakeIP = pool
         dnsResponder = nil
         // Rule providers: cache-first load (done above, off the lock), then refresh whatever is stale.
@@ -462,8 +467,44 @@ final class NativeCoreEngine {
     }
 
     func persistFakeIP() {
-        locked({ fakeIP })?.persist(to: fakeIPFile)
+        let (pool, file) = locked { (fakeIP, fakeIPFile) }
+        guard let pool else { return }
+        let m = pool.mutations
+        pool.persist(to: file)
+        persistLock.lock(); persistedMutations = m; persistedPool = ObjectIdentifier(pool); persistLock.unlock()
     }
+
+    /// fix/nc-mitm-live: periodic flush (data-plane tick, ~60 s) — only when the pool gained mappings since the last
+    /// write. Before this the table was written on stop / reload only, so an extension that ended without stopTunnel
+    /// (jetsam, crash, iOS kill) lost every mapping while apps kept the 198.18.x.x answers in their own DNS caches:
+    /// their next connections were dropped ("fake-ip without a domain mapping").
+    func persistFakeIPIfChanged() {
+        let (pool, file) = locked { (fakeIP, fakeIPFile) }
+        guard let pool else { return }
+        let m = pool.mutations
+        persistLock.lock()
+        let same = persistedPool == ObjectIdentifier(pool) && persistedMutations == m
+        persistLock.unlock()
+        guard !same else { return }
+        pool.persist(to: file)
+        persistLock.lock(); persistedMutations = m; persistedPool = ObjectIdentifier(pool); persistLock.unlock()
+    }
+    private let persistLock = NSLock()
+    private var persistedMutations: UInt64 = 0
+    private var persistedPool: ObjectIdentifier?
+
+    var isRedirHost: Bool { locked { redirHostMode } }
+
+    /// fix/nc-mitm-live: MitM can take TUN flows at all — the native front is installed (iOS 17+) and some host list
+    /// (the app's rewrite snapshot, or a .conf profile's [MITM]) names hosts.
+    var mitmActive: Bool {
+        guard MitmTLSFront.shared.onAccept != nil else { return false }
+        if NativeRewriteEngine.shared.hasMitmHosts { return true }
+        return locked { !(loadedCanonical?.mitm.hostnames.isEmpty ?? true) }
+    }
+
+    /// Ports a bare-IP flow is held on for its ClientHello (443 + ports named in the host list).
+    var mitmPorts: Set<Int> { NativeRewriteEngine.shared.mitmPorts }
 
     // MARK: Routing
 

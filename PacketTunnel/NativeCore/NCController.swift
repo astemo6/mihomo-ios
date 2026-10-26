@@ -297,7 +297,7 @@ final class NCController {
         case ("GET", "/mitm/logs"):
             let since = Int64(req.query["since"] ?? "") ?? 0
             let lines: [[String: Any]] = NativeLogRing.shared.scriptLines(since: since).map {
-                ["id": $0.id, "time": $0.time, "script": $0.script, "level": $0.level, "msg": $0.msg]
+                ["id": $0.id, "time": $0.time, "script": $0.script, "level": $0.level, "msg": $0.msg, "count": $0.count]
             }
             respond(conn, status: 200, json: lines)
         case ("DELETE", "/mitm/logs"):

@@ -214,6 +214,21 @@ final class NativeRewriteEngine {
     private let rules: [Rule]
     private let inc: [(pat: String, port: Int)]
     private let exc: [(pat: String, port: Int)]
+    /// fix/nc-mitm-live: the TUN data plane holds a bare-IP flow for its ClientHello only on these ports.
+    let mitmPorts: Set<Int>
+    var hasMitmHosts: Bool { !inc.isEmpty }
+    var mitmHostCount: Int { inc.count }
+
+    /// fix/nc-mitm-live: QX `hostname = %APPEND% a, b` / Surge `%INSERT%` markers that reach the snapshot unstripped
+    /// would make the first host of a module unmatchable; empty patterns are dropped.
+    static func cleanHostPat(_ raw: String) -> String? {
+        var p = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for m in ["%append%", "%insert%"] where p.hasPrefix(m) {
+            p = String(p.dropFirst(m.count)).trimmingCharacters(in: .whitespaces)
+        }
+        if p.hasSuffix(".") { p.removeLast() }
+        return p.isEmpty ? nil : p
+    }
     /// Rules whose patterns (and ops) Swift can evaluate / all rules (diagnostics).
     let portable: Int, total: Int
     /// stage 3b: compiled body rules by Ruleset index (nil entry: not portable), built on first use.
@@ -233,8 +248,15 @@ final class NativeRewriteEngine {
         on = s.on
         capture = s.capture
         rules = (s.rules ?? []).map { Rule(snap: $0, re: $0.re.map(RWRegex.init), kind: $0.kind, phase: $0.phase) }
-        inc = (s.inc ?? []).map { (pat: $0.pat, port: $0.port ?? 0) }
-        exc = (s.exc ?? []).map { (pat: $0.pat, port: $0.port ?? 0) }
+        inc = (s.inc ?? []).compactMap { h -> (pat: String, port: Int)? in
+            guard let p = Self.cleanHostPat(h.pat) else { return nil }
+            return (pat: p, port: h.port ?? 0)
+        }
+        exc = (s.exc ?? []).compactMap { h -> (pat: String, port: Int)? in
+            guard let p = Self.cleanHostPat(h.pat) else { return nil }
+            return (pat: p, port: h.port ?? 0)
+        }
+        mitmPorts = NCMitmGate.ports(fromPatterns: inc)
         portable = s.portable ?? 0
         total = s.total ?? rules.count
     }

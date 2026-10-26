@@ -238,6 +238,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     return
                 }
                 completionHandler(nil)
+                // fix/nc-mitm-live: redir-host answers real IPs; with 不作为默认路由 only 198.18.0.0/15 is routed into the
+                // tunnel, so almost nothing (no MitM, no rules) reaches the core.
+                if overrides.notDefaultRoute, !proxyOnly, self.core.engine?.isRedirHost == true {
+                    StartupLog.write("WARNING: dns redir-host + 不作为默认路由: DNS answers are real IPs, which are not routed into the tunnel — only fake-ip / 接管的路由 traffic reaches the core (MitM, rules and scripts see almost nothing). Use fake-ip or turn 不作为默认路由 off.")
+                }
+                if let e = self.core.engine {
+                    let rw = NativeRewriteEngine.shared
+                    StartupLog.write("MITM: \(e.mitmActive ? "active" : "inactive") — \(rw.mitmHostCount) host pattern(s), ports \(rw.mitmPorts.sorted().map { String($0) }.joined(separator: ",")), front \(MitmTLSFront.shared.onAccept != nil ? "installed" : "not installed")")
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+                    NCMitmSelfProbe.run { StartupLog.write("MITM self-probe: " + $0) }
+                }
                 // fix/nc-start-empty: what the data plane and the controller saw (packets / DNS / accepted flows /
                 // App requests) at +15 s and +60 s, plus the controller answering its own /version — 诊断 used to
                 // show "startTunnel OK" and nothing that tells a dead packet path from a dead API.

@@ -153,6 +153,7 @@ final class NCFakeIPPool {
                 hostToIP6[h] = candidate
                 ipToHost6[key] = h
                 ring6.append(candidate)
+                mutationCount &+= 1
                 return .v6([UInt8](key))
             }
         }
@@ -224,6 +225,7 @@ final class NCFakeIPPool {
                 hostToIP[h] = candidate
                 ipToHost[candidate] = h
                 ring.append(candidate)
+                mutationCount &+= 1
                 return .v4(candidate)
             }
         }
@@ -237,6 +239,7 @@ final class NCFakeIPPool {
         hostToIP[h] = candidate
         ipToHost[candidate] = h
         ring.append(candidate)
+        mutationCount &+= 1
         return .v4(candidate)
     }
 
@@ -292,6 +295,12 @@ final class NCFakeIPPool {
     }
 
     var size: Int { lock.lock(); defer { lock.unlock() }; return hostToIP.count }
+
+    /// fix/nc-mitm-live: bumped by every new mapping (v4 / v6). The engine persists the pool periodically when this
+    /// moved since the last write, so mappings survive an extension that dies without stopTunnel (jetsam / crash /
+    /// iOS kill) — apps keep fake IPs in their own DNS caches across tunnel restarts.
+    private var mutationCount: UInt64 = 0
+    var mutations: UInt64 { lock.lock(); defer { lock.unlock() }; return mutationCount }
 
     // MARK: Persistence (host -> address pairs, compact and stable across versions)
 

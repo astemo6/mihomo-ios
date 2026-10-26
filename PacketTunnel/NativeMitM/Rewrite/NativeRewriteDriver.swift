@@ -354,6 +354,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         }
         let decision = plain ?? engine.decide(q, bodies: bodies && withHead, scripts: scripts && withHead)
         if case .forward(let f) = decision, f.response.scripts != nil, let head, let conn {
+            Self.diagRewrite("forward+script", f.log)
             let sf = ScriptFlow(plan: f.response, engine: engine, head: head, conn: conn, log: f.log, wall: wall, t0: t0)
             let id = newID(.script(sf))
             return forwardDecision(id, f, bodyMode: f.bodyMode, length: f.length)
@@ -367,11 +368,13 @@ final class NativeRewriteDriver: MitmFlowDriving {
             count(\.deferred, reason: why)
             return nil
         case .drop(let log):
+            Self.diagRewrite("drop", log)
             count(\.drop)
             let id = newID(.done)
             emitFirst("drop", log, engine: engine, wall: wall, t0: t0)
             return FlowDecision(id: id, action: .drop)
         case .local(let l):
+            Self.diagRewrite("local \(l.status)", l.log)
             count(\.local)
             var d = FlowDecision(id: newID(.local(body: l.body, offset: 0)), action: .local)
             d.status = l.status; d.headers = l.headers; d.body = l.bodyMode; d.length = l.length
@@ -383,6 +386,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             return d
         case .forward(let f) where f.requestBody != nil || f.response.hasBody:
             guard let head, let conn else { count(\.deferred, reason: "body without head"); return nil }
+            Self.diagRewrite("forward+body", f.log)
             count(\.forward)
             let bf = BodyFlow(head: head, conn: conn, engine: engine, fwd: f, t0: t0)
             bf.firstEvent = makeFirst("forward", f.log, engine: engine, wall: wall, t0: t0)
@@ -394,6 +398,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             }
             return forwardDecision(id, f, bodyMode: f.bodyMode, length: f.length)
         case .forward(let f):
+            Self.diagRewrite("forward", f.log)
             count(\.forward)
             let id = newID(.forward(plan: f.response, method: f.method, engine: engine))
             var d = FlowDecision(id: id, action: .forward)
@@ -406,6 +411,15 @@ final class NativeRewriteDriver: MitmFlowDriving {
     }
 
     // MARK: request log
+
+    /// fix/nc-mitm-live: one rate-limited core-log line per request a rewrite / script rule matched
+    /// (`[REWRITE] <rule> <action> <url>`); requests no rule matched stay quiet.
+    static func diagRewrite(_ action: String, _ log: RewriteLog) {
+        guard !log.rules.isEmpty else { return }
+        let labels = NativeRequestLogStore.shared.ruleLabels(log.rules)
+        let more = labels.count > 2 ? " +\(labels.count - 2)" : ""
+        NCDiagLimiter.shared.line("[REWRITE] \(labels.prefix(2).joined(separator: " | "))\(more) \(action) \(String(log.url.prefix(200)))")
+    }
 
     private static func ms(since t0: UInt64) -> Double {
         let now = DispatchTime.now().uptimeNanoseconds

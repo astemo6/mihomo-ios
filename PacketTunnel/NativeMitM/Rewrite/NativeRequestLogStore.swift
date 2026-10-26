@@ -219,6 +219,12 @@ final class NativeRequestLogStore: NativeRequestLogSink {
         return out
     }
 
+    /// fix/nc-mitm-live: labels for the [REWRITE] diagnostics line.
+    func ruleLabels(_ rules: [Int]) -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        return labelsLocked(nil, rules)
+    }
+
     /// Rule labels of the current snapshot (script name, else kind + pattern), cached per generation.
     private func labelsLocked(_ gen: Int64?, _ rules: [Int]?) -> [String] {
         guard let rules, !rules.isEmpty else { return [] }
@@ -242,7 +248,7 @@ final class NativeLogRing {
     static let shared = NativeLogRing()
 
     struct Line { var seq: UInt64; var time: Int64; var type: String; var payload: String }
-    struct ScriptLine { var id: Int64; var time: Double; var script: String; var level: String; var msg: String }
+    struct ScriptLine { var id: Int64; var time: Double; var script: String; var level: String; var msg: String; var count: Int = 1 }
 
     let generalMax = 400
     let scriptMax = 300
@@ -254,6 +260,8 @@ final class NativeLogRing {
 
     /// Wires StartupLog into the ring (once, at tunnel start).
     static func install() {
+        // fix/nc-mitm-live: the per-flow diagnostics limiter writes here
+        NCDiagLimiter.shared.sink = { type, payload in NativeLogRing.shared.add(type: type, payload: payload) }
         StartupLog.tap = { tag, msg in
             let lvl = msg.contains("失败") || msg.lowercased().contains("error") ? "error"
                 : (msg.contains("跳过") || msg.lowercased().contains("warn") ? "warning" : "info")
@@ -275,7 +283,16 @@ final class NativeLogRing {
         let m = msg.count > 2000 ? String(msg.prefix(2000)) + "…" : msg
         lock.lock()
         scriptSeq += 1
-        scripts.append(ScriptLine(id: scriptSeq, time: Date().timeIntervalSince1970, script: script, level: level, msg: m))
+        if let last = scripts.last, last.script == script, last.level == level, last.msg == m {
+            // fix/nc-mitm-live: repeats fold into the last line (×N on the 脚本日志 page); the new id makes `since` pollers see it
+            var l = last
+            l.count += 1
+            l.id = scriptSeq
+            l.time = Date().timeIntervalSince1970
+            scripts[scripts.count - 1] = l
+        } else {
+            scripts.append(ScriptLine(id: scriptSeq, time: Date().timeIntervalSince1970, script: script, level: level, msg: m))
+        }
         if scripts.count > scriptMax { scripts.removeFirst(scripts.count - scriptMax) }
         lock.unlock()
         add(type: level == "warn" ? "warning" : (level == "log" ? "info" : level), payload: "[Script] \(script): \(m)")
