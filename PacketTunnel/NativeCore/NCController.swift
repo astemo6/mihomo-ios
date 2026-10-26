@@ -12,7 +12,10 @@ final class NCController {
     private let plane: NCDataPlane
     private let port: UInt16
     private let secret: String
-    private let queue = DispatchQueue(label: "nc.controller", qos: .userInitiated)
+    // fix/nc-mem-2: one autorelease pool per work item — routes and stream ticks build NSJSONSerialization / bridged
+    // Foundation objects; with the inherited (root-queue) frequency they were only drained when the worker thread
+    // finished its drain, so a busy controller (App polling + streams) held them across requests.
+    private let queue = DispatchQueue(label: "nc.controller", qos: .userInitiated, autoreleaseFrequency: .workItem)
     // rv2-life: all mutable state below lives on `queue` (start / stop / handlers hop there; stop used to mutate
     // the dictionaries from the provider's thread while handlers ran on `queue`).
     private var listener: NCLoopbackListener?

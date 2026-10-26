@@ -340,8 +340,32 @@ final class NCRuleProviderStore {
         }
     }
 
+    /// fix/nc-mem-2: lists in flight at once during refreshAll. It used to start every stale list together — 29 for
+    /// the real E2E fixture at core start, each URLSession task buffering its whole body (plus the HTTP/2 / TLS
+    /// receive buffers) while the serial parse queue worked through them one by one; a cold start held every body at
+    /// once on top of the parse transient. Two keep the network busy (one big list never blocks the small ones for
+    /// long) and bound the bodies held to two plus the one being parsed.
+    static let maxConcurrentFetches = 2
+
     func refreshAll(_ providers: [Provider]) {
-        for p in providers where p.url != nil { refresh(p) }
+        let pending = FetchQueue(providers.filter { $0.url != nil })
+        guard pending.count > 0 else { return }
+        for _ in 0..<min(Self.maxConcurrentFetches, pending.count) { Self.pump(self, pending) }
+    }
+
+    /// Starts the next pending fetch when one finishes. The store is held weakly: a store replaced by a reload stops
+    /// fetching for itself instead of being kept alive (with its indexes) by its own refresh chain.
+    private static func pump(_ store: NCRuleProviderStore?, _ pending: FetchQueue) {
+        guard let store, let p = pending.pop() else { return }
+        store.refresh(p) { [weak store] in pump(store, pending) }
+    }
+
+    private final class FetchQueue {
+        private let lock = NSLock()
+        private var items: [Provider]
+        let count: Int
+        init(_ items: [Provider]) { self.items = items.reversed(); count = items.count }
+        func pop() -> Provider? { lock.lock(); defer { lock.unlock() }; return items.popLast() }
     }
 
     // MARK: matching

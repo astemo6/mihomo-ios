@@ -118,7 +118,13 @@ final class E2EController {
         s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#"))) ?? s
     }
 
+    /// fix/nc-mem-2: one autorelease pool per request (see E2ENet.waitUntil) — the URLSession task, request and
+    /// response objects of a call are gone when it returns instead of piling up until the test method ends.
     func call(_ method: String, _ path: String, query: [String: String] = [:], body: Any? = nil, timeout: TimeInterval = 15) -> Reply {
+        autoreleasepool { callUnpooled(method, path, query: query, body: body, timeout: timeout) }
+    }
+
+    private func callUnpooled(_ method: String, _ path: String, query: [String: String], body: Any?, timeout: TimeInterval) -> Reply {
         var comps = URLComponents()
         comps.scheme = "http"; comps.host = "127.0.0.1"; comps.port = port
         comps.percentEncodedPath = path
@@ -332,34 +338,53 @@ final class E2EMemory {
     private var timer: DispatchSourceTimer?
     private(set) var baseline: UInt64 = 0
     private var peak: UInt64 = 0
+    /// fix/nc-mem-2: when the peak was sampled and the malloc heap in use at the baseline — so a reading says which
+    /// phase the peak fell in and how much of a delta is live heap (vs. pages malloc / frameworks keep).
+    private var started = Date()
+    private var peakAt = Date()
+    private var baselineHeap: UInt64 = 0
+
+    static func heapInUse() -> UInt64 {
+        var st = malloc_statistics_t()
+        malloc_zone_statistics(nil, &st)
+        return UInt64(st.size_in_use)
+    }
 
     func start() {
         baseline = ProcessMemory.footprintBytes()
+        baselineHeap = Self.heapInUse()
         peak = baseline
+        started = Date(); peakAt = started
         let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "e2e.mem"))
         t.schedule(deadline: .now() + 0.1, repeating: 0.1)
         t.setEventHandler { [weak self] in
+            guard let self else { return }
             let f = ProcessMemory.footprintBytes()
-            self?.lock.lock(); if f > self?.peak ?? 0 { self?.peak = f }; self?.lock.unlock()
+            self.lock.lock(); if f > self.peak { self.peak = f; self.peakAt = Date() }; self.lock.unlock()
         }
         t.resume()
         timer = t
     }
 
     /// fix/nc-e2e-real: a named reading — current footprint and the peak so far, both minus the baseline (MB).
-    private(set) var checkpoints: [(label: String, nowMB: Double, peakMB: Double)] = []
+    private(set) var checkpoints: [(label: String, nowMB: Double, peakMB: Double, heapMB: Double, at: Double)] = []
     @discardableResult
     func checkpoint(_ label: String) -> (nowMB: Double, peakMB: Double) {
         let f = ProcessMemory.footprintBytes()
-        lock.lock(); if f > peak { peak = f }; let p = peak; lock.unlock()
+        let h = Self.heapInUse()
+        lock.lock(); if f > peak { peak = f; peakAt = Date() }; let p = peak; lock.unlock()
         let b = Double(baseline)
         let c = (nowMB: (Double(f) - b) / 1_048_576, peakMB: (Double(p) - b) / 1_048_576)
-        checkpoints.append((label, c.nowMB, c.peakMB))
+        checkpoints.append((label, c.nowMB, c.peakMB, (Double(h) - Double(baselineHeap)) / 1_048_576,
+                            Date().timeIntervalSince(started)))
         return c
     }
 
     var checkpointLine: String {
-        checkpoints.map { String(format: "%@ +%.1f (peak +%.1f)", $0.label, $0.nowMB, $0.peakMB) }.joined(separator: ", ")
+        lock.lock(); let pAt = peakAt.timeIntervalSince(started); lock.unlock()
+        let phase = checkpoints.first { $0.at >= pAt }?.label ?? "after the last checkpoint"
+        let rows = checkpoints.map { String(format: "%@ +%.1f (peak +%.1f, heap %+.1f, t+%.0fs)", $0.label, $0.nowMB, $0.peakMB, $0.heapMB, $0.at) }
+        return rows.joined(separator: ", ") + String(format: "; peak sampled at t+%.1fs (phase %@)", pAt, phase)
     }
 
     func stop() -> (baselineMB: Double, peakMB: Double, deltaMB: Double) {
