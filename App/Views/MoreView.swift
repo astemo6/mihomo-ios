@@ -682,6 +682,16 @@ struct DiagnosticsView: View {
         let group = AppShared.appGroup
         List {
             TunnelMemorySection()
+            // feat/nc-e2e: 一键自检 (SelfCheckView) — its result is the first file of the 诊断包 below.
+            Section {
+                NavigationLink {
+                    SelfCheckView()
+                } label: {
+                    Label("一键自检", systemImage: "stethoscope").font(.body.weight(.semibold))
+                }
+                .accessibilityIdentifier("diagnostics.selfcheck")
+            }
+            .listRowBackground(Theme.card)
             Section {
                 Button {
                     Task { await exportBundle() }

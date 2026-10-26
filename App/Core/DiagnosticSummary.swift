@@ -31,7 +31,8 @@ enum DiagnosticSummary {
         let files = sectionFiles(home: home, appInfo: appInfo, cachedModuleInfo: cachedModuleInfo, redactor: redactor)
 
         // Assemble in fixed order matching Go DiagnosticSummary
-        let order = ["info.txt", "startup-log.txt", "last-error.txt", "modules.txt", "memory.txt", "core-log.txt"]
+        // feat/nc-e2e: the latest 一键自检 result first (SelfCheck writes <home>/selfcheck.txt).
+        let order = ["selfcheck.txt", "info.txt", "startup-log.txt", "last-error.txt", "modules.txt", "memory.txt", "core-log.txt"]
         var output = ""
         for name in order {
             if let content = files[name] {
@@ -100,6 +101,12 @@ enum DiagnosticSummary {
         let coreLogURL = URL(fileURLWithPath: home).appendingPathComponent("diag").appendingPathComponent("core-log.txt")
         let coreLog = (try? String(contentsOf: coreLogURL, encoding: .utf8)) ?? ""
         files["core-log.txt"] = redactor.text(orNone(coreLog))
+
+        // 7. selfcheck.txt (feat/nc-e2e): the latest 设置 → 诊断 → 一键自检 run, when there is one.
+        let selfCheckURL = URL(fileURLWithPath: home).appendingPathComponent(SelfCheck.reportFile)
+        if let sc = try? String(contentsOf: selfCheckURL, encoding: .utf8), !sc.isEmpty {
+            files["selfcheck.txt"] = redactor.text(sc)
+        }
         return files
     }
 
