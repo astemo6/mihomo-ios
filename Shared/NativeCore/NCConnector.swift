@@ -809,7 +809,7 @@ enum NCConnector {
         switch network {
         case "ws":
             let (path, headers) = wsOptions(proxy)
-            let host = proxy.fields["ws-opts"]?.object?["headers"]?.object?["Host"]?.string ?? server
+            let host = headers.first { $0.key.caseInsensitiveCompare("Host") == .orderedSame && !$0.value.isEmpty }?.value ?? server
             let ws = NCWebSocketStream(raw: raw, hostHeader: host, path: path, headers: headers)
             ws.startHandshake { err in
                 completion(err == nil ? ws : nil, err)

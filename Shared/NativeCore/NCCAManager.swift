@@ -41,6 +41,12 @@ public final class NCCAManager {
 
     public init() {}
 
+    /// fix/nc-e2e-real: GET /mitm/status caLoaded — a CA is in memory and can sign leaves.
+    public var hasIssuer: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return issuer != nil
+    }
+
     /// Root directory for CA files (<home>/engine/ca).
     public static func caDir(home: String) -> URL {
         URL(fileURLWithPath: home).appendingPathComponent("engine/ca", isDirectory: true)

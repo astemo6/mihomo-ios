@@ -609,6 +609,8 @@ final class NativeScriptHost: ScriptHostAPI {
                 // fix/nc-mitm-live: $notification.post also shows in 脚本日志 (level notify)
                 NativeLogRing.shared.addScript(script: entry(rule)?.name ?? "script #\(rule)", level: "notify",
                                                msg: [arr[0], arr[1], arr[2]].filter { !$0.isEmpty }.joined(separator: " — "))
+                NativeLogRing.shared.addNotice(script: entry(rule)?.name ?? "script #\(rule)", title: arr[0], subtitle: arr[1],
+                                               body: arr[2], url: arr.count > 3 ? arr[3] : "")
                 let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
                 UNUserNotificationCenter.current().add(req) { _ in }
                 return "true"

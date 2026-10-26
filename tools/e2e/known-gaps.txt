@@ -1,4 +1,5 @@
 # E2E replay known gaps: <scenario fnmatch pattern> TAB <why / which lane fixes it>.
 # A FAIL matching a line shows as KNOWN (job stays green); a PASS matching one shows as FIXED? — then delete the line.
 # Keep this list short and honest: every line is a bug users can hit.
-mitm-ca	QX [mitm] p12 is an RSA CA; validateCAPair accepts only EC P-256 (run 40268229079: "CA 私钥类型不支持") — fix/nc-rsa-ca
+contract:GET /app/stats	not implemented: the native core has no per-app stats recorder (统计 / 首页速度历史 answer 404; run 40278215218)
+contract:GET /app/stats/speed	not implemented: no stats recorder in the native core (首页速度历史; run 40278215218)
