@@ -327,8 +327,9 @@ final class NativeRewriteEngine {
                 return nil // \d, \w … in the host
             }
             if c == "/" || c == ":" || c == "$" { break }
-            if c.isLetter || c.isNumber || c == "-" { host.append(Character(c.lowercased())); i = rest.index(after: i); continue }
-            return nil // ., *, (, [, ? … : not a literal host
+            // An unescaped "." in the host also matches the literal dot (configs often leave it unescaped).
+            if c.isLetter || c.isNumber || c == "-" || c == "." { host.append(Character(c.lowercased())); i = rest.index(after: i); continue }
+            return nil // *, (, [, ?, + … : not a literal host
         }
         guard host.contains("."), !host.hasPrefix("."), !host.hasSuffix("."),
               host.unicodeScalars.allSatisfy({ $0.isASCII }) else { return nil }
