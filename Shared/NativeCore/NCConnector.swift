@@ -526,6 +526,10 @@ enum NCConnector {
                 completion(NCSSRCodecRelayStream(raw: raw, method: dummy ? nil : cipher0, key: key, clientIV: clientIV,
                                                  proto: proto, obfs: obfs, target: target), nil)
             }
+        case "gost-relay":
+            // feat/nc-gost-relay: GOST v3 relay (NCGostRelay.swift) — tls / ws / wss / smux underneath.
+            gostRelayStream(proxy: proxy, target: target, udp: false, queue: queue, transport: transport,
+                            completion: completion)
         case "snell":
             guard let password = proxy.password else {
                 queue.async { completion(nil, Failure.handshake("snell missing psk")) }

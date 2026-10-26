@@ -9,6 +9,7 @@ enum NCSupport {
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
         "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
         "brook",
+        "gost-relay",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -46,6 +47,10 @@ enum NCSupport {
             if let why = mieruUnsupported(p) { return why }
         case "brook":
             if let why = brookUnsupported(p) { return why }
+        case "gost-relay":
+            // feat/nc-gost-relay: mihomo `gost-relay` (NCGostRelay) — not the `relay` chain group (groupTypes).
+            // TCP + UDP, tls / mux / forward / auth; Tern extension network: ws (+tls = wss).
+            if let why = NCGostRelay.options(p).1 { return why }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }

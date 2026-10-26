@@ -264,6 +264,9 @@ enum NCConfImport {
             type = "hysteria2"
             report.warnings.append("node '\(name)': hysteria v1 approximated as hysteria2")
         case "wireguard": type = "wireguard"
+        // feat/nc-gost-relay: Shadowrocket `Name = relay, host, port, user, pass, …` (GOST relay; a [Proxy] node
+        // line, unrelated to the `relay` chain group) and the mihomo spelling.
+        case "relay", "gost-relay", "gostrelay": type = "gost-relay"
         case "direct": type = "direct"
         case "reject", "reject-tinygif": type = "reject"
         default:
@@ -323,6 +326,11 @@ enum NCConfImport {
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") { fields["sni"] = .string(s) }
+        case "gost-relay":
+            if positional.count >= 4, !positional[3].isEmpty, kv["username"] == nil { fields["username"] = .string(positional[3]) }
+            if positional.count >= 5, !positional[4].isEmpty, kv["password"] == nil { fields["password"] = .string(positional[4]) }
+            if fields["udp"] == nil { fields["udp"] = .bool(true) }
+            consumed.formUnion(NCGostRelay.applyParams(kv, into: &fields))
         case "http", "https", "socks5":
             // Surge spells credentials positionally after the port for these
             // types; the k=v form is accepted too.
