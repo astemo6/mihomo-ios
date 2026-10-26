@@ -454,6 +454,74 @@ final class NativeCoreLoopbackTests: XCTestCase {
         XCTAssertEqual(decoded.1, Self.dnsQuery)
         XCTAssertEqual(decoded.0.port, Self.udpEchoPort)
     }
+
+    /// Hysteria2 UDP over real QUIC datagrams (feat/nc-hy2-datagram): the shared NCHysteria2Connection
+    /// (Shared — the tunnel's NCUDPHysteria2Session is a thin wrapper over exactly these calls) opens its
+    /// RFC 9221 datagram flow, sends spec UDPMessages to the sing-box hy2 inbound, which relays to the UDP
+    /// echo backend. A DNS-sized packet checks the plain path; a 3000-byte packet checks fragmentation
+    /// both ways (client → server fragments at 1197, sing-box re-fragments the echo at its udpMTU and
+    /// NCHy2UDP.Reassembler puts it back together).
+    func testHysteria2UDPEcho() throws {
+        let queue = DispatchQueue(label: "nc.loopback.hy2udp")
+        let exp = self.expectation(description: "hy2 connect")
+        let box = LockedBox<(NCHysteria2Connection?, Error?)>((nil, nil))
+        NCConnector.sharedHysteria2(proxy: Self.hy2Proxy, server: Self.host, port: Self.hy2Port, queue: queue) { c, e in
+            box.set((c, e))
+            exp.fulfill()
+        }
+        self.wait(for: [exp], timeout: 30)
+        let (connOpt, connErr) = box.get()
+        if let connErr { throw connErr }
+        let conn = try XCTUnwrap(connOpt)
+        XCTAssertTrue(conn.udpEnabled, "sing-box hy2 inbound must answer Hysteria-UDP: true")
+
+        let replies = UDPReplies()
+        let sessionID = try XCTUnwrap(conn.registerUDP { raw in replies.feed(raw) }, "registerUDP refused")
+        replies.sessionID = sessionID
+        defer { conn.unregisterUDP(sessionID) }
+        let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
+
+        // The datagram flow comes up asynchronously; resend until the first echo lands.
+        var first: Data?
+        let deadline = Date().addingTimeInterval(15)
+        while first == nil && Date() < deadline {
+            conn.sendUDP(sessionID: sessionID, target: target, payload: Self.dnsQuery)
+            first = replies.wait(timeout: 1.0)
+        }
+        XCTAssertEqual(first, Self.dnsQuery, "no hysteria2 UDP echo over QUIC datagrams (\(conn.udpDiagnostics))")
+
+        // Size ladder (diagnostics): unfragmented single datagrams up to the client budget, then the
+        // fragmented 3000-byte packet at the default budget and at a small one. Each rung reports
+        // whether its echo came back, so a failure pinpoints the direction / size that is lost.
+        func roundTrip(_ payload: Data, tries: Int = 3) -> Bool {
+            for _ in 0..<tries {
+                conn.sendUDP(sessionID: sessionID, target: target, payload: payload)
+                let until = Date().addingTimeInterval(1.5)
+                while Date() < until, let got = replies.wait(timeout: until.timeIntervalSinceNow) {
+                    if got == payload { return true }
+                }
+            }
+            return false
+        }
+        var ladder: [String] = []
+        for size in [512, 900, 1050] {
+            let p = Data((0..<size).map { UInt8(($0 * 11 + 1) & 0xff) })
+            ladder.append("\(size):\(roundTrip(p) ? "ok" : "lost")")
+        }
+        let big = Data((0..<3000).map { UInt8(($0 * 13 + 5) & 0xff) })
+        var bigOK = roundTrip(big)
+        ladder.append("3000@\(NCHy2UDP.maxDatagramSize):\(bigOK ? "ok" : "lost")")
+        if !bigOK {
+            conn.setUDPDatagramLimitForTesting(600)
+            bigOK = roundTrip(big)
+            ladder.append("3000@600:\(bigOK ? "ok" : "lost")")
+            conn.setUDPDatagramLimitForTesting(NCHy2UDP.maxDatagramSize)
+        }
+        let echoed: Data? = bigOK ? big : nil
+        XCTAssertEqual(echoed?.count, big.count,
+                       "fragmented 3000-byte UDP packet did not round-trip [\(ladder.joined(separator: " "))] (\(conn.udpDiagnostics))")
+        XCTAssertEqual(echoed, big)
+    }
 }
 
 // MARK: - Small thread-safe helpers
@@ -537,5 +605,30 @@ private final class CompletionTracker {
         self.lock.lock()
         defer { self.lock.unlock() }
         return self.indices
+    }
+}
+
+/// Collects reassembled hysteria2 UDP replies for one session (sink runs on the connection queue).
+private final class UDPReplies {
+    private let cond = NSCondition()
+    private var reassembler = NCHy2UDP.Reassembler()
+    private var ready: [Data] = []
+    var sessionID: UInt32 = 0
+
+    func feed(_ raw: Data) {
+        cond.lock(); defer { cond.unlock() }
+        guard let frame = NCHy2UDP.decodeFrame(raw), frame.sessionID == sessionID,
+              let payload = reassembler.feed(frame) else { return }
+        ready.append(payload)
+        cond.signal()
+    }
+
+    func wait(timeout: TimeInterval) -> Data? {
+        cond.lock(); defer { cond.unlock() }
+        let until = Date().addingTimeInterval(max(0, timeout))
+        while ready.isEmpty {
+            if !cond.wait(until: until) { break }
+        }
+        return ready.isEmpty ? nil : ready.removeFirst()
     }
 }
