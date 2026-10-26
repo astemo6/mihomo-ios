@@ -143,7 +143,7 @@ public enum NCTrustTunnel {
     // MARK: - Deep Link Parser (`tt://?<base64url>`)
 
     /// Parses a `tt://?<payload>` deep-link URI into an `NCProxy`.
-    public static func parseDeepLink(_ uri: String) -> NCProxy? {
+    static func parseDeepLink(_ uri: String) -> NCProxy? {
         let trimmed = uri.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.lowercased().hasPrefix("tt://") else { return nil }
 
@@ -160,7 +160,7 @@ public enum NCTrustTunnel {
     }
 
     /// Parses binary TLV payload (TrustTunnel Deep Link Spec).
-    public static func parsePayload(_ data: Data) -> NCProxy? {
+    static func parsePayload(_ data: Data) -> NCProxy? {
         var off = 0
         var version: UInt64 = 0
         var hostname: String?
@@ -448,7 +448,7 @@ public enum NCTrustTunnel {
 
     // MARK: - Standard URI Parser (`trusttunnel://` or `trust-tunnel://`)
 
-    public static func parseURI(_ uri: String) -> NCProxy? {
+    static func parseURI(_ uri: String) -> NCProxy? {
         guard let url = URL(string: uri) else { return nil }
         let scheme = url.scheme?.lowercased() ?? ""
         guard scheme == "trusttunnel" || scheme == "trust-tunnel" else { return nil }

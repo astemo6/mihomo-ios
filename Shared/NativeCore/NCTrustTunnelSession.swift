@@ -31,7 +31,7 @@ public enum NCTrustTunnelSessionManager {
     }
 
     /// Primary entry point for NCConnector dispatch.
-    public static func connect(
+    static func connect(
         proxy: NCProxy,
         target: NCTarget,
         queue: DispatchQueue,
@@ -220,7 +220,7 @@ final class NCTrustTunnelH2Session {
             self.base = raw
             raw.start { [weak self] err in
                 guard let self else { return }
-                self.ncOnSessionQueue(self.queue) {
+                ncOnSessionQueue(self.queue) {
                     if let err {
                         self.snapshot.withLock { $0.state = .failed; $0.tornDown = true }
                         let waiters = self.readyWaiters
@@ -245,7 +245,7 @@ final class NCTrustTunnelH2Session {
         guard let base, state == .ready else { return }
         base.conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
             guard let self else { return }
-            self.ncOnSessionQueue(self.queue) {
+            ncOnSessionQueue(self.queue) {
                 if let content, !content.isEmpty {
                     let result = self.core.feed(content)
                     if !result.outbound.isEmpty {
@@ -475,7 +475,7 @@ final class NCTrustTunnelH2Stream: NCRelayStream {
             pendingSend = Data(pendingSend.dropFirst(consumed))
             session.sendRaw(frames) { [weak self] in
                 guard let self else { return }
-                self.ncOnSessionQueue(self.queue) {
+                ncOnSessionQueue(self.queue) {
                     self.noteConsumed(consumed)
                 }
             }
@@ -655,7 +655,7 @@ final class NCTrustTunnelH3Session {
 
             group.stateUpdateHandler = { [weak self] groupState in
                 guard let self else { return }
-                self.ncOnSessionQueue(self.queue) {
+                ncOnSessionQueue(self.queue) {
                     switch groupState {
                     case .ready:
                         if self.state == .connecting {
@@ -763,7 +763,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
     func begin() {
         conn.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
-            self.ncOnSessionQueue(self.queue) {
+            ncOnSessionQueue(self.queue) {
                 switch state {
                 case .ready:
                     let authority: String
@@ -780,7 +780,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
                     let frame = NCHy2.http3HeadersFrame(fieldSection: qpack)
                     self.conn.send(content: frame, completion: .contentProcessed { [weak self] err in
                         guard let self else { return }
-                        self.ncOnSessionQueue(self.queue) {
+                        ncOnSessionQueue(self.queue) {
                             if let err { self.fail(err); return }
                             self.receiveHandshake()
                         }
@@ -798,7 +798,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
     private func receiveHandshake() {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, err in
             guard let self else { return }
-            self.ncOnSessionQueue(self.queue) {
+            ncOnSessionQueue(self.queue) {
                 if let content, !content.isEmpty {
                     self.responseBuffer.append(content)
                     if let parsed = self.tryParseH3Response() {
@@ -867,7 +867,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
         guard phase == .open else { return }
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, err in
             guard let self else { return }
-            self.ncOnSessionQueue(self.queue) {
+            ncOnSessionQueue(self.queue) {
                 if let content, !content.isEmpty {
                     self.deliver(content)
                 }
