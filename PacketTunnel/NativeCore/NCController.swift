@@ -77,6 +77,10 @@ final class NCController {
     @discardableResult
     func start(home: String? = nil, timeout: TimeInterval = 3) -> Bool {
         queue.setSpecific(key: Self.queueKey, value: 1)
+        // fix/nc-delay-test: [delay] probe lines and slow [dial] lines go to the log ring (App 日志 + core-log.txt).
+        if NCDialTrace.logSink == nil {
+            NCDialTrace.logSink = { line, warning in NativeLogRing.shared.add(type: warning ? "warning" : "info", payload: line) }
+        }
         statusURL = home.map { URL(fileURLWithPath: $0).appendingPathComponent("nativecore-controller.json") }
         guard port > 0 else {
             reportStatus(listening: false, error: "端口无效（\(port)）")
@@ -325,6 +329,8 @@ final class NCController {
             } else {
                 respond(conn, status: 400, json: ["message": "invalid body"])
             }
+        case ("GET", "/tern/node-tcp-delay"):
+            respondTCPDelay(conn, query: req.query)
         case ("DELETE", "/hark/logs"):
             NativeLogRing.shared.clearGeneral()
             respond(conn, status: 204, json: nil)
@@ -349,6 +355,13 @@ final class NCController {
                 respond(conn, status: 204, json: nil)
                 return
             }
+            // fix/nc-delay-test: GET /providers/proxies/{provider}/{node}/healthcheck — how the App tests a
+            // proxy-provider (节点订阅) node (mihomo's route; /proxies/{name}/delay only knows config proxies there).
+            // It was missing: every provider node got 404 and the App showed 超时 for it.
+            if comps.count == 5, comps[4] == "healthcheck", req.method == "GET" {
+                respondDelay(conn, name: comps[3], query: req.query)
+                return
+            }
         }
         // /proxies/{name} PUT|DELETE, /proxies/{name}/delay GET
         if comps.count >= 2, comps[0] == "proxies" {
@@ -367,17 +380,7 @@ final class NCController {
                 return
             }
             if comps.count == 3, comps[2] == "delay", req.method == "GET" {
-                let url = req.query["url"] ?? "http://www.gstatic.com/generate_204"
-                let timeout = Int(req.query["timeout"] ?? "5000") ?? 5000
-                measureDelay(name: name, url: url, timeoutMs: timeout) { [weak self] ms in
-                    guard let self else { return }
-                    if let ms {
-                        self.engine.recordDelay(name: name, ms: ms)
-                        self.respond(conn, status: 200, json: ["delay": ms])
-                    } else {
-                        self.respond(conn, status: 503, json: ["message": "Timeout"])
-                    }
-                }
+                respondDelay(conn, name: name, query: req.query)
                 return
             }
         }
@@ -389,7 +392,7 @@ final class NCController {
                 return
             }
             let url = req.query["url"] ?? "http://www.gstatic.com/generate_204"
-            let timeout = Int(req.query["timeout"] ?? "5000") ?? 5000
+            let timeout = Self.clampTimeout(req.query["timeout"])
             measureGroupDelay(members: group.proxies, url: url, timeoutMs: timeout) { [weak self] results in
                 guard let self else { return }
                 for (n, ms) in results { self.engine.recordDelay(name: n, ms: ms) }
@@ -655,15 +658,65 @@ final class NCController {
 
     // MARK: Delay measurement
 
-    /// End-to-end delay through the named node (or group's current member):
-    /// open a relay to the test URL and time until the first response byte.
-    private func measureDelay(name: String, url: String, timeoutMs: Int, completion: @escaping (Int?) -> Void) {
-        NCTunnelDelayTester.measureDelay(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeoutMs, completion: completion)
+    /// fix/nc-delay-test: `?timeout=` clamped to 500…30000 ms (Go route parity); default 5000.
+    static func clampTimeout(_ q: String?) -> Int {
+        min(max(Int(q ?? "") ?? 5000, 500), 30_000)
+    }
+
+    /// One node's delay (GET /proxies/{name}/delay and /providers/proxies/{p}/{name}/healthcheck): 200 {"delay"},
+    /// else 504 (timeout) / 503 (error) with the stage and the reason in "message" — mihomo's status codes.
+    private func respondDelay(_ conn: NCLoopbackConn, name: String, query: [String: String]) {
+        let url = query["url"] ?? "http://www.gstatic.com/generate_204"
+        let timeout = Self.clampTimeout(query["timeout"])
+        guard engine.effectiveConfig?.proxyMap[name] != nil || engine.effectiveConfig?.groupMap[name] != nil
+                || ["DIRECT", "REJECT"].contains(name.uppercased()) else {
+            respond(conn, status: 404, json: ["message": "resource not found"])
+            return
+        }
+        NCTunnelDelayTester.measure(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeout,
+                                    unified: engine.unifiedDelay) { [weak self] o in
+            guard let self else { return }
+            if let ms = o.ms {
+                self.engine.recordDelay(name: name, ms: ms)
+                self.respond(conn, status: 200, json: ["delay": ms])
+            } else {
+                self.respond(conn, status: o.failure == "timeout" ? 504 : 503, json: ["message": o.message])
+            }
+        }
+    }
+
+    /// GET /tern/node-tcp-delay?name=&provider=&url=&timeout= (测速设置 → TCP 握手延迟, Go bridge parity): the TCP
+    /// handshake time to the node's server for TCP nodes; the URL test otherwise. {"delay": ms}, 0 = failure.
+    private func respondTCPDelay(_ conn: NCLoopbackConn, query: [String: String]) {
+        let name = query["name"] ?? ""
+        let timeout = Self.clampTimeout(query["timeout"])
+        let cfg = engine.effectiveConfig
+        guard cfg?.proxyMap[name] != nil || cfg?.groupMap[name] != nil else {
+            respond(conn, status: 404, json: ["message": "resource not found"])
+            return
+        }
+        if let p = cfg?.proxyMap[name], NCTunnelDelayTester.tcpCapable(p), let server = p.server, let port = p.port {
+            NCTunnelDelayTester.tcpHandshake(host: server, port: port, timeoutMs: timeout) { [weak self] ms, err in
+                if ms == nil, let err { NCDialTrace.logSink?("[delay] \(name): tcp handshake to \(server):\(port) failed (\(err))", true) }
+                self?.queue.async { self?.respond(conn, status: 200, json: ["delay": ms ?? 0]) }
+            }
+            return
+        }
+        let url = query["url"] ?? "http://www.gstatic.com/generate_204"
+        NCTunnelDelayTester.measure(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeout,
+                                    unified: engine.unifiedDelay) { [weak self] o in
+            if let ms = o.ms { self?.engine.recordDelay(name: name, ms: ms) }
+            self?.queue.async { self?.respond(conn, status: 200, json: ["delay": o.ms ?? 0]) }
+        }
     }
 
     private func measureGroupDelay(members: [String], url: String, timeoutMs: Int,
                                    completion: @escaping ([String: Int]) -> Void) {
-        NCTunnelDelayTester.measureGroup(groupEngine: engine.groupEngine, members: members, url: url, timeoutMs: timeoutMs, queue: queue) { results in
+        let width = NCTunnelDelayTester.manualGroupConcurrency
+        NCTunnelDelayTester.measureGroup(groupEngine: engine.groupEngine, members: members, url: url, timeoutMs: timeoutMs,
+                                         overallTimeoutMs: NCTunnelDelayTester.manualRoundTimeoutMs(timeoutMs: timeoutMs, members: members.count, concurrency: width),
+                                         maxConcurrency: width, unified: engine.unifiedDelay, logSuccess: true,
+                                         queue: queue) { results in
             let successes = results.compactMapValues { $0 }
             completion(successes)
         }

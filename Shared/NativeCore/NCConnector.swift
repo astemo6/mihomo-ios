@@ -274,11 +274,23 @@ final class NCSnellV4Relay: NCRelayStream {
 }
 
 enum NCConnector {
-    enum Failure: Error {
+    /// fix/nc-delay-test: readable text everywhere (logs, [TCP] lines, the delay API) — before, iOS showed
+    /// "未能完成操作。（PacketTunnel.NCConnector.Failure错误2。）" with no hint which step failed.
+    enum Failure: Error, LocalizedError, CustomStringConvertible {
         case rejected
         case unknownPolicy(String)
         case unsupported(String)
         case handshake(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .rejected: return "rejected by policy (REJECT)"
+            case .unknownPolicy(let p): return "unknown policy / node \"\(p)\" (not in the running config)"
+            case .unsupported(let why): return "unsupported: \(why)"
+            case .handshake(let why): return "handshake failed: \(why)"
+            }
+        }
+        var description: String { errorDescription ?? "NCConnector failure" }
     }
 
     /// Opens a relay stream to `target` through `proxy`.
@@ -785,8 +797,15 @@ enum NCConnector {
     /// Wrap the connected raw stream with the configured transport
     /// (ws / grpc / h2), or pass it through for plain tcp.
     static func transportStream(raw: NCRelayStream, proxy: NCProxy, server: String, queue: DispatchQueue,
-                                completion: @escaping (NCRelayStream?, Error?) -> Void) {
+                                completion done: @escaping (NCRelayStream?, Error?) -> Void) {
         let network = proxy.fields["network"]?.string ?? "tcp"
+        // fix/nc-delay-test: a delay probe's trace times the transport upgrade (ws 101 / h2 / grpc headers).
+        let trace = ["ws", "grpc", "h2", "http"].contains(network) ? NCDialTrace.on(queue) : nil
+        trace?.begin(network)
+        let completion: (NCRelayStream?, Error?) -> Void = { s, e in
+            trace?.end(network, error: e)
+            done(s, e)
+        }
         switch network {
         case "ws":
             let (path, headers) = wsOptions(proxy)
