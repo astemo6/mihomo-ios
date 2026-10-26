@@ -471,17 +471,17 @@ final class NativeCoreRSACATests: XCTestCase {
         let caParsed = try parse(caDER)
         XCTAssertEqual(p.issuer, caParsed.subject)
         XCTAssertNil(p.extensions[Data([0x55, 0x1D, 0x23])], "EC leaves carry no AKI (unchanged)")
-        // The EC leaf signature must verify with the CA public key (ecdsa-with-SHA256 over the TBS).
+        // The EC leaf + CA signatures must verify (ecdsa-with-SHA256 over the TBS, DER ECDSA-Sig-Value) — before this lane
+        // DER.certificate split the DER signature as raw r||s and neither verified (run 40277857806).
         let caPub = try XCTUnwrap(SecCertificateCopyKey(loaded.caCert))
         let (leafTBS, leafSig) = try tbsAndSignature(leaf.leafCertificateDER)
         XCTAssertTrue(SecKeyVerifySignature(caPub, .ecdsaSignatureMessageX962SHA256, leafTBS as CFData, leafSig as CFData, nil),
                       "EC leaf signature does not verify with the CA key")
         let (caTBS, caSig) = try tbsAndSignature(caDER)
-        let caSelfOK = SecKeyVerifySignature(caPub, .ecdsaSignatureMessageX962SHA256, caTBS as CFData, caSig as CFData, nil)
-        // Diagnostic only (EC path is byte-identical to before this lane): SecTrust with the generated EC CA as the only
-        // anchor reported "Unable to build chain to root" on the iOS 26.3 simulator (run 40275917756) — tracked separately.
+        XCTAssertTrue(SecKeyVerifySignature(caPub, .ecdsaSignatureMessageX962SHA256, caTBS as CFData, caSig as CFData, nil),
+                      "EC CA self-signature does not verify")
         let (ok, why) = try trusts(leafDER: leaf.leafCertificateDER, caDER: caDER, host: "ec.example.com")
-        print("NativeCoreRSACATests EC diag: caSelfSigVerifies=\(caSelfOK) secTrust=\(ok) \(why)")
+        XCTAssertTrue(ok, "SecTrust rejected the EC leaf: \(why)")
         // EC CA still exports / re-imports through the p12 path.
         let p12 = try NCCAManager.exportP12(home: home, password: "ec")
         let pair = try NCCAManager.pemPair(fromP12: p12, password: "ec")

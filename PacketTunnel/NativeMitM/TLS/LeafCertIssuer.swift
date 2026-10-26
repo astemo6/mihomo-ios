@@ -387,6 +387,14 @@ public enum DER {
     }
 
     public static func certificate(tbs: Data, signatureX962 x962: Data) -> Data {
+        // fix/nc-rsa-ca: SecKeyCreateSignature(.ecdsaSignatureMessageX962SHA256) already returns the DER
+        // ECDSA-Sig-Value SEQUENCE { r, s }. Splitting that blob in half as if it were raw r||s produced a signature that
+        // never verifies (every Swift-generated EC CA self-signature and EC-signed leaf; NativeCoreRSACATests run
+        // 40277857806: caSelfSigVerifies=false, SecTrust "Unable to build chain"). Use it as-is; raw r||s keeps the old path.
+        var probe = DERReader(data: x962)
+        if (try? probe.readTLV(tag: 0x30)) != nil, probe.offset == x962.count {
+            return seq(tbs, algIdECDSA(), bitString(x962))
+        }
         let half = x962.count / 2
         let sig = seq(integer(bigEndian: Data(x962.prefix(half))),
                       integer(bigEndian: Data(x962.suffix(half))))
