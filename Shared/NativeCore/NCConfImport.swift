@@ -260,6 +260,7 @@ enum NCConfImport {
         case "snell": type = "snell"
         case "tuic": type = "tuic"
         case "hysteria2", "hy2": type = "hysteria2"
+        case "trusttunnel", "trust-tunnel": type = "trusttunnel"
         case "hysteria":
             type = "hysteria2"
             report.warnings.append("node '\(name)': hysteria v1 approximated as hysteria2")
@@ -330,6 +331,22 @@ enum NCConfImport {
             else if positional.count >= 4 { fields["username"] = .string(positional[3]) }
             if let p = take("password") { fields["password"] = .string(p) }
             else if positional.count >= 5 { fields["password"] = .string(positional[4]) }
+        case "trusttunnel":
+            if let u = take("username") { fields["username"] = .string(u) }
+            else if positional.count >= 4 { fields["username"] = .string(positional[3]) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            else if positional.count >= 5 { fields["password"] = .string(positional[4]) }
+            if let q = take("quic") ?? take("h3"), let b = boolValue(q) {
+                fields["quic"] = .bool(b)
+                fields["network"] = .string(b ? "h3" : "h2")
+            }
+            if let s = take("sni") ?? take("custom-sni") {
+                fields["sni"] = .string(s)
+                fields["servername"] = .string(s)
+            }
+            if let a = take("alpn") { fields["alpn"] = .string(a) }
+            if let ms = take("max-streams"), let n = Int(ms) { fields["max-streams"] = .number(Double(n)) }
+            if let h = take("headers") { fields["headers"] = .string(h) }
         default:
             break
         }

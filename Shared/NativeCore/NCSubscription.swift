@@ -39,7 +39,7 @@ enum NCSubscriptionParser {
         // converted afterwards. Member order and dedup numbering follow.
         var selfParsed: [NCProxy] = []
         var uriParsed: [NCProxy] = []
-        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https"]
+        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https", "tt", "trusttunnel", "trust-tunnel"]
         for line in body.components(separatedBy: .newlines) {
             let l = line.trimmingCharacters(in: .whitespaces)
             if l.isEmpty || l.hasPrefix("#") || l.hasPrefix("//") || l.hasPrefix(";") || l.hasPrefix("[") {
@@ -133,6 +133,8 @@ enum NCSubscriptionParser {
         case "socks", "socks5", "socks5h", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
         case "anytls": return parseAnyTLS(rest)
         case "mieru", "mierus": return parseMieru(rest)
+        case "tt": return NCTrustTunnel.parseDeepLink(uri)
+        case "trusttunnel", "trust-tunnel": return NCTrustTunnel.parseURI(uri)
         default: return nil
         }
     }
@@ -688,6 +690,12 @@ enum NCSubscriptionParser {
             }
             if jInt(o["mtu"]) > 0 { f["mtu"] = .number(Double(jInt(o["mtu"]))) }
             f["udp"] = .bool(true)
+        case "trusttunnel", "trust-tunnel":
+            typ = "trusttunnel"
+            if !jStr(o["username"]).isEmpty { f["username"] = .string(jStr(o["username"])) }
+            if !jStr(o["password"]).isEmpty { f["password"] = .string(jStr(o["password"])) }
+            if let quic = o["quic"] as? Bool { f["quic"] = .bool(quic) }
+            f["udp"] = .bool(o["udp"] as? Bool ?? true)
         default:
             return nil
         }

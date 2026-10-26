@@ -714,6 +714,9 @@ enum NCConnector {
                 return
             }
             tuicStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "trusttunnel", "trust-tunnel":
+            // feat/nc-trusttunnel S1: parsing layer complete; connector & data plane scheduled for S2.
+            queue.async { completion(nil, Failure.unsupported("trusttunnel connector scheduled for S2")) }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }

@@ -8,9 +8,10 @@ enum NCSupport {
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
         "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
+        "trusttunnel", "trust-tunnel",
     ]
     /// Stream transports (`network:`) the connector implements.
-    static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
+    static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http", "h3"]
 
     /// nil = supported; else a short reason (Chinese, shown in 诊断 / the startup log).
     static func unsupportedReason(_ p: NCProxy) -> String? {
@@ -41,6 +42,8 @@ enum NCSupport {
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
+        case "trusttunnel", "trust-tunnel":
+            if let why = trusttunnelUnsupported(p) { return why }
         case "vless":
             if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
                 // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).
@@ -150,6 +153,29 @@ enum NCSupport {
             // lowEntropy mode (mieru's low-entropy data codec) is the one unimplemented piece.
             guard let pattern = NCMieruTrafficPattern.decode(tp) else { return "Mieru traffic-pattern 无效" }
             if pattern.lowEntropyMode != 0 { return "Mieru traffic-pattern lowEntropy 尚未接入" }
+        }
+        return nil
+    }
+
+    /// TrustTunnel (NCTrustTunnel, feat/nc-trusttunnel): HTTP/2 and HTTP/3 tunnel proxy.
+    static func trusttunnelUnsupported(_ p: NCProxy) -> String? {
+        if (p.server ?? "").isEmpty { return "TrustTunnel 缺少 server" }
+        if (p.port ?? 0) == 0 { return "TrustTunnel 缺少 port" }
+        let username = p.fields["username"]?.string ?? ""
+        if username.isEmpty { return "TrustTunnel 缺少 username" }
+        let password = p.password ?? p.fields["password"]?.string ?? ""
+        if password.isEmpty { return "TrustTunnel 缺少 password" }
+        if p.fields["anti-dpi"]?.bool == true
+            || !(p.fields["client-random-prefix"]?.string ?? "").isEmpty
+            || !(p.fields["client_random_prefix"]?.string ?? "").isEmpty {
+            return "TrustTunnel anti-dpi / client-random-prefix 尚未接入"
+        }
+        if !(p.fields["client-random-auth-key"]?.string ?? "").isEmpty
+            || !(p.fields["client_random_auth_key"]?.string ?? "").isEmpty {
+            return "TrustTunnel client-random-auth-key 尚未接入"
+        }
+        if p.fields["icmp"]?.bool == true {
+            return "TrustTunnel icmp 尚未接入"
         }
         return nil
     }
