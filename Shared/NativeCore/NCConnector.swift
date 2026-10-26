@@ -714,6 +714,12 @@ enum NCConnector {
                 return
             }
             tuicStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "openconnect", "anyconnect":
+            if let why = NCOpenConnect.unsupportedReason(proxy) {
+                queue.async { completion(nil, Failure.unsupported("openconnect: \(why)")) }
+                return
+            }
+            queue.async { completion(nil, Failure.unsupported("openconnect: connector 计划于 S2 接入")) }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }

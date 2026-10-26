@@ -261,6 +261,12 @@ enum NCQXImport {
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "openconnect", "anyconnect":
+            type = "openconnect"
+            report.warnings.append("quantumultx [server_local]: OpenConnect 无公开 Quantumult X 格式，标记不可用")
+            fields["unsupported"] = .string("Quantumult X 无公开 OpenConnect 格式")
+            if let u = take("username") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.
