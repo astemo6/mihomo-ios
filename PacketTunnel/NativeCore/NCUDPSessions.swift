@@ -501,12 +501,18 @@ final class NCUDPAnyTLSSession: NCUDPSession {
 final class NCUDPSnellSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let raw: NCStream
+    /// fix/nc-silent-fail: what the Snell frames ride — `raw`, or `raw` inside the obfs-opts simple-obfs
+    /// wrapper (mihomo applies obfs to the UDP connection too: ListenPacketContext → StreamConnContext).
+    private let wire: NCRelayStream
     private let version: Int
     private let encoder: NCSnellStreamEncoder?
     private let decoder: NCSnellStreamDecoder?
     private let v4Writer: NCSnellV4Writer?
     private let v4Reader: NCSnellV4Reader?
     private var cancelled = false
+    /// fix/nc-silent-fail: set when the dial fails — the session is dead and send() drops instead of
+    /// encoding into a never-connected stream until the idle reap (NCUDPTrojanSession marks dead alike).
+    private var dead = false
 
     init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let password = proxy.password, let server = proxy.server, let port = proxy.port
@@ -527,19 +533,25 @@ final class NCUDPSnellSession: NCUDPSession {
             decoder = NCSnellStreamDecoder(psk: psk, version: version)
         }
         raw = NCStream(to: server, port: port, queue: queue)
+        if let obfs = NCConnector.snellObfsOptions(proxy) {
+            wire = NCSSPluginStream(raw: raw, options: obfs, serverPort: String(port))
+        } else {
+            wire = raw
+        }
         raw.start { [weak self] err in
-            guard let self, err == nil else { return }
+            guard let self else { return }
+            guard err == nil else { self.dead = true; return }
             if let v4Writer {
-                if let wire = v4Writer.write(NCSnell.udpHeader()) { self.raw.send(wire) }
+                if let w = v4Writer.write(NCSnell.udpHeader()) { self.wire.send(w) }
             } else if let encoder {
-                if let wire = encoder.encode(NCSnell.udpHeader()) { self.raw.send(wire) }
+                if let w = encoder.encode(NCSnell.udpHeader()) { self.wire.send(w) }
             }
             self.receiveLoop()
         }
     }
 
     private func receiveLoop() {
-        raw.receive { [weak self] data, error in
+        wire.receive { [weak self] data, error in
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             if let v4Reader {
@@ -563,17 +575,18 @@ final class NCUDPSnellSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
+        guard !dead, !cancelled else { return }
         let frame = NCSnell.udpFrame(target: target, payload: data)
         if let v4Writer {
-            if let wire = v4Writer.frame(frame) { raw.send(wire) }
+            if let w = v4Writer.frame(frame) { wire.send(w) }
         } else if let encoder {
-            if let wire = encoder.encode(frame) { raw.send(wire) }
+            if let w = encoder.encode(frame) { wire.send(w) }
         }
     }
 
     func cancel() {
         cancelled = true
-        raw.cancel()
+        wire.cancel()
     }
 }
 
@@ -581,7 +594,13 @@ final class NCUDPSnellSession: NCUDPSession {
 /// framed as ATYP + length + CRLF + payload.
 final class NCUDPTrojanSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
-    private let raw: NCStream
+    /// fix/nc-silent-fail: the stream once dialed — TLS, or TLS / REALITY + the ws / grpc / h2 transport
+    /// (NCConnector.trojanTransportBase, as TCP uses). Datagrams sent before then wait in `pending` (capped), so
+    /// none can overtake the request head.
+    private var stream: NCRelayStream?
+    private var pending: [Data] = []
+    private var dead = false
+    static let maxPending = 64
     private var buffer = Data()
     // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
     // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
@@ -595,19 +614,37 @@ final class NCUDPTrojanSession: NCUDPSession {
     private var cancelled = false
 
     init(proxy: NCProxy, firstTarget: NCTarget, queue: DispatchQueue) {
-        raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
-                       tlsServerName: proxy.fields["sni"]?.string ?? proxy.server ?? "",
-                       allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                       queue: queue)
-        raw.start { [weak self] err in
-            guard let self, err == nil, let password = proxy.password else { return }
-            self.raw.send(NCTrojan.requestHead(password: password, target: firstTarget, udp: true))
+        let server = proxy.server ?? ""
+        let port = proxy.port ?? 0
+        let ready: (NCRelayStream?, Error?) -> Void = { [weak self] s, err in
+            guard let self else { s?.cancel(); return }
+            guard let s, err == nil, !self.cancelled, let password = proxy.password else {
+                s?.cancel()
+                self.dead = true
+                self.pending = []
+                return
+            }
+            self.stream = s
+            s.send(NCTrojan.requestHead(password: password, target: firstTarget, udp: true))
+            let queued = self.pending
+            self.pending = []
+            for d in queued { s.send(d) }
             self.receiveLoop()
+        }
+        if NCConnector.trojanUsesTransport(proxy) || NCConnector.realityParams(proxy) != nil {
+            NCConnector.trojanTransportBase(proxy: proxy, server: server, port: port, queue: queue, completion: ready)
+        } else {
+            let raw = NCStream(to: server, port: port,
+                               tlsServerName: proxy.fields["sni"]?.string ?? server,
+                               allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                               queue: queue)
+            raw.start { err in ready(err == nil ? raw : nil, err) }
         }
     }
 
     private func receiveLoop() {
-        raw.receive { [weak self] data, error in
+        guard let stream else { return }
+        stream.receive { [weak self] data, error in
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             self.buffer.append(data)
@@ -654,12 +691,15 @@ final class NCUDPTrojanSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
-        raw.send(NCTrojan.udpPacket(target: target, payload: data))
+        let packet = NCTrojan.udpPacket(target: target, payload: data)
+        if let stream { stream.send(packet); return }
+        if !dead, !cancelled, pending.count < Self.maxPending { pending.append(packet) }
     }
 
     func cancel() {
         cancelled = true
-        raw.cancel()
+        pending = []
+        stream?.cancel()
     }
 }
 

@@ -45,6 +45,10 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18006 | sing-box Hysteria2 inbound — `nc-loop-hy2-pw`, TLS ALPN h3 |
 | 18007 | sing-box TUIC inbound — same uuid / `nc-loop-tuic-pw`, ALPN h3, BBR |
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
+| 18060 | sing-box Trojan inbound over WebSocket `/tj` — same password, self-signed TLS (fix/nc-silent-fail) |
+| 18061 | sing-box VLESS inbound over HTTPUpgrade `/up` (v2ray-http-upgrade) |
+| 18062 | sing-box VLESS inbound over WebSocket `/ed`, max_early_data 2048 in `Sec-WebSocket-Protocol` |
+| 18063 | sing-box Trojan inbound over gRPC (service `TunSvc`), self-signed TLS |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
