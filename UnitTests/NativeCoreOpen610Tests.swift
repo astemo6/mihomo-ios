@@ -215,4 +215,63 @@ final class NativeCoreOpen610Tests: XCTestCase {
         XCTAssertFalse(NCDNSRace.isUsable(Self.answer(rcode: 5)))
         XCTAssertFalse(NCDNSRace.isUsable(Data([0, 1, 2])))
     }
+    // MARK: - #8 prepare: shared resource cache, failure memory, prefetch
+
+    private func tempHome() -> String {
+        let d = NSTemporaryDirectory() + "open610-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    func testFailedDownloadIsNotRetried() {
+        let home = tempHome()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let res = NCResources(home: home)
+        res.fetchTimeout = 5
+        let url = "https://tern-open610.invalid/script.js"
+        XCTAssertThrowsError(try res.get(path: url))
+        XCTAssertEqual(res.failedCount, 1)
+        let t0 = Date()
+        for _ in 0..<5 { XCTAssertThrowsError(try res.get(path: url)) }
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 0.5, "same instance: the failed URL is not downloaded again")
+        XCTAssertEqual(res.failedCount, 1)
+        // another prepare (new instance) within the TTL skips it too, unless the failure was "offline"
+        let res2 = NCResources(home: home)
+        if FileManager.default.fileExists(atPath: (home as NSString).appendingPathComponent(NCResources.failureFile)) {
+            XCTAssertThrowsError(try res2.get(path: url)) { e in
+                XCTAssertEqual((e as NSError).code, -2)
+            }
+            XCTAssertEqual(res2.skippedRecentFailure, 1)
+        }
+        XCTAssertTrue(NativeRuntimePrepCache.isExcluded(relative: NCResources.failureFile),
+                      "the failure memory must not invalidate the prepare cache")
+    }
+
+    func testPrefetchSkipsCachedAndDedupes() {
+        let home = tempHome()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let cached = "https://example.invalid/cached.js"
+        let cp = NCResources.cachePath(home: home, cached)
+        try? FileManager.default.createDirectory(atPath: (cp as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: cp, contents: Data("1".utf8))
+        let res = NCResources(home: home)
+        res.fetchTimeout = 5
+        let dead = "https://tern-open610-b.invalid/x.js"
+        res.prefetch([cached, dead, dead, dead, "local.js"], maxConcurrent: 4, deadline: 8)
+        XCTAssertEqual(res.fetchedCount + res.failedCount, 1, "one download for three references, none for the cached copy")
+        XCTAssertEqual(try res.get(path: cached), Data("1".utf8))
+    }
+
+    func testRemoteResourcesCollectsScriptsAndBodies() {
+        let rs = NCEngineRuleset()
+        var a = NCEngineRule(); a.kind = "script"; var sa = NCEngineScript(); sa.path = "https://x.test/a.js"; a.script = sa
+        var b = NCEngineRule(); b.kind = "script"; var sb = NCEngineScript(); sb.path = "local.js"; b.script = sb
+        var c = NCEngineRule(); c.kind = "mock"; c.data = "https://x.test/body.json"
+        var d = NCEngineRule(); d.kind = "mock"; d.data = "https://x.test/t.txt"; d.dataType = "text"
+        var e = NCEngineRule(); e.kind = "script"; var se = NCEngineScript(); se.path = "https://x.test/inline.js"; se.source = Data("x".utf8); e.script = se
+        rs.rules = [a, b, c, d, e]
+        var t = NCEngineTask(); var st = NCEngineScript(); st.path = "https://x.test/task.js"; t.script = st
+        rs.tasks = [t]
+        XCTAssertEqual(NativeRuntimePrep.remoteResources(rs), ["https://x.test/a.js", "https://x.test/body.json", "https://x.test/task.js"])
+    }
 }

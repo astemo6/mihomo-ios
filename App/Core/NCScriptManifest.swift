@@ -261,7 +261,7 @@ enum NCScriptManifest {
     /// written here — they are additive (a new hash never replaces a file the live manifest uses). The caller
     /// commits the manifest and then calls `removeObsoleteCode(home:keep:)` once the new manifest is live; doing
     /// the cleanup earlier deleted code files the still-live old manifest referenced when a later step failed.
-    static func buildManifest(home: String, cfg: NCEngineConfig?, rs: NCEngineRuleset?) throws -> (data: Data, keep: Set<String>, scripts: Int, bad: Int) {
+    static func buildManifest(home: String, cfg: NCEngineConfig?, rs: NCEngineRuleset?, res res0: NCResources? = nil) throws -> (data: Data, keep: Set<String>, scripts: Int, bad: Int) {
         let dir = (home as NSString).appendingPathComponent(scriptManifestDir)
         var man = NCScriptManifestRoot()
         var keep = Set<String>()
@@ -269,7 +269,7 @@ enum NCScriptManifest {
         let fm = FileManager.default
 
         if let cfg, let rs {
-            let res = NCResources(home: home)
+            let res = res0 ?? NCResources(home: home)
 
             func build(i: Int, sc: NCEngineScript, isTask: Bool) throws -> NCScriptManifestEntry {
                 let maxT: Int64 = isTask ? 300_000 : 120_000

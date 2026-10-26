@@ -432,8 +432,100 @@ final class NCResources {
     static let memCacheMax = 512 << 10
     static let maxResourceBytes = 8 << 20
 
+    /// fix/nc-open-6-10 #8: request timeout of a download. 30 s for the debug / workbench callers; the runtime
+    /// prepare (VPN start / reload) sets a shorter one — it blocks the connect.
+    var fetchTimeout: TimeInterval = 30
+    /// fix/nc-open-6-10 #8: URLs that already failed in this instance are not downloaded again (the same remote
+    /// script is often referenced by several rules: a dead URL cost one full timeout per rule, sequentially).
+    private var failed: [String: Error] = [:]
+    /// Counters for the prepare timing line.
+    private(set) var fetchedCount = 0
+    private(set) var failedCount = 0
+    private(set) var skippedRecentFailure = 0
+
+    /// fix/nc-open-6-10 #8: cross-prepare negative cache — a remote resource whose download failed (other than
+    /// "offline") is not retried by another prepare for `failureTTL`; its rules report the error as before. File
+    /// `<home>/engine/cache/.fetch-failures.json` {url: unix time}, ≤ 256 entries; NativeRuntimePrepCache ignores it.
+    static let failureFile = "engine/cache/.fetch-failures.json"
+    static let failureTTL: TimeInterval = 600
+    private var recentFailures: [String: Double]? = nil
+
     init(home: String) {
         self.home = home
+    }
+
+    private func failurePath() -> String { (home as NSString).appendingPathComponent(Self.failureFile) }
+
+    /// Call with `lock` held.
+    private func loadFailuresLocked() -> [String: Double] {
+        if let r = recentFailures { return r }
+        var m: [String: Double] = [:]
+        if let d = FileManager.default.contents(atPath: failurePath()),
+           let o = try? JSONDecoder().decode([String: Double].self, from: d) {
+            let now = Date().timeIntervalSince1970
+            m = o.filter { now - $0.value < Self.failureTTL && $0.value <= now + 60 }
+        }
+        recentFailures = m
+        return m
+    }
+
+    private func recordFailure(_ url: String, _ err: Error) {
+        let ns = err as NSError
+        // Offline / no route: the next prepare may well have network — never cache those.
+        if ns.domain == NSURLErrorDomain, [NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost,
+                                           NSURLErrorDataNotAllowed, NSURLErrorInternationalRoamingOff,
+                                           NSURLErrorCancelled].contains(ns.code) { return }
+        lock.lock()
+        var m = loadFailuresLocked()
+        m[url] = Date().timeIntervalSince1970
+        if m.count > 256 { for k in m.sorted(by: { $0.value < $1.value }).prefix(m.count - 256).map({ $0.key }) { m.removeValue(forKey: k) } }
+        recentFailures = m
+        lock.unlock()
+        persistFailures(m)
+    }
+
+    private func clearFailure(_ url: String) {
+        lock.lock()
+        var m = loadFailuresLocked()
+        let had = m.removeValue(forKey: url) != nil
+        recentFailures = m
+        lock.unlock()
+        if had { persistFailures(m) }
+    }
+
+    private func persistFailures(_ m: [String: Double]) {
+        let p = failurePath()
+        if m.isEmpty { unlink(p); return }
+        guard let d = try? JSONEncoder().encode(m) else { return }
+        try? FileManager.default.createDirectory(atPath: (p as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try? d.write(to: URL(fileURLWithPath: p), options: .atomic)
+    }
+
+    /// fix/nc-open-6-10 #8: download every distinct remote resource in `paths` that has no cached copy yet, up to
+    /// `maxConcurrent` at once (was: one at a time, inside the sequential manifest / snapshot build). Returns once
+    /// all finished or `deadline` passed (stragglers keep running and land in the cache for the next prepare; the
+    /// build then reads whatever is cached and fetches nothing it already saw fail).
+    func prefetch(_ paths: [String], maxConcurrent: Int = 6, deadline: TimeInterval = 15) {
+        var seen = Set<String>()
+        var todo: [String] = []
+        for p in paths where Self.isRemote(p) && seen.insert(p).inserted {
+            if FileManager.default.fileExists(atPath: cachePath(p)) { continue }
+            lock.lock(); let known = memCache[p] != nil || failed[p] != nil; lock.unlock()
+            if !known { todo.append(p) }
+        }
+        guard !todo.isEmpty else { return }
+        let group = DispatchGroup()
+        let gate = DispatchSemaphore(value: max(1, maxConcurrent))
+        let q = DispatchQueue(label: "nc.prep.prefetch", attributes: .concurrent)
+        for u in todo {
+            group.enter()
+            q.async {
+                gate.wait()
+                defer { gate.signal(); group.leave() }
+                _ = try? self.fetch(u)
+            }
+        }
+        _ = group.wait(timeout: .now() + deadline)
     }
 
     static func isRemote(_ p: String) -> Bool {
@@ -512,7 +604,17 @@ final class NCResources {
         guard let url = URL(string: urlString) else {
             throw NSError(domain: "NCResources", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL: \(urlString)"])
         }
-        var req = URLRequest(url: url, timeoutInterval: 30)
+        lock.lock()
+        if let e = failed[urlString] { lock.unlock(); throw e }
+        let recent = loadFailuresLocked()[urlString]
+        lock.unlock()
+        if let t = recent {
+            let mins = max(1, Int((Self.failureTTL - (Date().timeIntervalSince1970 - t)) / 60))
+            let e = NSError(domain: "NCResources", code: -2, userInfo: [NSLocalizedDescriptionKey: "最近下载失败，\(mins) 分钟内不重试"])
+            lock.lock(); failed[urlString] = e; skippedRecentFailure += 1; lock.unlock()
+            throw e
+        }
+        var req = URLRequest(url: url, timeoutInterval: fetchTimeout)
         req.setValue("Surge iOS/3000 Mihomo-iOS", forHTTPHeaderField: "User-Agent")
         var resultData: Data?
         var resultError: Error?
@@ -539,14 +641,17 @@ final class NCResources {
             let dir = (cp as NSString).deletingLastPathComponent
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             try? data.write(to: URL(fileURLWithPath: cp), options: .atomic)
-            if data.count < Self.memCacheMax {
-                lock.lock()
-                memCache[urlString] = (data, Date())
-                lock.unlock()
-            }
+            lock.lock()
+            if data.count < Self.memCacheMax { memCache[urlString] = (data, Date()) }
+            fetchedCount += 1
+            lock.unlock()
+            clearFailure(urlString)
             return data
         }
-        throw resultError ?? NSError(domain: "NCResources", code: -1, userInfo: [NSLocalizedDescriptionKey: "Download failed: \(urlString)"])
+        let err = resultError ?? NSError(domain: "NCResources", code: -1, userInfo: [NSLocalizedDescriptionKey: "Download failed: \(urlString)"])
+        lock.lock(); failed[urlString] = err; failedCount += 1; lock.unlock()
+        recordFailure(urlString, err)
+        throw err
     }
 }
 
@@ -2470,8 +2575,8 @@ enum NCRewriteSnapshotBuilder {
 
     /// rv2: like `export`, but an encode failure is thrown instead of collapsing into "" (NativeRuntimePrep used
     /// to write the empty snapshot and still report rewrite=true).
-    static func exportData(home: String, cfg: NCEngineConfig, rs: NCEngineRuleset) throws -> (data: Data, hostCount: Int) {
-        let res = NCResources(home: home)
+    static func exportData(home: String, cfg: NCEngineConfig, rs: NCEngineRuleset, res res0: NCResources? = nil) throws -> (data: Data, hostCount: Int) {
+        let res = res0 ?? NCResources(home: home)
         let hostnames: [String] = cfg.mitm ? rs.hostnames : []
         let hostCount = cfg.mitm ? rs.hostnames.count : 0
         let matcher = NCHostMatcher.build(hostnames)

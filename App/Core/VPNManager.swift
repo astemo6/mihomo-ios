@@ -364,7 +364,7 @@ final class VPNManager: ObservableObject {
             // from exactly the current inputs (NativeRuntimePrepCache).
             let prep = await NativeRuntimePrep.prepare(allowCached: true)
             if let err = prep.error {
-                Self.trace("prepare failed after \(prep.millis) ms")
+                Self.trace("prepare failed after \(prep.millis) ms (\(prep.breakdown))")
                 lastError = err
                 return
             }
@@ -426,6 +426,8 @@ final class VPNManager: ObservableObject {
             }
             Self.trace("startVPNTunnel accepted (status \(m.connection.status.rawValue))")
             // fix/app-toggle-hitch: one timing line per connect (startup log, tag app).
+            // fix/nc-open-6-10 #8: where the prepare time went, one line before the summary.
+            if !prep.breakdown.isEmpty { Self.trace("prepare stages (ms): \(prep.breakdown)") }
             Self.trace("prepare \(prep.millis) ms (\(prep.cached ? "cached" : "built")), prefs \(prefsMs) ms\(needsSave ? " (saved)" : ""), start \(Self.ms(since: tStart)) ms, scripts \(scriptsMs) ms, total \(Self.ms(since: t0)) ms")
             await verifyStartTookEffect(m)
         } catch {
@@ -751,7 +753,12 @@ final class VPNManager: ObservableObject {
         // v0.19.8: the extension answers when the new config is applied; with proxy-providers that takes longer than
         // the 8 s default, and a reply missing after 8 s used to count as success while the core still ran the old
         // config (a group order save then read the old order back and looked like it did nothing).
-        if let err = await NativeRuntimePrep.prepare() { return err } // feat/native-core-eval: the tunnel re-reads it
+        // feat/native-core-eval: the tunnel re-reads it. fix/nc-open-6-10 #8: timing line in the startup log.
+        let prep = await NativeRuntimePrep.prepare(allowCached: false)
+        Self.traceQueue.async {
+            StartupLog.write("reload prepare \(prep.millis) ms\(prep.error == nil ? "" : " (failed)"): \(prep.breakdown)", tag: "app", mirror: false)
+        }
+        if let err = prep.error { return err }
         let before = Self.reloadStatus(await send(.reloadStatus, timeout: 3))
         let data = await send(hot ? .reloadHot : .reload, timeout: 45)
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
