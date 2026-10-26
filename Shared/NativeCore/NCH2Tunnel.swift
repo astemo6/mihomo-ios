@@ -2,7 +2,11 @@ import Foundation
 
 /// HTTP/2 tunnel stream (NCH2ClientCore over a byte pipe). Used for the
 /// VMess/VLESS "grpc" and "h2" transports. For gRPC, stream payloads are
-/// wrapped/deframed as gRPC messages ([0][len u32][bytes]).
+/// wrapped/deframed as gRPC messages ([0][len u32][body]), where the body is
+/// the v2ray Gun `Hunk` protobuf message ([0x0A][varint len][payload]) — the
+/// raw stream bytes are NOT the message body: a server parsing the Hunk sees
+/// an empty payload in a raw body and the transport's first request comes up
+/// short (sing-box trojan-grpc: "bad request size").
 ///
 /// Threading (nc-races, the #116 pattern): unlike the mux/anytls streams there is no session above this
 /// stream — each tunnel owns a serial queue, and all of its state (the NCH2ClientCore, the pending-send
@@ -63,21 +67,29 @@ final class NCH2TunnelStream: NCRelayStream {
         let once = NCCallOnce(completion)
         ncOnSessionQueue(queue) {
             guard self.dead == nil else { once.call(); return }
-            guard self.pendingSend.count + data.count + (self.grpc ? 5 : 0) <= Self.maxPendingSend else {
+            if self.grpc {
+                var msg = Data()
+                let body = Self.grpcHunkWrap(data)
+                msg.append(0)
+                msg.appendBE32(UInt32(body.count))
+                msg.append(body)
+                guard self.pendingSend.count + msg.count <= Self.maxPendingSend else {
+                    once.call()
+                    self.fail(NSError(domain: "NativeCore", code: 5,
+                                      userInfo: [NSLocalizedDescriptionKey: "h2 stream send buffer overflow"]))
+                    self.raw.send(self.core.rstStream())
+                    self.raw.cancel()
+                    return
+                }
+                self.pendingSend.append(msg)
+                self.sendAppended += msg.count
+            } else if self.pendingSend.count + data.count > Self.maxPendingSend {
                 once.call()
                 self.fail(NSError(domain: "NativeCore", code: 5,
                                   userInfo: [NSLocalizedDescriptionKey: "h2 stream send buffer overflow"]))
                 self.raw.send(self.core.rstStream())
                 self.raw.cancel()
                 return
-            }
-            if self.grpc {
-                var msg = Data()
-                msg.append(0)
-                msg.appendBE32(UInt32(data.count))
-                msg.append(data)
-                self.pendingSend.append(msg)
-                self.sendAppended += msg.count
             } else {
                 self.pendingSend.append(data)
                 self.sendAppended += data.count
@@ -202,13 +214,76 @@ final class NCH2TunnelStream: NCRelayStream {
                     return
                 }
                 guard grpcBuffer.count >= 5 + len else { break }
-                let msg = Data(grpcBuffer[5..<(5 + len)])
+                let body = Data(grpcBuffer[5..<(5 + len)])
                 grpcBuffer = Data(grpcBuffer.dropFirst(5 + len))
-                if !msg.isEmpty { emit(msg) }
+                guard let payload = Self.grpcHunkPayload(body) else {
+                    fail(NSError(domain: "NativeCore", code: 5,
+                                 userInfo: [NSLocalizedDescriptionKey: "grpc message decode failed"]))
+                    raw.cancel()
+                    return
+                }
+                if !payload.isEmpty { emit(payload) }
             }
         } else if !payload.isEmpty {
             emit(payload)
         }
+    }
+
+    // MARK: gRPC Hunk protobuf (v2ray Gun: message Hunk { bytes payload = 1; })
+
+    /// Wrap stream bytes as a Hunk message body: field 1, wire type 2.
+    static func grpcHunkWrap(_ data: Data) -> Data {
+        var out = Data()
+        out.append(0x0A)
+        var n = data.count
+        while true {
+            var b = UInt8(n & 0x7F)
+            n >>= 7
+            if n > 0 { b |= 0x80; out.append(b) } else { out.append(b); break }
+        }
+        out.append(data)
+        return out
+    }
+
+    /// Extract the payload from a Hunk message body; unknown fields are skipped per their wire
+    /// type. nil on a malformed body (truncated varint / length overrun / unknown wire type).
+    static func grpcHunkPayload(_ body: Data) -> Data? {
+        var out = Data()
+        var i = body.startIndex
+        func readVarint() -> Int? {
+            var result = 0
+            var shift = 0
+            while i < body.endIndex {
+                let b = body[i]
+                i = body.index(after: i)
+                result |= Int(b & 0x7F) << shift
+                if b & 0x80 == 0 { return result }
+                shift += 7
+                if shift > 63 { return nil }
+            }
+            return nil
+        }
+        while i < body.endIndex {
+            guard let key = readVarint() else { return nil }
+            let field = key >> 3, wire = key & 7
+            switch wire {
+            case 0:
+                guard readVarint() != nil else { return nil }
+            case 1:
+                guard body.distance(from: i, to: body.endIndex) >= 8 else { return nil }
+                i = body.index(i, offsetBy: 8)
+            case 2:
+                guard let n = readVarint(), n <= body.distance(from: i, to: body.endIndex) else { return nil }
+                if field == 1 { out.append(Data(body[i..<body.index(i, offsetBy: n)])) }
+                i = body.index(i, offsetBy: n)
+            case 5:
+                guard body.distance(from: i, to: body.endIndex) >= 4 else { return nil }
+                i = body.index(i, offsetBy: 4)
+            default:
+                return nil
+            }
+        }
+        return out
     }
 
     private func emit(_ data: Data) {

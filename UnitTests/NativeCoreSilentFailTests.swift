@@ -244,6 +244,33 @@ final class NativeCoreSilentFailTests: XCTestCase {
         XCTAssertEqual(onQ { raw.takeSent() }, Data("x".utf8))
     }
 
+    func testHTTPUpgradeFastOpenRefusedFailsAndStopsSends() {
+        let raw = FakeRaw(queue: q)
+        let s = NCV2RayUpgradeStream(raw: raw, hostHeader: "h", path: "/", headers: [:], fastOpen: true)
+        let started = expectation(description: "started")
+        q.async { s.startHandshake { err in XCTAssertNil(err); started.fulfill() } }
+        wait(for: [started], timeout: 3)
+        // A fast-open send rides out before validation.
+        onQ { _ = raw.takeSent(); s.send(Data("a".utf8)) }
+        settle()
+        XCTAssertEqual(onQ { raw.takeSent() }, Data("a".utf8))
+        // A receive issued while validation is pending gets the refusal error.
+        let got = expectation(description: "recv fails")
+        q.async { s.receive { d, e in XCTAssertNil(d); XCTAssertNotNil(e); got.fulfill() } }
+        settle()
+        onQ { raw.inject(Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".utf8)) }
+        wait(for: [got], timeout: 3)
+        XCTAssertTrue(onQ { raw.cancelled }, "the refused connection is torn down")
+        // Later sends complete without writing; later receives fail at once with the same error.
+        let done = expectation(description: "send completes")
+        onQ { s.send(Data("b".utf8)) { done.fulfill() } }
+        wait(for: [done], timeout: 3)
+        XCTAssertEqual(onQ { raw.takeSent() }.count, 0)
+        let got2 = expectation(description: "recv fails at once")
+        q.async { s.receive { d, e in XCTAssertNil(d); XCTAssertNotNil(e); got2.fulfill() } }
+        wait(for: [got2], timeout: 3)
+    }
+
     func testWSEarlyDataInHeaderThenRestAsFrame() {
         let o = NCWSTransportOptions(path: "/ed", hostHeader: "h", headers: [:], maxEarlyData: 16,
                                      earlyDataHeaderName: "Sec-WebSocket-Protocol", httpUpgrade: false,
@@ -401,6 +428,35 @@ final class NativeCoreSilentFailTests: XCTestCase {
     private func sameProfile(_ a: NCClientHelloProfile, _ b: NCClientHelloProfile) -> Bool {
         a.cipherSuites == b.cipherSuites && a.groups == b.groups && a.sigAlgs == b.sigAlgs
             && a.sct == b.sct && a.sessionTicket == b.sessionTicket && a.paddingTo512 == b.paddingTo512
+    }
+
+    // MARK: - gRPC Hunk protobuf framing (trojan / vmess / vless over grpc)
+
+    /// The Gun Hunk wrapper: [0x0A][varint len][payload]; a bare stream body parses as an
+    /// (empty) Hunk on the server, which is what starved the trojan layer ("bad request size").
+    func testGRPCHunkWrapShape() {
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkWrap(Data([1, 2, 3])), Data([0x0A, 3, 1, 2, 3]))
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkWrap(Data()), Data([0x0A, 0]))
+        let big = Data(repeating: 0xAB, count: 300) // 300 = varint 0xAC 0x02
+        let wrapped = NCH2TunnelStream.grpcHunkWrap(big)
+        XCTAssertEqual(Array(wrapped.prefix(3)), [0x0A, 0xAC, 0x02])
+        XCTAssertEqual(wrapped.count, 303)
+        XCTAssertEqual(Data(wrapped.suffix(300)), big)
+    }
+
+    func testGRPCHunkPayloadRoundTripAndSkipsUnknownFields() {
+        let payload = Data((0..<1000).map { UInt8($0 & 0xFF) })
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkPayload(NCH2TunnelStream.grpcHunkWrap(payload)), payload)
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkPayload(Data()), Data())
+        // Unknown fields are skipped by wire type: field 2 varint, field 3 length-delimited,
+        // then the real field 1.
+        var body = Data([0x10, 0x96, 0x01])            // field 2, varint 150
+        body.append(contentsOf: [0x1A, 2, 9, 9])       // field 3, 2 bytes
+        body.append(NCH2TunnelStream.grpcHunkWrap(Data([7, 8])))
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkPayload(body), Data([7, 8]))
+        // Malformed: declared length overruns the body, truncated varint.
+        XCTAssertNil(NCH2TunnelStream.grpcHunkPayload(Data([0x0A, 5, 1, 2])))
+        XCTAssertNil(NCH2TunnelStream.grpcHunkPayload(Data([0x0A, 0x80])))
     }
 
     func testClientFingerprintDrivesUTLSAndFingerprintPins() {
