@@ -416,6 +416,11 @@ enum NCConnector {
             queue.async { completion(nil, Failure.handshake("proxy \(proxy.name) missing server/port")) }
             return
         }
+        // feat/nc-naive-h2h3: HTTP/2 / HTTP/3 CONNECT proxies and NaïveProxy (NCConnectorNaive.swift).
+        if NCH2H3ProxyOptions.handles(proxy.type) {
+            naiveH2H3Stream(proxy: proxy, target: target, queue: queue, transport: transport, completion: completion)
+            return
+        }
         // sing-mux (h2mux) interception: vmess/vless flows ride a shared
         // session whose own proxy connection targets the mux destination.
         if allowMux, transport == nil, proxy.type == "vmess" || proxy.type == "vless",
@@ -1120,7 +1125,7 @@ enum NCConnector {
         hy2Lock.lock(); let hy2 = hy2Registry.count; hy2Lock.unlock()
         return ["mux": mux, "anytls": anytls, "hy2": hy2,
                 "hy1": hy1SessionCount, "tuic": tuicSessionCount, "juicity": juicitySessionCount, "ssh": sshSessionCount,
-                "kcptun": NCKcptunSessionPool.shared.count]
+                "kcptun": NCKcptunSessionPool.shared.count, "naive": naiveH2H3SessionCount]
     }
 
     /// Tunnel stop: drain every shared-session registry and close what it
@@ -1148,7 +1153,7 @@ enum NCConnector {
         let closed = ["mux": mux.count, "anytls": anytls.count, "hy2": hy2.count,
                       "hy1": closeAllHy1Sessions(), "tuic": closeAllTUICSessions(), "kcptun": NCKcptunSessionPool.shared.reset(),
                       "juicity": closeAllJuicitySessions(),
-                      "ssh": closeAllSSHSessions(),
+                      "ssh": closeAllSSHSessions(), "naive": closeAllNaiveH2H3Sessions(),
                       "brook": NCBrookQUICPool.shared.closeAll()] // feat/nc-brook: pooled quicserver connections
         clearSharedSSRState()
         return closed

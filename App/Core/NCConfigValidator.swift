@@ -116,6 +116,8 @@ enum NCConfigValidator {
         "tuic", "juicity", "shadowquic", "gost-relay", "direct", "dns", "reject", "rematch", "ssh", "mieru", "anytls", "sudoku",
         "masque", "trusttunnel", "openvpn", "tailscale", "zerotier", "easytier",
         "brook", // feat/nc-brook: native-core only (not a mihomo type)
+        // feat/nc-naive-h2h3: NaïveProxy and Shadowrocket HTTP/2 / HTTP/3 proxies (native core only).
+        "naive", "http2", "h2", "http3", "h3",
     ]
 
     /// config.ParseRawConfig on the runtime tree (the order of the checks is mihomo's).

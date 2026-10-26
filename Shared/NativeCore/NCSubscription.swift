@@ -135,6 +135,7 @@ enum NCSubscriptionParser {
         case "anytls": return parseAnyTLS(rest)
         case "mieru", "mierus": return parseMieru(rest)
         case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
+        case "naive+https", "naive+quic", "naive", "http2", "http3": return parseNaiveH2H3(rest, scheme: scheme)
         default:
             // feat/nc-gost-relay: GOST relay (mihomo `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
             // and Shadowrocket's Relay links (relay://BASE64(user:pass@host:port)?tls=1&peer=…#name).
@@ -901,6 +902,21 @@ enum NCSubscriptionParser {
                 f["username"] = .string(jStr(o["username"]))
                 f["password"] = .string(jStr(o["password"]))
             }
+        case "naive":
+            // sing-box 1.13 naive outbound (feat/nc-naive-h2h3).
+            typ = "naive"
+            if !jStr(o["username"]).isEmpty { f["username"] = .string(jStr(o["username"])) }
+            if !jStr(o["password"]).isEmpty { f["password"] = .string(jStr(o["password"])) }
+            if jBool(o["quic"]) { f["quic"] = .bool(true) }
+            if jInt(o["insecure_concurrency"]) > 0 { f["insecure-concurrency"] = .number(Double(jInt(o["insecure_concurrency"]))) }
+            if let h = o["extra_headers"] as? [String: Any], !h.isEmpty { f["extra-headers"] = NCJSONValue(h) }
+            if o["udp_over_tcp"] is [String: Any] || jBool(o["udp_over_tcp"]) {
+                f["udp-over-tcp"] = .bool(true)
+                f["udp"] = .bool(true)
+            }
+            if let tls = o["tls"] as? [String: Any], !jStr(tls["server_name"]).isEmpty {
+                f["sni"] = .string(jStr(tls["server_name"]))
+            }
         case "ssh":
             typ = "ssh"
             let user = jStr(o["user"])
@@ -1197,6 +1213,52 @@ enum NCSubscriptionParser {
             }
         }
         let typ = isSocks ? "socks5" : "http"
+        let name = p.name.isEmpty ? "\(typ) \(p.host)" : p.name
+        return NCProxy(name: name, type: typ, fields: f)
+    }
+
+    /// feat/nc-naive-h2h3: naive+https:// / naive+quic:// (DuckSoft's de-facto spec: userinfo `user:pass`,
+    /// or a bare `pass` as password-only; port 443 by default; `extra-headers` = CRLF-joined
+    /// "Name: value" lines; `padding` is informational — naive padding is negotiated per request), and the
+    /// http2:// / http3:// proxy links (userinfo may be base64 of user:pass, as Shadowrocket exports).
+    private static func parseNaiveH2H3(_ rest: String, scheme: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty else { return nil }
+        let q = p.query
+        let port = p.port > 0 ? p.port : 443
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(port)),
+        ]
+        if !p.userinfo.isEmpty {
+            var ui = p.userinfo
+            if scheme.hasPrefix("http"), !ui.contains(":"), let decoded = base64Decode(ui),
+               let s = String(data: decoded, encoding: .utf8), s.contains(":") {
+                ui = s
+            }
+            if let colon = ui.firstIndex(of: ":") {
+                let u = String(ui[..<colon]), pw = String(ui[ui.index(after: colon)...])
+                if !u.isEmpty { f["username"] = .string(u.removingPercentEncoding ?? u) }
+                if !pw.isEmpty { f["password"] = .string(pw.removingPercentEncoding ?? pw) }
+            } else {
+                f["password"] = .string(ui.removingPercentEncoding ?? ui)
+            }
+        }
+        if let sni = q["sni"] ?? q["peer"], !sni.isEmpty { f["sni"] = .string(sni) }
+        if ["1", "true"].contains(q["insecure"] ?? q["allowInsecure"] ?? "") { f["skip-cert-verify"] = .bool(true) }
+        let typ: String
+        switch scheme {
+        case "http2": typ = "http2"
+        case "http3": typ = "http3"
+        default:
+            typ = "naive"
+            if scheme == "naive+quic" { f["quic"] = .bool(true) }
+            if let h = q["extra-headers"], !h.isEmpty { f["extra-headers"] = .string(h) }
+            if ["1", "true"].contains(q["uot"] ?? q["udp-over-tcp"] ?? "") {
+                f["udp-over-tcp"] = .bool(true)
+                f["udp"] = .bool(true)
+            }
+        }
         let name = p.name.isEmpty ? "\(typ) \(p.host)" : p.name
         return NCProxy(name: name, type: typ, fields: f)
     }

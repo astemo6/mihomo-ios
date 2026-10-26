@@ -1385,6 +1385,9 @@ final class NCDataPlane {
         case .proxy(let proxy) where proxy.type == "gost-relay":
             // feat/nc-gost-relay: CONNECT|UDP relay connection bound to this flow's target (NCGostRelayUDP.swift).
             session = NCUDPGostRelaySession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type.lowercased() == "naive" && (proxy.fields["udp-over-tcp"]?.bool ?? false):
+            // feat/nc-naive-h2h3: UoT v2 through a naive CONNECT tunnel (sing-box naive udp_over_tcp).
+            session = NCUDPUoTSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "wireguard":
             // feat/nc-wg: UDP from the node's lwIP netif (NCUDPWireGuardSession).
             session = NCUDPWireGuardSession(proxy: proxy, queue: queue)
