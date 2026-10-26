@@ -412,7 +412,8 @@ final class SelfCheck: ObservableObject {
             let L = (cfg: String(localized: "配置"), app: String(localized: "App"), rt: String(localized: "运行时"), core: String(localized: "内核"), mod: String(localized: "模块"))
             // fix/nc-diag-439 (E): name the node sets that never reach the App layer and why — a set the user turned off
             // or deleted in 节点集设置 is not "lost" (build 439: 配置 3 → App 1 reported as a failure with no names).
-            let gap = await BlockingWork.run { Self.providerGap(path: path, appNames: Set((app?.proxyProviders ?? []).map(\.name))) }
+            let appProviderNames = Set((app?.proxyProviders ?? []).map(\.name))
+            let gap = await BlockingWork.run { Self.providerGap(path: path, appNames: appProviderNames) }
             let cfgProviders = profile.map { $0.proxyProviders - gap.userRemoved.count }
 
             let metrics: [SelfCheckLogic.Metric] = [
