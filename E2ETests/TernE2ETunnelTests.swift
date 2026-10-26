@@ -6,7 +6,7 @@ import XCTest
 /// (E2EFlow) in front of the real lwIP data plane, the real controller on 127.0.0.1 and the real MitM front.
 ///
 /// This bundle compiles the PacketTunnel target's sources (project-uitests.yml, target TernE2ETunnelTests) and is
-/// hosted in Tern.app so both stages share one app container. It never imports the Mihomo module.
+/// hosted in Tern.app so both stages share one app container. It never imports the Tern app module.
 ///
 /// Each scenario is one E2E-RESULT line (E2EReport). Network-dependent scenarios SKIP with the reason when the runner
 /// cannot reach what they need (workflow pre-checks: TERN_E2E_PUBLIC_DNS / TERN_E2E_INTERNET; per-node TCP probe).

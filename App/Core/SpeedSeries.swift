@@ -1,7 +1,7 @@
 import Foundation
 
 /// The last minute of speed samples behind Home's chart and the 网速 tile (fix/bg-chart, user 2026-10-21
-/// 「切回mihomo时首页的网速图猛得往前串着更新」).
+/// 「切回 App 时首页的网速图猛得往前串着更新」).
 ///
 /// Rules, so the chart never "fast-forwards" after the app was in the background:
 /// - a sample whose request took longer than `staleAfter` (it sat in a queue while the app was suspended)

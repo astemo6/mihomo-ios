@@ -4,7 +4,7 @@ import Foundation
 ///
 /// One parser normalizes the four ecosystems' list dialects into the same
 /// buckets, per the user's direction to benchmark rule subscriptions
-/// against Quantumult X / Loon / Surge rather than only mihomo:
+/// against Quantumult X / Loon / Surge rather than only Clash.Meta:
 ///
 /// - Clash.Meta classical provider payload: `DOMAIN-SUFFIX,google.com[,policy]`
 ///   lines, or a YAML document with a `payload:` list of such strings

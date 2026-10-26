@@ -258,7 +258,7 @@ final class JSCScriptEngine: NSObject, JSCEngineBinding {
     /// The native-only tunnel: the native script dispatcher calls the engine directly; nothing to register.
     @discardableResult
     static func register() -> String { "" }
-    static func status() -> String { #"{"engine":"native","go":false}"# }
+    static func status() -> String { #"{"engine":"native"}"# }
     static func selfTestIfRequested() {}
 
     // MARK: ScriptEngineProtocol
