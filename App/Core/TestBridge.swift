@@ -1,8 +1,8 @@
 #if DEBUG
 import Foundation
 
-/// v0.19.6: the gomobile calls the hosted unit tests exercise (UnitTests/, Debug only). The test bundle must not
-/// link Libmihomo itself (a second Go runtime in the process), so it reaches the bridge through the app.
+/// v0.19.6: the the old bridge calls the hosted unit tests exercise (UnitTests/, Debug only). The test bundle must not
+/// link the old core framework itself (a second old runtime in the process), so it reaches the bridge through the app.
 enum TestBridge {
     static func validate(home: String, path: String) -> String { NCConfigValidator.validateConfigIn(home: home, path: path) }
     static func inspect(home: String, path: String) -> String { NCProfileInspectorPort.inspectProfileJSON(home: home, path: path) }

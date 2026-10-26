@@ -1,12 +1,12 @@
 import Foundation
 
-/// Parsed `sniffer:` section of the runtime config (mihomo semantics; the
-/// app's runtime builder, bridge/bridge.go, sets `enable` from the user's
+/// Parsed `sniffer:` section of the runtime config (Clash.Meta semantics; the
+/// app's runtime builder, the retired bridge, sets `enable` from the user's
 /// 域名嗅探 toggle and injects the default sniff table below when the
 /// profile doesn't carry one — this parser mirrors that injection so the
-/// native core behaves exactly like the Go core on the same runtime.yaml).
+/// native core behaves exactly like the old core on the same runtime.yaml).
 ///
-/// Defaults follow mihomo: disabled unless enabled, parse-pure-ip off,
+/// Defaults follow Clash.Meta: disabled unless enabled, parse-pure-ip off,
 /// override-destination on. force-domain / skip-domain use domain-trie
 /// semantics (`+.d` or bare `d` = d and its subdomains; `*` globs allowed).
 struct NCSnifferConfig: Equatable {

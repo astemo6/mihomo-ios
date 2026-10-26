@@ -1,16 +1,16 @@
 import Foundation
 
 /// E-B1 stage 4: the runtime config builder — a port of
-/// bridge/bridge.go buildRuntimeWith + marshalConfig
-/// (runtimejson.go), bridge/nativeprep.go's lowerForNative, and
+/// the retired bridge + marshalConfig
+/// (runtimejson.go), the retired bridge's lowerForNative, and
 /// the dnsHijack helpers (netextras.go). The satellite steps live
 /// in NCRuntimeSteps / NCRuntimeSubRules / NCRuntimeChains /
 /// NCRuntimeCustomRules / NCRuntimeDNS.
 ///
-/// The one deliberate seam difference: Go's builder returns bytes
+/// The one deliberate seam difference: the old core's builder returns bytes
 /// (YAML, or JSON for large configs); the tree is returned too —
 /// the native prep serializes nativecore-runtime.json from it
-/// directly instead of re-reading runtime.yaml (Go's
+/// directly instead of re-reading runtime.yaml (the old core's
 /// NativeConfigJSON does exactly that re-encode).
 
 enum NCRuntimeBuilder {
@@ -65,7 +65,7 @@ enum NCRuntimeBuilder {
     static let runtimeJSONItems = 3000
 
     /// bridge buildRuntimeWith (fd = the PacketFlow fd at Start; the
-    /// native prep builds with 0). inject runs where Go's does —
+    /// native prep builds with 0). inject runs where the old core's does —
     /// after custom rules / FaceTime, before the IP preference.
     static func build(
         profile: Data,
@@ -88,7 +88,7 @@ enum NCRuntimeBuilder {
             let t = $0.trimmingCharacters(in: .whitespaces)
             return t.isEmpty || t.hasPrefix("#") || t == "---"
         }) {
-            // Go: an empty / comment-only document unmarshals to a
+            // the old core: an empty / comment-only document unmarshals to a
             // nil map, which the builder replaces with an empty one.
             raw = [:]
         } else {
@@ -285,7 +285,7 @@ enum NCRuntimeBuilder {
     }
 
     /// Sorted-keys JSON of the tree (the nativecore-runtime.json
-    /// shape; Go marshals the same map with encoding/json).
+    /// shape; the old core marshals the same map with encoding/json).
     static func jsonData(_ raw: [String: NCJSONValue]) -> Data? {
         let any = NCJSONValue.object(raw).anyTree
         return try? JSONSerialization.data(withJSONObject: any, options: [.sortedKeys])

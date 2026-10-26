@@ -1,21 +1,21 @@
 // Native MitM final integration — http-request scripts in Swift (switch `nativeMitmScript`, default OFF).
 //
 // The rewrite engine stops at a request-phase script it has no outcome for (NativeRewriteEngine.decide with a
-// RequestScriptState → RequestScriptPause). This runs that script the way Go's requestPhase does (handler.go):
+// RequestScriptState → RequestScriptPause). This runs that script the way the old core's requestPhase does (handler.go):
 //
 //   1. the script slot (NativeScriptReserve: the same slots / large-bundle lock / queue; a refusal is a skip with
 //      reserveFailed's note and log line);
 //   2. requires-body: loadBody(scriptBodyLimit) — cached once loaded; admission (memory gates, reqCap, the body
-//      budget) by Go (MitmScriptReqBodyAdmit) and the body pushed by the session into Swift (need-body .request);
-//      a refused body is the 「跳过脚本：」 skip with Go's own words (MitmScriptReqBodySkip);
+//      budget) by the old core (MitmScriptReqBodyAdmit) and the body pushed by the session into Swift (need-body .request);
+//      a refused body is the 「跳过脚本：」 skip with the old core's own words (MitmScriptReqBodySkip);
 //   3. Match, prepare (the program in JavaScriptCore), the run (NativeScriptRun, $done parsed with
 //      requestPhase = true: abort / local answer / url / method / headers / body);
-//   4. the outcome for the engine (applied where Go applies it) and the same outcome for Go (FlowScripted): if
-//      the request has to go to Go after all (a later rule only Go handles, a chunked body, a response the native
+//   4. the outcome for the engine (applied where the old core applies it) and the same outcome for the old core (FlowScripted): if
+//      the request has to go to the old core after all (a later rule only the old core handles, a chunked body, a response the native
 //      flow hands back), MitmFlowBegin gets every outcome so far and requestPhase applies them instead of running
-//      the scripts again (bridge/mitm/flowscripted.go).
+//      the scripts again.
 //
-// Every log line and request-log note is written by Go's code; the body never enters Go.
+// Every log line and request-log note is written by the old core's code; the body never enters the old core.
 
 import Foundation
 
@@ -23,7 +23,7 @@ final class NativeRequestScripts {
     enum Step {
         case next              // an outcome was recorded: decide again
         case needBody          // the session must push the request body (the slot is held)
-        case handOver(String)  // Go takes the request with the outcomes so far
+        case handOver(String)  // the old core takes the request with the outcomes so far
     }
 
     let gen: Int64
@@ -33,7 +33,7 @@ final class NativeRequestScripts {
     private let nativeBase: Int64
 
     private(set) var state = RequestScriptState()
-    /// FlowScripted objects for Go (FlowHead.Scripted), in run order.
+    /// FlowScripted objects for the old core (FlowHead.Scripted), in run order.
     private(set) var scripted: [[String: Any]] = []
     /// Request-log notes in order (skipped / failed scripts).
     private(set) var notes: [String] = []
@@ -129,7 +129,7 @@ final class NativeRequestScripts {
         clientBytes = bodyIn
         state.bodyLoaded = true
         if pushFailed || Int64(bodyIn.count) > bodyCap {
-            // readCapped failed: Go would forward what it has plus the rest — let Go take it with the bytes
+            // readCapped failed: the old core would forward what it has plus the rest — let the old core take it with the bytes
             hostAPI.release(slot: pd.slot, ran: false)
             bodyLoaded = false
             return .handOver("request body read failed")
@@ -219,7 +219,7 @@ final class NativeRequestScripts {
         scripted.append(js)
     }
 
-    /// setupJSON(req, nil): Go's base + phase "request" + $request (Host added to the headers, the body blob).
+    /// setupJSON(req, nil): the old core's base + phase "request" + $request (Host added to the headers, the body blob).
     private func setupJSON(base: String, run: NativeScriptRun, p: RequestScriptPause) -> String {
         var obj = ((try? JSONSerialization.jsonObject(with: Data(base.utf8))) as? [String: Any]) ?? [:]
         obj["phase"] = "request"
@@ -233,7 +233,7 @@ final class NativeRequestScripts {
         return s
     }
 
-    /// Go's request phase ended (native decision or hand-over): the body share and the token go.
+    /// the old core's request phase ended (native decision or hand-over): the body share and the token go.
     func end() {
         if finished { return }
         finished = true

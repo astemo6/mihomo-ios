@@ -59,7 +59,7 @@ final class StorageScanTests: XCTestCase {
         XCTAssertEqual(StorageScan.leftoverRoot("mihomo/.nativecore-stage-ABC/.old/0"), "mihomo/.nativecore-stage-ABC")
         XCTAssertEqual(StorageScan.leftoverRoot("mihomo/ui/a/b.js"), "mihomo/ui")
         XCTAssertEqual(StorageScan.leftoverRoot("mihomo/cache.db"), "mihomo/cache.db")
-        XCTAssertFalse(StorageScan.isAutoSweepable("mihomo/cache.db", age: old), "Go-era files only via the button")
+        XCTAssertFalse(StorageScan.isAutoSweepable("mihomo/cache.db", age: old), "old-core files only via the button")
         XCTAssertTrue(StorageScan.isAutoSweepable("mihomo/.nativecore-stage-ABC/x", age: old))
     }
 
@@ -133,7 +133,7 @@ final class StorageScanTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent("mihomo/.nativecore-stage-OLD").path))
         XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("mihomo/.nativecore-stage-NEW/runtime.yaml").path))
         XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent("mihomo/.groups.json.tmpAAAA").path))
-        XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("mihomo/cache.db").path), "auto sweep keeps Go-era files")
+        XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("mihomo/cache.db").path), "auto sweep keeps old-core files")
         XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("mihomo/engine/store.json").path))
         XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("mihomo/ruleset/.x.tmp1").path))
 

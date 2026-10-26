@@ -1,7 +1,7 @@
 import Foundation
 
 /// The native core's control plane inside the tunnel: loads the runtime config
-/// (written by the app, bridge/nativeprep.go — the tunnel never runs Go), parses
+///, parses
 /// rules once, owns the fake-IP pool and the group engine, and routes targets
 /// to outbounds. The data plane (TUN/lwIP) lands in the next batch; until the
 /// provider switch is wired, nothing calls this in production paths.
@@ -51,7 +51,7 @@ final class NativeCoreEngine {
     /// Base config merged with provider nodes, rebuilt with the group engine (was recomputed — every provider
     /// node through every group's regex — on each effectiveConfig read: /proxies, health checks, delay tests).
     private var _merged: NCConfig?
-    /// 智能选择 scorer (bridge/smart.go port); armed from groups.json on load.
+    /// 智能选择 scorer; armed from groups.json on load.
     private var smart: NCSmartSelector?
     private var smartTimer: DispatchSourceTimer?
     private let smartQueue = DispatchQueue(label: "nc.smart")
@@ -65,8 +65,8 @@ final class NativeCoreEngine {
 
     /// Loads (or reloads) the config for `home`. Returns an error message or nil.
     /// Config acquisition, in order: (1) `runtime.yaml` read directly by
-    /// the built-in YAML parser — no Go involved; (2) `runtime.conf`
-    /// (Surge/Loon/Quantumult X) via the canonical importers; (3) the Go
+    /// the built-in YAML parser — no the old core involved; (2) `runtime.conf`
+    /// (Surge/Loon/Quantumult X) via the canonical importers; (3) the old core
     /// bridge's JSON export as a transitional fallback for YAML shapes
     /// the subset parser cannot handle (anchors at scale, merge keys in
     /// odd spots, …). Which source won is kept in `configSource`.
@@ -129,7 +129,7 @@ final class NativeCoreEngine {
     /// NCSupport.report for the loaded config.
     private var _supportReport: [String] = []
     var supportReport: [String] { locked { _supportReport } }
-    /// The app's per-profile selections (`<profile>.selected.json`, bridge/inspect.go SaveSelection) — the same file
+    /// The app's per-profile selections — the same file
     /// the app writes when a node is picked while the VPN is off, so both sides agree.
     private var selectionsFile: URL {
         if let profile = AppShared.activeProfileURL {
@@ -246,7 +246,7 @@ final class NativeCoreEngine {
         let stale = preStale
         ruleProviders = store
         if !stale.isEmpty { store.refreshAll(stale) }
-        // fake-ip-filter geosite: / rule-set: entries (mihomo parseDomain).
+        // fake-ip-filter geosite: / rule-set: entries (Clash.Meta parseDomain).
         let geo = geoSiteDB
         if !pool.externalEntries.isEmpty {
             let entries = pool.externalEntries
@@ -325,7 +325,7 @@ final class NativeCoreEngine {
             engine.smartPins = old.smartPins
         } else if let data = try? Data(contentsOf: selectionsFile),
                   let saved = try? JSONDecoder().decode([String: String].self, from: data) {
-            // Selections survive a reconnect (mihomo keeps them in cache.db, store-selected).
+            // Selections survive a reconnect (Clash.Meta keeps them in cache.db, store-selected).
             engine.selections = saved
         }
         var unsupported = Set<String>()
@@ -353,7 +353,7 @@ final class NativeCoreEngine {
     /// Provider nodes join the config's proxies (a name already taken by a proxy or group is skipped), and each
     /// group gains the nodes of the providers it `use`s — or of every provider with include-all /
     /// include-all-providers (include-all / include-all-proxies also add the config's own proxies) — through its
-    /// filter / exclude-filter (several patterns may be joined with "`", as in mihomo). Static so unit tests
+    /// filter / exclude-filter (several patterns may be joined with "`", as in Clash.Meta). Static so unit tests
     /// can drive it.
     static func merge(base cfg: NCConfig, subs: [NCNodeSubscription], canonicalGroups: [String: NCGroupModel],
                       nodes: (NCNodeSubscription) -> [NCProxy]) -> NCConfig {
@@ -407,7 +407,7 @@ final class NativeCoreEngine {
                         dns: cfg.dns, sniffer: cfg.sniffer, raw: cfg.raw, subRules: cfg.subRules)
     }
 
-    /// GET /providers/proxies (mihomo shape): one entry per proxy provider with its (filtered / overridden) nodes.
+    /// GET /providers/proxies (Clash.Meta shape): one entry per proxy provider with its (filtered / overridden) nodes.
     func proxyProvidersJSON(item: (NCProxy) -> [String: Any]) -> [String: Any] {
         stateLock.lock(); defer { stateLock.unlock() }
         guard let store = nodeSubStore else { return [:] }
@@ -608,7 +608,7 @@ final class NativeCoreEngine {
         smart?.recordCheck(name: name, ms: 0)
     }
 
-    /// 智能选择 (bridge/smart.go): read this profile's smart group list from
+    /// 智能选择: read this profile's smart group list from
     /// <home>/groups.json ({"<profile id>": {"smart": [names]}} — the same
     /// store the app edits via SmartGroups) and run the scorer: first pass
     /// 20 s after load, then every 30 s, publishing pins to the resolver.
@@ -638,7 +638,7 @@ final class NativeCoreEngine {
         smartTimer = timer
     }
 
-    /// GET /smart body for the controller (Go smartRoutes shape).
+    /// GET /smart body for the controller (the old core smartRoutes shape).
     func smartStatusJSON() -> [String: Any] {
         locked { smart }?.statusJSON() ?? ["groups": [Any]()]
     }
@@ -708,13 +708,13 @@ final class NativeCoreEngine {
         locked { dnsPolicy }?.hostsReply(queryData: query)
     }
 
-    /// Full DNS routing for a forwarded query (mihomo dns.fallback /
+    /// Full DNS routing for a forwarded query (Clash.Meta dns.fallback /
     /// fallback-filter): the primary upstream as dnsUpstream picks it,
     /// plus the first fallback server when dns.fallback is configured.
     /// `fallbackFirst` is set when the query name itself matches the
     /// fallback filter (domain/geosite) and no per-domain assignment
     /// governs the name — per-domain assignments always win, as in
-    /// mihomo, where nameserver-policy bypasses the fallback logic.
+    /// Clash.Meta, where nameserver-policy bypasses the fallback logic.
     func dnsRoute(for query: Data) -> (primary: NCDNSUpstream?, fallback: NCDNSUpstream?, fallbackFirst: Bool) {
         // Gap D3: one locked read of the policy, the rest runs on the local copy.
         let dnsPolicy = locked { self.dnsPolicy }
@@ -788,7 +788,7 @@ final class NativeCoreEngine {
 
     func isFakeAddress(_ ip: NCIP) -> Bool { locked { fakeIP }?.isFakeAddress(ip) ?? false }
 
-    /// Policy, rule and outbound for a flow, mihomo tunnel.match style: when
+    /// Policy, rule and outbound for a flow, Clash.Meta tunnel.match style: when
     /// an IP rule (without no-resolve) is reached by a domain-only flow, the
     /// domain is resolved ONCE through the kernel DNS (hosts, nameserver-
     /// policy, cached) without blocking the caller's queue, and matching
@@ -875,7 +875,7 @@ final class NativeCoreEngine {
     }
 
     /// One A lookup for rule matching (AAAA when the answer has no A and
-    /// ipv6 is on is not attempted — mihomo prefers v4 too). Hosts first,
+    /// ipv6 is on is not attempted — Clash.Meta prefers v4 too). Hosts first,
     /// then the upstreams dnsRoute picks (nameserver-policy honoured);
     /// identical in-flight lookups share one query; answers cached (TTL
     /// clamped 60–600 s, failures 30 s), at most 512 names.
@@ -940,7 +940,7 @@ final class NativeCoreEngine {
     #if TERN_TUNNEL
     /// fix/nc-e2e-real: GET /dns/query (工具 → DNS 查询 answered 404 on the native core). One query of `type` through
     /// the kernel DNS — hosts first, then the upstream dnsRoute picks (nameserver-policy honoured) — real answers, never
-    /// fake-ip (mihomo's /dns/query uses its resolver the same way). nil = no upstream / no answer.
+    /// fake-ip (Clash.Meta's /dns/query uses its resolver the same way). nil = no upstream / no answer.
     func queryDNS(name: String, type: UInt16, completion: @escaping (Data?) -> Void) {
         var q = NCDNSMessage()
         q.id = UInt16.random(in: 1...0xffff)

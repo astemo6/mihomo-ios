@@ -1,6 +1,6 @@
 import Foundation
 
-/// Talks to mihomo's external-controller (127.0.0.1:<port>, Bearer secret) inside the tunnel.
+/// Talks to Clash.Meta's external-controller (127.0.0.1:<port>, Bearer secret) inside the tunnel.
 final class ControllerClient {
     static let shared = ControllerClient()
 
@@ -54,7 +54,7 @@ final class ControllerClient {
                 switch c {
                 case 401, 403: return String(localized: "内核拒绝了请求（密钥不匹配）。断开后重新连接一次。")
                 case 404:
-                    // v0.19.8: mihomo answers {"message":"resource not found"} when the NAME (node, group,
+                    // v0.19.8: Clash.Meta answers {"message":"resource not found"} when the NAME (node, group,
                     // provider) is not in the running config; only a missing route is an old extension.
                     if Self.isResourceNotFound(m) {
                         return String(localized: "内核里找不到这个节点或策略组，配置可能已变更，重新加载后再试。")
@@ -72,12 +72,12 @@ final class ControllerClient {
             }
         }
 
-        /// mihomo's ErrNotFound ({"message":"resource not found"}): the route exists, the name does not.
+        /// Clash.Meta's ErrNotFound ({"message":"resource not found"}): the route exists, the name does not.
         static func isResourceNotFound(_ body: String) -> Bool {
             detail(body).lowercased() == "resource not found"
         }
 
-        /// mihomo answers {"message": "…"}; plain text otherwise (trimmed).
+        /// Clash.Meta answers {"message": "…"}; plain text otherwise (trimmed).
         static func detail(_ body: String) -> String {
             if let d = body.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
                let m = (o["message"] ?? o["error"]) as? String {
@@ -227,7 +227,7 @@ final class ControllerClient {
     }
     func mitmClearLogs() async throws { try await send("/mitm/logs", method: "DELETE") }
 
-    // MARK: v0.19.8 log history (/hark/logs, bridge/logring.go)
+    // MARK: v0.19.8 log history
 
     /// The extension keeps the general log and the DNS queries from tunnel start; the pages read this first and
     /// then attach the live /logs stream.
@@ -297,7 +297,7 @@ final class ControllerClient {
         TimeInterval(max(timeoutMs, 5000) + timeoutMs) / 1000
     }
 
-    /// 测速设置 → TCP 握手延迟: TCP nodes report the TCP connect time to their server (bridge netextras.go).
+    /// 测速设置 → TCP 握手延迟: TCP nodes report the TCP connect time to their server.
     static var tcpHandshake: Bool { CoreOverrides.load().tcpHandshakeDelay }
 
     /// v0.15.2: tests the given members with at most `limit` running at once (GET /proxies/{name}/delay
@@ -313,7 +313,7 @@ final class ControllerClient {
         var errors = 0
         var notFound: [String] = []
         // v0.19.8: nodes of proxy-providers (node subscriptions, 配置里的订阅) are not in GET /proxies/{name}
-        // (mihomo's route only looks at the config's own proxies and groups) — every one of them answered 404 and
+        // (Clash.Meta's route only looks at the config's own proxies and groups) — every one of them answered 404 and
         // the whole test failed. They are tested through /providers/proxies/{provider}/{name}/healthcheck.
         let providerOf = await providerIndex()
         let run: (String) async -> (String, Int, Error?) = { name in

@@ -1,11 +1,11 @@
-// Native MitM (Go-zero) — regexp2 (.NET) and RE2 patterns translated to a Unicode-faithful ICU pattern.
+// Native MitM (native-only) — regexp2 (.NET) and RE2 patterns translated to a Unicode-faithful ICU pattern.
 //
-// Why this exists: the snapshot translation (App/Core/NCRewriteICU.swift, a port of Go's rewriteicu.go) spells every
-// character class out as an explicit ASCII set — exact on ASCII input only, and it refuses whatever Go could not
+// Why this exists: the snapshot translation (App/Core/NCRewriteICU.swift, a port of the old core's rewriteicu.go) spells every
+// character class out as an explicit ASCII set — exact on ASCII input only, and it refuses whatever the old core could not
 // prove equal on ASCII (x mode, \p in unions, capture in look-ahead, multi-digit back-references …). Body rules on
-// regexp2's path (look-around, \b, $, back-references) were not exported at all ("regexp2"), so the Go-free tunnel
-// skipped them. With Go gone the native engine is the only engine, so this translator re-states regexp2's (and,
-// for Go's RE2 body fast path, RE2's) semantics with explicit ICU pieces that mean the same on any input:
+// regexp2's path (look-around, \b, $, back-references) were not exported at all ("regexp2"), so the native-only tunnel
+// skipped them. With the old core gone the native engine is the only engine, so this translator re-states regexp2's (and,
+// for the old core's RE2 body fast path, RE2's) semantics with explicit ICU pieces that mean the same on any input:
 //
 //   regexp2 (RegexOptions.None)            ICU emitted
 //   .            any but \n                [^\x{A}]            (s: [\x{0}-\x{10FFFF}])
@@ -149,7 +149,7 @@ enum RX2ICU {
                                           "P", "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po", "S", "Sm", "Sc", "Sk", "So",
                                           "Z", "Zs", "Zl", "Zp", "C", "Cc", "Cf", "Cs", "Co", "Cn"]
 
-    /// Go unicode.ToLower for one scalar (simple mapping; Swift's full mapping when it is a single scalar).
+    /// the old core unicode.ToLower for one scalar (simple mapping; Swift's full mapping when it is a single scalar).
     static func lower(_ c: UInt32) -> UInt32 {
         if c < 0x80 { return (c >= 0x41 && c <= 0x5A) ? c + 32 : c }
         if c == 0x130 { return 0x69 }
@@ -536,7 +536,7 @@ enum RX2ICU {
             default:
                 break
             }
-            // \_: regexp2 rejects it and Go compiled the pattern with it dropped (dropJSIdentityEscapes) — a literal _
+            // \_: regexp2 rejects it and the old core compiled the pattern with it dropped (dropJSIdentityEscapes) — a literal _
             if e == 0x5F && d == .regexp2 { pos += 2; return e }
             if (e >= 0x30 && e <= 0x39) || (e >= 0x41 && e <= 0x5A) || (e >= 0x61 && e <= 0x7A) || e == 0x5F {
                 fail("\\\(es)")

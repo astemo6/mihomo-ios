@@ -18,7 +18,7 @@ struct CustomRule: Codable, Identifiable, Hashable {
     }
 }
 
-/// Result of custom rule validation (mirrors Go's ruleCheck in bridge/customrules.go).
+/// Result of custom rule validation.
 struct RuleCheck: Codable, Hashable {
     var id: String?
     var line: String?
@@ -65,7 +65,7 @@ enum RuleValidationError: LocalizedError {
 
 // MARK: - NCRuleValidator
 
-/// Pure Swift rule validator replacing bridge/customrules.go (CheckRuleLine, CheckCustomRules).
+/// Pure Swift rule validator replacing the retired bridge (CheckRuleLine, CheckCustomRules).
 enum NCRuleValidator {
 
     // MARK: - Type Maps & Tables
@@ -582,7 +582,7 @@ enum NCRuleValidator {
         return (try? JSONDecoder().decode(CustomRulesFile.self, from: data))?.rules ?? []
     }
 
-    // MARK: - Public API (Replacing Libmihomo)
+    // MARK: - Public API
 
     /// Check one rule line in the editor against the active profile.
     static func checkRuleLine(homeDir: String, profilePath: String, line: String) -> RuleCheck {

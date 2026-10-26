@@ -23,7 +23,7 @@ enum NCSupport {
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
-    /// mihomo registers no alias for it ("splithttp" is only accepted by the share-link import, as Xray's old name).
+    /// Clash.Meta registers no alias for it ("splithttp" is only accepted by the share-link import, as Xray's old name).
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http", "xhttp"]
 
     /// nil = supported; else a short reason (Chinese, shown in 诊断 / the startup log).
@@ -38,7 +38,7 @@ enum NCSupport {
         if p.fields["network"]?.string?.lowercased() == "xhttp", let why = NCXHTTPConfig.unsupportedReason(p) {
             return why
         }
-        // ECH (RFC 9849), one judgement for every layer, read from p.echOpts (mihomo semantics: enable must be true).
+        // ECH (RFC 9849), one judgement for every layer, read from p.echOpts (Clash.Meta semantics: enable must be true).
         // TCP/TLS nodes (trojan / vless / vmess / anytls / https) do ECH in the native TLS stack (static
         // ech-opts.config, else the HTTPS RR via the kernel DNS); hy2 / tuic use the system QUIC ECH switch
         // (best effort, DNS only — see report()). REALITY is exclusive; Vision and SS plugins are not wired.
@@ -64,7 +64,7 @@ enum NCSupport {
         case "snell":
             if let why = snellUnsupported(p) { return why }
         case "vmess":
-            // fix/nc-silent-fail: alterId > 0 is the legacy MD5 header auth (mihomo IsAead = alterId == 0); only
+            // fix/nc-silent-fail: alterId > 0 is the legacy MD5 header auth (Clash.Meta IsAead = alterId == 0); only
             // AEAD is implemented, so these nodes are marked here rather than failing every dial.
             if let aid = p.fields["alterId"]?.int, aid > 0 {
                 return "VMess alterId \(aid)（旧版 MD5 认证）尚未接入，请改为 alterId: 0"
@@ -88,7 +88,7 @@ enum NCSupport {
         case "brook":
             if let why = brookUnsupported(p) { return why }
         case "gost-relay":
-            // feat/nc-gost-relay: mihomo `gost-relay` (NCGostRelay) — not the `relay` chain group (groupTypes).
+            // feat/nc-gost-relay: Clash.Meta `gost-relay` (NCGostRelay) — not the `relay` chain group (groupTypes).
             // TCP + UDP, tls / mux / forward / auth; Tern extension network: ws (+tls = wss).
             if let why = NCGostRelay.options(p).1 { return why }
         case "naive", "http2", "h2", "http3", "h3":
@@ -117,7 +117,7 @@ enum NCSupport {
         return nil
     }
 
-    /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
+    /// nil = plugin supported; else the reason (mirrors Clash.Meta NewShadowSocks' option checks;
     /// obfs http/tls, v2ray-plugin websocket / http-upgrade (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls with pinning / name-cert-verify, smux) are implemented in NCSSPlugins; restls in NCRestls).
     static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
         guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
@@ -131,7 +131,7 @@ enum NCSupport {
                 ? "obfs 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 http/tls）"
                 : "v2ray-plugin 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 websocket / http-upgrade）"
         case "gost-plugin":
-            // NCGostPluginOptions: mihomo's only mode (websocket) with tls / mux / fingerprint /
+            // NCGostPluginOptions: Clash.Meta's only mode (websocket) with tls / mux / fingerprint /
             // name-cert-verify; client certificates and ECH are explicit gaps.
             return NCGostPluginOptions.parse(opts).1
         case "cloak", "ck-client":
@@ -154,14 +154,14 @@ enum NCSupport {
     }
 
     /// Snell obfs-opts (fix/nc-silent-fail): simple-obfs http / tls are implemented (NCConnector.snellObfsOptions →
-    /// NCSSPluginStream, TCP and UDP); mihomo's other modes (shadow-tls / restls / jls) are not yet.
+    /// NCSSPluginStream, TCP and UDP); Clash.Meta's other modes (shadow-tls / restls / jls) are not yet.
     static func snellUnsupported(_ p: NCProxy) -> String? {
         let mode = p.fields["obfs-opts"]?.object?["mode"]?.string ?? ""
         if mode.isEmpty || mode == "http" || mode == "tls" { return nil }
         return "Snell obfs-opts mode \(mode) 尚未接入（支持 http / tls）"
     }
 
-    /// SSR: stream ciphers + none/dummy; every protocol and obfs mihomo v1.19.33 registers (feat/nc-proto A5).
+    /// SSR: stream ciphers + none/dummy; every protocol and obfs Clash.Meta v1.19.33 registers (feat/nc-proto A5).
     static let ssrProtocols: Set<String> = ["origin", "auth_sha1_v4", "auth_aes128_md5", "auth_aes128_sha1",
                                             "auth_chain_a", "auth_chain_b"]
     static let ssrObfs: Set<String> = ["plain", "http_simple", "http_post", "random_head", "tls1.2_ticket_auth",
@@ -191,7 +191,7 @@ enum NCSupport {
         return nil
     }
 
-    /// mihomo parsePorts syntax: "443,1000-2000".
+    /// Clash.Meta parsePorts syntax: "443,1000-2000".
     static func hysteriaPortsValid(_ s: String?) -> Bool {
         guard let s, !s.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         for part in s.split(separator: ",") {

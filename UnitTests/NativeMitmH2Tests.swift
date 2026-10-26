@@ -2,10 +2,10 @@ import Foundation
 import XCTest
 @testable import Mihomo
 
-/// Native MitM stage 3 lane s3-h2: HPACK (RFC 7541 Appendix C + Go hpack fixtures), the frame codec (Go Framer
+/// Native MitM stage 3 lane s3-h2: HPACK (RFC 7541 Appendix C + the old core hpack fixtures), the frame codec (the old core Framer
 /// fixtures), H2Connection (flow control, back-pressure, limits, protocol errors) over in-memory streams, and
 /// NativeH2Session end to end with a scripted flow driver and in-memory h2 / HTTP/1.1 origins.
-/// Pure Foundation: also runs on Linux (work/s3h2/build.sh). The Go loopback comparison is
+/// Pure Foundation: also runs on Linux (work/s3h2/build.sh). The the old core loopback comparison is
 /// NativeMitmH2LoopbackTests.
 final class NativeMitmH2Tests: XCTestCase {
 
@@ -909,7 +909,7 @@ final class ScriptedH2Driver: MitmFlowDriving {
     var drop: Set<String> = []
     var busy: Set<String> = []
     /// Streaming response rewrite: "respond / read" right away, FlowRead answers "more" until the next piece of
-    /// the upstream body is pushed (Go's streaming mode after its phase, design §12.2).
+    /// the upstream body is pushed (the old core's streaming mode after its phase, design §12.2).
     var streamUpper: Set<String> = []
     private var _begins: [String] = []
     private var _ends: [End] = []
@@ -925,7 +925,7 @@ final class ScriptedH2Driver: MitmFlowDriving {
         let head: HTTPRequestHead
         var reqIn = Data(), reqClosed = false
         var respIn = Data(), respClosed = false
-        var out: [Int: Data] = [:]       // which → body Go produces
+        var out: [Int: Data] = [:]       // which → body the old core produces
         var stage = 0                    // 1 = request need-body, 2 = response need-body
         init(head: HTTPRequestHead) { self.head = head }
     }
@@ -972,7 +972,7 @@ final class ScriptedH2Driver: MitmFlowDriving {
     }
 
     func await(_ id: Int64) -> FlowDecision {
-        // wait for the pushed body to close (Go would block in its phase goroutine)
+        // wait for the pushed body to close (the old core would block in its phase thread)
         for _ in 0..<2000 {
             let r: FlowDecision? = sync {
                 guard let f = flows[id] else { return FlowDecision(id: id, action: .error, note: "gone") }

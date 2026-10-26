@@ -29,7 +29,7 @@ public struct CAInfoModel: Codable, Equatable, Sendable {
 }
 
 /// Swift CA and Leaf Certificate Manager for Native MitM.
-/// Replaces Go's CA management (`bridge/mitm/ca.go`) and leaf certificate issuance (`LibmihomoMitmLeafIdentity`).
+/// Replaces the old core's CA management and leaf certificate issuance.
 /// Loads or generates the CA in `<home>/engine/ca` and signs per-host leaf certificates.
 public final class NCCAManager {
     public static let shared = NCCAManager()
@@ -66,7 +66,7 @@ public final class NCCAManager {
             return loaded
         }
         // Never replace a CA that exists but could not be read: the user trusts that certificate (installed profile).
-        // feat/native-core-eval: Go's CA (bridge/mitm/ca.go) is PKCS#8 — read by loadCA below, EC P-256 or (gap C7)
+        // feat/native-core-eval: the old core's CA is PKCS#8 — read by loadCA below, EC P-256 or (gap C7)
         // RSA, e.g. a p12 exported by another app and imported; anything else keeps MitM off with a log line.
         let dir = Self.caDir(home: home)
         if FileManager.default.fileExists(atPath: dir.appendingPathComponent("ca.pem").path)
@@ -146,7 +146,7 @@ public final class NCCAManager {
               let cert = SecCertificateCreateWithData(nil, certDER as CFData) else {
             return nil
         }
-        // gap C7 (astemo6/Muse NativeCore): an RSA CA — PKCS#8 with rsaEncryption (Go's ImportP12 writes that for a
+        // gap C7 (astemo6/Muse NativeCore): an RSA CA — PKCS#8 with rsaEncryption (the old core's ImportP12 writes that for a
         // p12 from another app) or a PKCS#1 "RSA PRIVATE KEY" block. Security takes the PKCS#1 RSAPrivateKey DER.
         if let pkcs1 = extractPEMContent(keyData, label: "RSA PRIVATE KEY")
             ?? extractPEMContent(keyData, label: "PRIVATE KEY").flatMap({ Self.rsaPKCS1(fromPKCS8: $0) }) {
@@ -168,7 +168,7 @@ public final class NCCAManager {
             kSecAttrKeySizeInBits as String: 256,
         ]
         var err: Unmanaged<CFError>?
-        // Security wants X9.63 (04 || X || Y || K); Go writes PKCS#8 (RFC 5208) wrapping an RFC 5915 ECPrivateKey.
+        // Security wants X9.63 (04 || X || Y || K); the old core writes PKCS#8 (RFC 5208) wrapping an RFC 5915 ECPrivateKey.
         guard let x963 = Self.x963(fromPKCS8OrSEC1: keyDER, certDER: certDER),
               let key = SecKeyCreateWithData(x963 as CFData, keyAttrs as CFDictionary, &err) else {
             return nil
@@ -524,7 +524,7 @@ public final class NCCAManager {
     // MARK: - Validation & Export Helpers
 
     private static func validateCAPair(cert: SecCertificate, certDER: Data, key: SecKey) throws {
-        // fix/nc-rsa-ca: EC P-256 (Tern / Go CA) or RSA 2048/3072/4096 (QuanX [mitm] passphrase + p12, other apps).
+        // fix/nc-rsa-ca: EC P-256 (Tern / the old core CA) or RSA 2048/3072/4096 (QuanX [mitm] passphrase + p12, other apps).
         guard let attrs = SecKeyCopyAttributes(key) as? [CFString: Any] else {
             throw NSError(domain: "TernCA", code: -1, userInfo: [NSLocalizedDescriptionKey: "CA 私钥类型不支持"])
         }
@@ -634,7 +634,7 @@ public final class NCCAManager {
         guard let ext = SecKeyCopyExternalRepresentation(key, &err) as Data? else {
             throw LeafCertError.keyGenerationFailed
         }
-        // fix/nc-rsa-ca: an RSA key exports PKCS#1 — wrap it as PKCS#8 (what loadCA's rsaPKCS1(fromPKCS8:) and Go read).
+        // fix/nc-rsa-ca: an RSA key exports PKCS#1 — wrap it as PKCS#8 (what loadCA's rsaPKCS1(fromPKCS8:) and the old core read).
         if DER.isRSAKey(key) {
             return DER.pkcs8RSA(pkcs1: ext)
         }

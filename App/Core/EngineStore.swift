@@ -22,7 +22,7 @@ final class EngineStore: ObservableObject {
     private var caGeneration = 0
 
     /// fix/nav-jank (「动画有卡顿」): the store is usually created by the first page that needs it (高级设置,
-    /// 模块, MitM …), i.e. during a push. init used to parse every module in Go, build a test leaf and run
+    /// 模块, MitM …), i.e. during a push. init used to parse every module in the old core, build a test leaf and run
     /// SecTrustEvaluateWithError on the main thread right then. Now engine.json loads synchronously and the
     /// parse + CA check run off main; views update when they land.
     init() {

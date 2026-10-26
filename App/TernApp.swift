@@ -24,7 +24,7 @@ struct TernApp: App {
         DispatchQueue.global(qos: .background).async { StorageScan.sweepOnLaunch() }
         // r7 B28: scripts' $environment.language follows the UI language (read by the engine on its next load).
         DispatchQueue.global(qos: .utility).async { EngineConfig.stampLanguage() }
-        // feat/jsc-engine: `-TernJSCSelfTest` runs one goja-vs-JavaScriptCore conformance case and logs it.
+        // feat/jsc-engine: `-TernJSCSelfTest` runs one the old JS engine-vs-JavaScriptCore conformance case and logs it.
         JSCScriptEngine.selfTestIfRequested()
     }
 
@@ -146,7 +146,7 @@ struct RootView: View {
                 if store.profiles.isEmpty { showOnboarding = true } else { Onboarding.isDone = true }
             }
             if vpn.isConnected { dash.start() }
-            // Cold launch from 「用 Mihomo 打开」: if onOpenURL did not deliver the document, do it now.
+            // Cold launch from 「用 Tern 打开」: if onOpenURL did not deliver the document, do it now.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { router.drainColdLaunchURLs() }
         }
     }
@@ -260,7 +260,7 @@ enum Theme {
         return nil
     }
 
-    /// Controller connection rules come as Go type names ("DomainSuffix", "GeoIP"); shown with the profile spelling.
+    /// Controller connection rules come as the old core type names ("DomainSuffix", "GeoIP"); shown with the profile spelling.
     static func ruleTypeName(_ raw: String) -> String {
         let known: [String: String] = [
             "domain": "DOMAIN", "domainsuffix": "DOMAIN-SUFFIX", "domainkeyword": "DOMAIN-KEYWORD", "domainregex": "DOMAIN-REGEX",

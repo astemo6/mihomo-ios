@@ -2,13 +2,13 @@ import Foundation
 
 /// DNS policy layer (pure logic): hosts-table answers and per-domain
 /// upstream selection, benchmarked against Surge / Loon / Quantumult X
-/// rather than mihomo alone:
+/// rather than Clash.Meta alone:
 ///
 /// - [Host] entries answer A/AAAA directly (exact name, `*` globs, aliases
 ///   chased within the table); an address entry whose family doesn't match
 ///   the qtype yields NOERROR/no-data, never an upstream leak. Entries of
 ///   the form `name = server:<addr>` assign that domain a DNS server.
-/// - Per-domain upstreams (QX `server=/domain/…`, mihomo nameserver-policy,
+/// - Per-domain upstreams (QX `server=/domain/…`, Clash.Meta nameserver-policy,
 ///   Loon/Surge host-server entries) pick the longest matching suffix;
 ///   `+.d` and bare `d` both mean "d and its subdomains" (dnsmasq semantics,
 ///   what QX users expect).
@@ -26,7 +26,7 @@ struct NCDNSPolicy {
     /// that once at load.
     var geositeContains: ((String, String) -> Bool)? = nil
     /// Rule-provider domain membership (provider name, domain) -> Bool, for
-    /// nameserver-policy `rule-set:` keys (mihomo matches only the
+    /// nameserver-policy `rule-set:` keys (Clash.Meta matches only the
     /// provider's domain entries there).
     var ruleSetContainsDomain: ((String, String) -> Bool)? = nil
 
@@ -82,7 +82,7 @@ struct NCDNSPolicy {
         diagnostics = diag
     }
 
-    /// mihomo parseNameServerPolicy key splitting: `geosite:cn,private` →
+    /// Clash.Meta parseNameServerPolicy key splitting: `geosite:cn,private` →
     /// geosite:cn + geosite:private; `rule-set:a,b` likewise; any other
     /// comma list is a list of domains.
     static func expandPolicyKey(_ key0: String) -> [String] {
@@ -203,14 +203,14 @@ struct NCDNSPolicy {
         return []
     }
 
-    // MARK: fallback (mihomo dns.fallback + fallback-filter)
+    // MARK: fallback (Clash.Meta dns.fallback + fallback-filter)
 
     /// The configured fallback servers, in preference order.
     var fallbackServers: [NCDNSServerRef] { model.fallback }
 
     var hasFallback: Bool { !model.fallback.isEmpty }
 
-    /// Domain-side fallback trigger (mihomo checks the query name against
+    /// Domain-side fallback trigger (Clash.Meta checks the query name against
     /// fallback-filter's geosite/domain lists first): when true, the query
     /// goes to the fallback servers directly instead of trusting the
     /// primary answer for a name expected to be polluted / hijacked.

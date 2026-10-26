@@ -7,7 +7,7 @@
 // Limits: the decoder's dynamic table is capped by the size we advertise (SETTINGS_HEADER_TABLE_SIZE, 4096); a
 // header list over maxHeaderListSize is still decoded to the end (the table must stay in sync) and then reported
 // as .headerListTooLarge, which the connection turns into a stream-level refusal, not a connection error.
-// Tests: UnitTests/NativeMitmH2Tests.swift (RFC 7541 Appendix C vectors, Go hpack cross-check fixtures).
+// Tests: UnitTests/NativeMitmH2Tests.swift (RFC 7541 Appendix C vectors, the old core hpack cross-check fixtures).
 
 import Foundation
 

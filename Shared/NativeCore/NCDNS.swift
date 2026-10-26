@@ -166,7 +166,7 @@ struct NCDNSMessage: Equatable {
     }
 }
 
-/// Answers A queries with fake IPs (mihomo fake-ip mode). Anything it cannot
+/// Answers A queries with fake IPs (Clash.Meta fake-ip mode). Anything it cannot
 /// answer returns nil, meaning: forward the original query upstream.
 final class NCFakeIPResponder {
     let pool: NCFakeIPPool
@@ -197,7 +197,7 @@ final class NCFakeIPResponder {
                                             rdata: Data(ip6.bytes))]
             } else {
                 // No v6 fake range configured -> NOERROR with no records,
-                // which keeps clients on the v4 fake path (mihomo behaves
+                // which keeps clients on the v4 fake path (Clash.Meta behaves
                 // the same when its fake-ip range is v4-only).
                 resp.answers = []
             }
@@ -229,7 +229,7 @@ extension NCDNSMessage {
 
 /// redir-host mode support: remembers which real IPs a host resolved to,
 /// so connections to those IPs can be rule-matched by the original host
-/// (mihomo's redir-host behaves the same). TTL-bound, size-capped.
+/// (Clash.Meta's redir-host behaves the same). TTL-bound, size-capped.
 final class NCRealIPMap {
     private struct Entry {
         var host: String

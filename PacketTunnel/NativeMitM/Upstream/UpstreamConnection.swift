@@ -1,5 +1,5 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 // Native MitM stage 2, lane `upstream` (B8b): byte pipe from the native front to the origin.
 //
 // Raw bytes only: no URLSession, no automatic decompression, no header normalisation. The HTTP lane frames
@@ -13,7 +13,7 @@
 //   whose only proxy is ProxyConfiguration(httpCONNECTProxy: 127.0.0.1:<relay>). Network.framework sends the
 //   CONNECT; TLS to the origin uses the system trust store (none when the engine's skip-cert-verify is on), SNI = host
 //   (not for IP literals), ALPN "http/1.1" (the native h2 session also offers "h2", s3-h2).
-//   iOS 16 has no per-connection CONNECT proxy in Network.framework: `.unsupported` → the caller keeps the Go
+//   iOS 16 has no per-connection CONNECT proxy in Network.framework: `.unsupported` → the caller keeps the old core
 //   path for that connection (the same fallback the native front already has).
 //
 // Credit: built from astemo6's B8 draft (origin/draft/native-mitm-b7b8 6b53dc6, drafts/native-mitm/Upstream.swift):
@@ -112,7 +112,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
     let id: UInt64
     let queue: DispatchQueue
     /// Set by the pool: true when this connection already served a request (a failure before the first response
-    /// byte on a reused connection is the caller's cue to retry an idempotent request on a fresh one, as Go does).
+    /// byte on a reused connection is the caller's cue to retry an idempotent request on a fresh one, as the old core does).
     var reused = false
     var requestsServed = 0
     /// ALPN the origin picked (tls mode; nil when the server sent none).

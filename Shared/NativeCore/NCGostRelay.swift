@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - GOST v3 relay protocol (feat/nc-gost-relay)
 
-/// The GOST v3 `relay` protocol as mihomo v1.19.33 speaks it (transport/gost/relay.go; adapter type
+/// The GOST v3 `relay` protocol as Clash.Meta v1.19.33 speaks it (transport/gost/relay.go; adapter type
 /// `gost-relay`, NOT the `relay` proxy-group, which is the chain group in NCSupport.groupTypes).
 ///
 /// Request:  VER(0x01) ‖ CMD ‖ LEN(BE16) ‖ features…
@@ -14,7 +14,7 @@ import Foundation
 /// Response: VER ‖ STATUS ‖ LEN(BE16) ‖ features (skipped). STATUS 0 = OK.
 /// UDP over the stream: each datagram is LEN(BE16) ‖ payload; the association is bound to one target.
 ///
-/// Pure wire helpers here are unit-tested against vectors produced by mihomo's own writeRelayRequest
+/// Pure wire helpers here are unit-tested against vectors produced by Clash.Meta's own writeRelayRequest
 /// (UnitTests/NativeCoreGostRelayTests.swift).
 enum NCGostRelay {
     static let version: UInt8 = 0x01
@@ -31,7 +31,7 @@ enum NCGostRelay {
     /// Largest response we will buffer while waiting for the header + its feature block (4 + u16 max).
     static let maxResponseHead = 4 + 0xFFFF
 
-    /// The request header. `target == nil` is mihomo's `forward: true` (no addr feature: the server's
+    /// The request header. `target == nil` is Clash.Meta's `forward: true` (no addr feature: the server's
     /// own forward target is used). nil when a credential exceeds 255 bytes or the target cannot be encoded.
     static func request(target: NCTarget?, udp: Bool, username: String?, password: String?) -> Data? {
         var features = Data()
@@ -78,7 +78,7 @@ enum NCGostRelay {
     }
 
     /// Parse the response head at the start of `data` (startIndex-relative: slices are fine).
-    /// mihomo readRelayConnectResponse: version checked first, then status, then the features skipped.
+    /// Clash.Meta readRelayConnectResponse: version checked first, then status, then the features skipped.
     static func parseResponse(_ data: Data) -> Response {
         guard data.count >= 4 else { return .needMore }
         let s = data.startIndex
@@ -123,12 +123,12 @@ enum NCGostRelay {
         return (Data(buffer[(base + 2)..<(base + 2 + len)]), 2 + len)
     }
 
-    // MARK: Options (mihomo GostRelayOption + ws extension)
+    // MARK: Options (Clash.Meta GostRelayOption + ws extension)
 
-    /// The node's options, read once per dial. Field names are mihomo's (`gost-relay`):
+    /// The node's options, read once per dial. Field names are Clash.Meta's (`gost-relay`):
     /// server, port, forward, udp, tls, mux, sni, username, password, skip-cert-verify, name-cert-verify,
     /// fingerprint, certificate, private-key, client-fingerprint. Tern extension (gost `relay+ws` /
-    /// `relay+wss`, which mihomo's adapter lacks): `network: ws` + `ws-opts {path, headers}`.
+    /// `relay+wss`, which Clash.Meta's adapter lacks): `network: ws` + `ws-opts {path, headers}`.
     struct Options {
         var server: String
         var port: Int
@@ -144,7 +144,7 @@ enum NCGostRelay {
         var clientFingerprint: String?
         var ws: (path: String, headers: [String: String])?
 
-        /// The TLS server name: sni, else (ws) the Host header, else the server (mihomo serverName()).
+        /// The TLS server name: sni, else (ws) the Host header, else the server (Clash.Meta serverName()).
         var serverName: String {
             if let sni, !sni.isEmpty { return sni }
             if let host = ws?.headers.first(where: { $0.key.lowercased() == "host" })?.value, !host.isEmpty { return host }
@@ -258,7 +258,7 @@ extension NCConnector {
     /// Dial a `gost-relay` node toward `target` (TCP) or bind a UDP association to it (`udp: true`):
     /// socket (or chain transport) → TLS (system TLS; the hand-rolled client when pinning / name-cert-verify /
     /// client-fingerprint or a chain transport needs it) → websocket (network: ws) → smux v1 single stream
-    /// (mux: true, mihomo: one session per connection, keep-alive off) → relay request.
+    /// (mux: true, Clash.Meta: one session per connection, keep-alive off) → relay request.
     /// Completion fires exactly once.
     static func gostRelayStream(proxy: NCProxy, target: NCTarget, udp: Bool, queue: DispatchQueue,
                                 transport: NCRelayStream?,
@@ -350,7 +350,7 @@ extension NCGostRelay {
         }
     }
 
-    /// Map Shadowrocket- / gost-style parameters (keys lower-cased) onto mihomo `gost-relay` fields.
+    /// Map Shadowrocket- / gost-style parameters (keys lower-cased) onto Clash.Meta `gost-relay` fields.
     /// Shadowrocket spells SNI `peer`, skip-verify `allowInsecure`, the ws transport `obfs=websocket`
     /// with the Host in `obfsParam`, and the uTLS profile `fingerprint` (a 64-hex value is a cert pin).
     /// Returns the keys it consumed.

@@ -162,7 +162,7 @@ final class E2EReport {
     }
 
     /// $TERN_E2E_STATE: a host directory OUTSIDE the uploaded artifact (the workflow sets $RUNNER_TEMP/e2e-state). Stage 1
-    /// copies the app's data root (profiles, mihomo home with the runtime files) there; stage 2 restores it when the
+    /// copies the app's data root (profiles, Clash.Meta home with the runtime files) there; stage 2 restores it when the
     /// reinstall between the two `test-without-building` runs left the new data container without them. It holds
     /// node credentials, so it must never be under $TERN_E2E_OUT.
     static var stateDir: URL? {

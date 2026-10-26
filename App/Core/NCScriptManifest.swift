@@ -1,18 +1,18 @@
 // App/Core/NCScriptManifest.swift
-// E-B1b stage 3: Port of ExportScriptManifest (bridge/mitm/exportsnap.go) to Swift.
+// E-B1b stage 3: Port of ExportScriptManifest to Swift.
 //
 // Sources:
-//   - bridge/mitm/exportsnap.go (ExportScriptManifest, ScriptManifestEntry, scriptManifest, ScriptManifestFile, ScriptManifestDir)
-//   - bridge/mitm/script.go (scriptCode :325, scriptTimeout :1111, runCtx.setupJSON :1422, jsSetup, jsArg, jsEnv)
-//   - bridge/mitm/tasks.go (Task :36, Panel :52, stableID, withLineOpts, disabledByParam)
-//   - bridge/mitm/egernadapter.go (adaptEgern, isEgernNative, egernPrelude)
+//   - the retired bridge (ExportScriptManifest, ScriptManifestEntry, scriptManifest, ScriptManifestFile, ScriptManifestDir)
+//   - the retired bridge (scriptCode :325, scriptTimeout :1111, runCtx.setupJSON :1422, jsSetup, jsArg, jsEnv)
+//   - the retired bridge (Task :36, Panel :52, stableID, withLineOpts, disabledByParam)
+//   - the retired bridge (adaptEgern, isEgernNative, egernPrelude)
 //   - App/Core/NCRewriteSnapshot.swift (NCResources.get)
 //   - PacketTunnel/NativeMitM/Script/ (NativeScriptHost.ManifestEntry, NativeTaskRunner.TaskDef, NativeTaskRunner.PanelDef)
 //
 // DIVERGENCES:
 //   1. Setup JSON Derivation (Stateless Baseline vs Runtime Execution Context):
-//      - Go behavior: Go executes `rc := &runCtx{script: sc, name: sc.Name, e: e, wantExport: task}` and calls
-//        `rc.setupJSON(nil, nil)`. The method `setupJSON` belongs to Go's live script execution context (`runCtx`),
+//      - the old core behavior: the old core executes `rc := &runCtx{script: sc, name: sc.Name, e: e, wantExport: task}` and calls
+//        `rc.setupJSON(nil, nil)`. The method `setupJSON` belongs to the old core's live script execution context (`runCtx`),
 //        which at runtime in the tunnel also manages request/response HTTP bodies, header clones, and memory blobs.
 //      - Swift behavior: `NCScriptManifest` implements a pure, stateless `setupJSON` generator creating `NCJSSetup`.
 //        Because export-time invocations always pass `req = nil, resp = nil`, `NCJSSetup` emits the exact baseline schema
@@ -22,20 +22,20 @@
 //        augments HTTP headers/bodies natively during runtime request/response phases.
 //
 //   2. Resource Management & Script Loading:
-//      - Go behavior: Go uses `e.res = NewResources(home, e)` and calls `e.res.Get(sc.Path, sc.UpdateInterval)` to read
-//        local script files from `<home>/engine/scripts/` or download remote scripts via Go `net/http` to `<home>/engine/cache/<sha1>`.
+//      - the old core behavior: the old core uses `e.res = NewResources(home, e)` and calls `e.res.Get(sc.Path, sc.UpdateInterval)` to read
+//        local script files from `<home>/engine/scripts/` or download remote scripts via the old core `net/http` to `<home>/engine/cache/<sha1>`.
 //      - Swift behavior: Reuses `NCResources` from `NCRewriteSnapshot.swift` (`res.get(path:maxAge:)`), which reads local
 //        files from `<home>/engine/scripts/` or retrieves pre-cached files from `<home>/engine/cache/<sha1>`, fetching
 //        via synchronous `URLSession` if absent. Interval overrides from `cfg.scriptResources` are honored.
 //      - Impact: Completely equivalent caching and download semantics across all script resources.
 //
 //   3. Atomic File Persistence:
-//      - Go behavior: Writes `*.tmp` and renames using `os.WriteFile` and `os.Rename`.
+//      - the old core behavior: Writes `*.tmp` and renames using `os.WriteFile` and `os.Rename`.
 //      - Swift behavior: Writes data to `*.tmp`, removes existing target file if present, and invokes `FileManager.default.moveItem`.
 //      - Impact: Fully atomic write replacement without race conditions or partial file reads on crash.
 //
 //   4. Error Message Formats:
-//      - Go behavior: Formats load failures as `fmt.Errorf("加载脚本失败：%w", err).Error()`.
+//      - the old core behavior: Formats load failures as `fmt.Errorf("加载脚本失败：%w", err).Error()`.
 //      - Swift behavior: Formats as `"加载脚本失败：\(error.localizedDescription)"`.
 //      - Impact: Preserves the standard `"加载脚本失败："` prefix expected by UI and tunnel error checkers;
 //        records errors on entry (`ent.err`) and increments the `bad` counter while allowing valid scripts to export.
@@ -44,7 +44,7 @@
 import Foundation
 import CommonCrypto
 
-// MARK: - Setup Models (mirrors bridge/mitm/script.go jsSetup / jsArg / jsEnv)
+// MARK: - Setup Models
 
 struct NCJSArg: Codable, Equatable {
     var has: Bool
@@ -88,7 +88,7 @@ struct NCJSSetup: Codable, Equatable {
     }
 }
 
-// MARK: - Manifest Entry & Root Models (mirrors bridge/mitm/exportsnap.go)
+// MARK: - Manifest Entry & Root Models
 
 struct NCScriptManifestEntry: Encodable {
     var i: Int
@@ -191,7 +191,7 @@ enum NCScriptManifest {
         return prefix + "var __egernMain = " + suffix + "\n;\n" + egernPrelude
     }
 
-    /// Strips BOM and adapts Egern scripts (bridge/mitm/script.go scriptCode).
+    /// Strips BOM and adapts Egern scripts.
     static func scriptCode(_ src: Data) throws -> String {
         var code = String(decoding: src, as: UTF8.self)
         if code.hasPrefix("\u{FEFF}") {
@@ -203,7 +203,7 @@ enum NCScriptManifest {
         return code
     }
 
-    /// Computes timeout in milliseconds (bridge/mitm/script.go scriptTimeout).
+    /// Computes timeout in milliseconds.
     static func scriptTimeout(sc: NCEngineScript, maxTimeoutMs: Int64, defTimeoutMs: Int64) -> Int64 {
         // A module's `timeout=99999999999999999` overflowed Int64 (trap) on `* 1000`; any such value is past the
         // cap anyway, so overflow clamps to maxTimeoutMs (negative overflow → the default, like <= 0).
@@ -219,7 +219,7 @@ enum NCScriptManifest {
         return timeoutMs
     }
 
-    /// Generates static base setup for __tern_begin (bridge/mitm/script.go setupJSON(nil, nil)).
+    /// Generates static base setup for __tern_begin.
     static func setupJSON(script sc: NCEngineScript, cfg: NCEngineConfig?, isTask: Bool) -> (setup: NCJSSetup?, err: String?) {
         let arg = NCJSArg(has: sc.hasArgument, obj: sc.argObject, s: sc.argument)
         let env = NCJSEnv(
@@ -385,7 +385,7 @@ enum NCScriptManifest {
         }
     }
 
-    // MARK: - Egern Prelude (bridge/mitm/egernadapter.go egernPrelude)
+    // MARK: - Egern Prelude
 
     static let egernPrelude: String = #"""
 (function () {

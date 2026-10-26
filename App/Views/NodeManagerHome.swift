@@ -247,7 +247,7 @@ struct NodeManagerView: View {
 
             UpdateNotifySection()
 
-            // v0.12: QX resource_parser_url, stored only (mihomo parses resources natively).
+            // v0.12: QX resource_parser_url, stored only (Clash.Meta parses resources natively).
             Section {
                 DisclosureGroup("高级") {
                     TextField("资源解析器地址（resource_parser_url）", text: $parserURL, axis: .vertical)

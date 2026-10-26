@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 工具 → 节点与订阅 → 代理链 (Loon 代理链): the list of chains. A row shows the hops in order; the switch is 启用,
-/// tap edits, left swipe 删除, long-press shows every action. bridge/proxychains.go builds the chains.
+/// tap edits, left swipe 删除, long-press shows every action. the retired bridge the chains.
 struct ProxyChainsView: View {
     @ObservedObject private var store = ProxyChainStore.shared
     @State private var editing: ProxyChain?

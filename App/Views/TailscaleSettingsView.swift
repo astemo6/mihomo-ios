@@ -358,7 +358,7 @@ struct TailscaleSettingsView: View {
     }
 }
 
-/// One live Tailscale node as the core reports it (bridge tailnetinfo.go fallback).
+/// One live Tailscale node as the core reports it.
 struct TailnetNodeInfo: Decodable, Equatable {
     var name: String
     var started: Bool

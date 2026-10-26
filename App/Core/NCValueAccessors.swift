@@ -1,8 +1,8 @@
 import CryptoKit
 import Foundation
 
-/// nc-integrate: the bridge's loose accessors (bridge/inspect.go str / intOf / boolOf / strList, nodes.go truthy)
-/// over NCJSONValue, for the ports that read YAML trees the way the Go code read map[string]any.
+/// nc-integrate: the bridge's loose accessors
+/// over NCJSONValue, for the ports that read YAML trees the way the old code read map[string]any.
 /// str(): fmt.Sprint of a scalar (YAML ints print without a fraction); intOf(): number or numeric string;
 /// boolOf(): a bool or a truthy string ("1", "true", "yes", "on").
 
@@ -34,7 +34,7 @@ func ncBool(_ v: NCJSONValue?) -> Bool {
 
 func ncInt(_ v: NCJSONValue?) -> Int {
     switch v {
-    // Go's int(float64) never traps; Swift's Int(Double) does at |d| ≥ 2^63 (Double(Int.max) is 2^63, so `<`).
+    // the old core's int(float64) never traps; Swift's Int(Double) does at |d| ≥ 2^63 (Double(Int.max) is 2^63, so `<`).
     case .number(let d)?: return d.isFinite && d >= Double(Int.min) && d < Double(Int.max) ? Int(d) : 0
     case .string(let s)?: return Int(s.trimmingCharacters(in: .whitespaces)) ?? 0
     default: return 0
@@ -60,9 +60,9 @@ func ncJSONString(_ any: Any) -> String {
     return String(decoding: d, as: UTF8.self)
 }
 
-/// bridge providerCache (inspect.go) — the file mihomo reads for a provider: `path` resolved against the home
-/// (C.Path.Resolve), else C.Path.GetPathByHash(prefix, url) = <home>/<rules|proxies>/<hex md5(url)> (mihomo
-/// utils.MakeHash(...).String() is the MD5 hex). The url is the runtime one (mirrored / convert URL), as in Go.
+/// bridge providerCache (inspect.go) — the file Clash.Meta reads for a provider: `path` resolved against the home
+/// (C.Path.Resolve), else C.Path.GetPathByHash(prefix, url) = <home>/<rules|proxies>/<hex md5(url)> (Clash.Meta
+/// utils.MakeHash(...).String() is the MD5 hex). The url is the runtime one (mirrored / convert URL), as in the old core.
 func ncProviderCachePath(home: String, kind: String, _ m: [String: NCJSONValue]) -> String {
     let p = ncStr(m["path"])
     if !p.isEmpty {

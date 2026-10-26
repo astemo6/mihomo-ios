@@ -3,14 +3,14 @@ import CryptoKit
 import Security
 import os
 
-/// SSH outbound (mihomo v1.19.33 adapter/outbound/ssh.go: one shared client per proxy, a direct-tcpip channel per
+/// SSH outbound (Clash.Meta v1.19.33 adapter/outbound/ssh.go: one shared client per proxy, a direct-tcpip channel per
 /// flow) as a pure-Swift SSH-2 client (feat/nc-proto A3, based on astemo6/Muse NativeCore).
 /// Transport: curve25519-sha256 / ecdh-sha2-nistp256, host keys ssh-ed25519 / ecdsa-sha2-nistp256 /
-/// rsa-sha2-256/512 (signature always verified; `host-key` pins the blob like mihomo; without a pin the first-seen
+/// rsa-sha2-256/512 (signature always verified; `host-key` pins the blob like Clash.Meta; without a pin the first-seen
 /// key is remembered per server:port and a changed key is refused — TOFU, NCSSHKnownHosts, rv2-proto), ciphers
 /// aes128/256-gcm@openssh.com and aes128/256-ctr + hmac-sha2-256, server-initiated re-keying.
 /// Auth: password; private keys inline (OpenSSH unencrypted ed25519 / ecdsa-p256, PEM EC P-256, PEM/PKCS#8 RSA,
-/// PKCS#8 Ed25519). Channel windows are 512 KB per flow (memory-bounded; Go uses 2 MB).
+/// PKCS#8 Ed25519). Channel windows are 512 KB per flow (memory-bounded; the old core uses 2 MB).
 enum NCSSHWire {
     static func string(_ d: Data) -> Data { var o = Data(); o.appendBE32(UInt32(d.count)); o.append(d); return o }
     static func string(_ s: String) -> Data { string(Data(s.utf8)) }

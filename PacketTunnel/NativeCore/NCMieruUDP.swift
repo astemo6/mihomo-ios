@@ -4,7 +4,7 @@ import Foundation
 
 // nc-integrate merge: the stack-facing UDP session (NCUDPSession is tunnel-only) split out of Shared/NativeCore/NCMieru.swift.
 
-/// UDP over a mieru session (mihomo: UDP ASSOCIATE session → PacketOverStreamTunnel → UDPAssociateWrapper):
+/// UDP over a mieru session (Clash.Meta: UDP ASSOCIATE session → PacketOverStreamTunnel → UDPAssociateWrapper):
 /// each datagram = 0x00 ‖ len(2) ‖ [00 00 00 ‖ ATYP ADDR PORT ‖ payload] ‖ 0xFF.
 final class NCUDPMieruSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }

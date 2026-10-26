@@ -1,23 +1,23 @@
 // Native MitM stage 3, lane s3-script — the response phase of a natively forwarded request whose response rules
 // include http-response scripts, in Swift.
 //
-// It reproduces what the Go flow API answers for the same request (flow_request.go runResponse around handler.go
+// It reproduces what the old flow API answers for the same request (flow_request.go runResponse around handler.go
 // modifyResponse with the native body lane): header rules and scripts in rule order; the body loaded once, at the
-// first script that needs it, through the same admission (Go: slots, budgets, locks, memory gates) into
-// NativeBodyStore (decoded there, Go's lane rules); every skip / error path with Go's own messages; $done applied
+// first script that needs it, through the same admission (the old core: slots, budgets, locks, memory gates) into
+// NativeBodyStore (decoded there, the old core's lane rules); every skip / error path with the old core's own messages; $done applied
 // exactly as modifyResponse applies it (status validity, header replacement, Set-Cookie, body from the store or
 // bytes, Content-Length / Content-Encoding / Transfer-Encoding); the final decision shaped like runResponse's
 // (respond: none / upstream / read / lane, upgrade, error for an abort).
 //
-// The body never enters Go: the session pushes it here (need-body), it is decoded into the store, JavaScriptCore
+// The body never enters the old core: the session pushes it here (need-body), it is decoded into the store, JavaScriptCore
 // reads it from there, a large result stays there, and the session streams the answer from there (lane mode).
 //
-// Hand-back: before anything ran, a response this does not support goes to the Go flow (NativeRewriteDriver re-runs
-// the request phase in Go, then FlowResponse) — so every unsupported shape answers exactly as before:
-//   - the store, JavaScriptCore (with its execution time limit) or the Go engine is not available;
-//   - a script needs the body and the upstream body is chunked / close-delimited (its size is unknown: Go streams
-//     an oversized one through, which needs the Go pipe), or its Content-Encoding is not one the store decodes;
-//   - a non-body script precedes a body script, or a header rule touching Content-Encoding precedes one (Go reads
+// Hand-back: before anything ran, a response this does not support goes to the old flow (NativeRewriteDriver re-runs
+// the request phase in the old core, then FlowResponse) — so every unsupported shape answers exactly as before:
+//   - the store, JavaScriptCore (with its execution time limit) or the old engine is not available;
+//   - a script needs the body and the upstream body is chunked / close-delimited (its size is unknown: the old core streams
+//     an oversized one through, which needs the old core pipe), or its Content-Encoding is not one the store decodes;
+//   - a non-body script precedes a body script, or a header rule touching Content-Encoding precedes one (the old core reads
 //     the encoding when it loads the body);
 //   - the store refuses to open the body (memory floor).
 
@@ -37,7 +37,7 @@ protocol ScriptBodyStore: JSCNativeBlobProvider {
 
 extension NativeBodyStore: ScriptBodyStore {}
 
-/// One response-phase rule of a native script flow (Go's f.rules entry).
+/// One response-phase rule of a native script flow (the old core's f.rules entry).
 struct ScriptPlanStep {
     enum Kind {
         case header([RWSnapHeaderOp])
@@ -47,7 +47,7 @@ struct ScriptPlanStep {
     var kind: Kind
 }
 
-/// The request as the response scripts see it ($request: Go's resp.Request = the outbound request).
+/// The request as the response scripts see it ($request: the old core's resp.Request = the outbound request).
 struct ScriptRequestView {
     var url: String          // f.url
     var method: String
@@ -70,7 +70,7 @@ struct ScriptResponseOutput {
     var rules: [Int] = []
     var notes: [String] = []
     var logHeaders: [[String]] = []
-    /// abort / lost result: the 「上游错误：」 reason (shortErr(err) is applied by Go).
+    /// abort / lost result: the 「上游错误：」 reason (shortErr(err) is applied by the old core).
     var abortWhy: String?
 }
 
@@ -211,7 +211,7 @@ final class NativeScriptResponse {
             switch step.kind {
             case .header(let ops):
                 rules.append(step.rule)
-                _ = NativeRewriteEngine.apply(ops, to: &header, firstLine: "HTTP/1.1 " + NetStatus.status(status)) // add / del / replace only (regex ops → Go at decide)
+                _ = NativeRewriteEngine.apply(ops, to: &header, firstLine: "HTTP/1.1 " + NetStatus.status(status)) // add / del / replace only (regex ops → the old core at decide)
                 pos += 1
             case .script(let requiresBody):
                 let ans = hostAPI.reserve(gen: gen, rule: step.rule, token: token)
@@ -275,7 +275,7 @@ final class NativeScriptResponse {
         if h <= 0 {
             hostAPI.bodyRelease(ticket: t)
             if !sideEffects { return .handBack("store refused") }
-            // after a script ran Go can no longer take over: Go's lane failure path (counted)
+            // after a script ran the old core can no longer take over: the old core's lane failure path (counted)
             loaded = true
             tooBig = true
             respSkip = hostAPI.bodyFailed(ticket: 0, url: req.url, kind: "lane", raw: 0, detail: "open refused")
@@ -429,7 +429,7 @@ final class NativeScriptResponse {
         }
     }
 
-    /// setupJSON for the response phase: Go's base + phase, $request (the outbound request, Host added), $response.
+    /// setupJSON for the response phase: the old core's base + phase, $request (the outbound request, Host added), $response.
     private func setupJSON(base: String, run: NativeScriptRun, body: Bool) -> String {
         var obj = ((try? JSONSerialization.jsonObject(with: Data(base.utf8))) as? [String: Any]) ?? [:]
         obj["phase"] = "response"

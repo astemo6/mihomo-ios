@@ -4,13 +4,13 @@ import UIKit
 /// test/selftest: synthetic demo state for the simulator UI tests (UITests/, .github/workflows/ui-tests.yml).
 ///
 /// Active only when the app is launched with `-UITestSeed` (never on a device otherwise):
-/// - `MihomoApp.init` calls `resetIfNeeded()` first: the app's container and defaults are wiped, onboarding and
+/// - `TernApp.init` calls `resetIfNeeded()` first: the app's container and defaults are wiped, onboarding and
 ///   the exit-IP lookups are switched off (no network data in screenshots).
 /// - `RootView` runs `seedIfNeeded()`: one demo profile (documentation IPs 192.0.2.x / 198.51.100.x, fake keys,
 ///   select / url-test / fallback / hidden groups, a file proxy-provider stub), manual nodes from share links,
 ///   a node subscription stub with a cached node file, a local module with a panel, and the sample import files
 ///   (QX, Surge, Clash, Loon, share links) under Documents/UITestSamples.
-/// - `-UITestImport <file>` then opens that sample through ImportRouter like 「用 Mihomo 打开」.
+/// - `-UITestImport <file>` then opens that sample through ImportRouter like 「用 Tern 打开」.
 /// Nothing here is real user data.
 enum UITestSeed {
     static var args: [String] { ProcessInfo.processInfo.arguments }

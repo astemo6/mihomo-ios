@@ -1,21 +1,21 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 import Compression
 import Foundation
 import os
 
 /// The native body lane for MitM response bodies.
-/// Decodes gzip, deflate, and brotli streamingly into malloc'd memory without touching Go.
+/// Decodes gzip, deflate, and brotli streamingly into malloc'd memory without touching the old core.
 /// JSC reads them directly through JSCNativeBlobProvider.
 final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
     static let shared = NativeBodyStore()
     static let defaultBlobBase: Int64 = 10_000_000
 
-    /// Large `__tern.put` / UTF-8 results at least this big stay in the lane (smaller ones go to Go as before).
+    /// Large `__tern.put` / UTF-8 results at least this big stay in the lane (smaller ones go to the old core as before).
     let putMin = 64 << 10
     /// Decoder output scratch per call.
     private static let scratchSize = 64 << 10
-    /// Refuse new bodies below this much available memory (Go's dynamic budget normally refuses first).
+    /// Refuse new bodies below this much available memory (the old core's dynamic budget normally refuses first).
     private static let availFloor = 6 << 20
     /// rv2-life: all live bodies together (raw + decoded bytes) stay under this; a new body / store / adopt that
     /// would cross it is refused (the caller falls back to its non-lane path). 12 MB ≈ a quarter of the ~50 MB
@@ -46,7 +46,7 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         /// gzip: bytes of `raw` already consumed as headers / deflate data / trailers; deflate: zlib header seen.
         var consumed = 0
         var inHeader = true
-        /// gzip member being decoded: CRC-32 and size of its output (checked against the trailer like Go's
+        /// gzip member being decoded: CRC-32 and size of its output (checked against the trailer like the old core's
         /// compress/gzip, so a damaged body never reaches a script).
         var crc: UInt32 = 0
         var memberSize = 0
@@ -327,7 +327,7 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         return "native bodies \(all.count) (\(String(format: "%.1f", Double(bytes) / 1_048_576)) MB), opened \(o), refused \(r), expired \(ex)"
     }
 
-    /// feat/s3-mem (native memory governor): gives back slack no reader needs. Bodies are never dropped (Go still
+    /// feat/s3-mem (native memory governor): gives back slack no reader needs. Bodies are never dropped (the old core still
     /// reads a failed body's raw bytes to pass them through); a finished body's buffers are copied to their exact
     /// size when they can hold slack — `raw` reserved from Content-Length but shorter, `dec` grown by appending (up
     /// to ~2× its size) — each at most once and only up to `maxCopy` bytes per buffer (the copy briefly needs that
@@ -375,9 +375,9 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         guard let b = locked(h) else { return nil }
         defer { b.lock.unlock() }
         guard !b.failed else { return nil }
-        // Valid UTF-8 only: invalid input goes to the Go host, whose U+FFFD replacement is the reference
+        // Valid UTF-8 only: invalid input goes to the old core host, whose U+FFFD replacement is the reference
         // (strings.ToValidUTF8 — one U+FFFD per run of invalid bytes). Not String(data:encoding:), which drops a
-        // leading BOM that Go's string(b) keeps: decode leniently, then accept only an exact round trip.
+        // leading BOM that the old core's string(b) keeps: decode leniently, then accept only an exact round trip.
         return b.decoded.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> String? in
             let s = String(decoding: buf, as: UTF8.self)
             return s.utf8.elementsEqual(buf) ? s : nil
@@ -479,7 +479,7 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
             case .deflate:
                 if b.inHeader {
                     // zlib wrapper (RFC 1950) as HTTP specifies; raw DEFLATE when the first two bytes are not one
-                    // (some servers), like the Go path.
+                    // (some servers), like the old path.
                     if b.raw.count < 2 { return finalize ? fail2(b, "truncated deflate header") : "" }
                     let cmf = b.raw[b.raw.startIndex], flg = b.raw[b.raw.startIndex + 1]
                     let zlib = cmf & 0x0f == 8 && (UInt16(cmf) << 8 | UInt16(flg)) % 31 == 0

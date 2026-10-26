@@ -1,24 +1,24 @@
 // Native MitM stage 3a — the rewrite decision engine in Swift.
 //
-// Evaluates the Ruleset snapshot Go exports (RewriteSnapshot.swift) for one HTTP/1.1 request on a decrypted
-// connection and reproduces what the Go flow API (bridge/mitm/flow.go FlowBegin / FlowResponse, i.e. handler.go
+// Evaluates the Ruleset snapshot the old core exports (RewriteSnapshot.swift) for one HTTP/1.1 request on a decrypted
+// connection and reproduces what the old flow API (the retired bridge / FlowResponse, i.e. handler.go
 // requestPhase + flowOutbound and modifyResponse) would answer:
 //
 //   1. URL rewrite, first match: reject / reject-200 / reject-img / reject-dict / reject-array → local answer,
 //      reject-drop → drop, 302 / 307 → local redirect (regexp2 replacement), header → the request goes on to the
 //      rewritten URL.
-//   2. Map Local, first match: the inline answer Go precomputed (text / json / base64 / tiny-gif).
-//   3. Request header rewrites (add / del / replace / replace-regex, Host handled like Go) in rule order.
+//   2. Map Local, first match: the inline answer the old core precomputed (text / json / base64 / tiny-gif).
+//   3. Request header rewrites (add / del / replace / replace-regex, Host handled like the old core) in rule order.
 //   4. Response rules against the final URL: header rewrites are applied natively to the upstream's head.
 //   5. The outbound request exactly as httputil.ReverseProxy would send it (hop-by-hop headers, Te: trailers,
 //      Upgrade, Forwarded / X-Forwarded-*), the body passed through untouched.
 //
-// Everything else is .deferred(reason): the session asks the Go flow as before. That covers any script (request or
-// response — the JSC host runs it through Go), body / jq / json rewrites, Map Local from a file, QX url-and-header
-// conditions and raw header regex, any pattern / replacement Go did not mark portable or ICU will not compile, and
-// any input Swift cannot prove Go reads the same way (non-ASCII or odd request targets, hosts, Content-Length…).
+// Everything else is .deferred(reason): the session asks the old flow as before. That covers any script (request or
+// response — the JSC host runs it through the old core), body / jq / json rewrites, Map Local from a file, QX url-and-header
+// conditions and raw header regex, any pattern / replacement the old core did not mark portable or ICU will not compile, and
+// any input Swift cannot prove the old core reads the same way (non-ASCII or odd request targets, hosts, Content-Length…).
 // Deferring is always correct; deciding natively must be identical — UnitTests/NativeMitmRewriteTests.swift
-// replays Go-generated decisions (bridge/mitm/rewritesnap_test.go) to hold it to that.
+// replays old-core-generated decisions to hold it to that.
 
 import Foundation
 
@@ -34,15 +34,15 @@ struct RewriteRequest {
     var tls: Bool = true
 }
 
-/// What a native decision tells the request log (bridge/mitm/nativerecord.go): what Go's requestPhase would have
+/// What a native decision tells the request log: what the old core's requestPhase would have
 /// written into the Entry up to the decision.
 struct RewriteLog {
-    var rules: [Int] = []          // Ruleset indices in Go's Match order
+    var rules: [Int] = []          // Ruleset indices in the old core's Match order
     var url = ""                   // the URL at the decision (after a header URL rewrite)
-    var host = ""                  // r.Host as the request arrived (Go strips the port)
+    var host = ""                  // r.Host as the request arrived (the old core strips the port)
     var method = ""
     var tls = true
-    var headers: [[String]] = []   // local: the response headers Go logs; forward: r.Header after the request rules
+    var headers: [[String]] = []   // local: the response headers the old core logs; forward: r.Header after the request rules
     // native request scripts (native-final): the drop reason of a script's abort (「脚本中止：<name>」), the
     // request-log notes of the request scripts (skipped / failed, in order) and the method after them when changed
     var why = ""
@@ -51,7 +51,7 @@ struct RewriteLog {
 }
 
 /// The outcome of one http-request script the native dispatcher ran (NativeRequestScripts.swift), applied by the
-/// engine where Go's requestPhase applies it (handler.go: Match, abort, local answer, URL / method / headers / body).
+/// engine where the old core's requestPhase applies it (handler.go: Match, abort, local answer, URL / method / headers / body).
 struct RequestScriptOutcome {
     enum Kind { case skipped, failed, ran }
     struct Mock {
@@ -71,7 +71,7 @@ struct RequestScriptOutcome {
 }
 
 /// What the engine needs from the request-script dispatcher: the outcomes so far (by Ruleset index) and whether the
-/// client's request body is in Swift's hands (Go: loadBody read it).
+/// client's request body is in Swift's hands (the old core: loadBody read it).
 struct RequestScriptState {
     var outcomes: [Int: RequestScriptOutcome] = [:]
     var bodyLoaded = false
@@ -100,7 +100,7 @@ enum RewriteDecision {
         /// The local body's full length / bytes (Entry.Bytes; captured when capture is on). `body` is what is sent.
         var logBody = Data()
         /// Entry.Bytes when it is not logBody.count (a streamed Map Local file), and whether the body is never
-        /// captured (Go's serveLargeMapLocal logs no body).
+        /// captured (the old core's serveLargeMapLocal logs no body).
         var logLen: Int64?
         var logNoCapture = false
     }
@@ -123,7 +123,7 @@ enum RewriteDecision {
     struct ResponsePlan {
         var ops: [[RWSnapHeaderOp]] = []
         var rules: [Int] = []
-        /// stage 3b: header and body rules in Go's order; hasBody → NativeBodyExec.response, not respond().
+        /// stage 3b: header and body rules in the old core's order; hasBody → NativeBodyExec.response, not respond().
         var steps: [ResponseStep] = []
         var hasBody = false
         /// Lane s3-script: the response rules in order (header and script) when http-response scripts matched —
@@ -207,7 +207,7 @@ final class NativeRewriteEngine {
 
     let generation: Int64
     let on: Bool
-    /// Go applies the response header rules when Swift cannot (respond()); nil in tests without Go.
+    /// the old core applies the response header rules when Swift cannot (respond()); nil in tests without the old core.
     var headerOpsFallback: ((_ gen: Int64, _ rules: [Int], _ status: Int, _ headers: [[String]]) -> [[String]]?)?
     let capture: Bool
     private let rules: [Rule]
@@ -372,7 +372,7 @@ final class NativeRewriteEngine {
     }
 
     /// Request-line + Host + headers as matchReq builds them for a QX url-and-header condition, with the header
-    /// map walked in `order` (Go walks its map in random order; Swift tries two orders and defers when they differ).
+    /// map walked in `order` (the old core walks its map in random order; Swift tries two orders and defers when they differ).
     private static func headerBlock(_ r: Req, reversed: Bool) -> String {
         var s = r.method + " " + r.requestURI + " HTTP/1.1\r\n"
         if !r.host.isEmpty { s += "Host: " + r.host + "\r\n" }
@@ -385,7 +385,7 @@ final class NativeRewriteEngine {
     /// bodies: stage 3b body rules may be run natively (NativeBodyRuntime.enabled); false = stage 3a behaviour.
     /// scripts: lane s3-script — response-phase http-response scripts are planned for the native script dispatcher
     /// instead of deferring the request (request-phase scripts: see requestScripts, final integration).
-    /// A request that would need both a native body flow and a native script flow is handed to Go.
+    /// A request that would need both a native body flow and a native script flow is handed to the old core.
     func decide(_ q: RewriteRequest, bodies: Bool = false, scripts: Bool = false) -> RewriteDecision {
         var pause: RequestScriptPause?
         return decideCore(q, bodies: bodies, scripts: scripts, requestScripts: nil, pause: &pause)
@@ -394,12 +394,12 @@ final class NativeRewriteEngine {
     /// native-final: decide with http-request scripts run by the native dispatcher. A request script without an
     /// outcome in `state` stops the engine: the answer is then .deferred and `pause` says which script and the request it
     /// sees; the dispatcher runs it, adds its outcome and calls this again (the request phase up to the script is
-    /// deterministic, so re-running it reaches the same point — exactly how Go's FlowHead.Scripted hand-over works).
+    /// deterministic, so re-running it reaches the same point — exactly how the old core's FlowHead.Scripted hand-over works).
     func decide(_ q: RewriteRequest, bodies: Bool, scripts: Bool, requestScripts state: RequestScriptState,
                 pause: inout RequestScriptPause?) -> RewriteDecision {
         pause = nil
-        // Go recorded a request script's body for capture, so with capture on the request used to be left to Go.
-        // Go-free there is no Go to take it: capture (captureBodies, default ON) must not switch request scripts
+        // the old core recorded a request script's body for capture, so with capture on the request used to be left to the old core.
+        // native-only there is no the old core to take it: capture (captureBodies, default ON) must not switch request scripts
         // off — the response side does the same.
         return decideCore(q, bodies: bodies, scripts: scripts, requestScripts: state, pause: &pause)
     }
@@ -407,7 +407,7 @@ final class NativeRewriteEngine {
     private func decideCore(_ q: RewriteRequest, bodies: Bool, scripts: Bool, requestScripts: RequestScriptState?,
                             pause: inout RequestScriptPause?) -> RewriteDecision {
         let bodies = bodies && !capture
-        // ---- FlowHead.request + requestURL, reproducing Go's parsing (or deferring where Swift cannot) ----
+        // ---- FlowHead.request + requestURL, reproducing the old core's parsing (or deferring where Swift cannot) ----
         let method = q.method.isEmpty ? "GET" : q.method
         if !method.utf8.allSatisfy(RWAscii.isTokenByte) { return .deferred("method") }
         let target = q.target.isEmpty ? "/" : q.target
@@ -452,7 +452,7 @@ final class NativeRewriteEngine {
         if let (hh, port) = NetURL.splitHostPort(host), (scheme == "https" && port == "443") || (scheme == "http" && port == "80") { urlHost = hh }
         var u = scheme + "://" + urlHost + r.requestURI
         if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .deferred("url") }
-        let clientBody = cl != 0     // the client sends a body (Go: r.Body is not http.NoBody)
+        let clientBody = cl != 0     // the client sends a body (the old core: r.Body is not http.NoBody)
 
         let active = on ? rules : []
 
@@ -504,7 +504,7 @@ final class NativeRewriteEngine {
                 guard rule.snap.targetOK == true, let re = rule.re else {
                     log.rules.removeLast(); skipRule("rewrite template", rule); continue
                 }
-                if rule.snap.tperr == true { break } // Replace fails: Go keeps the URL
+                if rule.snap.tperr == true { break } // Replace fails: the old core keeps the URL
                 guard let tp = rule.snap.tp, let nu = re.replaceFirst(u, tp) else {
                     log.rules.removeLast(); skipRule("rewrite template", rule); continue
                 }
@@ -553,7 +553,7 @@ final class NativeRewriteEngine {
                 case .yes: break
                 }
                 if rule.snap.opsOK != true {
-                    // Go-free: the portable ops apply, the others are skipped (apply's best-effort mode)
+                    // native-only: the portable ops apply, the others are skipped (apply's best-effort mode)
                     skipRule("header ops", rule)
                 }
                 log.rules.append(rule.snap.i)
@@ -572,7 +572,7 @@ final class NativeRewriteEngine {
                 case .yes: break
                 }
                 if rule.kind == "script", let rs = requestScripts {
-                    // native-final: an http-request script — its outcome where Go's requestPhase applies it
+                    // native-final: an http-request script — its outcome where the old core's requestPhase applies it
                     guard let sc = rule.snap.script else { return .deferred("request script") }
                     guard let o = rs.outcomes[rule.snap.i] else {
                         pause = RequestScriptPause(rule: rule.snap.i, requiresBody: sc.requiresBody == true, url: u, method: r.method,
@@ -599,7 +599,7 @@ final class NativeRewriteEngine {
                         return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: status, header: h, body: m.body), log, m.body)
                     }
                     if let nu = o.url, !nu.isEmpty, nu != u {
-                        // url.Parse(res.URL) with a host: Swift takes only what it parses exactly like Go
+                        // url.Parse(res.URL) with a host: Swift takes only what it parses exactly like the old core
                         guard let p = NetURL.parseAbsolute(nu) else { return .deferred("script url") }
                         u = nu
                         log.url = u
@@ -620,7 +620,7 @@ final class NativeRewriteEngine {
                         r.header = nh
                     }
                     if o.bodySet {
-                        // a body set over a client body nobody read: Go leaves the client's bytes unread (hand it over)
+                        // a body set over a client body nobody read: the old core leaves the client's bytes unread (hand it over)
                         if clientBody && !rs.bodyLoaded { return .deferred("script body over an unread client body") }
                         r.header.set("Content-Length", String(o.body.count)) // setBody
                         r.contentLength = Int64(o.body.count)
@@ -640,14 +640,14 @@ final class NativeRewriteEngine {
 
         if scriptsRan {
             if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .deferred("url") }
-            // request scripts next to request body rules: one body owner (Go) — hand the request over
+            // request scripts next to request body rules: one body owner (the old core) — hand the request over
             if !reqBodyRules.isEmpty {
                 for _ in reqBodyRules { NativeRewriteEngine.noteSkip("request body rule next to a request script") }
                 log.notes.append("跳过请求体规则（与请求脚本同时命中，原生引擎先运行脚本）")
                 reqBodyRules.removeAll()
             }
         }
-        // the request body rules (Go: loadBody once, setBody after each rule that succeeded)
+        // the request body rules (the old core: loadBody once, setBody after each rule that succeeded)
         var reqPlan: NativeRequestBodyPlan?
         if !reqBodyRules.isEmpty {
             if r.contentLength < 0 || r.contentLength > Int64(NativeBodyRuntime.maxBody) {
@@ -655,9 +655,9 @@ final class NativeRewriteEngine {
                 log.notes.append(r.contentLength < 0 ? "跳过请求体规则（分块请求体）" : "跳过请求体规则（请求体 \(r.contentLength >> 10) KB 超过上限）")
                 reqBodyRules.removeAll()
             } else if r.contentLength == 0 {
-                // no body (http.NoBody): a regex leaves it empty, a json / jq rule fails on it (Go skips the rule) —
-                // Go-free: the json / jq rules are skipped the same way, the regex rules leave it empty
-                // Go's json / jq rule errors on the empty body before ent.Match, so the request log does not list it
+                // no body (http.NoBody): a regex leaves it empty, a json / jq rule fails on it (the old core skips the rule) —
+                // native-only: the json / jq rules are skipped the same way, the regex rules leave it empty
+                // the old core's json / jq rule errors on the empty body before ent.Match, so the request log does not list it
                 let failed = Set(reqBodyRules.filter { $0.kind != "body" }.map(\.index))
                 if !failed.isEmpty {
                     log.rules.removeAll { failed.contains($0) }
@@ -683,7 +683,7 @@ final class NativeRewriteEngine {
                 guard let sc = rule.snap.script else {
                     skipRule("response script", rule); continue
                 }
-                // Go records the script's body; the native side does not (Go-free: the request log keeps the head)
+                // the old core records the script's body; the native side does not (native-only: the request log keeps the head)
                 hasScript = true
                 if sc.requiresBody == true { needRespBody = true }
                 steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .script(requiresBody: sc.requiresBody == true)))
@@ -702,8 +702,8 @@ final class NativeRewriteEngine {
             }
             var ops = rule.snap.headers ?? []
             // regex ops read the upstream's values, unknown until the response: the patterns must compile now
-            // (an input Swift cannot run them on is then handled by Go's header-op helper, see respond()).
-            // Go-free: an op whose pattern ICU cannot compile is dropped, the rule's other ops stay.
+            // (an input Swift cannot run them on is then handled by the old core's header-op helper, see respond()).
+            // native-only: an op whose pattern ICU cannot compile is dropped, the rule's other ops stay.
             let compiles: (RWSnapHeaderOp) -> Bool = { op in
                 guard op.op == "replace-regex" || op.op == "raw" else { return true }
                 guard let src = op.re else { return false }
@@ -718,8 +718,8 @@ final class NativeRewriteEngine {
             plan.steps.append(.header(ops, rule.snap.i))
             steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .header(ops)))
         }
-        // native-final: request scripts that ran and a response body flow → Go takes the request (one body owner)
-        // Go-free: scripts and body rules on one flow — the scripts run, the body rules are skipped (one body owner)
+        // native-final: request scripts that ran and a response body flow → the old core takes the request (one body owner)
+        // native-only: scripts and body rules on one flow — the scripts run, the body rules are skipped (one body owner)
         func dropBodySteps(_ why: String) {
             let n = plan.steps.filter { if case .body = $0 { return true }; return false }.count
             for _ in 0..<max(n, reqPlan == nil ? 0 : 1) { NativeRewriteEngine.noteSkip(why) }
@@ -732,12 +732,12 @@ final class NativeRewriteEngine {
             dropBodySteps("body rule next to a request script")
         }
         if hasScript {
-            // the native script dispatcher applies header ops without a Go fallback, and a script flow is not a body
-            // flow: a regex header op, a body rule or a request body rule next to a script → Go
+            // the native script dispatcher applies header ops without an old-core fallback, and a script flow is not a body
+            // flow: a regex header op, a body rule or a request body rule next to a script → the old core
             if plan.hasBody || reqPlan != nil {
                 dropBodySteps("body rule next to a response script")
             }
-            // Go-free: the dispatcher's native header ops are all there is (lenient regex) — no hand-over
+            // native-only: the dispatcher's native header ops are all there is (lenient regex) — no hand-over
             plan.scripts = steps
         }
 
@@ -747,7 +747,7 @@ final class NativeRewriteEngine {
         log.url = u
         log.headers = r.header.sortedPairs   // ent.ReqHeaders(r.Method, r.Header)
         if r.method != method { log.reqMethod = r.method }
-        // requestPhase: a response body rule / body script asks only for encodings Go can decode
+        // requestPhase: a response body rule / body script asks only for encodings the old core can decode
         if needRespBody { r.header.set("Accept-Encoding", "gzip, deflate, br") }
         var out = r.header
         let upType = out.containsToken("Connection", "Upgrade") ? out.get("Upgrade") : ""
@@ -756,7 +756,7 @@ final class NativeRewriteEngine {
         if teTrailers { out.set("Te", "trailers") }
         if !upType.isEmpty { out.set("Connection", "Upgrade"); out.set("Upgrade", upType) }
         for k in ["Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"] { out.del(k) }
-        // requestPhase: a response body rule makes Go ask only for encodings it can decode (after ent.ReqHeaders)
+        // requestPhase: a response body rule makes the old core ask only for encodings it can decode (after ent.ReqHeaders)
         if plan.hasBody { out.set("Accept-Encoding", "gzip, deflate, br") }
         guard let cleaned = NetURL.cleanQuery(r.query) else { return .deferred("query") }
         // out.URL.String(): r.URL with the target's scheme and host, the cleaned query
@@ -780,7 +780,7 @@ final class NativeRewriteEngine {
 
     // MARK: - Map Local from a file
 
-    /// Go's file / URL Map Local (handler.go serveLargeMapLocal, then mapLocalData), read here from the same path.
+    /// the old core's file / URL Map Local (handler.go serveLargeMapLocal, then mapLocalData), read here from the same path.
     private func mapLocalFile(_ l: RWSnapLocal, _ f: RWSnapFile, _ logIn: RewriteLog) -> RewriteDecision {
         var log = logIn
         let fm = FileManager.default
@@ -790,7 +790,7 @@ final class NativeRewriteEngine {
         if exists { attrs = try? fm.attributesOfItem(atPath: f.path) }
         let regular = exists && !isDir.boolValue && (attrs?[.type] as? FileAttributeType) == .typeRegular
         if f.remote == true {
-            // Go downloads a missing resource and refreshes a stale one: both stay with Go
+            // the old core downloads a missing resource and refreshes a stale one: both stay with the old core
             guard regular, let mtime = attrs?[.modificationDate] as? Date else { return .deferred("map local download") }
             if let maxAge = f.maxAge, maxAge > 0, Date().timeIntervalSince(mtime) > TimeInterval(maxAge) { return .deferred("map local stale") }
         }
@@ -814,7 +814,7 @@ final class NativeRewriteEngine {
             dl.logNoCapture = true
             return .local(dl)
         }
-        // mapLocalData: the whole file (a read error serves an empty body, like Go)
+        // mapLocalData: the whole file (a read error serves an empty body, like the old core)
         var body = Data()
         if regular {
             guard let d = try? Data(contentsOf: URL(fileURLWithPath: f.path)) else { return .deferred("map local read") }
@@ -851,7 +851,7 @@ final class NativeRewriteEngine {
         for ops in plan.ops {
             if NativeRewriteEngine.apply(ops, to: &h, firstLine: firstLine) { continue }
             // an upstream value Swift cannot run the regex on (non-ASCII, a QX raw rewrite whose result would
-            // depend on Go's map order…): Go applies the rules' ops (no flow — bridge MitmRewriteHeaderOps)
+            // depend on the old core's map order…): the old core applies the rules' ops (no flow — bridge MitmRewriteHeaderOps)
             guard let fb = headerOpsFallback, let pairs = fb(generation, plan.rules, status, before.sortedPairs) else { return nil }
             h = CanonicalHeader(raw: pairs)
             break
@@ -869,7 +869,7 @@ final class NativeRewriteEngine {
         let ct = h.get("Content-Type")
         let media = RWAscii.lower(RWAscii.trimSpace(String(ct.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")))
         // flow.go runResponse: an empty (Content-Length 0) body is http.NoBody, not the upstream's reader → "read"
-        // (Go hands back an empty body; the native driver serves it the same way).
+        // (the old core hands back an empty body; the native driver serves it the same way).
         let mode: FlowBodyMode = noBody ? .none : (contentLength == 0 ? .read : .upstream)
         return RewriteResponse(action: .respond, status: status, headers: h.sortedPairs, bodyMode: mode,
                                length: outLen, note: media == "text/event-stream" ? "flush" : nil, logHeaders: logHeaders)
@@ -880,13 +880,13 @@ final class NativeRewriteEngine {
     private enum M { case yes, no, unknown(String) }
 
     private func matches(_ rule: Rule, _ u: String, _ r: Req) -> M {
-        guard let re = rule.re else { return .no } // no pattern: Go's match is false
+        guard let re = rule.re else { return .no } // no pattern: the old core's match is false
         switch re.match(u) {
         case .no: return .no
         case .unknown: return .unknown("pattern")
         case .yes:
             guard rule.snap.hgate == true else { return .yes }
-            // QX url-and-header: the condition regex on the request line, Host and headers (matchReq). Go walks
+            // QX url-and-header: the condition regex on the request line, Host and headers (matchReq). the old core walks
             // its header map in random order: decide only when two orders agree (then the order does not matter
             // for this request).
             guard let hs = rule.snap.hre else { return .unknown("url-and-header") }
@@ -898,7 +898,7 @@ final class NativeRewriteEngine {
         }
     }
 
-    /// handler.go applyHeaderOps for the ops Go marked portable. false: an input Swift will not run a regex on.
+    /// handler.go applyHeaderOps for the ops the old core marked portable. false: an input Swift will not run a regex on.
     static func apply(_ ops: [RWSnapHeaderOp], to h: inout CanonicalHeader, firstLine: String) -> Bool {
         for op in ops {
             let name = op.name ?? "", value = op.value ?? ""
@@ -909,8 +909,8 @@ final class NativeRewriteEngine {
             case "replace-regex":
                 let v = h.get(name)
                 if v.isEmpty { continue }
-                guard let src = op.re else { continue }      // Go: no compiled regex → skipped
-                if op.tperr == true { continue }             // Go: Replace fails → unchanged
+                guard let src = op.re else { continue }      // the old core: no compiled regex → skipped
+                if op.tperr == true { continue }             // the old core: Replace fails → unchanged
                 guard let tp = op.tp, RWRegex.inputOK(v), v.utf8.count <= 65536 else { continue }
                 guard let nv = RWRegexCache.shared.regex(src).replaceAll(v, tp) else { continue }
                 h.set(name, nv)
@@ -920,7 +920,7 @@ final class NativeRewriteEngine {
                 guard let tp = op.tp else { continue }
                 let re = RWRegexCache.shared.regex(src)
                 guard let a = raw(h, re, tp, firstLine, reversed: false) else { continue }
-                // headers in sorted order (Go-era random map order is not reproduced)
+                // headers in sorted order (old-core random map order is not reproduced)
                 h = a
             default:
                 continue
@@ -977,7 +977,7 @@ final class NativeRewriteEngine {
         var h = header
         let bodyOK = status >= 200 && status != 204 && status != 304
         if !h.has("Content-Type") && h.get("Content-Encoding").isEmpty && bodyOK && first != nil {
-            return .deferred("content sniffing") // http.DetectContentType: not reproduced (Go always sets a type here)
+            return .deferred("content sniffing") // http.DetectContentType: not reproduced (the old core always sets a type here)
         }
         var length: Int64 = -1
         let cl = h.get("Content-Length")
@@ -994,11 +994,11 @@ final class NativeRewriteEngine {
         return .local(.init(status: status, headers: h.sortedPairs, body: body, bodyMode: mode, length: length))
     }
 
-    // MARK: - Input proofs (Swift decides only where Go provably reads the same)
+    // MARK: - Input proofs (Swift decides only where the old core provably reads the same)
 
-    /// A host[:port] Go keeps verbatim everywhere it is used: letters, digits, "-", ".", optional ":digits".
-    /// Header pairs from a script that Swift sends exactly as Go would (pairsHeader + the transport's checks):
-    /// token names, values without CR / LF / NUL. Anything else → Go.
+    /// A host[:port] the old core keeps verbatim everywhere it is used: letters, digits, "-", ".", optional ":digits".
+    /// Header pairs from a script that Swift sends exactly as the old core would (pairsHeader + the transport's checks):
+    /// token names, values without CR / LF / NUL. Anything else → the old core.
     static func scriptHeadersOK(_ hs: [[String]]) -> Bool {
         for kv in hs {
             guard kv.count == 2, !kv[0].isEmpty, kv[0].utf8.allSatisfy(RWAscii.isTokenByte) else { return false }

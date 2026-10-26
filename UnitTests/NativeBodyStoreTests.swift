@@ -2,9 +2,9 @@ import CryptoKit
 import XCTest
 @testable import Mihomo
 
-/// feat/native-mitm stage 1: NativeBodyStore (the native body lane) must decode exactly like the Go path. The
-/// corpus NativeBodyFixtures.json is written by Go (bridge/mitm/nativelane_fixtures_test.go), every "ok" case
-/// checked against the Go decoder there. Each case is fed in several chunk sizes so header / block / scratch
+/// feat/native-mitm stage 1: NativeBodyStore (the native body lane) must decode exactly like the old path. The
+/// corpus NativeBodyFixtures.json is written by the old core, every "ok" case
+/// checked against the old core decoder there. Each case is fed in several chunk sizes so header / block / scratch
 /// boundaries land everywhere.
 final class NativeBodyStoreTests: XCTestCase {
     private struct Fixture: Decodable {
@@ -56,7 +56,7 @@ final class NativeBodyStoreTests: XCTestCase {
                 XCTAssertEqual(verdict, f.expect, "\(f.name) chunk \(chunk): \(store.err(h))")
                 guard f.expect == "ok", verdict == "ok" else { continue }
                 XCTAssertEqual(Int(n), f.len, "\(f.name) chunk \(chunk): length")
-                // read back in pieces, as Go streams it to the client
+                // read back in pieces, as the old core streams it to the client
                 var out = Data()
                 while true {
                     guard let piece = store.read(h, raw: false, off: Int64(out.count), n: 32 << 10), !piece.isEmpty else { break }
@@ -93,7 +93,7 @@ final class NativeBodyStoreTests: XCTestCase {
         var seen = 0
         XCTAssertTrue(store.withDecoded(h) { seen = $0.count })
         XCTAssertEqual(seen, text.utf8.count)
-        // invalid UTF-8: no native text (the Go host owns the U+FFFD rules)
+        // invalid UTF-8: no native text (the old core host owns the U+FFFD rules)
         let bad = [UInt8]([0xff, 0xfe, 0x41]).withUnsafeBytes { store.store($0) }
         defer { store.free(bad) }
         XCTAssertNil(store.text(bad))
@@ -117,7 +117,7 @@ final class NativeBodyStoreTests: XCTestCase {
         return (f, try XCTUnwrap(Data(base64Encoded: f.data), name))
     }
 
-    /// Like Go's compress/gzip: the CRC-32 / ISIZE trailer of every member is checked.
+    /// Like the old core's compress/gzip: the CRC-32 / ISIZE trailer of every member is checked.
     func testGzipTrailerChecked() throws {
         let store = NativeBodyStore.shared
         let (f, data) = try fixture("gzip-plain")
@@ -144,7 +144,7 @@ final class NativeBodyStoreTests: XCTestCase {
             for chunk in [1, 7, 4096] {
                 let h = store.open(f.enc, limit: f.limit, hint: -1)
                 let (verdict, n) = Self.run(store, h, data + tail, chunk: chunk)
-                // a second "member" with a bad method byte is invalid -> garbage; Go errors there too, we pass the body
+                // a second "member" with a bad method byte is invalid -> garbage; the old core errors there too, we pass the body
                 XCTAssertEqual(verdict, "ok", "tail \(tail.count) chunk \(chunk): \(store.err(h))")
                 XCTAssertEqual(Int(n), f.len)
                 store.free(h)
@@ -163,7 +163,7 @@ final class NativeBodyStoreTests: XCTestCase {
         XCTAssertEqual(store.read(h, raw: false, off: 99_990, n: 100), d.subdata(in: 99_990..<100_000))
     }
 
-    /// Native text keeps a leading BOM (Go's string(b) does; String(data:encoding:) would drop it).
+    /// Native text keeps a leading BOM (the old core's string(b) does; String(data:encoding:) would drop it).
     func testTextKeepsBOM() {
         let store = NativeBodyStore.shared
         let h = [UInt8]([0xef, 0xbb, 0xbf, 0x7b, 0x7d]).withUnsafeBytes { store.store($0) }
@@ -175,7 +175,7 @@ final class NativeBodyStoreTests: XCTestCase {
         XCTAssertNil(store.text(bad))
     }
 
-    /// Several bodies decoded at once from different threads (Go calls from many goroutines), plus a free racing reads.
+    /// Several bodies decoded at once from different threads (the old core calls from many threads), plus a free racing reads.
     func testConcurrentHandles() throws {
         let store = NativeBodyStore.shared
         let cases = try ["br", "gzip-multi-member", "deflate-zlib", "gzip-header-fields"].map { try fixture($0) }

@@ -1,11 +1,11 @@
 import CryptoKit
 import Foundation
 
-/// A mihomo external-controller lookalike served by the native core, so the
-/// App's Dashboard / groups / connections pages keep working while the Go core
+/// A Clash.Meta external-controller lookalike served by the native core, so the
+/// App's Dashboard / groups / connections pages keep working while the old core
 /// is off: /version, /proxies (+ PUT/DELETE selection, delay tests),
 /// /group/{name}/delay, /connections, /traffic, /app/traffic, /configs, /rules.
-/// Anything else answers 404 — features that live in the Go engine (MitM,
+/// Anything else answers 404 — features that live in the old engine (MitM,
 /// providers) degrade in the App exactly like a stopped core would.
 final class NCController {
     private let engine: NativeCoreEngine
@@ -219,7 +219,7 @@ final class NCController {
             loggedFirst = true
             StartupLog.write("controller: first request \(req.method) \(req.path)")
         }
-        // The app's websocket streams pass the secret as ?token= (mihomo accepts both).
+        // The app's websocket streams pass the secret as ?token= (Clash.Meta accepts both).
         if !secret.isEmpty, req.headers["authorization"] != "Bearer \(secret)", req.query["token"] != secret {
             unauthorized &+= 1
             if unauthorized == 1 { StartupLog.write("controller: 401 for \(req.path) — the App's secret differs from the tunnel's") }
@@ -246,7 +246,7 @@ final class NCController {
         }
         switch (req.method, path) {
         case ("GET", "/providers/proxies"):
-            // fix/nc-ruleset-convert: the tunnel's proxy providers (nodes after filter / override), mihomo shape.
+            // fix/nc-ruleset-convert: the tunnel's proxy providers (nodes after filter / override), Clash.Meta shape.
             let snap = engine.groupEngine?.statusSnapshot()
             let delays = snap?.delays ?? [:], alive = snap?.alive ?? [:]
             let now = ISO8601DateFormatter().string(from: Date())
@@ -260,7 +260,7 @@ final class NCController {
         case ("GET", "/proxies"):
             respond(conn, status: 200, json: ["proxies": proxiesJSON()])
         case ("GET", "/smart"):
-            // 智能选择 status, same shape as the Go core's route (bridge/smart.go).
+            // 智能选择 status, same shape as the old core's route.
             respond(conn, status: 200, json: engine.smartStatusJSON())
         case ("GET", "/connections"):
             let snap = plane.stats.snapshot()
@@ -286,7 +286,7 @@ final class NCController {
             streamTraffic(conn)
         case ("GET", "/app/traffic"):
             respond(conn, status: 200, json: appTrafficJSON())
-        // fix/nc-e2e-gaps: 统计 page / 首页速度历史 / 网络 page (NCStatsRecorder, Go-era bridge/statsrecorder.go shape)
+        // fix/nc-e2e-gaps: 统计 page / 首页速度历史 / 网络 page
         case ("GET", "/app/stats"):
             let q = req.query
             respond(conn, status: 200, json: NCStatsRecorder.shared.statsJSON(
@@ -343,7 +343,7 @@ final class NCController {
             NativeLogRing.shared.clearGeneral()
             respond(conn, status: 204, json: nil)
         // fix/nc-e2e-real: DNS 页「清空 DNS 缓存 / 清空 Fake-IP 缓存」, 工具 → DNS 查询 and HTTPS 解密 / 脚本通知 status pages
-        // answered 404 on the native core (E2E 40278215218 contract rows). mihomo-compatible shapes.
+        // answered 404 on the native core (E2E 40278215218 contract rows). Clash.Meta-compatible shapes.
         case ("POST", "/cache/dns/flush"):
             engine.flushDNSCache()
             respond(conn, status: 204, json: nil)
@@ -378,7 +378,7 @@ final class NCController {
                 return
             }
             // fix/nc-delay-test: GET /providers/proxies/{provider}/{node}/healthcheck — how the App tests a
-            // proxy-provider (节点订阅) node (mihomo's route; /proxies/{name}/delay only knows config proxies there).
+            // proxy-provider (节点订阅) node (Clash.Meta's route; /proxies/{name}/delay only knows config proxies there).
             // It was missing: every provider node got 404 and the App showed 超时 for it.
             if comps.count == 5, comps[4] == "healthcheck", req.method == "GET" {
                 respondDelay(conn, name: comps[3], query: req.query)
@@ -477,7 +477,7 @@ final class NCController {
     private static let dnsTypes: [String: UInt16] = ["A": 1, "NS": 2, "CNAME": 5, "SOA": 6, "PTR": 12, "MX": 15, "TXT": 16,
                                                      "AAAA": 28, "SRV": 33, "SVCB": 64, "HTTPS": 65]
 
-    /// mihomo hub/route/dns.go shape: {Status, Question:[{name,type,Class}], TC, RD, RA, AD, CD, Answer:[{name,type,TTL,data}]}.
+    /// Clash.Meta hub/route/dns.go shape: {Status, Question:[{name,type,Class}], TC, RD, RA, AD, CD, Answer:[{name,type,TTL,data}]}.
     private func respondDNSQuery(_ conn: NCLoopbackConn, query: [String: String]) {
         guard let name0 = query["name"]?.trimmingCharacters(in: .whitespaces), !name0.isEmpty else {
             respond(conn, status: 400, json: ["message": "name is required"]); return
@@ -777,13 +777,13 @@ final class NCController {
 
     // MARK: Delay measurement
 
-    /// fix/nc-delay-test: `?timeout=` clamped to 500…30000 ms (Go route parity); default 5000.
+    /// fix/nc-delay-test: `?timeout=` clamped to 500…30000 ms (the old core route parity); default 5000.
     static func clampTimeout(_ q: String?) -> Int {
         min(max(Int(q ?? "") ?? 5000, 500), 30_000)
     }
 
     /// One node's delay (GET /proxies/{name}/delay and /providers/proxies/{p}/{name}/healthcheck): 200 {"delay"},
-    /// else 504 (timeout) / 503 (error) with the stage and the reason in "message" — mihomo's status codes.
+    /// else 504 (timeout) / 503 (error) with the stage and the reason in "message" — Clash.Meta's status codes.
     private func respondDelay(_ conn: NCLoopbackConn, name: String, query: [String: String]) {
         let url = query["url"] ?? "http://www.gstatic.com/generate_204"
         let timeout = Self.clampTimeout(query["timeout"])
@@ -806,7 +806,7 @@ final class NCController {
         }
     }
 
-    /// GET /tern/node-tcp-delay?name=&provider=&url=&timeout= (测速设置 → TCP 握手延迟, Go bridge parity): the TCP
+    /// GET /tern/node-tcp-delay?name=&provider=&url=&timeout= (测速设置 → TCP 握手延迟, old bridge parity): the TCP
     /// handshake time to the node's server for TCP nodes; the URL test otherwise. {"delay": ms}, 0 = failure.
     private func respondTCPDelay(_ conn: NCLoopbackConn, query: [String: String]) {
         let name = query["name"] ?? ""

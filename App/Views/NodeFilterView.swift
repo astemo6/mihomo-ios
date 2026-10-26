@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 节点管理 → 筛选节点 (v0.16): region filters from node names (the same patterns as 节点处理's region
-/// sort, bridge/subrules.go regionDefs). Each region opens its node list and can be added to the active
+/// sort, the retired bridge). Each region opens its node list and can be added to the active
 /// profile as an automatic group (include-all + filter) through the existing 策略组编辑 store.
 /// v0.15.4: every filter is editable per profile (name, keywords / regex, flag, group type, interval,
 /// tolerance), custom filters can be added, filters deleted and reordered. Renaming a filter that is already
@@ -32,7 +32,7 @@ struct RegionFilter: Codable, Hashable, Identifiable {
         s.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
-    /// mihomo `filter` (regexp2): exactly what the generated group gets, so preview == core.
+    /// Clash.Meta `filter` (regexp2): exactly what the generated group gets, so preview == core.
     var filter: String {
         if kind == "keywords" { return "(?i)" + Self.keywords(pattern).map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|") }
         return "(?i)" + pattern
@@ -146,7 +146,7 @@ enum RegionFilterStore {
             let nu = u.compactMap { $0 == old ? new : $0 }
             g.use = nu.isEmpty ? nil : nu
             if g.use == nil, g.proxies.isEmpty, g.includeAll != true, g.includeAllProxies != true, g.includeAllProviders != true {
-                g.proxies = ["DIRECT"] // mihomo refuses a group with nothing in it
+                g.proxies = ["DIRECT"] // Clash.Meta refuses a group with nothing in it
             }
             return true
         }

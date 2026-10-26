@@ -12,7 +12,7 @@ enum NCDNSUpstream: Equatable {
     case doh(url: String)
     case doq(host: String, port: Int)
     /// Ordered server list tried sequentially (short per-server timeout,
-    /// the last server that answered goes first next time) — mihomo /
+    /// the last server that answered goes first next time) — Clash.Meta /
     /// Surge use every configured nameserver, not just the first.
     indirect case group([NCDNSUpstream])
 

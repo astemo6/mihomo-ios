@@ -3,7 +3,7 @@ import Foundation
 // 规则 → 本地规则 → 配置规则 and 规则 → Final (user 2026-10-23 「本地规则点进去无法修改」「Final 指向无法修改」).
 // The profile's own rules come from bridge ProfileRules (the profile as the runtime build starts from it, with the
 // user's overrides from provider-overrides.json `#profile-rules` / `#final`); the edits are stored through
-// ProviderOverrideStore and applied by bridge/profileruleoverrides.go. The profile file is never rewritten.
+// ProviderOverrideStore and applied by the retired bridge. The profile file is never rewritten.
 
 /// One rule of the profile (bridge profileRuleItem).
 struct ProfileRuleItem: Decodable, Hashable, Identifiable {

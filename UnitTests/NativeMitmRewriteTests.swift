@@ -1,9 +1,9 @@
 import XCTest
 @testable import Mihomo
 
-/// Native MitM stage 3a: the Swift rewrite engine must decide every request it claims exactly like Go's flow API.
-/// NativeMitmRewriteFixtures.json is written by Go (bridge/mitm/rewritesnap_test.go TestGenRewriteFixtures): per
-/// suite the snapshot Go exports and, per request, what FlowBegin / FlowResponse really answered (or that Go would
+/// Native MitM stage 3a: the Swift rewrite engine must decide every request it claims exactly like the old core's flow API.
+/// NativeMitmRewriteFixtures.json is written by the old core: per
+/// suite the snapshot the old core exports and, per request, what FlowBegin / FlowResponse really answered (or that the old core would
 /// run a script / body rule — then Swift must defer). Suites: edge cases, the Surge/Loon/QX/Egern compat matrix,
 /// AppClean and YouTube modules in every dialect, and the user's QX corpus (work/qx-rewrite-remote.txt resources +
 /// the 30-module corpus). Deferring is always allowed; a native decision must match field for field.
@@ -43,7 +43,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         var resp: Resp?
         var log: LogEntry?
     }
-    /// The request-log entry Go's flow API left (bridge/mitm/nativerecord.go: what the native records must reproduce).
+    /// The request-log entry the old core's flow API left.
     struct LogEntry: Decodable, Equatable {
         var method: String
         var url: String
@@ -89,9 +89,9 @@ final class NativeMitmRewriteTests: XCTestCase {
         case .deferred:
             return nil
         case .drop:
-            return e.action == "drop" ? nil : "native drop, Go \(e.action)"
+            return e.action == "drop" ? nil : "native drop, expected \(e.action)"
         case .local(let l):
-            guard e.action == "local" else { return "native local \(l.status), Go \(e.action) \(e.note ?? "")" }
+            guard e.action == "local" else { return "native local \(l.status), expected \(e.action) \(e.note ?? "")" }
             if l.status != e.status { return "status \(l.status) vs \(e.status ?? 0)" }
             if l.headers != (e.headers ?? []) { return "headers \(l.headers) vs \(e.headers ?? [])" }
             if l.bodyMode.rawValue != (e.body ?? "none") { return "body mode \(l.bodyMode) vs \(e.body ?? "")" }
@@ -100,7 +100,7 @@ final class NativeMitmRewriteTests: XCTestCase {
             if l.bodyMode == .read && l.body != want { return "local body \(l.body.count) B vs \(want.count) B" }
             return nil
         case .forward(let f):
-            guard e.action == "forward" else { return "native forward \(f.url), Go \(e.action) \(e.note ?? "")" }
+            guard e.action == "forward" else { return "native forward \(f.url), expected \(e.action) \(e.note ?? "")" }
             if f.method != e.method { return "method \(f.method) vs \(e.method ?? "")" }
             if f.url != e.url { return "url \(f.url) vs \(e.url ?? "")" }
             if f.host != e.host { return "host \(f.host) vs \(e.host ?? "")" }
@@ -124,7 +124,7 @@ final class NativeMitmRewriteTests: XCTestCase {
 
     // MARK: conformance
 
-    /// The decision skipped a rule the native engine cannot run (Go-free tunnel: NativeRewriteEngine.skipRule).
+    /// The decision skipped a rule the native engine cannot run (native-only tunnel: NativeRewriteEngine.skipRule).
     private static func skipNoted(_ d: RewriteDecision) -> Bool {
         let notes: [String]
         switch d {
@@ -157,13 +157,13 @@ final class NativeMitmRewriteTests: XCTestCase {
                     continue
                 }
                 if c.needsGo == true || !expectNative {
-                    // Go-zero (nc-integrate): nothing stands behind .deferred any more. A rule Go
+                    // native-only (nc-integrate): nothing stands behind .deferred any more. A rule the old core
                     // ran as a script / body rule that the stage-3a engine cannot run is skipped on its own and noted
-                    // in the request log (gap C5); the fixture's Go answer includes that rule's effect, so the decision
+                    // in the request log (gap C5); the fixture's the old core answer includes that rule's effect, so the decision
                     // is not compared. A native decision without such a skip note is still a violation.
                     if Self.skipNoted(d) { nativeSkipped += 1; continue }
                     mustDefer += 1
-                    XCTFail("[\(s.name)] \(c.name): Go \(c.expect.action)\(c.needsGo == true ? " (script/body)" : "") but native decided \(d)")
+                    XCTFail("[\(s.name)] \(c.name): expected \(c.expect.action)\(c.needsGo == true ? " (script/body)" : "") but native decided \(d)")
                     continue
                 }
                 if let why = Self.compare(d, c, engine) {
@@ -181,12 +181,12 @@ final class NativeMitmRewriteTests: XCTestCase {
             perSuite.append("\(s.name) \(sn)/\(sn + sd)")
         }
         let top = reasons.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-        print("NativeMitmRewrite conformance: \(fx.suites.count) suites, \(total) cases; native == Go \(native), deferred \(deferred) (\(top)), mismatches \(mismatch), must-defer violations \(mustDefer), Go-free rule skips \(nativeSkipped); Go-native cases \(goNative); hosts ok \(hostsOK)")
+        print("NativeMitmRewrite conformance: \(fx.suites.count) suites, \(total) cases; native == fixture \(native), deferred \(deferred) (\(top)), mismatches \(mismatch), must-defer violations \(mustDefer), native rule skips \(nativeSkipped); fixture-native cases \(goNative); hosts ok \(hostsOK)")
         print("NativeMitmRewrite per suite (native/total): " + perSuite.joined(separator: "; "))
         XCTAssertEqual(mismatch, 0)
         XCTAssertEqual(mustDefer, 0)
         // guard against an engine that defers everything (always "correct", never useful)
-        XCTAssertGreaterThan(native, goNative / 2, "native engine decided only \(native) of \(goNative) Go-native cases")
+        XCTAssertGreaterThan(native, goNative / 2, "native engine decided only \(native) of \(goNative) fixture-native cases")
     }
 
     // MARK: regexp2 → ICU translation (lane s3-full)
@@ -213,10 +213,10 @@ final class NativeMitmRewriteTests: XCTestCase {
         return try JSONDecoder().decode(RxFixtures.self, from: Data(contentsOf: url))
     }
 
-    /// Go's ICU translations (bridge/mitm/rewriteicu.go) of 1500 generated regexp2 patterns and every CI-suite
+    /// the old core's ICU translations of 1500 generated regexp2 patterns and every CI-suite
     /// rule pattern, replayed on NSRegularExpression: match / first replacement / replace-all must equal what
-    /// regexp2 (or RE2, where Go matches URLs with it) produced. A pattern ICU refuses (an unbounded look-behind)
-    /// is fine — the engine then hands the request to Go.
+    /// regexp2 (or RE2, where the old core matches URLs with it) produced. A pattern ICU refuses (an unbounded look-behind)
+    /// is fine — the engine then hands the request to the old core.
     func testRegexTranslationMatchesRegexp2() throws {
         guard let fx = try regexFixtures() else { return }
         var ok = 0, refused = 0, bad = 0, checks = 0
@@ -246,8 +246,8 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertGreaterThan(ok, fx.cases.count * 9 / 10)
     }
 
-    /// lane regexp2 (Go-zero): RX2ICU translates the same 1600 regexp2 / RE2 patterns from their source text alone
-    /// (Unicode-faithful pieces instead of Go's ASCII sets) — match, first replacement, replace-all and the parsed
+    /// lane regexp2 (native-only): RX2ICU translates the same 1600 regexp2 / RE2 patterns from their source text alone
+    /// (Unicode-faithful pieces instead of the old core's ASCII sets) — match, first replacement, replace-all and the parsed
     /// replacement program must equal what regexp2 (RE2 for URL matchers) produced.
     func testRX2ICUMatchesRegexp2Fixtures() throws {
         guard let fx = try regexFixtures() else { return }
@@ -277,7 +277,7 @@ final class NativeMitmRewriteTests: XCTestCase {
                 let m = r.match(i.s)
                 if m == .unknown || (m == .yes) != i.m {
                     caseBad = true
-                    if bad < 20 { XCTFail("match \(c.re.p) → \(t.icu) on \(i.s.debugDescription): Go \(i.m), RX2ICU \(m)") }
+                    if bad < 20 { XCTFail("match \(c.re.p) → \(t.icu) on \(i.s.debugDescription): expected \(i.m), RX2ICU \(m)") }
                 }
                 if let tp = tp {
                     let f = r.replaceFirst(i.s, tp), a = r.replaceAll(i.s, tp)
@@ -340,7 +340,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(all("(a)", "[$0|${1}0|$10|$$|$&]", "a"), "[a|a0|$10|$|a]")
         // empty matches are walked like regexp2
         XCTAssertEqual(all("x*", "-", "ab"), "-a-b-")
-        // \_ is a literal _ (Go compiled such patterns with the escape dropped)
+        // \_ is a literal _ (the old core compiled such patterns with the escape dropped)
         XCTAssertEqual(rx(#"a\_b"#)?.match("a_b"), .yes)
         // what stays refused
         for p in ["(?(x)y|z)", #"\G"#, "(?<a-b>x)", "(?<n>a)(?<n>b)", "(?<1>a)", "[[:alpha:]]", #"\p{IsGreek}"#, "(?<=(a))b", "(a*)*b"] {
@@ -358,7 +358,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(tp?.r, [0, -7, 1, -6])
     }
 
-    /// lane regexp2: body ops on regexp2's path / Go's RE2 path exported as source run natively.
+    /// lane regexp2: body ops on regexp2's path / the old core's RE2 path exported as source run natively.
     func testBodySourceOps() {
         func rule(_ ops: String) -> NativeBodyRule? {
             let json = #"{"i":0,"kind":"body","phase":"response","re":{"p":"x","ok":true,"icu":"x","groups":0},"body":["# + ops + #"],"bodyOK":true}"#
@@ -377,7 +377,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertNil(rule(#"{"p":"(?(x)y)","repl":"X"}"#), "untranslatable: the rule stays skipped")
     }
 
-    /// net/url, net, net/http pieces (NetSemantics.swift) against Go's own answers.
+    /// net/url, net, net/http pieces (NetSemantics.swift) against the old core's own answers.
     func testNetSemantics() throws {
         guard let fx = try regexFixtures() else { return }
         XCTAssertEqual(NetURL.pathEsc.map { Int($0) }, fx.pathEsc.map { Int(UInt32(truncatingIfNeeded: $0)) })
@@ -385,10 +385,10 @@ final class NativeMitmRewriteTests: XCTestCase {
         for t in fx.net.targets {
             let got = NetURL.parseRequestURI(t.t)
             if t.err == true {
-                XCTAssertNil(got, "target \(t.t.debugDescription): Go errors")
+                XCTAssertNil(got, "target \(t.t.debugDescription): the fixture errors")
                 continue
             }
-            guard let g = got else { continue } // refused: Go decides (allowed)
+            guard let g = got else { continue } // refused: the old core decided (allowed)
             XCTAssertEqual(g.path, t.path ?? "", t.t)
             XCTAssertEqual(g.query, t.query ?? "", t.t)
             XCTAssertEqual(g.forceQuery, t.force ?? false, t.t)
@@ -427,7 +427,7 @@ final class NativeMitmRewriteTests: XCTestCase {
     }
 
     func testLiteralPrefilterSkipsRegex() {
-        // not translatable, but the literal proves it cannot match: decided without Go
+        // not translatable, but the literal proves it cannot match: decided without the old core
         let r = RWRegex(RWSnapRegex(p: "^https://a\\.com/(?(x)y)", ok: false, lit: "https://a.com/", fold: nil, groups: 0, named: nil, empty: false))
         if case .no = r.match("https://b.com/x") {} else { XCTFail("literal should rule it out") }
         if case .unknown = r.match("https://a.com/x") {} else { XCTFail("untranslatable pattern must be unknown") }
@@ -435,8 +435,8 @@ final class NativeMitmRewriteTests: XCTestCase {
         if case .yes = f.match("https://A.COM/x") {} else { XCTFail("explicit case sets") }
     }
 
-    /// Map Local from a file: read where Go reads it, Content-Type from the extension or sniffed, a missing local
-    /// file serves an empty body (Go's read error), a missing / stale remote one goes to Go, a large one is served
+    /// Map Local from a file: read where the old core reads it, Content-Type from the extension or sniffed, a missing local
+    /// file serves an empty body (the old core's read error), a missing / stale remote one goes to the old core, a large one is served
     /// whole with Content-Length and no captured body.
     func testMapLocalFile() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rwfile-\(UUID().uuidString)")
@@ -472,7 +472,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(m.status, 200)
         XCTAssertEqual(m.length, 0)
         XCTAssertEqual(m.bodyMode, .none)
-        if case .deferred = e.decide(q("/r")) {} else { XCTFail("missing remote file: Go downloads it") }
+        if case .deferred = e.decide(q("/r")) {} else { XCTFail("missing remote file: deferred") }
         guard case .local(let b) = e.decide(q("/b")) else { return XCTFail("large file") }
         XCTAssertEqual(b.length, Int64(600 << 10))
         XCTAssertEqual(b.body.count, 600 << 10)
@@ -482,7 +482,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(b.log.headers, [["Content-Length", "614400"], ["Content-Type", "text/plain; charset=utf-8"]])
     }
 
-    /// A response replace-regex on a value Swift does not run regexes on (non-ASCII) goes to Go's header-op
+    /// A response replace-regex on a value Swift does not run regexes on (non-ASCII) goes to the old core's header-op
     /// helper; without it the native response fails (the session then answers an error).
     func testResponseRegexFallsBackToGo() {
         let json = #"{"version":1,"gen":5,"on":true,"capture":false,"inc":[],"exc":[],"rules":[{"i":0,"kind":"header","phase":"response","re":{"p":"^https://f\\.com/","ok":true,"icu":"\\Ahttps\\x3a\\x2f\\x2ff\\x2ecom\\x2f","groups":0},"opsOK":true,"headers":[{"op":"replace-regex","name":"X-A","value":"y","re":{"p":"x","ok":true,"icu":"x","groups":0},"tp":{"s":["y"],"r":[0]}}]}]}"#
@@ -493,7 +493,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         let ascii = e.respond(f.response, status: 200, headers: [["X-A", "axa"], ["Content-Length", "0"]], length: 0, method: "GET")
         XCTAssertEqual(ascii?.headers, [["X-A", "aya"]])
         if RWRegex.lenient {
-            // Go-zero: the regex runs natively on the non-ASCII value; Go's header-op helper is never consulted
+            // native-only: the regex runs natively on the non-ASCII value; the old core's header-op helper is never consulted
             var asked = false
             e.headerOpsFallback = { _, _, _, _ in asked = true; return nil }
             let native = e.respond(f.response, status: 200, headers: [["X-A", "éx"]], length: 0, method: "GET")
@@ -599,7 +599,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         NativeRequestRecorder(sink: sink, maxQueued: 1 << 20, flushAt: 1 << 20, delay: 3600, watchMemory: false)
     }
 
-    /// What bridge/mitm/nativerecord.go makes of a request's events (the same Entry calls in the same order).
+    /// What the retired bridge of a request's events (the same Entry calls in the same order).
     private static func entry(_ evs: [Ev], labels: [String]) -> LogEntry? {
         guard let first = evs.first else { return nil }
         func flat(_ h: [[String]]?) -> [String: String]? {
@@ -655,7 +655,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         return x
     }
 
-    /// Every request the native driver answers produces, through its request-log events, exactly the entry Go's
+    /// Every request the native driver answers produces, through its request-log events, exactly the entry the old core's
     /// flow API wrote for it (matched labels, URL, host, status, headers, notes, bytes) — across all fixture suites.
     func testRequestLogMatchesGo() throws {
         let fx = try fixtures()
@@ -691,7 +691,7 @@ final class NativeMitmRewriteTests: XCTestCase {
             XCTAssertEqual(d.openLogEntries, 0, s.name)
             XCTAssertEqual(rec.stats.dropped, 0, s.name)
         }
-        print("NativeMitmRewrite request log: \(checked) native entries identical to Go's, \(failed) different")
+        print("NativeMitmRewrite request log: \(checked) native entries identical to the fixture's, \(failed) different")
         XCTAssertEqual(failed, 0)
         XCTAssertGreaterThan(checked, 1000)
     }
@@ -706,7 +706,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(r.stats.dropped, 2)
         XCTAssertEqual(r.stats.sent, 4)
 
-        // reaching flushAt sends without waiting for the delay; the JSON is what Go decodes (base64 body, no nulls)
+        // reaching flushAt sends without waiting for the delay; the JSON is what the old core decodes (base64 body, no nulls)
         let s2 = Sink()
         let r2 = NativeRequestRecorder(sink: s2, maxQueued: 8, flushAt: 2, delay: 3600, watchMemory: false)
         r2.add(NativeRequestEvent(k: 1, ev: "local", t: 1.5, ms: 0.25, rules: [3], status: 200, headers: [["Content-Type", "x"]], len: 2, body: Data("{}".utf8)))
@@ -734,7 +734,7 @@ final class NativeMitmRewriteTests: XCTestCase {
     }
 
     func testDriverOffPassesThrough() {
-        // Go-zero: NativeScriptRuntime is on by default (engineSwitch) and would fetch the snapshot for scripts alone;
+        // native-only: NativeScriptRuntime is on by default (engineSwitch) and would fetch the snapshot for scripts alone;
         // "off" here means both native switches off
         NativeRewriteRuntime.override = false
         NativeScriptRuntime.override = false
@@ -747,7 +747,7 @@ final class NativeMitmRewriteTests: XCTestCase {
 
     func testDriverNativeLocalForwardAndDefer() {
         NativeRewriteRuntime.override = true
-        NativeScriptRuntime.override = true   // Go-zero default (engineSwitch): response scripts run natively
+        NativeScriptRuntime.override = true   // native-only default (engineSwitch): response scripts run natively
         let inner = Inner(), src = FakeSource(Self.snapJSON)
         let sink = Sink()
         let rec = Self.recorder(sink)
@@ -775,7 +775,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(r.headers ?? [], [["X-R", "1"]])
         d.end(fw.id, sent: 3, error: "")
 
-        // Go-zero: a response script is no longer handed to Go — the native script dispatcher takes the flow
+        // native-only: a response script is no longer handed to the old core — the native script dispatcher takes the flow
         let sc = d.requestPhase(head: head("/s"), conn: conn)
         XCTAssertEqual(sc.action, .forward); XCTAssertLessThan(sc.id, 0)
         XCTAssertEqual(sc.url, "https://a.com/s")
@@ -818,7 +818,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(Self.events(sink.batches)[3].why, "dial: refused")
         XCTAssertEqual(d.openLogEntries, 0)
 
-        // a reload (new generation) fetches the new snapshot once; a bad one defers everything to Go
+        // a reload (new generation) fetches the new snapshot once; a bad one defers everything to the old core
         src.gen = 2
         src.json = "{\"version\":99}"
         XCTAssertEqual(d.requestPhase(head: head("/ad"), conn: conn).id, 9)

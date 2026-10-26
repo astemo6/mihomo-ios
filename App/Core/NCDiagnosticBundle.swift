@@ -1,10 +1,10 @@
 import Foundation
 
-/// B10 (nc-dego-rest): bridge/diagbundle.go WriteDiagnosticBundle + diagnosticFiles in Swift. Builds the same
+/// B10 (nc-dego-rest): the retired bridge + diagnosticFiles in Swift. Builds the same
 /// redacted file set (configs first so every secret is known, then the logs) and writes it as one zip with
 /// NCZipWriter, entries under "tern-diagnostics/", sorted by name, DEFLATE.
 ///
-/// Not included compared with Go: resources.json (bridge ResourceList, B4 — no Swift port yet).
+/// Not included compared with the old core: resources.json (bridge ResourceList, B4 — no Swift port yet).
 extension DiagnosticSummary {
 
     enum BundleError: Error, LocalizedError {

@@ -6,7 +6,7 @@ import Network
 // Mieru (feat/nc-proto3, based on astemo6/Muse NativeCore): pure-Swift client for the mieru v3 stream (TCP)
 // and packet (UDP) underlays, ported from github.com/enfein/mieru/v3 v3.38.1 pkg/cipher + pkg/protocol
 // (session.go, underlay_stream.go, underlay_packet.go, metadata.go, padding.go) and apis/client (socks5
-// request inside the session, UDP via PacketOverStreamTunnel + UDPAssociateWrapper), as mihomo v1.19.33
+// request inside the session, UDP via PacketOverStreamTunnel + UDPAssociateWrapper), as Clash.Meta v1.19.33
 // adapter/outbound/mieru.go drives it. traffic-pattern (apis/trafficpattern) is decoded and applied.
 //
 // Wire (one TCP connection = one underlay; this client opens one session per underlay, i.e. multiplexing off —
@@ -29,7 +29,7 @@ enum NCMieruCrypto {
         return Data(SHA256.hash(data: p))
     }
 
-    /// Key for the time slot `date` falls in (Go time.Round(2m): nearest multiple, halfway up).
+    /// Key for the time slot `date` falls in (the old core time.Round(2m): nearest multiple, halfway up).
     static func key(hashed: Data, date: Date = Date()) -> Data {
         let t = date.timeIntervalSince1970
         let rounded = UInt64(max(0, (floor((t + keyRefreshInterval / 2) / keyRefreshInterval) * keyRefreshInterval)))
@@ -49,7 +49,7 @@ enum NCMieruCrypto {
     }
 }
 
-/// mieru `traffic-pattern` (clientcfg.pb TrafficPattern, protobuf → base64 in the mieru / mihomo
+/// mieru `traffic-pattern` (clientcfg.pb TrafficPattern, protobuf → base64 in the mieru / Clash.Meta
 /// config): nonce rewriting, padding caps and TCP fragmentation, with the implicit pattern
 /// mieru generates for unset sub-messages (apis/trafficpattern/config.go). Only the explicitly
 /// configured low-entropy codec is out of scope (protocols 10/11 — see NCSupport).
@@ -1255,7 +1255,7 @@ final class NCMieruPacketStream: NCRelayStream {
 // MARK: - Connector glue
 
 extension NCConnector {
-    /// mihomo MieruOption: server, port | port-range, transport (TCP | UDP), username, password,
+    /// Clash.Meta MieruOption: server, port | port-range, transport (TCP | UDP), username, password,
     /// multiplexing, handshake-mode, traffic-pattern (decoded + applied; see NCMieruTrafficPattern).
     static func mieruStream(proxy: NCProxy, target: NCTarget, udp: Bool, queue: DispatchQueue,
                             transport: NCRelayStream?, completion: @escaping (NCRelayStream?, Error?) -> Void) {

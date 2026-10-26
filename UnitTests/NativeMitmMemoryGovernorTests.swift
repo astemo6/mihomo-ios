@@ -1,8 +1,8 @@
 import XCTest
 @testable import Mihomo
 
-/// feat/s3-mem: NativeMemoryGovernor driven with injected memory readings and a fake Go side (deterministic: no
-/// real os_proc_available_memory, no Go runtime, a manual clock).
+/// feat/s3-mem: NativeMemoryGovernor driven with injected memory readings and a fake old side (deterministic: no
+/// real os_proc_available_memory, no old runtime, a manual clock).
 final class NativeMitmMemoryGovernorTests: XCTestCase {
     static let MB = 1 << 20
 
@@ -37,7 +37,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         }
         func setLimit(_ bytes: Int64) -> Int64 {
             limitCalls.append(bytes)
-            // = bridge/nativegov.go nativeClamp
+            // = the retired bridge
             var want = bytes <= 0 ? configured : min(bytes, configured)
             let floor = max(16 << 20, nonGarbage + 2 << 20)
             if want < floor { want = min(floor, configured + 16 << 20) }
@@ -200,7 +200,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         XCTAssertEqual(control.limit, 22 << 20)
         clock += 1; g.tick()
         XCTAssertEqual(control.limitCalls.count, 2, "unchanged ask is not repeated")
-        // critical with 30 MB of non-garbage Go memory: the ask (18 MB) is clamped up to 32 MB (no GC thrash)
+        // critical with 30 MB of non-garbage the old core memory: the ask (18 MB) is clamped up to 32 MB (no GC thrash)
         control.nonGarbage = 30 << 20
         mem.set(availMB: 4)
         clock += 1; g.tick()
@@ -242,7 +242,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         XCTAssertFalse(g.admit(.body, bytes: 3 << 20))
     }
 
-    /// Reclaim before refusing: native reclaimers (by level) + one Go FreeOSMemory, re-read, decide again; at most
+    /// Reclaim before refusing: native reclaimers (by level) + one the old core FreeOSMemory, re-read, decide again; at most
     /// once a second.
     func testReclaimBeforeRefuse() {
         var ran: [String] = []
@@ -282,7 +282,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         mem.set(availMB: 4)
         XCTAssertTrue(NativeMitmRuntime.canAccept, "no governor: only the session cap")
         NativeMemoryGovernor.setActive(g)
-        XCTAssertFalse(NativeMitmRuntime.canAccept, "governor: 4 MB available, session declined (Go path)")
+        XCTAssertFalse(NativeMitmRuntime.canAccept, "governor: 4 MB available, session declined (pass-through)")
         mem.set(availMB: 20)
         clock += 2
         XCTAssertTrue(NativeMitmRuntime.canAccept)

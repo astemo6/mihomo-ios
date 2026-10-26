@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Not thread-safe: the owning listener mutates it on its own serial queue (as NCDataPlane does with TCPSession).
 struct NCListenerFlowStats {
-    /// mihomo chains.last: the rule's policy (group); the dialed node / chain is `chain`.
+    /// Clash.Meta chains.last: the rule's policy (group); the dialed node / chain is `chain`.
     private(set) var policy = ""
     private(set) var chain = ""
     private(set) var rule = ""

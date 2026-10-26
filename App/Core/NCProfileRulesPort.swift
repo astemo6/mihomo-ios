@@ -1,12 +1,12 @@
 import Foundation
 
-/// nc-integrate B3/B4: bridge/profileruleoverrides.go ProfileRules and bridge/provideroverrides.go
+/// nc-integrate B3/B4: the retired bridge
 /// ProfileProviders in Swift. Both read the profile as buildRuntimeWith starts from it (覆写脚本 output when
 /// current = NCRuntimeFiles.readRuntimeProfile; share links converted = NCOverrideOutput.profileAsMap) and the
 /// per-profile provider-overrides.json (NCRuntimeFiles.readProviderOverrides). Edited lines convert through
 /// NCRuntimeSteps.convertEditedRule (#112), the same converter the runtime build uses.
 ///
-/// Divergence: Go cached ProfileProviders for 30 s per input-file signature; the one caller
+/// Divergence: the old core cached ProfileProviders for 30 s per input-file signature; the one caller
 /// (ProviderOverrideStore.loadDeclared) already caches per profile path, so no second cache is kept here.
 enum NCProfileRulesPort {
 

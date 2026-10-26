@@ -1,6 +1,6 @@
 import Foundation
 
-/// One parsed rule. Mirrors mihomo's rule semantics (the Go core is the spec):
+/// One parsed rule. Mirrors Clash.Meta's rule semantics (the old core is the spec):
 /// `TYPE,payload,POLICY[,options]`; logic rules carry sub-rules without policies:
 /// `AND,((DOMAIN,a.com),(IP-CIDR,10.0.0.0/8)),POLICY`.
 struct NCRule: Equatable {
@@ -30,7 +30,7 @@ struct NCRule: Equatable {
             return NCRule(raw: line, kind: kind, payload: fields[1], policy: fields[2], noResolve: noResolve, subRules: subs)
         }
         if kind == "SUB-RULE" {
-            // mihomo: `SUB-RULE,(<one condition rule>),<sub-rule set name>` —
+            // Clash.Meta: `SUB-RULE,(<one condition rule>),<sub-rule set name>` —
             // the third field names the set (it is not a policy), and the
             // payload is a single parenthesised rule without a policy.
             let cond = parseSubRuleCondition(fields[1])
@@ -126,23 +126,23 @@ struct NCMatchContext {
     var url: String? = nil
     var userAgent: String? = nil
     /// Inbound side: the port the connection arrived on (nil for TUN —
-    /// there is no listener) and the inbound type ("TUN" here; mihomo also
+    /// there is no listener) and the inbound type ("TUN" here; Clash.Meta also
     /// has HTTP / SOCKS / REDIR / INNER for its other inbounds).
     var inPort: Int? = nil
     var inType: String? = nil
     /// Named sub-rule sets from the config's `sub-rules:` section, for
-    /// SUB-RULE evaluation (mihomo semantics: the SUB-RULE line's third
+    /// SUB-RULE evaluation (Clash.Meta semantics: the SUB-RULE line's third
     /// field is the set name; the winning sub-rule supplies the policy).
     var subRules: [String: [NCRule]] = [:]
     /// Injected lookups (engine supplies GeoIP mmdb / rule providers later).
     var countryOf: (NCIP) -> String? = { _ in nil }
     /// fix/nc-diag-439 (A): every code of the IP (Meta-geoip0 multi-code records). When set, GEOIP / SRC-GEOIP match
-    /// any of them (mihomo MetaV0); nil → `countryOf` alone, as before.
+    /// any of them (Clash.Meta MetaV0); nil → `countryOf` alone, as before.
     var countryCodesOf: ((NCIP) -> [String])? = nil
     var asnOf: (NCIP) -> Int? = { _ in nil }
     var ruleSetContains: (String, NCMatchContext) -> Bool = { _, _ in false }
     /// Whether the named rule set holds IP entries (ipcidr behavior, or a
-    /// classical list with IP-CIDR / GEOIP / IP-ASN lines) — mihomo's
+    /// classical list with IP-CIDR / GEOIP / IP-ASN lines) — Clash.Meta's
     /// RuleSet.ShouldResolveIP: a RULE-SET without no-resolve reached by a
     /// domain flow then triggers the one-shot resolve.
     var ruleSetNeedsIP: (String) -> Bool = { _ in false }
@@ -239,7 +239,7 @@ struct NCRuleMatcher {
         return c.caseInsensitiveCompare(want) == .orderedSame
     }
 
-    /// The policy a matched SUB-RULE yields, per mihomo's matchSubRules:
+    /// The policy a matched SUB-RULE yields, per Clash.Meta's matchSubRules:
     /// the line's condition must match, then the named set is scanned in
     /// order — the first matching sub-rule supplies the policy, except a
     /// sub-rule whose policy is PASS-RULE, which passes control to the
@@ -260,7 +260,7 @@ struct NCRuleMatcher {
         return nil
     }
 
-    /// First matching rule wins (mihomo/clash semantics). Returns its policy.
+    /// First matching rule wins (Clash.Meta semantics). Returns its policy.
     static func firstMatch(_ rules: [NCRule], _ ctx: NCMatchContext) -> NCRule? {
         for r in rules where matches(r, ctx) { return r }
         return nil
@@ -273,7 +273,7 @@ struct NCRuleMatcher {
     /// First matching rule together with the policy it actually yields.
     /// Differs from `firstMatch` for SUB-RULE (the winning sub-rule's
     /// policy, not the set name in the line's policy slot) and for rules
-    /// whose policy is PASS-RULE (mihomo: keep scanning subsequent rules).
+    /// whose policy is PASS-RULE (Clash.Meta: keep scanning subsequent rules).
     static func firstMatchWithPolicy(_ rules: [NCRule], _ ctx: NCMatchContext) -> (rule: NCRule, policy: String)? {
         if case .hit(_, let r, let p) = scan(rules, ctx, from: 0, mayResolve: false) { return (r, p) }
         return nil
@@ -289,7 +289,7 @@ struct NCRuleMatcher {
         case miss
     }
 
-    /// mihomo tunnel.match semantics: rules are walked in order; the first
+    /// Clash.Meta tunnel.match semantics: rules are walked in order; the first
     /// rule that wants an IP (IP-CIDR / GEOIP / IP-ASN / an IP-bearing
     /// RULE-SET / a logic rule containing one), reached while the flow has a
     /// domain but no IP and without no-resolve, triggers ONE resolution of
@@ -318,7 +318,7 @@ struct NCRuleMatcher {
     /// Rule kinds whose match reads the destination IP.
     static let ipKinds: Set<String> = ["IP-CIDR", "IP-CIDR6", "GEOIP", "IP-ASN"]
 
-    /// mihomo Rule.ShouldResolveIP: true for IP rules without no-resolve,
+    /// Clash.Meta Rule.ShouldResolveIP: true for IP rules without no-resolve,
     /// RULE-SETs over IP data, and logic / SUB-RULE rules containing one.
     static func shouldResolveIP(_ rule: NCRule, _ ctx: NCMatchContext, depth: Int = 0) -> Bool {
         guard !rule.noResolve, depth < 8 else { return false }

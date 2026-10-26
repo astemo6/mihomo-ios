@@ -3,7 +3,7 @@ import Network
 import os
 
 /// Pure Swift upstream connector using NCConnector and NCStream.
-/// Replaces the Go HTTP CONNECT loopback relay (bridge/mitm/relay.go).
+/// Replaces the old core HTTP CONNECT loopback relay.
 final class NCUpstreamConnector: MitmUpstreamConnecting {
     /// nc-perf: one shared dial queue for every open (was a fresh DispatchQueue per open).
     /// Serial and on the shared session target — the #116 session-queue pattern: the leases'

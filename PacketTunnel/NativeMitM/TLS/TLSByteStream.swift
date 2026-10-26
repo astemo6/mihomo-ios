@@ -7,7 +7,7 @@ import Security
 
 final class TLSByteStream: ByteStream {
     let connection: NWConnection
-    /// The host Go handed over (listener key); always set.
+    /// The host the old core handed over (listener key); always set.
     let host: String
     /// SNI the client sent, nil when it sent none (an IP CONNECT). Route on `routingHost`.
     let sni: String?

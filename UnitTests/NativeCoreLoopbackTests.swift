@@ -422,7 +422,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     }
 
     /// Trojan + TLS ECH with a stale config: the server cannot decrypt the inner hello and finishes the outer
-    /// handshake for public_name. sing-box 1.12.24 never sets Go's EncryptedClientHelloKey.SendAsRetry, so no
+    /// handshake for public_name. sing-box 1.12.24 never sets the old core's EncryptedClientHelloKey.SendAsRetry, so no
     /// retry_configs come back: the client must verify the outer certificate and fail with echRejected (never
     /// fall through to a connection under the outer name). The retry-once path itself is covered offline by
     /// NativeCoreECHTLSTests.testEncryptedExtensionsRetryConfigsParsing.
@@ -487,7 +487,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     }
 
     /// VLESS + TLS (tcp) with a fingerprint and no ECH against the ECH-capable inbound (which also serves plain
-    /// TLS 1.3): native stack, no ALPN offered (mihomo default for vless tcp).
+    /// TLS 1.3): native stack, no ALPN offered (Clash.Meta default for vless tcp).
     func testVLESSTLSFingerprintNativeTLS() throws {
         let p = Self.proxy(name: "loop-vless-tls-fp", type: "vless", port: Self.vlessEchPort, extra: [
             "uuid": .string(Self.uuid), "network": .string("tcp"), "tls": .bool(true),
@@ -1073,7 +1073,7 @@ extension NativeCoreLoopbackTests {
     /// log: `inbound/vless[vless-httpupgrade-in]: unknown version: 3` (3 = first payload byte of
     /// the echo pattern). Reproduced with a plain-socket reference client: waiting for the 101
     /// echoes fine (testVLESSHTTPUpgradeEcho), while fast-open in one write or in split writes
-    /// gets the same "unknown version" error and a reset. mihomo fast-open semantics (send before
+    /// gets the same "unknown version" error and a reset. Clash.Meta fast-open semantics (send before
     /// the 101) are the feature under test and are covered client-side by the unit test
     /// testHTTPUpgradeFastOpenSendsBefore101. If a future sing-box preserves early data this test
     /// goes red at the XCTFail below — flip it back to a plain assertEcho then.

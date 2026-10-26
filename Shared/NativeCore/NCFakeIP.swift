@@ -1,9 +1,9 @@
 import Foundation
 
-/// Fake-IP pool (mihomo semantics): each queried host gets a stable address from
+/// Fake-IP pool (Clash.Meta semantics): each queried host gets a stable address from
 /// the fake-ip range (default 198.18.0.1/16); the tunnel later maps the address
 /// back to the host. Mappings persist to a file so restarts keep them, like
-/// mihomo's fake-ip cache.
+/// Clash.Meta's fake-ip cache.
 ///
 /// Filter (`fake-ip-filter`, Surge always-real-ip): glob patterns, `*.d` = d and
 /// its subdomains (kept from earlier releases), `+.d` = d and subdomains, `.d` =
@@ -11,7 +11,7 @@ import Foundation
 /// engine-injected `externalMatcher`. `fake-ip-filter-mode: blacklist` (default)
 /// gives listed names real IPs; `whitelist` gives ONLY listed names fake IPs.
 ///
-/// Address allocation (rv2): offsets start at .4 like mihomo (.0 network, .1
+/// Address allocation (rv2): offsets start at .4 like Clash.Meta (.0 network, .1
 /// gateway / tunnel address, .2 / .3 reserved) and the broadcast address is never
 /// handed out. The number of live mappings is capped (`maxEntries`); past the cap
 /// the least-recently-used mapping is recycled (second-chance / clock over the
@@ -67,7 +67,7 @@ final class NCFakeIPPool {
         }
         var fOff: UInt32 = 0, lOff: UInt32 = n4 - 1
         if n4 >= 16 {
-            fOff = 4          // mihomo: first = gateway + 3 (198.18.0.4)
+            fOff = 4          // Clash.Meta: first = gateway + 3 (198.18.0.4)
             lOff = n4 - 2     // broadcast excluded
         } else if n4 >= 4 {
             fOff = 1
@@ -106,7 +106,7 @@ final class NCFakeIPPool {
             let item = raw.trimmingCharacters(in: .whitespaces)
             let lower = item.lowercased()
             if lower.hasPrefix("geosite:") || lower.hasPrefix("rule-set:") {
-                // mihomo parseDomain: `geosite:cn,private` = two categories.
+                // Clash.Meta parseDomain: `geosite:cn,private` = two categories.
                 let prefix = lower.hasPrefix("geosite:") ? "geosite:" : "rule-set:"
                 for part in item.dropFirst(prefix.count).split(separator: ",") {
                     let arg = part.trimmingCharacters(in: .whitespaces)
@@ -262,7 +262,7 @@ final class NCFakeIPPool {
     }
 
     /// fix/nc-e2e-real: POST /cache/fakeip/flush (DNS 页「清空 Fake-IP 缓存」 answered 404 on the native core). Drops
-    /// every mapping (v4 and v6); the next query for a host allocates afresh, like mihomo's FlushFakeIP.
+    /// every mapping (v4 and v6); the next query for a host allocates afresh, like Clash.Meta's FlushFakeIP.
     func flush() {
         lock.lock(); defer { lock.unlock() }
         hostToIP.removeAll(); ipToHost.removeAll(); ring.removeAll(); ringHead = 0; referenced.removeAll()

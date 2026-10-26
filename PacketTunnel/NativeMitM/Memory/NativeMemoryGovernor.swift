@@ -1,12 +1,12 @@
 // Native MitM stage 3b (feat/s3-mem): the extension's memory governor in Swift.
 //
 // One coordinator instead of two competing ones. Today MemoryGuard (PacketTunnelProvider.swift) samples the
-// footprint and asks Go to shed, while Go runs its own GOMEMLIMIT governor (bridge/memshed.go governLimit) and its
+// footprint and asks the old core to shed, while the old core runs its own heap limit governor and its
 // own gates. With the app-group switch `nativeMemGovernor` on (default OFF; off = all of that unchanged), this
 // class replaces MemoryGuard: it reads os_proc_available_memory + phys_footprint + the DispatchSource memory-pressure
 // events, keeps one level with hysteresis, admits native work by size, reclaims native memory before refusing,
-// and drives Go through the bridge (LibmihomoNativeGovernLimit / NativeShed / NativeFreeOSMemory, bridge/nativegov.go;
-// Go's governor stands down while LibmihomoSetNativeMemoryGovernor(true)).
+// and drives the old core through the bridge (NativeGovernLimit / NativeShed / NativeFreeOSMemory, the retired bridge;
+// the old core's governor stands down while SetNativeMemoryGovernor(true)).
 //
 // Numbers from the 喜马拉雅 device log (work/xmly-memory-2026-10-24.md, fix/xmly-memory 897fffd):
 //   - iOS sends "critical" at ~10 MB available while an app opens ~100 connections; a critical *event* is not a
@@ -15,8 +15,8 @@
 //     lasted ≥ 30 s, at most every 2 min.
 //   - Small work (bodies / scripts / sessions ≤ 256 KB) stays allowed down to 4.5 MB + 3× its size; big or
 //     unknown-size work is gated from the `high` level on. Every refusal first reclaims (rate-limited 1/s).
-//   - GOMEMLIMIT never goes below Go's non-garbage memory + 2 MB (Go clamps it; gc ran ~100×/s below it).
-//   - One stop per shed: no runtime.GC() + FreeOSMemory pair, FreeOSMemory itself rate-limited in Go.
+//   - heap limit never goes below the old core's non-garbage memory + 2 MB (the old core clamps it; gc ran ~100×/s below it).
+//   - One stop per shed: no runtime.GC() + FreeOSMemory pair, FreeOSMemory itself rate-limited in the old core.
 //
 // Everything that reads memory or touches the world is injected (NativeMemorySampling / RuntimeMemoryControlling /
 // NativeReclaimer), so UnitTests/NativeMitmMemoryGovernorTests.swift drives it with fixed readings.
@@ -52,7 +52,7 @@ struct RuntimeMemoryInfo: Decodable, Equatable {
 protocol RuntimeMemoryControlling: AnyObject {
     func setActive(_ on: Bool)
     func info() -> RuntimeMemoryInfo?
-    /// GOMEMLIMIT; 0 = the configured limit. Returns the limit in effect (Go clamps to its anti-thrash floor).
+    /// heap limit; 0 = the configured limit. Returns the limit in effect (the old core clamps to its anti-thrash floor).
     func setLimit(_ bytes: Int64) -> Int64
     func freeOSMemory() -> Bool
     func shed(level: Int, flags: MemoryShedFlags, reason: String) -> String
@@ -91,7 +91,7 @@ enum NativeWork: String {
 // MARK: - governor
 
 final class NativeMemoryGovernor {
-    /// App-group switch; default OFF (MemoryGuard + Go's governor unchanged).
+    /// App-group switch; default OFF (MemoryGuard + the old core's governor unchanged).
     static let defaultsKey = "nativeMemGovernor"
     static var enabled: Bool {
         UserDefaults(suiteName: NativeMitmRuntime.appGroup)?.bool(forKey: defaultsKey) ?? false
@@ -128,9 +128,9 @@ final class NativeMemoryGovernor {
         var shedMinGap: TimeInterval = 3, shedMaxBackoff: TimeInterval = 120
         /// critical must last this long before the timer clears DNS caches (not in a burst), at most every dnsEvery
         var dnsAfterCritical: TimeInterval = 30, dnsEvery: TimeInterval = 120
-        /// idle tunnel connections are closed below this much available (Go: memPressureAvail)
+        /// idle tunnel connections are closed below this much available (the old core: memPressureAvail)
         var idleConnsBelow = 12 << 20
-        /// GOMEMLIMIT below the configured value at high / critical (Go clamps to non-garbage + 2 MB)
+        /// heap limit below the configured value at high / critical (the old core clamps to non-garbage + 2 MB)
         var limitCutHigh: Int64 = 4 << 20, limitCutCritical: Int64 = 8 << 20
         // emergency (= MemoryGuard): oldest connections closed
         var emergencyAvail = 3 << 20, emergencyFP: UInt64 = 47 << 20, emergencyRearmFP: UInt64 = 42 << 20
@@ -257,7 +257,7 @@ final class NativeMemoryGovernor {
 
     /// Whether `work` of `bytes` (-1 = unknown size) may start now. Small work (≤ 256 KB) needs 4.5 MB + 3× its size;
     /// big / unknown work needs 9 MB + 2× its size and is refused from `high` on. Before refusing: one reclaim
-    /// (native caches + Go FreeOSMemory, at most once a second), a fresh reading, and the same test again
+    /// (native caches + the old core FreeOSMemory, at most once a second), a fresh reading, and the same test again
     /// (big work at `high` then passes with 11 MB + 2× its size).
     func admit(_ work: NativeWork, bytes: Int) -> Bool {
         let s = memory.sample()
@@ -310,7 +310,7 @@ final class NativeMemoryGovernor {
 
     // MARK: reclaim
 
-    /// Runs the native reclaimers that apply up to `level`, then one Go FreeOSMemory. Returns the bytes freed
+    /// Runs the native reclaimers that apply up to `level`, then one the old core FreeOSMemory. Returns the bytes freed
     /// (estimate; footprint difference when the reclaimers do not know).
     @discardableResult
     func runReclaim(upTo level: MemoryLevel, why: String) -> Int {
@@ -342,7 +342,7 @@ final class NativeMemoryGovernor {
 
     enum Trigger: String { case timer, warningEvent = "pressure warning", criticalEvent = "pressure critical", reload }
 
-    /// One governor step: level, GOMEMLIMIT, shed, emergency. Returns what it did (tests / logs).
+    /// One governor step: level, heap limit, shed, emergency. Returns what it did (tests / logs).
     @discardableResult
     func tick(trigger: Trigger = .timer) -> [String] {
         let s = memory.sample()
@@ -354,7 +354,7 @@ final class NativeMemoryGovernor {
         let (old, lvl) = updateLevelLocked(s, t)
         if old != lvl { did.append("level \(old) → \(lvl)") }
 
-        // GOMEMLIMIT
+        // heap limit
         let want: Int64
         switch lvl {
         case .normal, .elevated: want = 0
@@ -401,7 +401,7 @@ final class NativeMemoryGovernor {
             did.append("heap limit \(Self.mb(v))")
         }
         if let sl = shedLevel {
-            // native first (no stop), then Go's shed — whose single FreeOSMemory (from `high`) is the only stop
+            // native first (no stop), then the old core's shed — whose single FreeOSMemory (from `high`) is the only stop
             let freedNative = runNativeOnly(upTo: lvl)
             let line = control.shed(level: sl, flags: flags, reason: "\(trigger.rawValue), level \(lvl)")
             let after = memory.sample()
@@ -437,7 +437,7 @@ final class NativeMemoryGovernor {
         return did
     }
 
-    /// The native reclaimers only (no Go FreeOSMemory: the shed that follows carries it).
+    /// The native reclaimers only (no the old core FreeOSMemory: the shed that follows carries it).
     private func runNativeOnly(upTo level: MemoryLevel) -> Int {
         var est = 0
         for r in reclaimers where r.from <= level { est += max(0, r.reclaim(level)) }

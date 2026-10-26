@@ -3,11 +3,11 @@ import Foundation
 
 /// E-B1 stage 3: the buildRuntimeWith satellite steps, ported file by
 /// file from the bridge. Each step mutates the config tree in place
-/// and returns the warnings the Go side logged (the builder surfaces
+/// and returns the warnings the old side logged (the builder surfaces
 /// them through NSLog at prepare time, like the core log).
-/// This file: bridge/profileruleoverrides.go (the profile's own rule
+/// This file: the retired bridge (the profile's own rule
 /// and Final overrides) plus the mitm helpers it uses
-/// (ProfileNames / ResolvePolicy, bridge/mitm/rules.go).
+///.
 
 enum NCRuntimeSteps {
 

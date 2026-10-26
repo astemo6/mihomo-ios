@@ -2,11 +2,11 @@ import Foundation
 
 // XHTTP (Xray "splithttp") transport — configuration and request construction (feat/nc-xhttp).
 //
-// Ported from mihomo v1.19.33 transport/xhttp (config.go, xpadding.go, browser.go) and the VLESS adapter's
+// Ported from Clash.Meta v1.19.33 transport/xhttp (config.go, xpadding.go, browser.go) and the VLESS adapter's
 // xhttp-opts handling (adapter/outbound/vless.go). The wire side (one HTTP/2 connection per dial, the three
 // modes) lives in NCXHTTPStream.swift. Everything here is pure: tests build requests without a socket.
 
-/// mihomo xhttp.Range: "100-1000" or "30" (ParseRange / parseRange).
+/// Clash.Meta xhttp.Range: "100-1000" or "30" (ParseRange / parseRange).
 struct NCXHTTPRange: Equatable {
     var min: Int
     var max: Int
@@ -18,7 +18,7 @@ struct NCXHTTPRange: Equatable {
 
     func rand() -> Int { min >= max ? min : Int.random(in: min...max) }
 
-    /// nil = invalid. An empty / blank `s` parses `fallback` instead (mihomo ParseRange).
+    /// nil = invalid. An empty / blank `s` parses `fallback` instead (Clash.Meta ParseRange).
     static func parse(_ s: String?, fallback: String) -> NCXHTTPRange? {
         let t = (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return parseRaw(t.isEmpty ? fallback : t)
@@ -39,7 +39,7 @@ struct NCXHTTPRange: Equatable {
     }
 }
 
-/// Ordered HTTP header list with Go http.Header Set / Get / Del semantics on case-insensitive names.
+/// Ordered HTTP header list with the old core http.Header Set / Get / Del semantics on case-insensitive names.
 /// Names are stored lowercased (HTTP/2 requires it).
 struct NCXHTTPHeaders: Equatable {
     private(set) var fields: [(name: String, value: String)] = []
@@ -71,7 +71,7 @@ struct NCXHTTPHeaders: Equatable {
         fields.removeAll { $0.name == n }
     }
 
-    /// Go http.Request.AddCookie: appended to the one Cookie header with "; ".
+    /// the old core http.Request.AddCookie: appended to the one Cookie header with "; ".
     mutating func addCookie(_ name: String, _ value: String) {
         let c = "\(name)=\(value)"
         if let existing = get("cookie"), !existing.isEmpty {
@@ -88,14 +88,14 @@ struct NCXHTTPRequest {
     var authority: String
     /// Unescaped path (session / seq segments appended).
     var path: String
-    /// Query parameters (url.Values; encoded sorted by key, like Go's Values.Encode).
+    /// Query parameters (url.Values; encoded sorted by key, like the old core's Values.Encode).
     var query: [String: String] = [:]
     var headers = NCXHTTPHeaders()
     var body: Data?
     /// The request streams a body (stream-one / stream-up upload): no content-length.
     var streamingBody = false
 
-    /// Go url.URL.RequestURI(): escaped path + "?" + encoded query.
+    /// the old core url.URL.RequestURI(): escaped path + "?" + encoded query.
     var requestURI: String {
         var s = NCXHTTPConfig.escapePath(path)
         if !query.isEmpty {
@@ -107,7 +107,7 @@ struct NCXHTTPRequest {
     }
 
     /// The HTTP/2 header block: pseudo-headers, then the request headers (connection-specific ones
-    /// dropped, as Go's http2 transport does), then content-length per Go's shouldSendReqContentLength.
+    /// dropped, as the old core's http2 transport does), then content-length per the old core's shouldSendReqContentLength.
     func h2Headers() -> [(String, String)] {
         var out: [(String, String)] = [
             (":method", method), (":scheme", "https"), (":authority", authority), (":path", requestURI),
@@ -134,7 +134,7 @@ struct NCXHTTPError: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// mihomo xhttp.Config for the client side, with every Normalized*() getter resolved at parse time.
+/// Clash.Meta xhttp.Config for the client side, with every Normalized*() getter resolved at parse time.
 struct NCXHTTPConfig {
     static let placementQueryInHeader = "queryInHeader"
     static let placementCookie = "cookie"
@@ -148,7 +148,7 @@ struct NCXHTTPConfig {
     var rawPath: String
     /// "" in the config is "auto" (NormalizedMode).
     var mode: String
-    /// xhttp-opts.headers, sorted by name for a deterministic order (Go map order is random anyway).
+    /// xhttp-opts.headers, sorted by name for a deterministic order (the old core map order is random anyway).
     var headers: [(String, String)] = []
     var noGRPCHeader = false
     var xPaddingBytes = NCXHTTPRange(100, 1000)
@@ -180,7 +180,7 @@ struct NCXHTTPConfig {
 
     // MARK: parse (adapter/outbound/vless.go xhttp-opts + xhttp.NewClient validation)
 
-    /// Builds the config from a proxy's fields. Throws the error mihomo's NewVless / NewClient would
+    /// Builds the config from a proxy's fields. Throws the error Clash.Meta's NewVless / NewClient would
     /// return for the same options (invalid range, unknown mode, session-table too small, …).
     static func parse(_ proxy: NCProxy) throws -> NCXHTTPConfig {
         let f = proxy.fields
@@ -385,7 +385,7 @@ struct NCXHTTPConfig {
         NCXHTTPRequest(method: method, authority: host, path: normalizedPath)
     }
 
-    /// The URL string mihomo reads back for the padding Referer (req.URL.String() before session/seq).
+    /// The URL string Clash.Meta reads back for the padding Referer (req.URL.String() before session/seq).
     private func rawURL(_ r: NCXHTTPRequest) -> String { "https://\(host)\(r.requestURI)" }
 
     /// FillStreamRequest: the stream-one request, the stream-up upload, and every download GET.
@@ -478,7 +478,7 @@ struct NCXHTTPConfig {
         if !seq.isEmpty { put(seq, placement: seqPlacement, key: seqKey) }
     }
 
-    // MARK: escaping (Go net/url)
+    // MARK: escaping (the old core net/url)
 
     /// url.URL.EscapedPath (encodePath): unreserved + "$&+,/:;=@" stay, everything else %XX.
     static func escapePath(_ s: String) -> String {
@@ -623,7 +623,7 @@ enum NCXHTTPBrowser {
     }
 
     /// TryDefaultHeadersWith: no User-Agent → Chrome; a browser keyword as the User-Agent → that browser;
-    /// any other User-Agent is left alone (and gets no fetch headers either, like mihomo).
+    /// any other User-Agent is left alone (and gets no fetch headers either, like Clash.Meta).
     static func tryDefaultHeaders(_ h: inout NCXHTTPHeaders, variant: String) {
         guard let ua = h.get("user-agent") else {
             apply(&h, browser: "chrome", variant: variant)
@@ -652,7 +652,7 @@ enum NCXHTTPBrowser {
             h.set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(safariVersion) Safari/605.1.15")
             h.set("Accept-Language", "en-US,en;q=0.9")
         case "golang":
-            h.del("User-Agent") // Go's own default user agent is added when the request is sent
+            h.del("User-Agent") // the old core's own default user agent is added when the request is sent
             return
         case "curl":
             h.set("User-Agent", "curl/" + curlVersion)

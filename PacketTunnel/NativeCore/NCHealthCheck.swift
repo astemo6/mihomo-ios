@@ -37,9 +37,9 @@ enum NCTunnelDelayTester {
 
     /// fix/nc-delay-2: the budget of the cold phase (dial + inner TLS + first request). In unified-delay mode the
     /// reported value is the warm second request, so a cold dial through a CDN on a high-RTT network (~1.9 s seen on
-    /// device) must not eat the `timeout` meant for that request: the cold phase gets max(timeout, 5000) (mihomo's
+    /// device) must not eat the `timeout` meant for that request: the cold phase gets max(timeout, 5000) (Clash.Meta's
     /// default timeout) and the warm request its own `timeout`. Without unified-delay the cold time IS the result and
-    /// `timeout` bounds it, as in mihomo.
+    /// `timeout` bounds it, as in Clash.Meta.
     static let defaultTimeoutMs = 5000
     static func coldBudgetMs(timeoutMs: Int, unified: Bool) -> Int {
         unified ? max(timeoutMs, defaultTimeoutMs) : timeoutMs
@@ -81,7 +81,7 @@ enum NCTunnelDelayTester {
         sink(logLine(name: name, outcome: outcome, timeoutMs: timeoutMs), outcome.ms == nil)
     }
 
-    /// The test request: HEAD like mihomo's URLTest; keep-alive when a second (unified) request follows.
+    /// The test request: HEAD like Clash.Meta's URLTest; keep-alive when a second (unified) request follows.
     static func request(_ target: (host: String, port: Int, tls: Bool, path: String), keepAlive: Bool) -> Data {
         let hostHeader = (target.port == (target.tls ? 443 : 80)) ? target.host : "\(target.host):\(target.port)"
         return Data("HEAD \(target.path) HTTP/1.1\r\nHost: \(hostHeader)\r\nUser-Agent: Mozilla/5.0\r\nAccept: */*\r\nConnection: \(keepAlive ? "keep-alive" : "close")\r\n\r\n".utf8)
@@ -105,10 +105,10 @@ enum NCTunnelDelayTester {
     }
 
     /// Request/response over an established stream (plain or the inner TLS of an https test URL).
-    /// Cold: time from the probe start (dial included) to the first response byte — mihomo with unified-delay off.
-    /// Unified (mihomo `unified-delay: true`, which the App's runtime config always sets): after the first response
+    /// Cold: time from the probe start (dial included) to the first response byte — Clash.Meta with unified-delay off.
+    /// Unified (Clash.Meta `unified-delay: true`, which the App's runtime config always sets): after the first response
     /// head, a second HEAD on the same connection is timed alone; if the server will not reuse the connection or the
-    /// second request fails, the cold time stands (mihomo URLTest does the same).
+    /// second request fails, the cold time stands (Clash.Meta URLTest does the same).
     final class HTTPExchange {
         let relay: NCRelayStream
         let target: (host: String, port: Int, tls: Bool, path: String)
@@ -186,7 +186,7 @@ enum NCTunnelDelayTester {
                     if let w = warmTimeoutMs, let tq = timerQueue {
                         tq.asyncAfter(deadline: .now() + .milliseconds(max(1, w))) { [self] in
                             guard !ended else { return }
-                            // mihomo: a failed / timed-out second request keeps the cold time — when that cold time
+                            // Clash.Meta: a failed / timed-out second request keeps the cold time — when that cold time
                             // itself fits the timeout; otherwise the probe timed out.
                             if let f = firstMs, f <= w {
                                 trace?.note("unified: 2nd request timed out, cold time kept")
@@ -344,7 +344,7 @@ enum NCTunnelDelayTester {
         }
     }
 
-    /// 测速设置 → TCP 握手延迟 (Go bridge /tern/node-tcp-delay): TCP connect time to the node's server for nodes that
+    /// 测速设置 → TCP 握手延迟 (old bridge /tern/node-tcp-delay): TCP connect time to the node's server for nodes that
     /// dial their server over TCP directly; nil `proxy` / UDP-based / dialer-proxy nodes → nil (caller URL-tests).
     static func tcpCapable(_ p: NCProxy) -> Bool {
         let udpTypes: Set<String> = ["hysteria", "hysteria2", "hy2", "tuic", "wireguard", "tailscale", "juicity", "masque"]
@@ -369,7 +369,7 @@ enum NCTunnelDelayTester {
             q.async {
                 if let err { done(nil, NCDialTrace.describe(err)); return }
                 let total = NCDialTrace.ms(from: start, to: .now())
-                // The TCP handshake alone (DNS excluded), like the Go route; the whole connect if no report.
+                // The TCP handshake alone (DNS excluded), like the old core route; the whole connect if no report.
                 s.conn.requestEstablishmentReport(queue: q) { r in
                     let tcp = r?.handshakes.first { $0.definition.name.lowercased().contains("tcp") }
                     done(max(1, tcp.map { Int($0.handshakeDuration * 1000) } ?? total), nil)
@@ -503,7 +503,7 @@ enum NCTunnelDelayTester {
 }
 
 /// Single background scheduler for native core health checks (url-test and fallback groups),
-/// aligning with mihomo health-check semantics.
+/// aligning with Clash.Meta health-check semantics.
 final class NCHealthCheckScheduler {
     private weak var engine: NativeCoreEngine?
     private let queue = DispatchQueue(label: "nc.healthcheck", qos: .utility)
@@ -593,7 +593,7 @@ final class NCHealthCheckScheduler {
         for g in eligible {
             let interval = TimeInterval(max(g.interval, 5))
             if g.lazy {
-                // Lazy (mihomo semantics): only probe groups the tunnel actually
+                // Lazy (Clash.Meta semantics): only probe groups the tunnel actually
                 // used recently; unused groups sleep until touched.
                 guard let lastTouch = engine.groupEngine?.lastTouch(for: g.name),
                       now.timeIntervalSince(lastTouch) <= interval * 2 else { continue }
@@ -683,8 +683,8 @@ final class NCHealthCheckScheduler {
 }
 
 extension NativeCoreEngine {
-    /// fix/nc-delay-test: mihomo `unified-delay` (top-level). The App's runtime config always sets it to true
-    /// (NCRuntimeBuilder), which is what the Go core measured with; the native core used to ignore it and report
+    /// fix/nc-delay-test: Clash.Meta `unified-delay` (top-level). The App's runtime config always sets it to true
+    /// (NCRuntimeBuilder), which is what the old core measured with; the native core used to ignore it and report
     /// cold-connection times (node DNS + TCP + TLS + ws upgrade + inner TLS + request ≈ 1 s on a CDN node).
     var unifiedDelay: Bool {
         guard let v = effectiveConfig?.raw["unified-delay"] else { return false }

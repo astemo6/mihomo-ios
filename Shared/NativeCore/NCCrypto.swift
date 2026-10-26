@@ -113,7 +113,7 @@ enum NCFNV1a {
 }
 
 /// SHA-1 (FIPS 180-1). Only used for the UUIDv5 fallback when a VMess/VLESS
-/// config carries a non-UUID user string (mihomo's UUIDMap behavior).
+/// config carries a non-UUID user string (Clash.Meta's UUIDMap behavior).
 enum NCSHA1 {
     static func hash(_ data: Data) -> Data {
         var msg = [UInt8](data)
@@ -151,7 +151,7 @@ enum NCSHA1 {
         return out
     }
 
-    /// RFC 4122 UUIDv5 with the nil namespace (mihomo's UUIDMap fallback for
+    /// RFC 4122 UUIDv5 with the nil namespace (Clash.Meta's UUIDMap fallback for
     /// non-UUID strings).
     static func uuidV5NilNamespace(_ string: String) -> Data {
         var digest = [UInt8](hash(NCVMess.cat(Data(repeating: 0, count: 16), Data(string.utf8))).prefix(16))

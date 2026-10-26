@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure Swift diagnostic summary generator (replacing Go bridge LibmihomoDiagnosticSummary).
+/// Pure Swift diagnostic summary generator.
 /// Generates the six standard diagnostic sections in fixed order:
 /// 1. info.txt
 /// 2. startup-log.txt
@@ -30,7 +30,7 @@ enum DiagnosticSummary {
         redactor.collectConfigs(home: home, profilePath: profilePath)
         let files = sectionFiles(home: home, appInfo: appInfo, cachedModuleInfo: cachedModuleInfo, redactor: redactor)
 
-        // Assemble in fixed order matching Go DiagnosticSummary
+        // Assemble in fixed order matching the old core DiagnosticSummary
         // feat/nc-e2e: the latest 一键自检 result first (SelfCheck writes <home>/selfcheck.txt).
         let order = ["selfcheck.txt", "info.txt", "startup-log.txt", "last-error.txt", "modules.txt", "memory.txt", "core-log.txt"]
         var output = ""
@@ -110,7 +110,7 @@ enum DiagnosticSummary {
         return files
     }
 
-    /// Convenience wrapper matching LibmihomoDiagnosticSummary(home, profile, info) signature.
+    /// Convenience wrapper matching DiagnosticSummary(home, profile, info) signature.
     static func summary(home: String, profilePath: String, appInfo: String) -> String {
         generate(home: home, profilePath: profilePath, appInfo: appInfo)
     }
@@ -309,7 +309,7 @@ enum DiagnosticSummary {
 
 // MARK: - Redactor
 
-/// Redactor replicating bridge/redact.go behavior.
+/// Redactor replicating the retired bridge.
 final class DiagnosticRedactor {
     private var secrets: Set<String> = []
     private var sortedSecrets: [String] = []

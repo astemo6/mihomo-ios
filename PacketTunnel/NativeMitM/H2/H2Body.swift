@@ -3,7 +3,7 @@
 // A body moves from a source to a sink, one chunk at a time, pulled only when the sink took the previous one —
 // so every hop applies back-pressure: client DATA is granted window only after it moved on (H2InboundBody →
 // H2Connection.consumed), an h2 sink waits for .writable when the peer's window is closed, an HTTP/1.1 upstream
-// waits for its socket, Go's flow pipes answer "full". Nothing here buffers more than one chunk per hop beyond
+// waits for its socket, the old core's flow pipes answer "full". Nothing here buffers more than one chunk per hop beyond
 // what the h2 windows already bound.
 //
 // All callbacks run on the session queue and are always asynchronous (no recursion through pump()).
@@ -163,7 +163,7 @@ final class H2PrependSource: H2BodySource {
     func abandon() { first = nil; rest?.abandon() }
 }
 
-/// A body held by Go in NativeBodyStore (flow decision body "lane"). The handle belongs to Go (freed at FlowEnd).
+/// A body held by the old core in NativeBodyStore (flow decision body "lane"). The handle belongs to the old core (freed at FlowEnd).
 final class H2LaneSource: H2BodySource {
     private let queue: DispatchQueue
     private let bodies: NativeBodyReading

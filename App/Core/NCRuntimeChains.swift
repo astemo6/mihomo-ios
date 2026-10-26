@@ -1,8 +1,8 @@
 import Foundation
 
-/// E-B1 stage 3d: ports of bridge/groupmembers.go (the offline
-/// member expansion, needed by the dial graph) and bridge/chain.go
-/// (group 前置代理 + the loop guard). Regexes are ICU where Go uses
+/// E-B1 stage 3d: ports of the retired bridge (the offline
+/// member expansion, needed by the dial graph) and the retired bridge
+/// (group 前置代理 + the loop guard). Regexes are ICU where the old core uses
 /// regexp2; group filters compile case-sensitively unless the
 /// pattern carries (?i), as in the core.
 
@@ -51,7 +51,7 @@ struct NCMemberPool {
     }
 
     /// groupMembers: (members, isOnlyFallback). A filter that does
-    /// not compile yields ([fallback], true) like Go's error path —
+    /// not compile yields ([fallback], true) like the old core's error path —
     /// the chain graph ignores the error return.
     func groupMembers(_ g: [String: NCJSONValue]) -> (members: [String], empty: Bool) {
         var fallback = g.str("empty-fallback")
@@ -175,7 +175,7 @@ final class NCChainGraph {
     }
 
     /// Write the (possibly mutated) proxy / provider maps back into
-    /// the tree by name — Go mutates shared maps in place.
+    /// the tree by name — the old core mutates shared maps in place.
     func flush(_ raw: inout [String: NCJSONValue]) {
         var list = raw.list("proxies")
         for i in list.indices {
@@ -223,7 +223,7 @@ final class NCChainGraph {
                 pm.removeValue(forKey: "include-all-providers")
                 pm["include-all-proxies"] = .bool(true)
                 var pool = NCMemberPool()
-                pool.proxies = proxies.keys.sorted() // Go iterates a map; edges feed a set
+                pool.proxies = proxies.keys.sorted() // the old core iterates a map; edges feed a set
                 for (n, p) in proxies { pool.types[n] = p.str("type") }
                 for (n, gm) in groups { pool.types[n] = gm.str("type") }
                 let (ms, _) = pool.groupMembers(pm)
@@ -508,7 +508,7 @@ private final class NCChainBuild {
         return true
     }
 
-    /// Go regexp.QuoteMeta.
+    /// the old core regexp.QuoteMeta.
     static func quoteMeta(_ s: String) -> String {
         var out = ""
         for ch in s {

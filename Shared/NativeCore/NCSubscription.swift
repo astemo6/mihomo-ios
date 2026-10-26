@@ -3,7 +3,7 @@ import Foundation
 /// Node-subscription content parsing + filtering + cached store.
 ///
 /// Every subscription format in the wild reduces to one of:
-/// - a Clash/mihomo YAML document with `proxies:`
+/// - a Clash/Clash.Meta YAML document with `proxies:`
 /// - a base64 blob of newline-separated share URIs (ss/vmess/vless/trojan/
 ///   hysteria2/tuic) — the "airport" format QX/Loon/Surge all consume
 /// - the same URI list in plain text
@@ -18,7 +18,7 @@ enum NCSubscriptionParser {
         if trimmed.hasPrefix("proxies:") || trimmed.contains("\nproxies:") {
             if let nodes = parseClashYAML(trimmed) { return dedup(nodes) }
         }
-        // bridge nodes.go parseNodeText: JSON is tried on the raw text, then
+        // the retired bridge parseNodeText: JSON is tried on the raw text, then
         // unconditionally on the base64-decoded text (a padded JSON blob used
         // to fall through here because the first branch required no "=").
         if let jsonNodes = parseJSONNodes(trimmed) {
@@ -33,7 +33,7 @@ enum NCSubscriptionParser {
         } else if let decoded = tryB64Text(body), decoded.contains("://") {
             body = decoded
         }
-        // bridge nodes.go parseNodeText order: self-parsed lines (QX / Surge
+        // the retired bridge parseNodeText order: self-parsed lines (QX / Surge
         // named lines and the wireguard / snell / ssh / socks-http schemes)
         // come first in line order; all other :// URIs are collected and
         // converted afterwards. Member order and dedup numbering follow.
@@ -50,7 +50,7 @@ enum NCSubscriptionParser {
                 guard let n = parseURI(l) else { continue }
                 if selfSchemes.contains(scheme) { selfParsed.append(n) } else { uriParsed.append(n) }
             } else if let eq = l.firstIndex(of: "=") {
-                // bridge nodes.go: the key before "=" picks the dialect —
+                // the retired bridge: the key before "=" picks the dialect —
                 // a QX type keyword (qxNodeTypes, a superset of qxTypes) with a
                 // host:port value goes to parseQXLine (isQXNodeLine), anything
                 // else is a Surge/Loon "Name = type, …" line. buildQXNode
@@ -73,7 +73,7 @@ enum NCSubscriptionParser {
     /// nodes.go qxTypes (shadowsocks, vmess, vless, trojan, http, socks5, anytls): it adds every other type
     /// buildQXNode maps — `ss` (its shadowsocks alias), `snell` (psk / version), and `tuic` / `hysteria2`
     /// (password / token / uuid / sni, as the Surge spelling maps them; other keys verbatim).
-    /// Go sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
+    /// the old core sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
     /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
     static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
                                            "snell", "tuic", "juicity", "hysteria2"]
@@ -88,7 +88,7 @@ enum NCSubscriptionParser {
         return head.contains(":")
     }
 
-    /// bridge nodes.go tryB64: reject when the trimmed text still contains a
+    /// the retired bridge tryB64: reject when the trimmed text still contains a
     /// space or tab; strip CR/LF (line-wrapped blobs) before decoding.
     private static func tryB64Text(_ s: String) -> String? {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -137,7 +137,7 @@ enum NCSubscriptionParser {
         case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
         case "naive+https", "naive+quic", "naive", "http2", "http3": return parseNaiveH2H3(rest, scheme: scheme)
         default:
-            // feat/nc-gost-relay: GOST relay (mihomo `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
+            // feat/nc-gost-relay: GOST relay (Clash.Meta `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
             // and Shadowrocket's Relay links (relay://BASE64(user:pass@host:port)?tls=1&peer=…#name).
             if scheme == "relay" || scheme.hasPrefix("relay+") || scheme == "gost-relay" || scheme == "gostrelay" {
                 return parseGostRelay(rest, scheme: scheme)
@@ -275,7 +275,7 @@ enum NCSubscriptionParser {
 
     private static func ssNode(_ p: Parts, userinfo: String) -> NCProxy? {
         var ui = userinfo
-        // bridge nodes.go: the base64 userinfo replaces the raw one only when
+        // the retired bridge: the base64 userinfo replaces the raw one only when
         // the decoded text actually contains ":" (a bare method name that
         // happens to base64-decode must not clobber the credentials).
         if !ui.contains(":"), let decoded = base64Decode(ui),
@@ -292,8 +292,8 @@ enum NCSubscriptionParser {
         // SIP002 plugin query: "<binary>[;arg=value…]" — the binary name
         // picks the plugin, the rest re-parses as a query string. A bare
         // binary without ";" (plugin=obfs-local) is a plugin too. Mirrors
-        // mihomo common/convert/converter.go so links from any client land
-        // in the same canonical shape as a mihomo YAML node.
+        // Clash.Meta common/convert/converter.go so links from any client land
+        // in the same canonical shape as a Clash.Meta YAML node.
         if let plugin = p.query["plugin"], !plugin.isEmpty {
             let parts = plugin.split(separator: ";")
             let binary = String(parts[0])
@@ -322,7 +322,7 @@ enum NCSubscriptionParser {
                 opts["mode"] = .string(arg("mode") ?? arg("obfs") ?? "websocket")
                 if let h = arg("host") ?? arg("obfs-host") { opts["host"] = .string(h) }
                 if let pa = arg("path") { opts["path"] = .string(pa) }
-                // mihomo detects the TLS flag with strings.Contains over the
+                // Clash.Meta detects the TLS flag with strings.Contains over the
                 // whole plugin value — kept for byte-for-byte parity with
                 // Libmihome on the same link.
                 if plugin.contains("tls") { opts["tls"] = .bool(true) }
@@ -380,7 +380,7 @@ enum NCSubscriptionParser {
         let net = xhttpAlias(s("net"))
         if !net.isEmpty, net != "tcp" { f["network"] = .string(net) }
         if net == "xhttp" {
-            // v2rayN vmess JSON: the xhttp mode rides in "type" (bridge/share.go writes it there too).
+            // v2rayN vmess JSON: the xhttp mode rides in "type".
             let t = s("type")
             let mode = ["auto", "packet-up", "stream-up", "stream-one"].contains(t) ? t : ""
             f["xhttp-opts"] = .object(xhttpOpts(path: s("path"), host: s("host"), mode: mode,
@@ -389,7 +389,7 @@ enum NCSubscriptionParser {
         if s("tls") == "tls" {
             f["tls"] = .bool(true)
             if !s("sni").isEmpty { f["servername"] = .string(s("sni")) }
-            // bridge/share.go writes alpn (comma-joined) and fp for vmess —
+            // the retired bridge alpn (comma-joined) and fp for vmess —
             // read them back (alpn may also arrive as a JSON array).
             if let arr = obj["alpn"] as? [Any], !arr.isEmpty {
                 f["alpn"] = .array(arr.map { .string(jStr($0)) })
@@ -505,7 +505,7 @@ enum NCSubscriptionParser {
         if let alpn = q["alpn"] {
             f["alpn"] = .array(alpn.split(separator: ",").map { .string(String($0)) })
         }
-        // bridge/share.go emits security=reality&pbk&sid for trojan too.
+        // the retired bridge security=reality&pbk&sid for trojan too.
         if q["security"] == "reality" {
             var opts: [String: NCJSONValue] = [:]
             if let pbk = q["pbk"] { opts["public-key"] = .string(pbk) }
@@ -537,14 +537,14 @@ enum NCSubscriptionParser {
         return NCProxy(name: name, type: "trojan", fields: f)
     }
 
-    // MARK: XHTTP share-link options (feat/nc-xhttp; mihomo common/convert/v.go)
+    // MARK: XHTTP share-link options (feat/nc-xhttp; Clash.Meta common/convert/v.go)
 
     /// Xray's former name for the transport.
     private static func xhttpAlias(_ net: String) -> String {
         net.lowercased() == "splithttp" ? "xhttp" : net
     }
 
-    /// xhttp-opts from a share link: path / host / mode, plus Xray's `extra` JSON mapped like mihomo's
+    /// xhttp-opts from a share link: path / host / mode, plus Xray's `extra` JSON mapped like Clash.Meta's
     /// parseXHTTPExtra (headers, padding, placements, post sizing, xmux → reuse-settings, downloadSettings).
     static func xhttpOpts(path: String?, host: String?, mode: String?, extra: String?) -> [String: NCJSONValue] {
         var o: [String: NCJSONValue] = [:]
@@ -658,7 +658,7 @@ enum NCSubscriptionParser {
     private static func parseHysteria2(_ rest: String) -> NCProxy? {
         let p = splitParts(rest)
         let q = p.query
-        // bridge/share.go emits host:<ports> verbatim for hy2 (port hopping);
+        // the retired bridge host:<ports> verbatim for hy2 (port hopping);
         // splitParts' Int() drops such nodes entirely. Recover: first port is
         // the dial port, the raw list lands in "ports".
         var port = p.port
@@ -707,7 +707,7 @@ enum NCSubscriptionParser {
             f["uuid"] = str(String(creds[0]))
             f["password"] = str(String(creds[1]).removingPercentEncoding ?? String(creds[1]))
         } else {
-            // Token-only form: bridge/share.go emits the token alone as
+            // Token-only form: the retired bridge the token alone as
             // userinfo when uuid is empty — read it back as "token".
             f["token"] = str(p.userinfo.removingPercentEncoding ?? p.userinfo)
         }
@@ -767,7 +767,7 @@ enum NCSubscriptionParser {
         return NCProxy(name: name, type: "juicity", fields: f)
     }
 
-    // bridge nativeformats.go strOf/intOf/boolOf over decoded JSON values.
+    // the retired bridge strOf/intOf/boolOf over decoded JSON values.
     private static func jStr(_ v: Any?) -> String { v as? String ?? "" }
     private static func jInt(_ v: Any?) -> Int {
         if let n = v as? NSNumber { return n.intValue }
@@ -801,7 +801,7 @@ enum NCSubscriptionParser {
         return proxies.isEmpty ? nil : proxies
     }
 
-    /// bridge nativeformats.go sip008: only an empty server drops the entry;
+    /// the retired bridge sip008: only an empty server drops the entry;
     /// name falls back remarks → id → server; plugin_opts is a ";" separated
     /// string parsed into opts; the plugin name is normalized (obfs /
     /// v2ray-plugin with default mode, otherwise kept raw).
@@ -858,7 +858,7 @@ enum NCSubscriptionParser {
         return NCProxy(name: name, type: "ss", fields: f)
     }
 
-    /// bridge nativeformats.go singBoxOutbound + singBoxTLS + singBoxTransport.
+    /// the retired bridge singBoxOutbound + singBoxTLS + singBoxTransport.
     /// Types outside the mapped set (selector / urltest / direct / …) drop.
     private static func singBoxNode(_ o: [String: Any]) -> NCProxy? {
         let server = jStr(o["server"])
@@ -1132,9 +1132,9 @@ enum NCSubscriptionParser {
     }
 
     private static func parseWireGuard(_ rest: String, scheme: String) -> NCProxy? {
-        // bridge nodes.go parseWireGuard: both keys are REQUIRED; alias sets
+        // the retired bridge parseWireGuard: both keys are REQUIRED; alias sets
         // and defaults (ip 172.16.0.2, mtu fallback 1408, reserved raw-string
-        // fallback) follow the Go parser exactly.
+        // fallback) follow the old core parser exactly.
         let p = splitParts(rest)
         let q = p.query
         let server = p.host
@@ -1187,7 +1187,7 @@ enum NCSubscriptionParser {
     }
 
     private static func parseSnell(_ rest: String) -> NCProxy? {
-        // bridge nodes.go parseSnell: psk required (userinfo username or
+        // the retired bridge parseSnell: psk required (userinfo username or
         // ?psk=), port defaults 443, version always written (default 4),
         // obfs "none"/absent produces no obfs-opts, host key always present.
         let p = splitParts(rest)
@@ -1244,7 +1244,7 @@ enum NCSubscriptionParser {
             "username": .string(username)
         ]
         if !password.isEmpty { f["password"] = .string(password) }
-        // bridge nodes.go parseSSH: full alias sets; a private key that does
+        // the retired bridge parseSSH: full alias sets; a private key that does
         // not look like PEM is base64-decoded and used when the decoding is
         // PEM (links often carry the key base64-wrapped).
         var pk = firstQ(["private-key", "privateKey", "private_key", "pk", "key"])
@@ -1266,7 +1266,7 @@ enum NCSubscriptionParser {
         if !alg.isEmpty {
             f["host-key-algorithms"] = .array(alg.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.map { .string($0) })
         }
-        // Go: an ssh node with neither password nor private key is an error.
+        // the old core: an ssh node with neither password nor private key is an error.
         guard !password.isEmpty || f["private-key"] != nil else { return nil }
 
         let name = p.name.isEmpty ? "ssh \(p.host)" : p.name
@@ -1289,7 +1289,7 @@ enum NCSubscriptionParser {
         }
         if !p.userinfo.isEmpty {
             var ui = p.userinfo
-            // Same rule as ssNode (bridge nodes.go): only a decoded value
+            // Same rule as ssNode: only a decoded value
             // containing ":" may replace the raw userinfo.
             if !ui.contains(":"), let decoded = base64Decode(ui),
                let s = String(data: decoded, encoding: .utf8), s.contains(":") {
@@ -1377,7 +1377,7 @@ enum NCSubscriptionParser {
         guard !p.host.isEmpty else { return nil }
         let q = p.query
         let portStr = q["port"] ?? ""
-        // bridge/share.go round-trips a mieru port range ("8000-8010"): the
+        // the retired bridge-trips a mieru port range ("8000-8010"): the
         // first port dials, the range string is kept in "port-range".
         var portRange: String?
         var port = Int(portStr) ?? 0
@@ -1431,7 +1431,7 @@ enum NCSubscriptionParser {
     }
 
     private static func dedup(_ nodes: [NCProxy]) -> [NCProxy] {
-        // bridge nodes.go uniqueNames: an empty name is first filled with
+        // the retired bridge uniqueNames: an empty name is first filled with
         // "<type> <server>", then collisions get " 2", " 3", … suffixes.
         var seen: [String: Int] = [:]
         return nodes.map { node in
@@ -1449,7 +1449,7 @@ enum NCSubscriptionParser {
 }
 
 /// Regex include/exclude node filtering (QX server_remote filters, Loon
-/// remote filters, mihomo group filter/exclude-filter over providers).
+/// remote filters, Clash.Meta group filter/exclude-filter over providers).
 enum NCNodeFilter {
     static func matches(_ name: String, include: String?, exclude: String?) -> Bool {
         if let include, !include.isEmpty,
@@ -1468,16 +1468,16 @@ enum NCNodeFilter {
     }
 }
 
-/// Cached store for node subscriptions (mihomo proxy-providers, Surge/Loon/QX remote node lists), mirroring the
+/// Cached store for node subscriptions (Clash.Meta proxy-providers, Surge/Loon/QX remote node lists), mirroring the
 /// rule-provider store's freshness model: cache-first, refresh failures keep old nodes.
 ///
 /// fix/nc-ruleset-convert (build 401: the tunnel only had the 9 local proxies; every group fed by a provider was
 /// empty while the App, disconnected, showed them):
 /// - `type: file` providers (the App's 节点订阅 → ./nodesubs/<id>.yaml) and `type: inline` providers load from their
 ///   path / payload; http providers load the tunnel's own cache, else the file the App downloaded to the provider's
-///   `path`, then refresh from the source URL (a Go-era loopback /nodes/convert URL is unwrapped first).
+///   `path`, then refresh from the source URL (a old-core loopback /nodes/convert URL is unwrapped first).
 /// - provider filter / exclude-filter / exclude-type / override (additional-prefix/-suffix, proxy-name, field
-///   overrides like udp / skip-cert-verify / dialer-proxy) apply, as in mihomo.
+///   overrides like udp / skip-cert-verify / dialer-proxy) apply, as in Clash.Meta.
 /// - every provider logs "proxy provider <name>: N nodes (<source>)" or why it has none.
 final class NCNodeSubscriptionStore {
     private let dir: URL
@@ -1509,7 +1509,7 @@ final class NCNodeSubscriptionStore {
     }
 
     /// fix/nc-open-6-10 #10 (E2E fixture subscription 「薯条」: HTTP 403). User-Agent conventions:
-    /// - mihomo proxy-providers `header: {User-Agent: [...]}` wins (mihomo sends it as given);
+    /// - Clash.Meta proxy-providers `header: {User-Agent: [...]}` wins (Clash.Meta sends it as given);
     /// - a subscription imported from a Quantumult X profile ([server_remote]; the import writes that header, older
     ///   imports carry `x-origin: qx`) is fetched like QuanX does (`Quantumult%20X/…`): airport panels pick the
     ///   output format — and some allow only known clients — by that UA;
@@ -1536,7 +1536,7 @@ final class NCNodeSubscriptionStore {
         [401, 403, 406, 451].contains(status) || (200..<300).contains(status)
     }
 
-    /// Go-era configs point proxy-providers at the bridge's own converter
+    /// old-core configs point proxy-providers at the bridge's own converter
     /// (http://127.0.0.1:<port>/nodes/convert?url=<src>). NativeCore has no converter: NCSubscriptionParser
     /// reads raw subscription bodies (Clash YAML, base64 / plain share-link lists, QX/Surge node lines,
     /// SIP008 / sing-box JSON) itself, so fetch the source subscription directly.
@@ -1702,9 +1702,9 @@ final class NCNodeSubscriptionStore {
     }
 }
 
-/// mihomo proxy-provider post-processing: filter / exclude-filter (several patterns may be joined with "`"),
+/// Clash.Meta proxy-provider post-processing: filter / exclude-filter (several patterns may be joined with "`"),
 /// exclude-type ("ss|http"), override (additional-prefix, additional-suffix, proxy-name [{pattern, target}] and
-/// plain field overrides). Order as mihomo adapter/provider: filter → exclude-filter → exclude-type → override.
+/// plain field overrides). Order as Clash.Meta adapter/provider: filter → exclude-filter → exclude-type → override.
 enum NCProviderNodes {
     private static func regexes(_ s: String?) -> [NSRegularExpression] {
         guard let s, !s.isEmpty else { return [] }

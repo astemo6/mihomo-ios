@@ -5,7 +5,7 @@ import AppIntents
 import NetworkExtension
 import ActivityKit
 
-// Mihomo widget extension (v0.7, only in the "-widget" IPA): a Home / Lock Screen widget with the
+// Tern widget extension (v0.7, only in the "-widget" IPA): a Home / Lock Screen widget with the
 // connection state, current policy / node and a toggle (interactive, iOS 17+), and a Control Center toggle
 // (iOS 18+). It shares data with the app only through the App Group (resolved at runtime like the app and
 // the tunnel, so re-signed builds keep working) and drives the tunnel with the public NETunnelProviderManager

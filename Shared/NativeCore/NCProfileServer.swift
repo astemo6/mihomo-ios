@@ -2,7 +2,7 @@ import Foundation
 import Network
 
 /// Lightweight loopback HTTP server to serve the MitM CA configuration profile to Safari.
-/// Replaces Go's `CAServeProfile` (`bridge/engine.go`).
+/// Replaces the old core's `CAServeProfile`.
 /// Serves `/ca.mobileconfig`, `/ca.cer`, and `/` for ~3 minutes on `127.0.0.1:<ephemeral-port>`.
 public final class NCCAProfileServer {
     public static let shared = NCCAProfileServer()
@@ -68,7 +68,7 @@ public final class NCCAProfileServer {
 
         self.listener = listener
 
-        // Auto-stop after 3 minutes (matching Go)
+        // Auto-stop after 3 minutes (matching the old core)
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 180.0)
         timer.setEventHandler { [weak self] in

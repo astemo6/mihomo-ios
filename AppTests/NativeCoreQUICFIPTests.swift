@@ -1,7 +1,7 @@
 import XCTest
 @testable import Mihomo
 
-/// QUIC SNI sniffing (packet built independently with Go x/crypto per
+/// QUIC SNI sniffing (packet built independently with the old core x/crypto per
 /// RFC 9001; intermediate keys cross-checked against RFC 9001 App. A),
 /// fake-IP v6, redir-host map, and ICMP echo replies.
 final class NativeCoreQUICFIPTests: XCTestCase {
@@ -18,7 +18,7 @@ final class NativeCoreQUICFIPTests: XCTestCase {
 
     func testQUICSniff() {
         // Keys for DCID 8394c8f03e515708 (RFC 9001 App. A values, generated
-        // with Go): key 1f369613…, iv fa044b2f…, hp 9f50449e….
+        // with the old core): key 1f369613…, iv fa044b2f…, hp 9f50449e….
         let packet = hex("c600000001088394c8f03e5157080000405ef046b451939b7ca362c0a5e53f6c22dd6988baba5401fabdb11bdc15c4308caa1ea6df4ec4eea1ddf3d6bd27fb13e5e574e90272d731e3b576aadddbee49087943c635759b966e8e966e428f7fde7e84aa4bd6c26c790c451d0215f69394")
         XCTAssertEqual(NCQUICSniffer.sni(from: packet), "example.com")
         if case .tls(let sni, let alpn) = NCSniffer.detect(packet) {

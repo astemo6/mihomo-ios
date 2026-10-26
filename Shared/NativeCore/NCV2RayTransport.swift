@@ -1,7 +1,7 @@
 import Foundation
 
 // fix/nc-silent-fail: the stream-transport options NCConnector.transportStream used to read only partly, so the
-// node looked usable and connected wrongly. Ported from mihomo v1.19.33:
+// node looked usable and connected wrongly. Ported from Clash.Meta v1.19.33:
 // - transport/vmess/websocket.go   ws-opts: path `?ed=`, max-early-data / early-data-header-name (0-RTT
 //                                  WebSocket), v2ray-http-upgrade (+ fast-open): HTTP Upgrade, no ws framing
 // - transport/vmess/http.go        http-opts: HTTP/1.1 request disguise (method, random path, random headers)
@@ -10,9 +10,9 @@ import Foundation
 
 // MARK: - ws-opts
 
-/// Decoded `ws-opts` of a VMess / VLESS / Trojan node (mihomo WebsocketConfig as the outbound fills it).
+/// Decoded `ws-opts` of a VMess / VLESS / Trojan node (Clash.Meta WebsocketConfig as the outbound fills it).
 struct NCWSTransportOptions: Equatable {
-    /// Request path including any query, `ed` already removed (mihomo StreamWebsocketConn).
+    /// Request path including any query, `ed` already removed (Clash.Meta StreamWebsocketConn).
     var path: String
     /// Host header (and the ws URI host): ws-opts.headers.Host, else the outbound's default host.
     var hostHeader: String
@@ -27,7 +27,7 @@ struct NCWSTransportOptions: Equatable {
     /// `v2ray-http-upgrade-fast-open`: usable before the 101 arrives (validated on the first reads).
     var httpUpgradeFastOpen: Bool
 
-    /// `defaultHost`: mihomo uses the server address for VMess / VLESS, and `sni` (if set) for Trojan.
+    /// `defaultHost`: Clash.Meta uses the server address for VMess / VLESS, and `sni` (if set) for Trojan.
     static func parse(_ proxy: NCProxy, defaultHost: String) -> NCWSTransportOptions {
         let o = proxy.fields["ws-opts"]?.object ?? [:]
         var headers: [String: String] = [:]
@@ -44,7 +44,7 @@ struct NCWSTransportOptions: Equatable {
             earlyDataHeaderName: o["early-data-header-name"]?.string ?? "",
             httpUpgrade: o["v2ray-http-upgrade"]?.bool ?? false,
             httpUpgradeFastOpen: o["v2ray-http-upgrade-fast-open"]?.bool ?? false)
-        // mihomo: `?ed=N` in the path overrides both early-data options (Xray share-link convention) and is
+        // Clash.Meta: `?ed=N` in the path overrides both early-data options (Xray share-link convention) and is
         // removed from the path that goes on the wire.
         if let (stripped, ed) = Self.extractED(opts.path) {
             opts.path = stripped
@@ -84,7 +84,7 @@ struct NCWSTransportOptions: Equatable {
     }
 
     /// Path and extra headers for one upgrade request, given the base64url early data (if any).
-    /// mihomo: no header name → `uri.Path += early` (before the query).
+    /// Clash.Meta: no header name → `uri.Path += early` (before the query).
     func request(earlyData: String?) -> (path: String, headers: [String: String]) {
         guard let earlyData, !earlyData.isEmpty else { return (path, headers) }
         if earlyDataHeaderName.isEmpty {
@@ -98,7 +98,7 @@ struct NCWSTransportOptions: Equatable {
         return (path, h)
     }
 
-    /// RFC 4648 §5 base64url without padding (Go base64.RawURLEncoding).
+    /// RFC 4648 §5 base64url without padding (the old core base64.RawURLEncoding).
     static func base64URLRaw(_ data: Data) -> String {
         var s = data.base64EncodedString()
         s = s.replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
@@ -109,7 +109,7 @@ struct NCWSTransportOptions: Equatable {
 
 /// The VMess / VLESS / Trojan "ws" transport with every ws-opts mode: WebSocket (NCWebSocketStream) or v2ray
 /// http-upgrade (NCV2RayUpgradeStream), each optionally with early data — then the upgrade request is deferred to
-/// the first send, whose first `maxEarlyData` bytes ride in it (mihomo websocketWithEarlyDataConn): the CDN
+/// the first send, whose first `maxEarlyData` bytes ride in it (Clash.Meta websocketWithEarlyDataConn): the CDN
 /// node answers without the extra round trip. Reads issued before that dial wait for it.
 final class NCV2RayWSStream: NCRelayStream {
     private let raw: NCRelayStream
@@ -225,9 +225,9 @@ final class NCV2RayWSStream: NCRelayStream {
 
 // MARK: - http-opts (HTTP/1.1 obfuscation)
 
-/// Decoded `http-opts` (mihomo HTTPOptions / vmess.HTTPConfig): method (default GET), path list (one picked at
+/// Decoded `http-opts` (Clash.Meta HTTPOptions / vmess.HTTPConfig): method (default GET), path list (one picked at
 /// random per connection, default "/"), headers name → value list (one value picked at random per connection; a
-/// Host header replaces the server address). Scalars are accepted where mihomo wants a list (weakly typed decode).
+/// Host header replaces the server address). Scalars are accepted where Clash.Meta wants a list (weakly typed decode).
 struct NCHTTPObfsOptions: Equatable {
     var method: String
     var paths: [String]
@@ -248,8 +248,8 @@ struct NCHTTPObfsOptions: Equatable {
                                  paths: list(o["path"]), headers: headers, host: server)
     }
 
-    /// The request head + body Go's http.Request.Write produces for mihomo httpConn's first Write: request line,
-    /// Host, User-Agent (Go default unless configured), Content-Length, the other headers sorted by canonical
+    /// The request head + body the old core's http.Request.Write produces for Clash.Meta httpConn's first Write: request line,
+    /// Host, User-Agent (the old core default unless configured), Content-Length, the other headers sorted by canonical
     /// name, blank line, then the payload as the body.
     func requestHead(payload: Data, pick: (Int) -> Int = { Int.random(in: 0..<$0) }) -> Data {
         var path = "/"
@@ -276,7 +276,7 @@ struct NCHTTPObfsOptions: Equatable {
         return d
     }
 
-    /// Go textproto.CanonicalMIMEHeaderKey for plain ASCII tokens: "content-type" → "Content-Type".
+    /// the old core textproto.CanonicalMIMEHeaderKey for plain ASCII tokens: "content-type" → "Content-Type".
     static func canonicalKey(_ k: String) -> String {
         var out = ""
         var upper = true
@@ -288,7 +288,7 @@ struct NCHTTPObfsOptions: Equatable {
     }
 }
 
-/// mihomo vmess httpConn: the first send becomes an HTTP/1.1 request carrying it as the body, later sends go
+/// Clash.Meta vmess httpConn: the first send becomes an HTTP/1.1 request carrying it as the body, later sends go
 /// out raw; inbound, the server's HTTP response head is skipped once and the rest is the stream.
 final class NCHTTPObfsStream: NCRelayStream {
     private let raw: NCRelayStream
@@ -296,7 +296,7 @@ final class NCHTTPObfsStream: NCRelayStream {
     private var wroteHead = false
     private var headDone = false
     private var head = Data()
-    /// The server's response head is attacker-sized; mihomo's textproto reader has no cap, 16 KB is plenty.
+    /// The server's response head is attacker-sized; Clash.Meta's textproto reader has no cap, 16 KB is plenty.
     static let maxResponseHead = 16 * 1024
 
     init(raw: NCRelayStream, options: NCHTTPObfsOptions) {
@@ -351,7 +351,7 @@ final class NCHTTPObfsStream: NCRelayStream {
 // MARK: - Connector helpers
 
 extension NCConnector {
-    /// uTLS ClientHello shape for the hand-rolled TLS paths (Vision / REALITY): `client-fingerprint` (mihomo).
+    /// uTLS ClientHello shape for the hand-rolled TLS paths (Vision / REALITY): `client-fingerprint` (Clash.Meta).
     /// `fingerprint` is the certificate SHA-256 pin; only a legacy config that put a browser name there (the old
     /// NativeCore reading) still gets that browser, when no client-fingerprint is given.
     static func utlsProfile(_ proxy: NCProxy) -> NCClientHelloProfile {
@@ -367,7 +367,7 @@ extension NCConnector {
     static let browserFingerprintNames: Set<String> = ["chrome", "firefox", "safari", "ios", "android", "edge",
                                                        "360", "qq", "random", "randomized"]
 
-    /// `fingerprint` as a certificate pin (mihomo ca.NewFingerprintVerifier: hex SHA-256, colons allowed).
+    /// `fingerprint` as a certificate pin (Clash.Meta ca.NewFingerprintVerifier: hex SHA-256, colons allowed).
     /// .absent = no pin (absent, or a legacy browser name); .invalid = present but not a SHA-256.
     enum CertPin: Equatable { case absent, pin(Data), invalid }
 
@@ -388,8 +388,8 @@ extension NCConnector {
         return .pin(out)
     }
 
-    /// Trojan stream transports routed through transportStream (mihomo trojan: ws / grpc; h2 as Xray does).
-    /// Anything else (tcp, or a value mihomo's trojan ignores such as "http") stays plain Trojan-over-TLS.
+    /// Trojan stream transports routed through transportStream (Clash.Meta trojan: ws / grpc; h2 as Xray does).
+    /// Anything else (tcp, or a value Clash.Meta's trojan ignores such as "http") stays plain Trojan-over-TLS.
     static func trojanUsesTransport(_ proxy: NCProxy) -> Bool {
         ["ws", "grpc", "h2"].contains(proxy.fields["network"]?.string ?? "tcp")
     }
@@ -427,7 +427,7 @@ extension NCConnector {
         smuxEnabled(proxy) && smuxProtocol(proxy) == "h2mux"
     }
 
-    /// Snell `obfs-opts` as a simple-obfs plugin (mihomo NewSnell: Host defaults to bing.com; mode "" = none).
+    /// Snell `obfs-opts` as a simple-obfs plugin (Clash.Meta NewSnell: Host defaults to bing.com; mode "" = none).
     static func snellObfsOptions(_ proxy: NCProxy) -> NCSSPluginOptions? {
         let o = proxy.fields["obfs-opts"]?.object ?? [:]
         let mode = o["mode"]?.string ?? ""

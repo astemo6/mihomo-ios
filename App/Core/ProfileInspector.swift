@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-// Offline view of the active profile (bridge/inspect.go): what 策略 / 规则 / 提供者 show while the
+// Offline view of the active profile: what 策略 / 规则 / 提供者 show while the
 // tunnel is down. Built by NCProfileInspectorPort from the same runtime YAML the core would load.
 
 struct InspectProxy: Codable, Hashable {
@@ -140,7 +140,7 @@ final class ProfileInspector: ObservableObject {
         return out
     }
 
-    /// v0.19.8: GLOBAL while disconnected: the profile's own GLOBAL group, else the one mihomo builds (DIRECT,
+    /// v0.19.8: GLOBAL while disconnected: the profile's own GLOBAL group, else the one Clash.Meta builds (DIRECT,
     /// REJECT, every node, every group, in config order). Shown in 全局 mode only.
     var globalGroup: InspectGroup {
         if let g = result.groups.first(where: { $0.name == "GLOBAL" }) { return g }

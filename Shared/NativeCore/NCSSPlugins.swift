@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-// Shadowsocks plugins (feat/nc-proto A4, based on astemo6/Muse NativeCore), ported from mihomo v1.19.33
+// Shadowsocks plugins (feat/nc-proto A4, based on astemo6/Muse NativeCore), ported from Clash.Meta v1.19.33
 // transport/simple-obfs, transport/v2ray-plugin and transport/shadowtls. Each one is an NCRelayStream that carries
 // the Shadowsocks byte stream; the SS relay (NCSSRelayStream / NCSS2022RelayStream) rides on top unchanged.
 // Buffers are per-record (≤ 16 KB + header); nothing accumulates beyond one frame.
@@ -229,14 +229,14 @@ enum NCShadowTLS {
     }
 
     /// shadow-tls v1: a plain TLS ≤ 1.2 handshake with the camouflage server through the shadow-tls server, then
-    /// the socket itself carries the SS stream (mihomo transport/shadowtls Client.DialContextConn case 1).
+    /// the socket itself carries the SS stream (Clash.Meta transport/shadowtls Client.DialContextConn case 1).
     static func dialV1(raw: NCRelayStream, host: String, alpn: [String], allowInsecure: Bool, queue: DispatchQueue,
                        completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let wire = NCShadowTLSWire(raw: raw, password: "", version: 1)
         var cfg = NCTLSClientStream.Config(serverName: host)
         cfg.alpn = alpn
         cfg.allowInsecure = allowInsecure
-        cfg.profile = NCClientHelloProfile.named(nil) // v1 uses the Go client hello (no uTLS fingerprint)
+        cfg.profile = NCClientHelloProfile.named(nil) // v1 uses the old core client hello (no uTLS fingerprint)
         cfg.maxTLS12 = true
         let tls = NCTLSClientStream(raw: wire, config: cfg, queue: queue)
         tls.startHandshake { err in
@@ -423,23 +423,23 @@ final class NCShadowTLSV3Conn: NCFramedRelay {
 
 // MARK: - gost-plugin (feat/nc-ss-plugins2)
 
-/// `plugin: gost-plugin` + `plugin-opts`, decoded exactly like mihomo v1.19.33 adapter/outbound/shadowsocks.go
+/// `plugin: gost-plugin` + `plugin-opts`, decoded exactly like Clash.Meta v1.19.33 adapter/outbound/shadowsocks.go
 /// (gostObfsOption, preset {Host: "bing.com", Mux: true}) feeding transport/gost/websocket.go NewGostWebsocket.
 ///
-/// mihomo implements ONE gost-plugin mode — `websocket` — and rejects every other value at config load
+/// Clash.Meta implements ONE gost-plugin mode — `websocket` — and rejects every other value at config load
 /// ("obfs mode error"); TLS and smux are the `tls` / `mux` booleans on top of it, so the four shapes are
-/// ws, ws+smux (default), wss, wss+smux. That is the whole mihomo surface; this mirrors it rather than the
-/// standalone gost-plugin binary's longer mode list (quic/grpc/kcp/... there are not reachable from mihomo).
+/// ws, ws+smux (default), wss, wss+smux. That is the whole Clash.Meta surface; this mirrors it rather than the
+/// standalone gost-plugin binary's longer mode list (quic/grpc/kcp/... there are not reachable from Clash.Meta).
 ///
-/// TLS options (only read when `tls: true`, as mihomo): skip-cert-verify, fingerprint (SHA-256 pinning),
+/// TLS options (only read when `tls: true`, as Clash.Meta): skip-cert-verify, fingerprint (SHA-256 pinning),
 /// name-cert-verify. `certificate`/`private-key` (client certificate) and `ech-opts.enable` have no native
 /// implementation and are reported unsupported instead of being dropped silently.
 struct NCGostPluginOptions: Equatable {
     var host: String
     var path: String
-    /// Headers other than Host, in config order is not significant (mihomo http.Header).
+    /// Headers other than Host, in config order is not significant (Clash.Meta http.Header).
     var headers: [String: String]
-    /// `headers.Host` — overrides the request Host and, with TLS, the SNI (mihomo NewGostWebsocket).
+    /// `headers.Host` — overrides the request Host and, with TLS, the SNI (Clash.Meta NewGostWebsocket).
     var hostHeader: String?
     var tls: Bool
     var mux: Bool
@@ -447,9 +447,9 @@ struct NCGostPluginOptions: Equatable {
     var nameCertVerify: String?
     var pinnedCertSHA256: Data?
 
-    /// Request Host header value (headers.Host, else host — no port, mihomo leaves Option.Port empty).
+    /// Request Host header value (headers.Host, else host — no port, Clash.Meta leaves Option.Port empty).
     var requestHost: String { hostHeader ?? host }
-    /// TLS server name: mihomo sets ServerName = Host, then headers.Host overrides it.
+    /// TLS server name: Clash.Meta sets ServerName = Host, then headers.Host overrides it.
     var sni: String { hostHeader ?? host }
     /// Our hand-rolled TLS client is needed for pinning / alternate verify name; plain wss uses NWConnection TLS.
     var needsCustomTLS: Bool { pinnedCertSHA256 != nil || nameCertVerify != nil }
@@ -489,7 +489,7 @@ struct NCGostPluginOptions: Equatable {
         return (o, nil)
     }
 
-    /// mihomo component/ca NewFingerprintVerifier: browser names are an error; colons stripped; 32 bytes hex.
+    /// Clash.Meta component/ca NewFingerprintVerifier: browser names are an error; colons stripped; 32 bytes hex.
     static func pinFingerprint(_ fp: String) -> Data? {
         if ["chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized"].contains(fp) {
             return nil
@@ -515,7 +515,7 @@ struct NCGostPluginOptions: Equatable {
     }
 }
 
-/// gost-plugin's mux: one smux stream over the websocket (mihomo transport/gost NewGostWebsocket with
+/// gost-plugin's mux: one smux stream over the websocket (Clash.Meta transport/gost NewGostWebsocket with
 /// metacubex/smux DefaultConfig: version 1, MaxFrameSize 32768, keep-alive off). Frame: ver=1 ‖ cmd ‖
 /// len (LE16) ‖ streamID (LE32) ‖ data; cmd SYN=0 FIN=1 PSH=2 NOP=3. v1 has no flow-control frames.
 /// smux's client session starts nextStreamID at 1 and OpenStream pre-increments by 2, so the first (and,
@@ -650,7 +650,7 @@ extension NCConnector {
                 wrap(raw)
             }
         case "gost-plugin":
-            // mihomo NewGostWebsocket: [TLS] → websocket upgrade → [smux stream] (NCGostPluginOptions).
+            // Clash.Meta NewGostWebsocket: [TLS] → websocket upgrade → [smux stream] (NCGostPluginOptions).
             guard let g = NCGostPluginOptions.parse(opts).0 else {
                 queue.async { completion(nil, Failure.unsupported("ss plugin gost-plugin shape unsupported")) }
                 return
@@ -677,7 +677,7 @@ extension NCConnector {
                 return
             }
             if transport != nil || g.needsCustomTLS {
-                // Chain hop, certificate pinning or name-cert-verify: our TLS client (ALPN http/1.1 as mihomo).
+                // Chain hop, certificate pinning or name-cert-verify: our TLS client (ALPN http/1.1 as Clash.Meta).
                 plainRaw { raw, err in
                     guard let raw else { completion(nil, err); return }
                     var cfg = NCTLSClientStream.Config(serverName: g.sni)

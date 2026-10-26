@@ -2,9 +2,9 @@ import Foundation
 import CommonCrypto
 
 /// Pure Swift port of the bridge's module / rewrite text parser
-/// (bridge/mitm/parse.go + rules.go + tasks.go, driven by
-/// bridge/engine.go's EngineParseText / EngineParseLine). Produces the
-/// same ParsedEngineText the app consumed from the Go JSON.
+/// (the retired bridge + rules.go + tasks.go, driven by
+/// the retired bridge's EngineParseText / EngineParseLine). Produces the
+/// same ParsedEngineText the app consumed from the old core JSON.
 ///
 /// Covered: Surge / Loon / QX INI-family modules and snippets (script,
 /// URL / header / body rewrites, map local, jq / JSON ops, MITM
@@ -24,7 +24,7 @@ import CommonCrypto
 /// Egern's rewrite families (url_rewrites / header_rewrites /
 /// body_rewrites / map_locals object mapping), Stash
 /// script-providers, and regex error strings (NSRegularExpression
-/// messages differ from Go's regexp2; the error channel and drop
+/// messages differ from the old core's regexp2; the error channel and drop
 /// behavior are the same).
 enum NCEngineParser {
 
@@ -188,7 +188,7 @@ final class NCEngineRuleset {
     /// plugin-object arguments. Filled by parseText.
     var loonArgContext: [String: (value: String, valueType: String?, type: String?)] = [:]
 
-    /// bridge/engine.go toParsed, field for field.
+    /// the retired bridge, field for field.
     func projected() -> ParsedEngineText {
         ParsedEngineText(
             name: name, desc: desc, author: author.isEmpty ? nil : author,
@@ -403,7 +403,7 @@ extension NCEngineRuleset {
     /// mitm splitParams: split on commas that start a known key.
     /// `underscore` (nc-compat, Loon `with` lists only) additionally
     /// allows `_` / digits in the key charset so requires_body splits;
-    /// the classic default keeps the Go key charset exactly.
+    /// the classic default keeps the old core key charset exactly.
     static func splitParams(_ s: String, keys: Set<String>, underscore: Bool = false) -> [String: String] {
         var parts: [String] = []
         var start = s.startIndex
@@ -554,7 +554,7 @@ extension NCEngineRuleset {
         opts.contains { $0.trimmingCharacters(in: .whitespaces).lowercased() == "no-resolve" } ? ",no-resolve" : ""
     }
 
-    /// mitm convertLogicBody (throws the Go error strings).
+    /// mitm convertLogicBody (throws the old core error strings).
     static func convertLogicBody(_ body0: String) throws -> String {
         let body = body0.trimmingCharacters(in: .whitespaces)
         guard body.hasPrefix("(") && body.hasSuffix(")") else {
@@ -597,7 +597,7 @@ extension NCEngineRuleset {
     }
 
     /// mitm ConvertRuleLine: (conv, error message?) — error also fills
-    /// conv.unsupported for the "unsupported type" cases, like Go.
+    /// conv.unsupported for the "unsupported type" cases, like the old core.
     static func convertRuleLine(_ line0: String) -> (RuleConv, String?) {
         var line = line0.trimmingCharacters(in: .whitespaces)
         if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") || line.hasPrefix("//") {
@@ -1009,7 +1009,7 @@ extension NCEngineRuleset {
 
     /// ParseCron substitute: 5- or 6-field cron, each field a comma list of
     /// values / ranges / `*` / `?` with optional steps; month and weekday
-    /// names allowed in their fields. (Go re-renders the parsed schedule;
+    /// names allowed in their fields. (the old core re-renders the parsed schedule;
     /// the stored form here is the whitespace-collapsed original.)
     static func cronValid(_ expr: String) -> Bool {
         // mitm cron.go ParseCron: 5 fields, or 6 with leading seconds —
@@ -1120,7 +1120,7 @@ extension NCEngineRuleset {
             t.cron = normalized
             mutSc.type = "cron"
             if mutSc.cron.isEmpty {
-                // Go backfills sc.Cron with the ORIGINAL cron string;
+                // the old core backfills sc.Cron with the ORIGINAL cron string;
                 // only t.Cron carries the normalized form.
                 mutSc.cron = cron0
             }
@@ -2223,12 +2223,12 @@ extension NCEngineRuleset {
     static let egernRuleItemRe = regex(#"^\s*-\s+(domain|domain_suffix|domain_keyword|domain_regex|domain_wildcard|ip_cidr|ip_cidr6|geoip|asn|url_regex|user_agent|dest_port|protocol|rule_set|and|or|not|default|ssid)\s*:\s*$"#)
 
     /// mitm IsEgern. (A Stash document — `rules:` plus `- DOMAIN,…`
-    /// items — must NOT match here: Go's IsEgern has no such branch,
+    /// items — must NOT match here: the old core's IsEgern has no such branch,
     /// and with it those files were routed away from parseStash.)
     static func isEgern(_ text: String) -> Bool {
         var hasRulesKey = false
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            // Go strings.TrimRight(l, " \t\r"): leading indentation is
+            // the old core strings.TrimRight(l, " \t\r"): leading indentation is
             // KEPT — the top-level test below and the "  hostnames:" /
             // "    includes:" markers depend on it. Trimming both sides made
             // nested keys look top-level and a mitm-only Egern module
@@ -2306,7 +2306,7 @@ extension NCEngineRuleset {
 
     /// mitm egernCond: a rule entry is a single-key object
     /// `{type: {match: …, policy: …}}`; logic keys recurse. Returns the
-    /// Surge condition (no policy) or the Go error text.
+    /// Surge condition (no policy) or the old core error text.
     static func egernCond(_ item: NCJSONValue) -> (cond: String?, error: String?) {
         guard let obj = item.object, obj.count == 1, let (k, v) = obj.first else {
             return (nil, "无法识别的 Egern 规则")
@@ -2400,7 +2400,7 @@ extension NCEngineRuleset {
     /// ordered by first appearance in the text; the description comes
     /// from the compat_arguments_desc line starting with the key.
     static func egernCompatArgs(_ text: String) -> [ModArg] {
-        // Neutralise placeholders so the YAML parses (Go does the same
+        // Neutralise placeholders so the YAML parses (the old core does the same
         // with a regex replace to a constant token).
         guard let re = egernPlaceholderRe else { return [] }
         let neutralized = re.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "__egern_arg__")
@@ -2442,7 +2442,7 @@ extension NCEngineRuleset {
     /// unsupported notes for the sections Swift does not carry and for
     /// unknown top-level keys. The rewrite families (url_rewrites /
     /// header_rewrites / body_rewrites / map_locals) are still
-    /// surfaced in `unsupported` rather than converted — Go converts
+    /// surfaced in `unsupported` rather than converted — the old core converts
     /// them; that port is outstanding.
     func parseEgern(_ text0: String, user: [String: String] = [:]) {
         format = "egern"
@@ -2526,7 +2526,7 @@ extension NCEngineRuleset {
             }
         }
         // env_schema: user-set values merge into every script env of
-        // this module (Go's deferred put; module env wins). The
+        // this module (the old core's deferred put; module env wins). The
         // Arguments projection has no env marker in Swift, so the
         // schema entries themselves are not surfaced as arguments.
         if let schema = root["env_schema"]?.object {
@@ -2795,8 +2795,8 @@ extension NCEngineRuleset {
 
 /// Pure Swift port of mitm.LineFromForm / FormFromLine (driven through
 /// this file's ParseLine port): the visual rewrite editor's form model
-/// <-> one canonical Surge-syntax line, replacing the Go bridge's
-/// LibmihomoRewriteLineFromForm / LibmihomoRewriteFormFromLine.
+/// <-> one canonical Surge-syntax line, replacing the old bridge's
+/// RewriteLineFromForm / RewriteFormFromLine.
 enum NCRewriteFormConverter {
     static let rejectActions: Set<String> = ["reject", "reject-200", "reject-img", "reject-dict",
                                              "reject-array", "reject-drop"]

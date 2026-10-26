@@ -1,7 +1,7 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
-// Native MitM stage 3b (feat/s3-mem): production wiring of NativeMemoryGovernor — the process readings, the Go
-// bridge (bridge/nativegov.go), the native reclaimers, and the sampler that replaces MemoryGuard while the
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
+// Native MitM stage 3b (feat/s3-mem): production wiring of NativeMemoryGovernor — the process readings, the old core
+// bridge, the native reclaimers, and the sampler that replaces MemoryGuard while the
 // `nativeMemGovernor` switch is on.
 
 import Foundation
@@ -15,7 +15,7 @@ struct ProcessMemorySampler: NativeMemorySampling {
 
 /// The tunnel has no second runtime with its own heap limit: no limit to set, nothing to shed beyond the native
 /// reclaimers. info() is nil, so the governor never asks for a limit and its diagnostics line carries no limit part
-/// (it used to print an all-zero "GOMEMLIMIT 0 B" section).
+/// (it used to print an all-zero "heap limit 0 B" section).
 final class NativeNoopMemoryControl: RuntimeMemoryControlling {
     func setActive(_ on: Bool) {}
     func info() -> RuntimeMemoryInfo? { nil }
@@ -52,7 +52,7 @@ extension NativeMemoryGovernor {
     }
 
     /// JSC collection off the caller's thread: JSGarbageCollect takes the VM lock, which a script run holds for up to
-    /// ~1 s — admission (a Go goroutine opening a body) must not wait for it. Coalesced: one pending at a time.
+    /// ~1 s — admission (an old-core thread opening a body) must not wait for it. Coalesced: one pending at a time.
     private static let jscQueue = DispatchQueue(label: "tern.nativememgovernor.jsc", qos: .utility)
     private static let jscLock = NSLock()
     private static var jscPending = false
@@ -85,7 +85,7 @@ extension BoundedLRU {
 }
 
 /// Replaces MemoryGuard while `nativeMemGovernor` is on: timer (10 s, 2 s from `high`), memory-pressure source,
-/// Go's memory sample (connection activity + periodic memory line; Go's own governor stands down), the 隧道内存
+/// the old core's memory sample (connection activity + periodic memory line; the old core's own governor stands down), the 隧道内存
 /// snapshot. All on one serial queue.
 final class NativeMemoryGovernorSampler {
     let governor: NativeMemoryGovernor
@@ -106,7 +106,7 @@ final class NativeMemoryGovernorSampler {
         self.onSample = onSample
     }
 
-    /// Production: process readings, Go bridge, standard reclaimers, logs to the startup log.
+    /// Production: process readings, old bridge, standard reclaimers, logs to the startup log.
     static func makeDefault(onSample: @escaping (UInt64, Int) -> Void) -> NativeMemoryGovernorSampler {
         let control = NativeNoopMemoryControl()
         let g = NativeMemoryGovernor(memory: ProcessMemorySampler(), control: control, reclaimers: NativeMemoryGovernor.standardReclaimers(),
@@ -171,7 +171,7 @@ final class NativeMemoryGovernorSampler {
         let avail = ProcessMemory.availableBytes()
         governor.tick()
         onSample(fp, avail)
-        // the governor's own line next to Go's periodic memory line: every 5 min from `elevated`, else 30 min
+        // the governor's own line next to the old core's periodic memory line: every 5 min from `elevated`, else 30 min
         let every: TimeInterval = governor.level >= .elevated ? 300 : 1800
         if Date().timeIntervalSince(lastLine) >= every {
             lastLine = Date()

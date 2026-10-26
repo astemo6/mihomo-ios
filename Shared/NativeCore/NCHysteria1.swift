@@ -2,7 +2,7 @@ import Foundation
 import Network
 import os
 
-/// Hysteria v1 client (protocol version 3, mihomo v1.19.33 transport/hysteria/core) over Network.framework QUIC
+/// Hysteria v1 client (protocol version 3, Clash.Meta v1.19.33 transport/hysteria/core) over Network.framework QUIC
 /// (feat/nc-proto A3, based on astemo6/Muse NativeCore). Same QUIC group model as NCHysteria2Connection.
 /// Scope: TCP over QUIC streams; UDP relay over QUIC datagrams; obfs (XPlus), protocol wechat-video and port hopping
 /// (`ports`, `hop-interval`) through the loopback packet shim (NCHysteria1UDP.swift, feat/nc-proto2). Not available:
@@ -383,7 +383,7 @@ final class NCHysteria1Connection {
 }
 
 /// One hysteria v1 TCP flow: request header out, ServerResponse in, then raw bytes. Sends before the server
-/// accepts are buffered (mihomo's non-fast-open path waits the same way before returning the conn).
+/// accepts are buffered (Clash.Meta's non-fast-open path waits the same way before returning the conn).
 /// All stream state lives on the owning connection's session queue; the registered receive handler is
 /// delivered on the caller queue recorded at openTCP (nc-hy1-queue, the NCHysteria2TCPStream shape).
 final class NCHysteria1TCPStream: NCRelayStream {

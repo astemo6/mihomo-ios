@@ -181,7 +181,7 @@ struct PolicyGroupDisplay {
     var now: String?
     var members: [String]
     var selectable: Bool
-    /// The profile's own `icon:` (mihomo proxy-groups); the user's choice in group-icons.json wins.
+    /// The profile's own `icon:` (Clash.Meta proxy-groups); the user's choice in group-icons.json wins.
     var profileIcon: String? = nil
     /// url-test / fallback member pinned in the core (v0.8), nil = automatic.
     var pinned: String? = nil

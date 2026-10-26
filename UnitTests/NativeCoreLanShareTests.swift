@@ -1,7 +1,7 @@
 import XCTest
 @testable import Mihomo
 
-/// feat/nc-lan-share: 局域网共享 on the NativeCore mixed port (NCLanShare — mihomo allow-lan / bind-address /
+/// feat/nc-lan-share: 局域网共享 on the NativeCore mixed port (NCLanShare — Clash.Meta allow-lan / bind-address /
 /// authentication / skip-auth-prefixes / lan-allowed-ips semantics, and the listener the tunnel picks).
 final class NativeCoreLanShareTests: XCTestCase {
 

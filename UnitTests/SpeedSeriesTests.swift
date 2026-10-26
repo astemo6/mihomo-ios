@@ -107,7 +107,7 @@ final class SpeedSeriesTests: XCTestCase {
         XCTAssertEqual(s.up.last, 11)
     }
 
-    // P0-2: GET /app/stats as the tunnel writes it (bridge/statsrecorder.go writeAppStats).
+    // P0-2: GET /app/stats as the tunnel writes it.
     func testTunnelStatsDecodes() throws {
         let json = #"""
         {"session":1700000000000,"since":1700000000000,"version":7,"totalConnections":3,"ruleCount":2,"hostCount":2,"closedSeq":1,"full":true,

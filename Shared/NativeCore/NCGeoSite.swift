@@ -1,7 +1,7 @@
 import Foundation
 
 /// GEOSITE database (GeoSite.dat, v2ray geosite protobuf format) with
-/// mihomo's matching semantics (metacubex/mihomo component/geodata +
+/// Clash.Meta's matching semantics (upstream Clash.Meta component/geodata +
 /// rules/common/geosite.go are the spec):
 ///
 ///   GEOSITE,google,PROXY            — domain in category GOOGLE
@@ -16,7 +16,7 @@ import Foundation
 ///
 /// Categories are parsed lazily on first use (the file can hold 100k+
 /// domains; the tunnel cannot afford to materialise all of them), mirroring
-/// mihomo's memconservative loader. The index pass only records each
+/// Clash.Meta's memconservative loader. The index pass only records each
 /// category's byte range and name.
 final class NCGeoSiteDB {
     private let data: Data
@@ -77,7 +77,7 @@ final class NCGeoSiteDB {
         index = found
     }
 
-    /// mihomo GEOSITE match: `payload` is the rule payload ("NAME" or
+    /// Clash.Meta GEOSITE match: `payload` is the rule payload ("NAME" or
     /// "NAME@attr1,attr2"), `domain` the host being routed.
     func matches(payload: String, domain: String) -> Bool {
         var d = domain.lowercased()

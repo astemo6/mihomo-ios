@@ -1,17 +1,17 @@
 import Foundation
 
 /// feat/nc-lan-share (需同步 feat/nc-kernel): 局域网共享 policy for the NativeCore local mixed port (NCLocalProxy),
-/// with mihomo's semantics for the top-level inbound keys the app writes into the runtime config
+/// with Clash.Meta's semantics for the top-level inbound keys the app writes into the runtime config
 /// (App/Core/NCRuntimeDNS.swift NCRuntimeSteps.applyInbound, port of bridge applyInbound):
-///   - `allow-lan` false → the listener binds 127.0.0.1 whatever `bind-address` says (mihomo genAddr);
-///   - `bind-address` "*" (mihomo default) / "" / 0.0.0.0 / :: → every interface; a loopback address → loopback;
+///   - `allow-lan` false → the listener binds 127.0.0.1 whatever `bind-address` says (Clash.Meta genAddr);
+///   - `bind-address` "*" (Clash.Meta default) / "" / 0.0.0.0 / :: → every interface; a loopback address → loopback;
 ///     another IP literal → that address only;
 ///   - `authentication` ["user:pass", …] — split at the FIRST ':' (strings.Cut, so a password may contain ':'),
 ///     entries without ':' are ignored, a later duplicate user replaces the earlier one (sync.Map Store);
 ///     no valid entry = no authentication;
 ///   - `skip-auth-prefixes` — source addresses that never authenticate (the app always writes 127.0.0.0/8, ::1/128);
 ///   - `lan-allowed-ips` (default 0.0.0.0/0 + ::/0) / `lan-disallowed-ips` — source filter for LAN clients.
-///     Divergence from mihomo, on purpose: loopback is always admitted, so the system proxy NEProxySettings points
+///     Divergence from Clash.Meta, on purpose: loopback is always admitted, so the system proxy NEProxySettings points
 ///     at 127.0.0.1 keeps working even when a profile's own lan-allowed-ips leaves loopback out.
 /// Pure value type (parsing + decisions); NCLocalProxy does the I/O. Small: a few strings and CIDRs.
 struct NCLanShare: Equatable {
@@ -26,7 +26,7 @@ struct NCLanShare: Equatable {
     /// username → password. Empty = no authentication.
     var users: [String: String] = [:]
     var skipAuth: [NCCIDR] = []
-    /// Empty = every source (mihomo's default 0.0.0.0/0, ::/0).
+    /// Empty = every source (Clash.Meta's default 0.0.0.0/0, ::/0).
     var allowed: [NCCIDR] = []
     var disallowed: [NCCIDR] = []
 
@@ -90,7 +90,7 @@ struct NCLanShare: Equatable {
         return out
     }
 
-    /// mihomo `authentication`: "user:pass", cut at the first ':'.
+    /// Clash.Meta `authentication`: "user:pass", cut at the first ':'.
     static func parseAuthentication(_ entries: [String]) -> [String: String] {
         var users: [String: String] = [:]
         for e in entries {
@@ -102,14 +102,14 @@ struct NCLanShare: Equatable {
         return users
     }
 
-    /// mihomo genAddr: allow-lan off → 127.0.0.1; "*" → all interfaces; otherwise the host given.
+    /// Clash.Meta genAddr: allow-lan off → 127.0.0.1; "*" → all interfaces; otherwise the host given.
     static func bind(allowLan: Bool, bindAddress: String) -> Bind {
         guard allowLan else { return .loopback }
         var h = bindAddress.trimmingCharacters(in: .whitespaces)
         if h.hasPrefix("["), h.hasSuffix("]") { h = String(h.dropFirst().dropLast()) }
         if h.isEmpty || h == "*" || h == "0.0.0.0" || h == "::" { return .any }
         if h.lowercased() == "localhost" { return .loopback }
-        guard let ip = NCIP(h) else { return .any } // a host name: mihomo would fail to listen; keep sharing on
+        guard let ip = NCIP(h) else { return .any } // a host name: Clash.Meta would fail to listen; keep sharing on
         if isLoopback(ip) { return .loopback }
         return .address(ip.string)
     }
@@ -135,8 +135,8 @@ struct NCLanShare: Equatable {
         }
     }
 
-    /// May this client use the port at all (mihomo IsRemoteAddrDisAllowed, plus loopback always in)?
-    /// An address that does not parse is admitted (mihomo: SetRemoteAddr error → not disallowed).
+    /// May this client use the port at all (Clash.Meta IsRemoteAddrDisAllowed, plus loopback always in)?
+    /// An address that does not parse is admitted (Clash.Meta: SetRemoteAddr error → not disallowed).
     func admits(_ source: NCIP?) -> Bool {
         guard let ip = source else { return allowLan }
         if Self.isLoopback(ip) { return true }

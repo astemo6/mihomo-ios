@@ -47,7 +47,7 @@ final class NativeCoreECHRestTests: XCTestCase {
     }
 
     func testECHNeedsExplicitEnable() {
-        // mihomo semantics: config without enable is not ECH (E3); no ech-opts at all → nothing changes.
+        // Clash.Meta semantics: config without enable is not ECH (E3); no ech-opts at all → nothing changes.
         let p = proxy("trojan", ["password": .string("p"), "ech-opts": .object(["config": .string(echConfigBase64)])])
         XCTAssertFalse(NCConnector.isECHEnabled(p))
         XCTAssertFalse(NCConnector.needsNativeTLS(p))
@@ -88,7 +88,7 @@ final class NativeCoreECHRestTests: XCTestCase {
                                                alpn: [], keyShare: share)
         XCTAssertNotNil(with.range(of: Data([0x00, 0x10, 0x00, 0x05, 0x00, 0x03, 0x02, 0x68, 0x32])))
         XCTAssertNil(without.range(of: Data([0x00, 0x10, 0x00, 0x02, 0x00, 0x00])), "no empty ALPN extension on the wire")
-        // supported_versions = {TLS 1.3, TLS 1.2} with an even u8 list length (was 0x03 → Go decode_error).
+        // supported_versions = {TLS 1.3, TLS 1.2} with an even u8 list length (was 0x03 → the old core decode_error).
         XCTAssertNotNil(with.range(of: Data([0x00, 0x2b, 0x00, 0x05, 0x04, 0x03, 0x04, 0x03, 0x03])))
     }
 

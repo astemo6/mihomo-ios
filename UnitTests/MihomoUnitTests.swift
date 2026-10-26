@@ -1,7 +1,7 @@
 import XCTest
 @testable import Mihomo
 
-// v0.19.5: Swift-only logic that the Go suite cannot reach. Hosted in the app (simulator, Debug); every test
+// v0.19.5: Swift-only logic that the old core suite cannot reach. Hosted in the app (simulator, Debug); every test
 // works in its own scratch directory / UserDefaults suite, never in the app's container.
 
 private func scratch(_ name: String = #function) -> URL {
@@ -405,7 +405,7 @@ final class ProfileStoreLogicTests: XCTestCase {
     }
 }
 
-// MARK: v0.19.6 (review 7) scale + concurrency, through the same gomobile calls the app makes. Scratch dirs only.
+// MARK: v0.19.6 (review 7) scale + concurrency, through the same the old bridge calls the app makes. Scratch dirs only.
 
 final class ScaleTests: XCTestCase {
     private func bigProfile(_ root: URL, nodes: Int = 3000, rules: Int = 10000) -> String {
@@ -444,7 +444,7 @@ final class ScaleTests: XCTestCase {
         XCTAssertTrue(ProfileStore.manualNodes(path: nil).isEmpty)
     }
 
-    /// The Go side serialises read-modify-write per file (v0.19.6); before, most concurrent additions were lost.
+    /// the old side serialises read-modify-write per file (v0.19.6); before, most concurrent additions were lost.
     func testConcurrentProfileNodeWrites() async {
         let root = scratch(), path = bigProfile(root, nodes: 50, rules: 50)
         await withTaskGroup(of: String.self) { g in
@@ -629,12 +629,12 @@ final class Review6AppTests: XCTestCase {
 // Device report 2026-10-21 (「为什么有好多dns被拦截了」): QUIC refusals must not count as blocks in DNS 日志.
 final class RejectClassifierTests: XCTestCase {
     func testQUICRuleForms() {
-        // As mihomo v1.19.33 logs them (rules/logic/logic.go Payload()).
+        // As Clash.Meta v1.19.33 logs them (rules/logic/logic.go Payload()).
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443)))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER)))))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443/8443) && (RuleSet,__mitm_hosts) && (NOT,(!(RuleSet,__quic_allow)))))"))
         XCTAssertTrue(RejectClassifier.isMitMQUIC(rule: "AND(((Network,udp) && (DstPort,443/8443) && (RuleSet,__mitm_hosts)))"))
-        // Profile / import spellings (mihomo, Surge, QX-converted).
+        // Profile / import spellings (Clash.Meta, Surge, QX-converted).
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((NETWORK,UDP),(DST-PORT,443))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((IN-TYPE,INNER))))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((PROTOCOL,UDP),(DEST-PORT,443))"))

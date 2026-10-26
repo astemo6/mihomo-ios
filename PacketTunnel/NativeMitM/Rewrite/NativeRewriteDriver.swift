@@ -1,41 +1,41 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 // Native MitM stage 3a — plugs the native rewrite engine into NativeMitmSession.
 //
-// NativeRewriteDriver is a MitmFlowDriving in front of the Go driver. For each request it asks the native engine
+// NativeRewriteDriver is a MitmFlowDriving in front of the old core driver. For each request it asks the native engine
 // first (only when the switch `nativeMitmRewrite` is on — default OFF — and a snapshot for the running engine's
 // current generation is loaded); a native decision gets a negative flow id and every later call for that id
-// (response head, local body reads, end / cancel) is answered here without Go. A deferral (.deferred), the switch off, no
-// snapshot, an unknown snapshot version or any inconsistency → the Go flow exactly as before. The session is not
-// changed: it cannot tell a native decision from a Go one.
+// (response head, local body reads, end / cancel) is answered here without the old core. A deferral (.deferred), the switch off, no
+// snapshot, an unknown snapshot version or any inconsistency → the old flow exactly as before. The session is not
+// changed: it cannot tell a native decision from an old-core one.
 //
-// Request log: every native decision is reported to Go's request log through NativeRequestRecorder (batched, off
-// the request path), so the 请求 list / capture shows it like a Go-handled request (bridge/mitm/nativerecord.go).
+// Request log: every native decision is reported to the old core's request log through NativeRequestRecorder (batched, off
+// the request path), so the 请求 list / capture shows it like a old-core-handled request.
 //
 // Body rewrites (stage 3b, switch `nativeMitmBody`, default OFF): a forward whose request or response has body
 // rules Swift can run becomes a BodyFlow. The request body is taken (need-body) and rewritten here; the response
 // body is taken whole (≤ 256 KB, known length) and decoded, rewritten and served here (NativeBodyExec). Whenever
-// that is not certain to match Go — at the response head (chunked, large, no body) or once the body is in (not
-// UTF-8 / not JSON / an encoding not decoded exactly like Go / a jq error / a slow regex) — the exchange is
-// "adopted" by Go: MitmFlowBegin runs again with the original head (Go's request phase for a request Swift
-// forwarded is deterministic: no scripts, no body Go needs except the request body pushed back to it), then
+// that is not certain to match the old core — at the response head (chunked, large, no body) or once the body is in (not
+// UTF-8 / not JSON / an encoding not decoded exactly like the old core / a jq error / a slow regex) — the exchange is
+// "adopted" by the old core: MitmFlowBegin runs again with the original head (the old core's request phase for a request Swift
+// forwarded is deterministic: no scripts, no body the old core needs except the request body pushed back to it), then
 // MitmFlowResponse with the upstream head and the buffered body; every later call for the id is relayed to that
-// Go flow. A body flow's request-log entry is written only once Swift has answered it natively (an adopted one is
-// Go's own entry).
+// old flow. A body flow's request-log entry is written only once Swift has answered it natively (an adopted one is
+// the old core's own entry).
 //
 // Scripts (lane s3-script, switch `nativeMitmScript`, default OFF): a forward whose response runs http-response
 // scripts becomes a ScriptFlow run by NativeScriptResponse (Script/NativeScriptDispatcher.swift); anything it cannot
-// reproduce exactly is handed back to the Go flow before a script ran.
+// reproduce exactly is handed back to the old flow before a script ran.
 //
 // Request scripts (native-final, switch `nativeMitmScript`): the engine stops at an http-request script, the
 // script runs here (Script/NativeRequestScripts.swift; a requires-body script takes the request body from the
 // session first: need-body .request), the engine goes on with its outcome. A request Swift cannot finish after a
-// script ran is handed to Go with FlowHead.Scripted (the outcomes so far): Go's requestPhase applies them instead of
+// script ran is handed to the old core with FlowHead.Scripted (the outcomes so far): the old core's requestPhase applies them instead of
 // running the scripts again. A response-script flow that hands its response back does the same.
 //
-// Snapshot freshness: MitmRewriteGeneration() is checked on every request (an int from Go); the JSON is fetched and
+// Snapshot freshness: MitmRewriteGeneration() is checked on every request (an int from the old core); the JSON is fetched and
 // decoded only when it moved (engine reload). A request racing a reload may use the previous rule set — the same
-// window the Go path has between reading its state pointer and the reload storing a new one.
+// window the old path has between reading its state pointer and the reload storing a new one.
 
 import Foundation
 
@@ -74,7 +74,7 @@ protocol RewriteSnapshotSource: AnyObject {
     func generation() -> Int64
     /// The snapshot JSON ("" none).
     func snapshotJSON() -> String
-    /// Go applies the given response header rules of snapshot `gen` (Swift could not: see NativeRewriteEngine
+    /// the old core applies the given response header rules of snapshot `gen` (Swift could not: see NativeRewriteEngine
     /// respond). nil: unavailable.
     func headerOps(gen: Int64, rules: [Int], status: Int, headers: [[String]]) -> [[String]]?
     /// The decoded snapshot (nil none). Default: decodes snapshotJSON().
@@ -154,7 +154,7 @@ final class NativeRewriteProvider {
 
 // MARK: - Driver
 
-/// A Go flow driver that can start a request whose request scripts Swift already ran (FlowHead.Gen / Scripted).
+/// A old flow driver that can start a request whose request scripts Swift already ran (FlowHead.Gen / Scripted).
 protocol MitmScriptedFlowStarting: AnyObject {
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision
 }
@@ -169,7 +169,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         case script(ScriptFlow)
         /// native-final: a request script waits for the request body (need-body .request).
         case reqScript(ReqScriptFlow)
-        /// native-final: handed to Go after request scripts ran natively — every call goes to this Go flow.
+        /// native-final: handed to the old core after request scripts ran natively — every call goes to this old flow.
         case relay(Int64)
         case done
     }
@@ -192,7 +192,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     }
 
     /// A native script flow (lane s3-script). Its request-log "forward" is written only when the response is
-    /// handled natively; a response handed back to Go gets a Go flow (goID) and Go writes the whole entry.
+    /// handled natively; a response handed back to the old core gets a old flow (goID) and the old core writes the whole entry.
     final class ScriptFlow {
         let plan: RewriteDecision.ResponsePlan
         let engine: NativeRewriteEngine
@@ -204,7 +204,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         var response: NativeScriptResponse?
         var goID: Int64 = 0
         /// native-final: request scripts that ran natively (FlowHead.Scripted for a hand-back) and the client body
-        /// Swift read for them (pushed to Go if its request phase loads it again).
+        /// Swift read for them (pushed to the old core if its request phase loads it again).
         var scripted: [[String: Any]] = []
         var clientBody: Data?
         var out = Data()
@@ -230,11 +230,11 @@ final class NativeRewriteDriver: MitmFlowDriving {
         var respLength: Int64 = -1
         var respIn = Data()                // the upstream's response body as pushed
         var respOut = Data(), respOff = 0  // the rewritten response body (read .response)
-        var goID: Int64 = 0                // adopted: the Go flow
-        var pending: [Data] = []           // adopted: body pieces Go has not taken yet ("more")
+        var goID: Int64 = 0                // adopted: the old flow
+        var pending: [Data] = []           // adopted: body pieces the old core has not taken yet ("more")
         var pendingWhich = FlowBodyWhich.response
         var pendingClose = false
-        var rawServe: Data?                // adopted: Go said "upstream" after Swift had read the body itself
+        var rawServe: Data?                // adopted: the old core said "upstream" after Swift had read the body itself
         var rawOff = 0
         var firstEvent: NativeRequestEvent? // the deferred "forward" log event
         let t0: UInt64
@@ -247,13 +247,13 @@ final class NativeRewriteDriver: MitmFlowDriving {
     struct Stats: Equatable {
         var local = 0, forward = 0, drop = 0, deferred = 0, off = 0
         var reasons: [String: Int] = [:]
-        /// stage 3b: body flows answered in Swift / handed to Go mid-way (with why).
+        /// stage 3b: body flows answered in Swift / handed to the old core mid-way (with why).
         var bodyNative = 0, bodyAdopted = 0
         var adoptReasons: [String: Int] = [:]
-        /// Lane s3-script: script responses handled natively / handed back to Go (reasons in handBackReasons).
+        /// Lane s3-script: script responses handled natively / handed back to the old core (reasons in handBackReasons).
         var script = 0, scriptHandedBack = 0
         var handBackReasons: [String: Int] = [:]
-        /// native-final: requests whose request scripts ran natively and that Swift finished / handed to Go.
+        /// native-final: requests whose request scripts ran natively and that Swift finished / handed to the old core.
         var reqScript = 0, reqScriptHandedOver = 0
         var handOverReasons: [String: Int] = [:]
     }
@@ -262,14 +262,14 @@ final class NativeRewriteDriver: MitmFlowDriving {
     private struct LogCtx {
         let key: Int64
         let start: UInt64          // uptime ns at the request phase
-        var responded = false      // a "respond" decision exists (Go: nf.respBody != nil)
-        var upstreamMode = false   // the body is relayed from the upstream (Go counts the bytes the native side sent)
+        var responded = false      // a "respond" decision exists (the old core: nf.respBody != nil)
+        var upstreamMode = false   // the body is relayed from the upstream (the old core counts the bytes the native side sent)
     }
 
     let inner: MitmFlowDriving
     let provider: NativeRewriteProvider
     let recorder: NativeRequestRecorder?
-    /// Lane s3-script: what the native script dispatcher uses (production: Go bridge, JavaScriptCore, NativeBodyStore).
+    /// Lane s3-script: what the native script dispatcher uses (production: old bridge, JavaScriptCore, NativeBodyStore).
     var scriptHost: ScriptHostAPI = NativeScriptHost.shared
     var scriptJS: () -> NativeJSEngine? = {
         JSCScriptEngine.nativeBlobs != nil && JSCScriptEngine.shared.canInterrupt ? JSCScriptEngine.shared : nil
@@ -328,11 +328,11 @@ final class NativeRewriteDriver: MitmFlowDriving {
         return inner.requestPhase(head: head, conn: conn)
     }
 
-    /// The native decision for q (nil: deferred to Go, counted). Records the request-log event of the decision.
+    /// The native decision for q (nil: deferred to the old core, counted). Records the request-log event of the decision.
     /// rewrite: native rewrite decisions are on (nativeMitmRewrite); scripts: lane s3-script (nativeMitmScript) — a
     /// forward whose response runs http-response scripts is taken natively; bodies: stage 3b body flows.
-    /// head / conn: the session's request (needed for body and script flows, which Go may have to adopt / take
-    /// back); without them body rules and scripts are left to Go.
+    /// head / conn: the session's request (needed for body and script flows, which the old core may have to adopt / take
+    /// back); without them body rules and scripts are left to the old core.
     func native(_ q: RewriteRequest, engine: NativeRewriteEngine, rewrite: Bool = true, scripts: Bool = false,
                 head: HTTPRequestHead? = nil, conn: MitmConnInfo? = nil, bodies: Bool = false) -> FlowDecision? {
         let wall = Date().timeIntervalSince1970
@@ -528,7 +528,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             case .body(let b):
                 bf.reqOut = b
                 bf.stage = .forwarded
-                // setBody: r.Header Content-Length is the final length in Go's ent.ReqHeaders
+                // setBody: r.Header Content-Length is the final length in the old core's ent.ReqHeaders
                 if var e = bf.firstEvent, var hs = e.headers {
                     for k in hs.indices where hs[k].count == 2 && hs[k][0] == "Content-Length" { hs[k][1] = String(b.count) }
                     e.headers = hs
@@ -547,7 +547,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
                 bf.stage = .responded
                 count(\.bodyNative)
                 commitFirst(id, bf)
-                updateLog(id) { c in c.responded = true; c.upstreamMode = true } // Go counts the bytes the client reads
+                updateLog(id) { c in c.responded = true; c.upstreamMode = true } // the old core counts the bytes the client reads
                 emit(id, last: false) { c in
                     NativeRequestEvent(k: c.key, ev: "response", ms: Self.ms(since: c.start), gen: bf.engine.generation,
                                        rules: r.rules.isEmpty ? nil : r.rules, status: r.status, headers: r.logHeaders.isEmpty ? nil : r.logHeaders)
@@ -578,14 +578,14 @@ final class NativeRewriteDriver: MitmFlowDriving {
         lock.unlock()
     }
 
-    /// A Go decision handed to the session under the native id.
+    /// A the old core decision handed to the session under the native id.
     private func mapped(_ id: Int64, _ d: FlowDecision) -> FlowDecision {
         var d = d
         d.id = id
         return d
     }
 
-    /// FlowWrite of a whole buffered body: pieces Go did not take ("full" after its decision) wait in pending for
+    /// FlowWrite of a whole buffered body: pieces the old core did not take ("full" after its decision) wait in pending for
     /// a "more"; "stop" drops the rest. false: the flow is gone.
     private func push(_ bf: BodyFlow, _ which: FlowBodyWhich, _ data: Data, close: Bool) -> Bool {
         var off = 0
@@ -613,7 +613,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         return true
     }
 
-    /// Go takes the request before anything went upstream: MitmFlowBegin + the buffered request body.
+    /// the old core takes the request before anything went upstream: MitmFlowBegin + the buffered request body.
     private func adoptRequest(_ id: Int64, _ bf: BodyFlow, why: String) -> FlowDecision {
         adopted(why)
         var d = inner.requestPhase(head: bf.head, conn: bf.conn)
@@ -627,8 +627,8 @@ final class NativeRewriteDriver: MitmFlowDriving {
         return mapped(id, d)
     }
 
-    /// Go takes the exchange after Swift forwarded the request: MitmFlowBegin again (same rules, same request →
-    /// the same forward), then MitmFlowResponse; buffered: the response body Swift already read is pushed to Go.
+    /// the old core takes the exchange after Swift forwarded the request: MitmFlowBegin again (same rules, same request →
+    /// the same forward), then MitmFlowResponse; buffered: the response body Swift already read is pushed to the old core.
     private func adoptResponse(_ id: Int64, _ bf: BodyFlow, buffered: Bool, why: String) -> FlowDecision {
         adopted(why)
         bf.firstEvent = nil
@@ -638,7 +638,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if d.action == .needBody {
             guard push(bf, .request, bf.reqIn, close: true) else { return FlowDecision(id: id, action: .error, note: "go flow gone") }
             d = inner.await(bf.goID)
-            // whatever Go would send upstream was already sent by Swift: drop its request body
+            // whatever the old core would send upstream was already sent by Swift: drop its request body
             if d.action == .forward && d.body == .read {
                 for _ in 0..<10000 {
                     if inner.read(bf.goID, .request, max: 128 << 10).isEmpty {
@@ -659,7 +659,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             r = inner.await(bf.goID)
         }
         if r.action == .respond && r.body == .upstream {
-            // Go would relay the upstream's body untouched — Swift already read it: serve those bytes
+            // the old core would relay the upstream's body untouched — Swift already read it: serve those bytes
             bf.rawServe = bf.respIn
             r.body = .read
             r.length = Int64(bf.respIn.count)
@@ -763,7 +763,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if !error.isEmpty && (bf.stage == .requestBody || bf.stage == .responseBody) { bf.stage = .failed }
     }
 
-    /// An adopted flow's read: Go asking for more of a body Swift holds is fed from pending.
+    /// An adopted flow's read: the old core asking for more of a body Swift holds is fed from pending.
     private func adoptedRead(_ bf: BodyFlow, _ which: FlowBodyWhich, max: Int) -> Data {
         if which == .response, let raw = bf.rawServe {
             let n = Swift.min(Swift.max(max, 1), raw.count - bf.rawOff)
@@ -882,7 +882,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             if sf.goID != 0 { return inner.upstreamFailed(sf.goID, why: why) }
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
             sf.response?.end()
-            // the deferred forward record first (Go wrote it at FlowBegin), then the failure
+            // the deferred forward record first (the old core wrote it at FlowBegin), then the failure
             if let key = emitFirst("forward", sf.log, engine: sf.engine, wall: sf.wall, t0: sf.t0) {
                 recorder?.add(NativeRequestEvent(k: key, ev: "upstream", ms: Self.ms(since: sf.t0), why: why))
             }
@@ -982,7 +982,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         lock.unlock()
     }
 
-    /// The response phase of a native script flow: natively (NativeScriptResponse), or handed back to the Go flow.
+    /// The response phase of a native script flow: natively (NativeScriptResponse), or handed back to the old flow.
     private func scriptResponse(_ id: Int64, _ sf: ScriptFlow, head: HTTPResponseHead, length: Int64) -> FlowDecision {
         guard let steps = sf.plan.scripts, let js = scriptJS(), let store = scriptStore(), scriptHost.ready() else {
             return handBack(id, sf, head: head, length: length, why: "engine")
@@ -1005,7 +1005,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         }
     }
 
-    /// Go takes the response over: its request phase runs again (no script ran yet, so nothing is repeated; it
+    /// the old core takes the response over: its request phase runs again (no script ran yet, so nothing is repeated; it
     /// decides the same forward), then FlowResponse with the upstream's head. Every later call for id goes to it.
     private func handBack(_ id: Int64, _ sf: ScriptFlow, head: HTTPResponseHead, length: Int64, why: String) -> FlowDecision {
         countScript(handedBack: why)
@@ -1166,7 +1166,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             return d
         case .forward(var f):
             f.log.notes = rs.notes
-            // the body Go would send: a script's body, else the client body Swift read for a script
+            // the body the old core would send: a script's body, else the client body Swift read for a script
             let served: Data? = f.scriptBody ?? (rs.state.bodyLoaded ? rs.clientBytes : nil)
             var mode = f.bodyMode, length = f.length
             if let b = served { (mode, length) = b.isEmpty ? (.none, 0) : (.read, Int64(b.count)) }
@@ -1191,7 +1191,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         }
     }
 
-    /// Go takes the request with the request-script outcomes so far.
+    /// the old core takes the request with the request-script outcomes so far.
     private func handOver(_ rf: ReqScriptFlow, why: String, flowID: Int64?) -> FlowDecision {
         countReqScript(handedOver: why)
         let rs = rf.rs
@@ -1199,7 +1199,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         let scripted = rs.scriptedForGo
         rs.end()
         var d = goBegin(rf.head, rf.conn, gen: rf.engine.generation, scripted: scripted, clientBody: held, alreadySent: false)
-        // Go forwards the client body untouched but Swift holds it: serve those bytes
+        // the old core forwards the client body untouched but Swift holds it: serve those bytes
         var serve: Data?
         if d.action == .forward, d.body == .client, let b = held {
             d.body = b.isEmpty ? FlowBodyMode.none : .read
@@ -1207,7 +1207,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             serve = b
         }
         guard d.id > 0 else { return flowID.map { relabel(d, $0) } ?? d }
-        if flowID == nil && serve == nil { return d } // nothing of the request is in Swift: the Go flow as it is
+        if flowID == nil && serve == nil { return d } // nothing of the request is in Swift: the old flow as it is
         let id: Int64
         if let flowID {
             lock.lock(); flows[flowID] = .relay(d.id); lock.unlock()
@@ -1220,7 +1220,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     }
 
     /// MitmFlowBegin with FlowHead.Scripted; a request phase that loads the body again gets the bytes Swift holds.
-    /// alreadySent: Swift already sent the request upstream (a response hand-back) — whatever request body Go would
+    /// alreadySent: Swift already sent the request upstream (a response hand-back) — whatever request body the old core would
     /// send is drained.
     private func goBegin(_ head: HTTPRequestHead, _ conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]], clientBody: Data?,
                          alreadySent: Bool) -> FlowDecision {

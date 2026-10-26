@@ -2,9 +2,9 @@ import XCTest
 import Network
 @testable import Mihomo
 
-/// feat/nc-gost-relay: GOST v3 relay outbound (mihomo `gost-relay`, NCGostRelay.swift).
-/// Request vectors were produced by running mihomo v1.19.33's own transport/gost writeRelayRequest
-/// (copied verbatim into a Go harness) — byte-for-byte parity, not a re-derivation.
+/// feat/nc-gost-relay: GOST v3 relay outbound (Clash.Meta `gost-relay`, NCGostRelay.swift).
+/// Request vectors were produced by running Clash.Meta v1.19.33's own transport/gost writeRelayRequest
+/// (copied verbatim into an old-core harness) — byte-for-byte parity, not a re-derivation.
 /// No public gost server / sing-box support exists for loopback CI, so the socket tests below use an
 /// in-process fake relay server (NWListener on loopback) that speaks the server side of the protocol.
 final class NativeCoreGostRelayTests: XCTestCase {
@@ -27,7 +27,7 @@ final class NativeCoreGostRelayTests: XCTestCase {
         return NCProxy(name: "G", type: "gost-relay", fields: f)
     }
 
-    // MARK: Request encoding (mihomo vectors)
+    // MARK: Request encoding (Clash.Meta vectors)
 
     func testRequestDomainTCPNoAuth() {
         XCTAssertEqual(NCGostRelay.request(target: NCTarget(host: "example.com", port: 443), udp: false,

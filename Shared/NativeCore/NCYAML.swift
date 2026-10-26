@@ -1,13 +1,13 @@
 import Foundation
 
-/// A YAML subset parser producing NCJSONValue, sufficient for mihomo configs
+/// A YAML subset parser producing NCJSONValue, sufficient for Clash.Meta configs
 /// (the generated runtime.yaml and typical hand-written ones): block maps and
 /// sequences, flow collections, single/double-quoted and plain scalars,
 /// comments, literal/folded block scalars, anchors and aliases. It is NOT a
 /// general YAML 1.2 implementation (no tags, no multi-document streams beyond
 /// the first document, no complex keys).
 ///
-/// Purpose: let the native core load runtime.yaml directly, retiring the Go
+/// Purpose: let the native core load runtime.yaml directly, retiring the old core
 /// NativeConfigJSON export (integration happens once the core is verified).
 /// A YAML problem the parser could pin to a 1-based line. NCYAML is deliberately lenient (most
 /// malformed input still yields a value), so this only covers what the parser itself knows: a flow

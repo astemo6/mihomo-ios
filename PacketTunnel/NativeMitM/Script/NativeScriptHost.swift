@@ -1,11 +1,11 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
-// Native MitM stage 3, lane s3-script — what the native script dispatcher still asks Go (bridge/mitmscript.go,
-// bridge/mitm/nativescript.go). None of these calls carries a response body: admission (script slots, the
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
+// Native MitM stage 3, lane s3-script — what the native script dispatcher still asks the old core (the retired bridge,
+// the retired bridge). None of these calls carries a response body: admission (script slots, the
 // large-bundle lock and queue, the body budget incl. the small pool, the one-large-body lock, memory gates), the
-// program cache index (the JavaScriptCore context of a script is loaded / dropped by Go), host APIs whose state is
-// Go's ($persistentStore shared with the app, notifications, $httpAPI, geo, $httpClient through mihomo routing), and
-// every log line / request-log note, formatted by the Go path's own code.
+// program cache index (the JavaScriptCore context of a script is loaded / dropped by the old core), host APIs whose state is
+// the old core's ($persistentStore shared with the app, notifications, $httpAPI, geo, $httpClient through Clash.Meta routing), and
+// every log line / request-log note, formatted by the old path's own code.
 //
 // ScriptHostAPI is a protocol so the unit tests can count calls; production is NativeScriptHost.
 
@@ -41,7 +41,7 @@ enum NativeScriptRuntime {
     }
 }
 
-// MARK: - Answers (JSON from Go; field names = nativescript.go json tags)
+// MARK: - Answers (JSON from the old core; field names = nativescript.go json tags)
 
 struct ScriptReserveAnswer: Decodable {
     var slot: Int64?
@@ -57,7 +57,7 @@ struct ScriptPrepared: Decodable {
     var name: String?
     var timeoutMs: Int64?
     var notNative: Bool?
-    /// The setup base (Go's jsSetup without phase / req / resp), kept as JSON text.
+    /// The setup base (the old core's jsSetup without phase / req / resp), kept as JSON text.
     var setupJSON: String = "{}"
 
     enum CodingKeys: String, CodingKey { case ok, key, err, name, timeoutMs, notNative }
@@ -98,7 +98,7 @@ struct ScriptFail: Decodable {
     var msg: String?
 }
 
-/// A finished $httpClient download (Go holds its body budget share until done()).
+/// A finished $httpClient download (the old core holds its body budget share until done()).
 protocol ScriptFetch: AnyObject {
     var meta: String { get }
     var body: Data { get }
@@ -116,7 +116,7 @@ protocol ScriptHostAPI: AnyObject {
     func bodyLoaded(ticket: Int64, url: String, decoded: Int64) -> String
     func bodyFailed(ticket: Int64, url: String, kind: String, raw: Int64, detail: String) -> String
     func bodyRelease(ticket: Int64)
-    /// NativeCore: the streaming charge bodyAdmit opened for ticket (nil: none — the Go host, fakes).
+    /// NativeCore: the streaming charge bodyAdmit opened for ticket (nil: none — the old core host, fakes).
     func bodyCharge(ticket: Int64) -> NativeBodyCharge?
     func bodyCheck(gen: Int64, rule: Int, blen: Int64, limit: Int64) -> ScriptBodyCheck
     func skip(gen: Int64, rule: Int, why: String) -> String
@@ -126,11 +126,11 @@ protocol ScriptHostAPI: AnyObject {
     func api(gen: Int64, rule: Int, arg: String) -> String
     func fetch(gen: Int64, rule: Int, token: Int64, arg: String, body: Data) -> ScriptFetch
     func memLow() -> Bool
-    // native-final: the request body of an http-request script (requestPhase's loadBody, bridge/mitm/flowscripted.go)
+    // native-final: the request body of an http-request script
     func reqBodyAdmit(gen: Int64, rule: Int, url: String, contentLength: Int64, token: Int64) -> ScriptAdmit
     func reqBodySkip(gen: Int64, rule: Int, why: String, blen: Int64) -> String
     func reqLimit(gen: Int64, rule: Int) -> Int64
-    /// Go-side handles still held for native script work (tests: 0 after every flow).
+    /// old-core-side handles still held for native script work (tests: 0 after every flow).
     func held() -> Int64
 }
 
@@ -157,7 +157,7 @@ final class NativeScriptHost: ScriptHostAPI {
     private var slotSeq: Int64 = 0
     private var ticketSeq: Int64 = 0
     private var activeSlots: Int64 = 0
-    // large-body admission (bridge/mitm largebody.go)
+    // large-body admission
     private var waitingTokens: Set<Int64> = []
     private var cancelledTokens: Set<Int64> = []
     /// the streaming charge of each admitted response body (NativeScriptBodyBudget)
@@ -195,9 +195,9 @@ final class NativeScriptHost: ScriptHostAPI {
 
     // MARK: scripts (feat/native-core-eval)
     //
-    // The app (bridge/nativeprep.go → mitm.ExportScriptManifest) writes nativecore-scripts.json: per script rule its
+    // The app writes nativecore-scripts.json: per script rule its
     // rule index, the code file (BOM stripped, Egern adapted), the run timeout and __tern_begin's setup base. The
-    // prelude is the target's TernPrelude.js (= Go's PreludeSource, TestNativePreludeBundleCurrent). prepare() loads
+    // prelude is the target's TernPrelude.js (= the old core's PreludeSource, TestNativePreludeBundleCurrent). prepare() loads
     // a script into JavaScriptCore the first time it runs (and again after the engine dropped it: reload).
 
     struct ManifestEntry: Decodable {
@@ -317,7 +317,7 @@ final class NativeScriptHost: ScriptHostAPI {
     static let maxScriptBody: Int64 = 4 << 20
     static let bodyHardMax: Int64 = 8 << 20
     static let bodyBudgetMin: Int64 = 256 << 10
-    /// Kept available (NativeCore 1.5 MB; Go needed 3 MB for its GC headroom) — NativeScriptBodyBudget.Config.
+    /// Kept available (NativeCore 1.5 MB; the old core needed 3 MB for its GC headroom) — NativeScriptBodyBudget.Config.
     static var largeBodyReserve: Int64 { NativeScriptBodyBudget.shared.config.reserve }
     /// request bodies (loaded whole before the script) and the limit note: the body + one JavaScriptCore copy
     static let bodyCopyFactor: Int64 = 2
@@ -352,7 +352,7 @@ final class NativeScriptHost: ScriptHostAPI {
         return "上限 \(limit >> 10) KB"
     }
 
-    // MARK: response body admission (NativeCore; replaces the 11347ec port of bridge/mitm/largebody.go)
+    // MARK: response body admission
     //
     // No decoded-size estimate: a body starts when its raw length + slack fits above the reserve
     // (NativeScriptBodyBudget.roomToStart); the store charges every raw / decoded byte as it appends it and stops
@@ -535,7 +535,7 @@ final class NativeScriptHost: ScriptHostAPI {
         NCDiagLimiter.shared.line("[SCRIPT] \(name) error \(why)", level: "warning")
         var f = ScriptFail()
         if afterDone && stop == 0 {
-            f.ignored = true // an exception after $done: logged, the answer stands (Go: Ignored, no note)
+            f.ignored = true // an exception after $done: logged, the answer stands (the old core: Ignored, no note)
             f.msg = why
         } else {
             f.note = "脚本错误：" + name + " — " + why
@@ -570,7 +570,7 @@ final class NativeScriptHost: ScriptHostAPI {
         case "sclear":
             return NCPersistentStore.shared.clear() ? "true" : "false"
         case "log":
-            // console.log & co (Go's log ring is gone): the startup log, bounded per line.
+            // console.log & co (the old core's log ring is gone): the startup log, bounded per line.
             // gap C4: script log page (/mitm/logs) + live /logs stream through NativeLogRing; the startup log keeps
             // the first 500 lines per process as before.
             let nl = arg.firstIndex(of: "\n")
@@ -644,7 +644,7 @@ final class NativeScriptHost: ScriptHostAPI {
         #endif
     }
 
-    // $utils.geoip / ipasn / ipaso (gap C3): country, ASN number and AS organisation, like bridge/engine.go
+    // $utils.geoip / ipasn / ipaso (gap C3): country, ASN number and AS organisation, like the retired bridge
     // geoLookup. The databases are mapped (not read into memory) on first use.
     private var geoDBs: (country: NCMMDB?, asn: NCMMDB?)?
 
@@ -713,7 +713,7 @@ final class NativeScriptHost: ScriptHostAPI {
         r.method = (req.method ?? "GET").isEmpty ? "GET" : (req.method ?? "GET")
         r.headers = (req.headers ?? []).compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }
         r.body = body
-        // Go's fetchReq: 15 s unless the script asks (ms)
+        // the old core's fetchReq: 15 s unless the script asks (ms)
         r.timeout = (req.timeout ?? 0) > 0 ? req.timeout! / 1000.0 : 15
         r.noRedirect = req.noRedirect ?? false
         r.policy = req.policy

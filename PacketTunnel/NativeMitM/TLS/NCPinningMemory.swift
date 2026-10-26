@@ -1,7 +1,7 @@
 import Foundation
 
 /// In-memory Certificate Pinning Memory for Native MitM.
-/// Replaces Go's pinning memory (`bridge/mitm/engine.go pinned`).
+/// Replaces the old core's pinning memory.
 /// If a client app fails TLS handshake because of certificate pinning,
 /// the host is pinned for 30 minutes so subsequent connections bypass MitM.
 public final class NCPinningMemory {

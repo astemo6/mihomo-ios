@@ -1,24 +1,24 @@
 import Foundation
 import CryptoKit
 
-/// B1 (Go-zero): the full config check — Swift port of bridge ValidateConfigIn / validateBytes (bridge.go) +
-/// parseRuntimeCached (validatecache.go), with mihomo v1.19.33's `executor.ParseWithBytes` → config.ParseRawConfig
-/// replaced by `parse(_:)` below. Ported from the mihomo sources the bridge linked (config/config.go parseProxies /
+/// B1 (native-only): the full config check — Swift port of bridge ValidateConfigIn / validateBytes (bridge.go) +
+/// parseRuntimeCached (validatecache.go), with Clash.Meta v1.19.33's `executor.ParseWithBytes` → config.ParseRawConfig
+/// replaced by `parse(_:)` below. Ported from the Clash.Meta sources the bridge linked (config/config.go parseProxies /
 /// parseRuleProviders / parseSubRules / parseRules / parseHosts / parseDNS / tunnels, config/utils.go
 /// proxyGroupsDagSort / validateDialerProxies, adapter/parser.go, adapter/outboundgroup/parser.go,
 /// adapter/provider/parser.go, rules/provider/parse.go, rules/parser.go, rules/logic/logic.go,
-/// rules/common/base.go ParseRulePayload, common/utils/ranges.go). Error texts are mihomo's, so ProfileCheck's
+/// rules/common/base.go ParseRulePayload, common/utils/ranges.go). Error texts are Clash.Meta's, so ProfileCheck's
 /// locate patterns and FriendlyError hints keep matching.
 ///
-/// Used by every caller that had the Go parse: ProfileStore.validate (import / save), TestBridge.validate,
+/// Used by every caller that had the old core parse: ProfileStore.validate (import / save), TestBridge.validate,
 /// ProfileCheck (editor), NCProfileNodes commit (node edit, rename) and NCOverrideOutput
 /// (覆写脚本 output).
 ///
-/// DIVERGENCES (declared): mihomo also *constructs* every adapter (cipher tables, TLS configs, transport options)
+/// DIVERGENCES (declared): Clash.Meta also *constructs* every adapter (cipher tables, TLS configs, transport options)
 /// and loads geodata for GEOSITE / GEOIP rules. Here a node is checked for its type, a string `type`, numeric
 /// `port`, unique name and its dialer-proxy chain; protocol parameters are NativeCore's business (NCSupport marks
-/// what it cannot dial; mihomo would accept those nodes too). Geo databases are not opened (the tunnel downloads
-/// them; Go only failed when they were missing *and* undownloadable). DOMAIN-REGEX compiles with
+/// what it cannot dial; Clash.Meta would accept those nodes too). Geo databases are not opened (the tunnel downloads
+/// them; the old core only failed when they were missing *and* undownloadable). DOMAIN-REGEX compiles with
 /// NSRegularExpression instead of regexp2. Listener / TUIC-server / tun sections are not parsed (the app never
 /// writes them; tun is NativeCore's own).
 enum NCConfigValidator {
@@ -76,7 +76,7 @@ enum NCConfigValidator {
     private static let cacheLock = NSLock()
     private static var cache: [Data: (err: String, at: Date)] = [:]
 
-    /// "" when the runtime parses, else mihomo's error text; remembered by the exact runtime bytes + home
+    /// "" when the runtime parses, else Clash.Meta's error text; remembered by the exact runtime bytes + home
     /// (successes 10 min, failures 30 s, 8 entries).
     static func parseCached(home: String, runtime: Data, raw: [String: NCJSONValue]) -> String {
         var h = SHA256()
@@ -115,12 +115,12 @@ enum NCConfigValidator {
         "ss", "ssr", "socks5", "http", "vmess", "vless", "snell", "trojan", "hysteria", "hysteria2", "wireguard",
         "tuic", "juicity", "shadowquic", "gost-relay", "direct", "dns", "reject", "rematch", "ssh", "mieru", "anytls", "sudoku",
         "masque", "trusttunnel", "openvpn", "tailscale", "zerotier", "easytier",
-        "brook", // feat/nc-brook: native-core only (not a mihomo type)
+        "brook", // feat/nc-brook: native-core only (not a Clash.Meta type)
         // feat/nc-naive-h2h3: NaïveProxy and Shadowrocket HTTP/2 / HTTP/3 proxies (native core only).
         "naive", "http2", "h2", "http3", "h3",
     ]
 
-    /// config.ParseRawConfig on the runtime tree (the order of the checks is mihomo's).
+    /// config.ParseRawConfig on the runtime tree (the order of the checks is Clash.Meta's).
     @discardableResult
     static func parse(_ raw: [String: NCJSONValue]) throws -> Parsed {
         try parseGeneral(raw)
@@ -196,7 +196,7 @@ enum NCConfigValidator {
         }
         try proxyGroupsDagSort(groups)
 
-        // proxy-providers (Go ranges over a map: order is random there; sorted here for a stable first error)
+        // proxy-providers (the old core ranges over a map: order is random there; sorted here for a stable first error)
         var providerKinds: [String: Bool] = [:] // name -> isCompatible (a group's)
         let pp = raw["proxy-providers"]?.object ?? [:]
         for name in pp.keys.sorted() {
@@ -374,7 +374,7 @@ enum NCConfigValidator {
     }
 
     /// Groups ordered members-first (the order ParseProxyGroup sees them after the DAG sort), with their index in
-    /// the sorted list as mihomo reports it.
+    /// the sorted list as Clash.Meta reports it.
     static func dagOrder(_ groups: [NCJSONValue]) -> [(Int, NCJSONValue)] {
         var byName: [String: NCJSONValue] = [:]
         var order: [String] = []

@@ -1,7 +1,7 @@
 import SwiftUI
 import UserNotifications
 
-/// Form model for the rewrite editor (formerly shared with the Go side's
+/// Form model for the rewrite editor (formerly shared with the old side's
 /// mitm.RewriteForm, now converted natively by NCRewriteFormConverter):
 /// one form <-> one canonical Surge-syntax line.
 struct RewriteForm: Codable, Equatable {
@@ -174,7 +174,7 @@ struct RewriteView: View {
         } message: { Text(store.message ?? res.message ?? "") }
         .overlay { if store.busy.contains("add") { ProgressView("下载中…").padding().background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
         .task {
-            // v0.19.8: no synchronous Go parsing during the push animation.
+            // v0.19.8: no synchronous the old core parsing during the push animation.
             try? await Task.sleep(nanoseconds: 350_000_000)
             await store.reparseModulesInBackground()
             await res.reloadInBackground()
@@ -499,7 +499,7 @@ struct RewriteView: View {
     }
 }
 
-/// Form editor for one rewrite rule; validation through the Go parsers.
+/// Form editor for one rewrite rule; validation through the old core parsers.
 struct RewriteRuleEditor: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var store = EngineStore.shared

@@ -4,7 +4,7 @@ import XCTest
 /// nc-callsite-audit REWORK regressions (follow-up to PR #139, which the
 /// maintainer review rejected on three counts):
 ///
-/// 1. Mojibake — Build briefly decoded module files as Latin-1. Go's
+/// 1. Mojibake — Build briefly decoded module files as Latin-1. the old core's
 ///    mitm config.go Build does ParseText(string(b)): the module bytes
 ///    ARE the text and module files are UTF-8. The Latin-1 decode
 ///    re-read every multibyte sequence as separate characters, so all
@@ -15,12 +15,12 @@ import XCTest
 ///
 /// 2. A bad rewrite aborting startup — #139 made
 ///    NCRewriteSnapshotBuilder.exportData errors fail the whole
-///    NativeRuntimePrep.prepare. Go's ExportRewriteSnapshot returns
+///    NativeRuntimePrep.prepare. the old core's ExportRewriteSnapshot returns
 ///    (string, int): it has no error path, content problems can never
 ///    abort a prepare; bad entries are collected in rs.errors at parse
 ///    time and simply never reach the snapshot. The prep block is back
 ///    to warn-and-continue (only the transaction's TxError — the file
-///    write, fatal in Go too — propagates). prepareSyncLocked is
+///    write, fatal in the old core too — propagates). prepareSyncLocked is
 ///    private and prepare() needs the app-group container, so the
 ///    regression is pinned at the deepest drivable level: the exact
 ///    two calls the prep block composes — NCMitmBuild.build (bad entry

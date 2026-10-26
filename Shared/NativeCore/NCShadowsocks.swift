@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// Shadowsocks AEAD (SIP022) stream crypto, per the shadowsocks spec as mihomo
+/// Shadowsocks AEAD (SIP022) stream crypto, per the shadowsocks spec as Clash.Meta
 /// implements it: master key = EVP_BytesToKey(password); per-connection subkey =
 /// HKDF-SHA1(master, salt, "ss-subkey"); data moves in chunks of at most 0x3FFF
 /// bytes, each chunk = sealed 2-byte big-endian length + sealed payload, with a

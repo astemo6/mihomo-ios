@@ -1,6 +1,6 @@
 import Foundation
 
-/// fix/nc-e2e-gaps: mihomo `listeners:` entries with a fixed `proxy` on the loopback — in practice the App's 节点探测
+/// fix/nc-e2e-gaps: Clash.Meta `listeners:` entries with a fixed `proxy` on the loopback — in practice the App's 节点探测
 /// listener (NCRuntimeDNS.applyProbe: name tern-probe, type mixed, 127.0.0.1:<probePort, 7899>, proxy
 /// TERN-PROBE). The App selects the policy in TERN-PROBE over the controller, then sends URLSession requests
 /// with HTTP / HTTPS proxy = 127.0.0.1:probePort (PolicyProbe.configuration). NativeCore had no listener there, so

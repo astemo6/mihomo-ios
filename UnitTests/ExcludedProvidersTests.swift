@@ -28,9 +28,9 @@ final class ExcludedProvidersTests: XCTestCase {
         XCTAssertTrue(out.isEmpty)
     }
 
-    /// r7: `runtime` is the provider set of the BUILT config (ProfileInspector → Go buildRuntime, which already drops
+    /// r7: `runtime` is the provider set of the BUILT config (ProfileInspector → the old core buildRuntime, which already drops
     /// 停用/删除 节点集 and disabled node subscriptions) — the set a finished reload serves. An unnamed subscription is
-    /// built as "订阅" (Go mergeNodeSubs), so that is the name to exclude.
+    /// built as "订阅" (the old core mergeNodeSubs), so that is the name to exclude.
     func testUnnamedDisabledSubscriptionUsesGoDefaultName() {
         let subs = [NodeSubscription(name: "  ", url: "https://u.example.invalid", enabled: false)]
         XCTAssertEqual(NodeManagerModel.excludedProviders(runtime: [], overrides: [:], subs: subs), ["订阅"])

@@ -411,7 +411,7 @@ final class MihomoUITests: MihomoUITestCase {
             let save = app.navigationBars.buttons[L("保存")]
             XCTAssertTrue(save.waitHittable(), "保存 \(e.0)")
             save.tap()
-            // Saving validates in Go; give it time before calling it a failure (the page below is also 添加节点).
+            // Saving validates in the old core; give it time before calling it a failure (the page below is also 添加节点).
             let gone = NSPredicate(format: "exists == false")
             let closed = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: app.navigationBars.buttons[L("保存")])], timeout: 6) == .completed
             if !closed {

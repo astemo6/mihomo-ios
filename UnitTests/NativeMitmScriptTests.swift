@@ -1,12 +1,12 @@
 import XCTest
 @testable import Mihomo
 
-/// Lane s3-script helpers. Go-zero (nc-integrate): the Go-vs-native differential runs over the Go script engine
-/// (LibmihomoMitmScriptTestStart / MitmFlowDriverAdapter, testNativeScriptDispatchMatchesGo /
+/// Lane s3-script helpers. native-only (nc-integrate): the old-core-vs-native differential runs over the old core script engine
+/// (MitmScriptTestStart / MitmFlowDriverAdapter, testNativeScriptDispatchMatchesGo /
 /// testNativeRequestScriptsMatchGo) are removed with bridge/; the native dispatch is covered by the device runs and
 /// NativeCorePersistentStoreTests. What stays are the ported helpers.
 final class NativeMitmScriptTests: XCTestCase {
-    /// The pieces ported from Go, checked on their own.
+    /// The pieces ported from the old core, checked on their own.
     func testPortedHelpers() {
         XCTAssertEqual(NativeScriptRun.splitSetCookie("a=1, b=2; Expires=Wed, 21 Oct 2027 07:28:00 GMT"), ["a=1", "b=2; Expires=Wed, 21 Oct 2027 07:28:00 GMT"])
         XCTAssertEqual(NativeScriptRun.parseStatus(.string("HTTP/1.1 201 Created")), 201)

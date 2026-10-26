@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// One entry point for everything that arrives from outside: our own mihomo:// links, pasted links of
 /// other clients (loon:// stash:// surge:/// quantumult-x:/// — recognised, never registered as URL
 /// schemes), and opened documents (.yaml .sgmodule .plugin .stoverride .conf .list).
-/// Everything ends up in the one internal model: a mihomo profile, or a module in the module store.
+/// Everything ends up in the one internal model: a Clash.Meta profile, or a module in the module store.
 enum ImportAction: Identifiable, Equatable {
     case profileURL(url: String, name: String)
     case profileText(name: String, text: String)
@@ -218,7 +218,7 @@ final class ImportRouter: ObservableObject {
         if values?.isDirectory == true {
             return (nil, 0, uti, String(localized: "「\(url.lastPathComponent)」是文件夹，请选择其中的配置文件"))
         }
-        // Review 5 P2-8: refuse big files before copying or reading them (a video opened "in Mihomo" used to be
+        // Review 5 P2-8: refuse big files before copying or reading them (a video opened "in Tern" used to be
         // copied to tmp and loaded whole before the 16 MB check).
         let limit = 16 << 20
         let tooBig = String(localized: "文件太大（超过 16 MB），不是配置或模块")

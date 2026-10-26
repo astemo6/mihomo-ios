@@ -109,11 +109,11 @@ struct ConnectionView: View {
         ipv6Section
     }
 
-    /// Loon parity: 直连时丢弃 STUN and UDP 回落 (bridge netextras.go).
+    /// Loon parity: 直连时丢弃 STUN and UDP 回落.
     var udpSection: some View {
         Section {
             Toggle("阻止 WebRTC", isOn: $o.blockWebRTC).accessibilityIdentifier("conn.blockWebRTC")
-            // 阻止 WebRTC rejects every STUN / TURN, so 直连时丢弃 STUN is included while it is on (bridge netextras.go).
+            // 阻止 WebRTC rejects every STUN / TURN, so 直连时丢弃 STUN is included while it is on.
             Toggle("直连时丢弃 STUN", isOn: o.blockWebRTC ? .constant(true) : $o.stunDropDirect)
                 .disabled(o.blockWebRTC)
                 .accessibilityIdentifier("conn.stunDrop")
@@ -299,7 +299,7 @@ struct ConnectionView: View {
                     Text("用户名和密码都填写才会启用认证。").font(.caption).foregroundStyle(Theme.warn)
                 }
                 if o.lanAuth.username.contains(":") {
-                    // mihomo splits "user:pass" at the first ':', so this user could never sign in (v0.19.1).
+                    // Clash.Meta splits "user:pass" at the first ':', so this user could never sign in (v0.19.1).
                     Text("用户名不能包含冒号").font(.caption).foregroundStyle(Theme.warn)
                 }
                 NavigationLink { LanUsersView(users: $o.lanUsers, mainUser: o.lanAuth.password.isEmpty ? "" : o.lanAuth.username) } label: {

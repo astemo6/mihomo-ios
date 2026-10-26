@@ -464,7 +464,7 @@ private final class NaiveLocked<T> {
     func get() -> T { lock.lock(); defer { lock.unlock() }; return value }
 }
 
-/// The hand-rolled ClientHello (NCTLSClientStream, naive h2's TLS) must parse under Go's strict rules:
+/// The hand-rolled ClientHello (NCTLSClientStream, naive h2's TLS) must parse under the old core's strict rules:
 /// supported_versions is a u8-length list of u16 versions with nothing left over.
 final class NativeCoreClientHelloSupportedVersionsTests: XCTestCase {
     func testSupportedVersionsExtensionIsWellFormed() throws {

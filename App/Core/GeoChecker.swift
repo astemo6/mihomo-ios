@@ -4,7 +4,7 @@ import Foundation
 /// qx/rebuild's 出口位置查询 (IPInfoFetcher.checkerKey / checkerURLKey: "" auto, an endpoint name = preferred,
 /// "custom" = the user's JSON API, "disabled" = no lookup). Main adds one optional key on top: a QX
 /// geo_location_checker script for the custom API, which turns the API reply into {title, subtitle}
-/// (run in the Go script engine, app process).
+/// (run in the old core script engine, app process).
 enum GeoChecker {
     static let scriptKey = "geo.checkerScript"
     static var script: String { AppShared.defaults.string(forKey: scriptKey) ?? "" }
@@ -112,7 +112,7 @@ enum GeoChecker {
     @MainActor private static func setError(_ e: String) { lastError = e }
 }
 
-/// 资源解析器 (v0.12, QX resource_parser_url): kept as an optional advanced field. Mihomo parses node,
+/// 资源解析器 (v0.12, QX resource_parser_url): kept as an optional advanced field. Tern parses node,
 /// rule and rewrite resources natively, so the URL is only stored (and shown) — never downloaded or run.
 enum ResourceParserSetting {
     private static let key = "qx.resourceParserURL"

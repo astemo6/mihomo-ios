@@ -51,7 +51,7 @@ final class NativeScriptBodyBudgetTests: XCTestCase {
         return (true, d)
     }
 
-    /// Device report 2026-10-25 07:32 (v0.19.26, Go core): youtube.response skipped at 3.0 / 4.1 MB available with a
+    /// Device report 2026-10-25 07:32 (v0.19.26, old core): youtube.response skipped at 3.0 / 4.1 MB available with a
     /// 147 KB br body (estimated ×8 ≈ 1.2 MB → 256 KB tight budget → refused). NativeCore must run it.
     func testYouTube147KBBrotliRunsAt3To4MBAvailable() {
         let raw = 147 * Self.KB
@@ -73,7 +73,7 @@ final class NativeScriptBodyBudgetTests: XCTestCase {
         }
     }
 
-    /// No ratio guess at admission: a br body is admitted on its raw length alone (the Go estimate refused it).
+    /// No ratio guess at admission: a br body is admitted on its raw length alone (the old core estimate refused it).
     func testAdmissionUsesRawLengthOnly() {
         let (b, _) = make(availMB: 3.0)
         XCTAssertTrue(b.roomToStart(rawLength: 147 * Self.KB))
@@ -144,7 +144,7 @@ final class NativeScriptBodyBudgetTests: XCTestCase {
         XCTAssertEqual(b.openCharges, 0)
     }
 
-    /// NativeCore's numbers (c): 1.5 MB reserve (Go: 3 MB), 8 MB shared cap.
+    /// NativeCore's numbers (c): 1.5 MB reserve (the old core: 3 MB), 8 MB shared cap.
     func testNativeCoreDefaults() {
         let c = NativeScriptBodyBudget.Config()
         XCTAssertEqual(c.reserve, 1_536 * Self.KB)

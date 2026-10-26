@@ -1,6 +1,6 @@
 import Foundation
 
-/// VLESS flow `xtls-rprx-vision` — pure-logic port of mihomo's
+/// VLESS flow `xtls-rprx-vision` — pure-logic port of Clash.Meta's
 /// transport/vless/vision (padding.go / conn.go / filter.go).
 ///
 /// The stream is reframed into padding frames:
@@ -28,7 +28,7 @@ enum NCVision {
     static let tlsServerHandshakeStart: [UInt8] = [0x16, 0x03, 0x03]
     static let tlsApplicationDataStart: [UInt8] = [0x17, 0x03, 0x03]
     static let tls13SupportedVersions: [UInt8] = [0x00, 0x2b, 0x00, 0x02, 0x03, 0x04]
-    /// TLS 1.3 suites from mihomo's map, minus TLS_AES_128_CCM_8_SHA256
+    /// TLS 1.3 suites from Clash.Meta's map, minus TLS_AES_128_CCM_8_SHA256
     /// (0x1305), which the map lookup explicitly rejects.
     static let tls13CipherSuites: Set<UInt16> = [0x1301, 0x1302, 0x1303, 0x1304]
 
@@ -76,7 +76,7 @@ enum NCVisionError: Error, Equatable, LocalizedError {
 /// Port of filter.go's FilterTLS: watches the first few buffers of the
 /// plaintext flow and classifies it (TLS? TLS 1.2+ ServerHello seen? TLS 1.3
 /// with an XTLS-capable cipher?). One instance per direction; a caller that
-/// wants mihomo's exact shared-state behavior may share one instance
+/// wants Clash.Meta's exact shared-state behavior may share one instance
 /// between its writer and reader.
 final class NCVisionFilter {
     private(set) var packetsToFilter = 8
@@ -94,7 +94,7 @@ final class NCVisionFilter {
         if let idx = NCVision.firstIndex(of: NCVision.tlsServerHandshakeStart, in: bytes) {
             index = idx
             if lenP > index + 5 {
-                // Go checks the record start at the buffer head, not at idx.
+                // the old core checks the record start at the buffer head, not at idx.
                 if bytes[0] == 0x16, bytes[1] == 0x03, bytes[2] == 0x03 {
                     isTLS = true
                     if bytes[5] == 0x02 { // ServerHello handshake type
@@ -170,7 +170,7 @@ final class NCVisionWriter {
     func process(_ chunk: [UInt8]) -> [[UInt8]] {
         guard isFiltering else { return [chunk] }
         if chunk.isEmpty {
-            // Long padding to hide the VLESS header (Go's empty-write path,
+            // Long padding to hide the VLESS header (the old core's empty-write path,
             // paddingTLS hardcoded true).
             return [applyPadding(content: [], command: NCVision.commandContinue, paddingTLS: true)]
         }
@@ -203,7 +203,7 @@ final class NCVisionWriter {
     }
 
     /// padding.go's ApplyPadding. Padding bytes are zeros (the reader
-    /// discards them unread, matching Go semantics).
+    /// discards them unread, matching the old core semantics).
     private func applyPadding(content: [UInt8], command: UInt8, paddingTLS: Bool) -> [UInt8] {
         let contentLen = content.count
         var paddingLen = 0
@@ -298,7 +298,7 @@ struct NCVisionReader {
                 let chunk = Array(buffer[readOffset..<(readOffset + n)])
                 readOffset += n
                 remainingContent -= n
-                filter.filter(chunk) // Go filters delivered content too
+                filter.filter(chunk) // the old core filters delivered content too
                 out.append(chunk)
                 continue
             }
@@ -338,7 +338,7 @@ struct NCVisionReader {
             case NCVision.commandEnd:
                 passthrough = true
             case NCVision.commandDirect:
-                // Go drains the TLS layer's decrypted leftovers, then reads
+                // the old core drains the TLS layer's decrypted leftovers, then reads
                 // the raw socket; here the buffered bytes simply become the
                 // passthrough payload.
                 passthrough = true

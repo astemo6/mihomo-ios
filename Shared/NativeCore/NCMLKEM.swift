@@ -332,7 +332,7 @@ enum NCMLKEM768 {
         return DecapsulationKey(dkPKE: dk, ek: ek, h: NCKeccak.digest(.sha3_256(), ek, 32), z: z)
     }
 
-    /// (shared key, ciphertext) — the order Go's mlkem Encapsulate returns.
+    /// (shared key, ciphertext) — the order the old core's mlkem Encapsulate returns.
     static func encapsulate(ek: [UInt8]) -> (key: [UInt8], ciphertext: [UInt8])? {
         guard ek.count == encapsulationKeySize else { return nil }
         // FIPS 203 modulus check: every 12-bit coefficient must already be < q.

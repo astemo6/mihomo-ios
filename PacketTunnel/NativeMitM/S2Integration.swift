@@ -1,5 +1,5 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 // Native MitM STAGE 2 — integration glue (lane `wire`): maps the tls / http / upstream lanes onto the contract in
 // S2Contract.swift so NativeMitmSession drives them. No behaviour of its own beyond the body de-framer.
 
@@ -152,8 +152,8 @@ final class HTTPBodyDecoder: HTTPBodyDecoding {
 extension MitmTLSFront: MitmTLSFronting {
     func listen(host: String, alpn: String) -> Int64 {
         // Session cap (memory) + switch: MitmTLSFront.admit, installed by NativeMitmRuntime.install, declines before the
-        // handshake so Go keeps the connection (first-byte fallback is not even needed).
-        listen(host, alpn: alpn) // admission (switch + session cap) runs inside, as for Go's own call
+        // handshake so the old core keeps the connection (first-byte fallback is not even needed).
+        listen(host, alpn: alpn) // admission (switch + session cap) runs inside, as for the old core's own call
     }
 
     var acceptHandler: ((MitmAcceptedConnection) -> Void)? {
@@ -166,8 +166,8 @@ extension MitmTLSFront: MitmTLSFronting {
         set {
             guard let newValue else { onAccept = nil; return }
             onAccept = { s in
-                // Origin port: Go hands over host only; MitM'd HTTPS is 443 unless the request's Host says otherwise
-                // (the session uses Go's forward URL, which carries the real port).
+                // Origin port: the old core hands over host only; MitM'd HTTPS is 443 unless the request's Host says otherwise
+                // (the session uses the old core's forward URL, which carries the real port).
                 newValue(MitmAcceptedConnection(stream: s, host: s.routingHost, port: 443, alpn: s.alpn,
                                                 connID: NativeMitmRuntime.nextID()))
             }

@@ -2,8 +2,8 @@ import Foundation
 import SwiftUI
 
 /// 代理链 (Loon proxy chain): named chains of nodes / policy groups, entry first → exit last, kept app-wide in
-/// <home>/proxy-chains.json. The Go side (bridge/proxychains.go) turns each 启用 chain into a policy group named
-/// after the chain while the runtime config is built (mihomo dialer-proxy; the relay group type is gone), so a
+/// <home>/proxy-chains.json. the old side turns each 启用 chain into a policy group named
+/// after the chain while the runtime config is built (Clash.Meta dialer-proxy; the relay group type is gone), so a
 /// chain is picked in policy groups and rules like any group. Members are looked up by name in the current
 /// profile; a chain whose members are missing there is skipped and its name removed from groups and rules.
 struct ProxyChain: Codable, Identifiable, Hashable {
@@ -18,7 +18,7 @@ struct ProxyChain: Codable, Identifiable, Hashable {
 final class ProxyChainStore: ObservableObject {
     static let shared = ProxyChainStore()
 
-    /// Proxy-providers the Go side makes for chains (copies of member nodes); hidden from node lists.
+    /// Proxy-providers the old side makes for chains (copies of member nodes); hidden from node lists.
     nonisolated static let generatedPrefix = "tern.chain/"
     nonisolated static func isGenerated(_ provider: String) -> Bool { provider.hasPrefix(generatedPrefix) }
 

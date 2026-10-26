@@ -1,14 +1,14 @@
 import XCTest
 @testable import Mihomo
 
-/// Snell: KDF is the Go-verified Argon2id output truncated; framing is
+/// Snell: KDF is the old-core-verified Argon2id output truncated; framing is
 /// validated by round-trips anchored on that key.
 final class NativeCoreSnellTests: XCTestCase {
     private func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
 
     func testSessionKeyMatchesArgon2() {
         let salt = Data((0..<16).map { UInt8($0) })
-        // Full 32-byte Argon2id for "my-snell-psk" (Go vector); the AES
+        // Full 32-byte Argon2id for "my-snell-psk" (the old core vector); the AES
         // session key is its first 16 bytes.
         let key = NCSnell.sessionKey(psk: Data("my-snell-psk".utf8), salt: salt, keySize: 16)
         XCTAssertEqual(hex(key), "8eb893d1afc12e85718ec026071d1043771ed164")

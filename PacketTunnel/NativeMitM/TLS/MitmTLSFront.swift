@@ -1,17 +1,17 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 // feat/s2-tls (native MitM stage 2, B7): the TLS server side of the native front.
 //
-// Handoff (Go side already implemented, bridge/mitm/nativeterm.go; design work/native-mitm-design.md §4.1): Go keeps
+// Handoff: the old core keeps
 // the CONNECT front (loop check, SNI peek, MitM host list, pinning memory), then asks listen(host, alpn) for the
-// port of a loopback TLS listener presenting Go's leaf for host. Go writes the client's ClientHello there and pipes
+// port of a loopback TLS listener presenting the old core's leaf for host. the old core writes the client's ClientHello there and pipes
 // once our ServerHello arrives. Every failure here is a FALLBACK SIGNAL, never a client-visible error:
 //   - listen returns 0 (no handler, no identity, import failed, listener budget full, listener won't start)
-//     → Go terminates TLS itself;
+//     → the old core terminates TLS itself;
 //   - the handshake fails before ready → no ServerHello reaches caller, and the failure kind goes to NCPinningMemory.
 // One listener per host: Network.framework fixes a listener's TLS identity at creation and has no public per-SNI
-// certificate callback. TLS: server identity = Go leaf, ALPN http/1.1, min TLS 1.2.
-// s3-h2: when native h2 is on (NativeH2Runtime, switch nativeMitmH2) and the client's offer (Go passes it to
+// certificate callback. TLS: server identity = the old core leaf, ALPN http/1.1, min TLS 1.2.
+// s3-h2: when native h2 is on (NativeH2Runtime, switch nativeMitmH2) and the client's offer (the old core passes it to
 // listen) contains "h2", the connection goes to a second listener for the host offering "h2, http/1.1"; the
 // accepted stream reports the negotiated ALPN and the session layer picks NativeH2Session or NativeMitmSession.
 // Not registered here — the `wire` lane calls register() behind the runtime switch (NativeMitmRuntime.defaultOn, iOS 17+).
@@ -122,7 +122,7 @@ final class MitmTLSFront: NSObject {
         }
         guard let entry = makeListener(host: host, key: key, identity: leaf.identity, h2: h2) else { return .failure(.listenerFailed) }
         lock.lock()
-        if let raced = listeners[key], raced.port != 0 { // another goroutine won
+        if let raced = listeners[key], raced.port != 0 { // another thread won
             lock.unlock()
             entry.listener.cancel()
             return .success(raced.port)
@@ -221,7 +221,7 @@ final class MitmTLSFront: NSObject {
     }
 
     /// "cert" (the client rejected our certificate), "closed" (it hung up after seeing it), else "timeout" —
-    /// the kinds bridge/mitm NativeHandshakeFailed understands.
+    /// the kinds the retired bridge NativeHandshakeFailed understands.
     static func classify(_ error: NWError) -> String {
         switch error {
         case .tls(let status):

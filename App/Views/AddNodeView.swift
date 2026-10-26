@@ -237,7 +237,7 @@ struct AddNodeView: View {
         withAnimation(.easeOut(duration: 0.2)) { message = t; isError = error }
     }
 
-    /// selftest: detection ran LibmihomoDetectNodeFormat on the main thread on every keystroke, which parses
+    /// selftest: detection ran DetectNodeFormat on the main thread on every keystroke, which parses
     /// the whole text (a pasted Base64 subscription or a file of several MB froze the editor). Now debounced
     /// and off the main thread; a newer edit cancels an older result.
     func detect(_ t: String) {

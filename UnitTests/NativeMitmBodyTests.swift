@@ -4,13 +4,13 @@ import XCTest
 // END XCTEST
 import Foundation
 
-/// Native MitM stage 3b: body rewrites in Swift must produce exactly the bytes Go's flow API sends.
-/// NativeMitmBodyFixtures.json is written by Go (bridge/mitm/bodysnap_test.go TestGenBodyFixtures): per suite the
-/// rewrite snapshot (with the body rules Go exported) and, per exchange, the request (and its body), the upstream's
-/// response head and raw body, and what Go really sent — the outbound request and body, the response decision and
+/// Native MitM stage 3b: body rewrites in Swift must produce exactly the bytes the old core's flow API sends.
+/// NativeMitmBodyFixtures.json is written by the old core: per suite the
+/// rewrite snapshot (with the body rules the old core exported) and, per exchange, the request (and its body), the upstream's
+/// response head and raw body, and what the old core really sent — the outbound request and body, the response decision and
 /// body, the request-log entry. Suites: a body edge module (every regex / json / jq form, header rules around
-/// body rules, things Go must keep), the Surge / Loon / QX / Egern compat matrix, AppClean, and the user's QX corpus.
-/// Handing back to Go is always allowed; a native result must match byte for byte.
+/// body rules, things the old core must keep), the Surge / Loon / QX / Egern compat matrix, AppClean, and the user's QX corpus.
+/// Handing back to the old core is always allowed; a native result must match byte for byte.
 enum NativeBodyConformance {
     struct Decision: Decodable {
         var action: String
@@ -68,7 +68,7 @@ enum NativeBodyConformance {
         var summary: String {
             let top = reasons.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
             let skips = skipReasons.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-            return "body exchanges \(total): native & identical \(native), handed back to Go \(handedBack), mismatches \(mismatch), native rule skips \(nativeSkipped) (\(skips)); hand-back reasons: \(top)"
+            return "body exchanges \(total): native & identical \(native), handed back \(handedBack), mismatches \(mismatch), native rule skips \(nativeSkipped) (\(skips)); hand-back reasons: \(top)"
         }
     }
 
@@ -94,9 +94,9 @@ enum NativeBodyConformance {
     static func check(_ c: Case, _ engine: NativeRewriteEngine, labels: [String]) -> Outcome {
         let d = engine.decide(request(c), bodies: true)
         let out = check(d, c, engine, labels: labels)
-        // Go-zero (nc-integrate): nothing stands behind .deferred any more — a rule the native
+        // native-only (nc-integrate): nothing stands behind .deferred any more — a rule the native
         // engine cannot run (a regexp2-only body pattern, a response script next to body rules…) is skipped on its
-        // own and noted in the request log (gap C5). Go's answer in the fixture includes that rule's effect, so a
+        // own and noted in the request log (gap C5). the old core's answer in the fixture includes that rule's effect, so a
         // difference is expected exactly when such a skip happened; any other difference stays a mismatch.
         if case .mismatch(let why) = out, let note = skipNote(d) { return .nativeSkip("\(note): \(why)") }
         return out
@@ -108,14 +108,14 @@ enum NativeBodyConformance {
         case .deferred(let why):
             return .handBack("request: \(why)")
         case .drop:
-            return e.action == "drop" ? .native : .mismatch("native drop, Go \(e.action)")
+            return e.action == "drop" ? .native : .mismatch("native drop, expected \(e.action)")
         case .local(let l):
             guard e.action == "local", l.status == e.status, l.headers == (e.headers ?? []), l.length == e.length else {
-                return .mismatch("native local \(l.status), Go \(e.action) \(e.status ?? 0)")
+                return .mismatch("native local \(l.status), expected \(e.action) \(e.status ?? 0)")
             }
             return .native
         case .forward(let f):
-            guard e.action == "forward" else { return .mismatch("native forward, Go \(e.action) \(e.note ?? "")") }
+            guard e.action == "forward" else { return .mismatch("native forward, expected \(e.action) \(e.note ?? "")") }
             if f.method != e.method { return .mismatch("method \(f.method) vs \(e.method ?? "")") }
             if f.url != e.url { return .mismatch("url \(f.url) vs \(e.url ?? "")") }
             if f.host != e.host { return .mismatch("host \(f.host) vs \(e.host ?? "")") }
@@ -156,7 +156,7 @@ enum NativeBodyConformance {
             case .handBack(let why):
                 return .handBack("response body: \(why)")
             case .native(let got):
-                guard x.action == "respond" else { return .mismatch("native respond, Go \(x.action) \(x.note ?? "")") }
+                guard x.action == "respond" else { return .mismatch("native respond, expected \(x.action) \(x.note ?? "")") }
                 if got.status != (x.status ?? 0) { return .mismatch("response status \(got.status) vs \(x.status ?? 0)") }
                 if got.headers != (x.headers ?? []) { return .mismatch("response headers \(got.headers) vs \(x.headers ?? [])") }
                 if "read" != (x.body ?? "none") { return .mismatch("response body mode read vs \(x.body ?? "")") }
@@ -172,7 +172,7 @@ enum NativeBodyConformance {
         }
     }
 
-    /// The rules the request log shows (Entry.Matched, by label) must be Go's.
+    /// The rules the request log shows (Entry.Matched, by label) must be the old core's.
     static func checkLog(_ c: Case, _ rules: [Int], _ labels: [String]) -> Outcome {
         guard let log = c.log else { return .native }
         let got = rules.map { $0 < labels.count ? labels[$0] : "?" }
@@ -202,15 +202,15 @@ enum NativeBodyConformance {
                     if rep.failures.count < 40 { rep.failures.append("\(s.name) / \(c.name): \(why)") }
                 }
             }
-            rep.perSuite.append("\(s.name): \(n) native, \(h) handed back, \(m) mismatches, \(k) Go-free skips")
+            rep.perSuite.append("\(s.name): \(n) native, \(h) handed back, \(m) mismatches, \(k) native skips")
         }
         return rep
     }
 }
 
 
-/// NativeRewriteDriver with body flows against a fake Go flow API: native request / response bodies, and the three
-/// ways Go adopts an exchange (response head, response body, request body).
+/// NativeRewriteDriver with body flows against a fake old flow API: native request / response bodies, and the three
+/// ways the old core adopts an exchange (response head, response body, request body).
 enum NativeBodyDriverChecks {
     static let snap = #"""
     {"version":1,"gen":7,"on":true,"capture":false,"inc":[{"pat":"a.com"}],"exc":[],"total":2,"portable":2,"rules":[
@@ -293,10 +293,10 @@ enum NativeBodyDriverChecks {
             expect(readAll(d, f.id, .response) == Data("x AD y AD".utf8), "1: body")
             expect(d.readState(f.id, .response) == .eof, "1: eof")
             d.end(f.id, sent: 9, error: "")
-            expect(go.calls.isEmpty, "1: Go was called \(go.calls)")
+            expect(go.calls.isEmpty, "1: inner driver was called \(go.calls)")
             expect(d.stats.bodyNative == 1 && d.liveNativeFlows == 0, "1: stats \(d.stats)")
         }
-        // 2. chunked response: Go adopts at the head
+        // 2. chunked response: the old core adopts at the head
         do {
             let go = GoFake(), d = NativeRewriteDriver(inner: go, provider: NativeRewriteProvider(source: GoRewriteSnapshotSourceStub()), recorder: nil)
             let h = head("GET", "/b")
@@ -308,12 +308,12 @@ enum NativeBodyDriverChecks {
             d.closeBody(f.id, .response, error: "")
             let a = d.await(f.id)
             expect(a.action == .respond && a.id == f.id, "2: respond")
-            expect(readAll(d, f.id, .response) == Data("GO:".utf8) + body, "2: Go's body")
+            expect(readAll(d, f.id, .response) == Data("GO:".utf8) + body, "2: inner driver's body")
             d.end(f.id, sent: 0, error: "")
             expect(go.calls == ["begin /b", "response 200", "write 1 9", "close 1", "await", "end"], "2: calls \(go.calls)")
             expect(d.stats.bodyAdopted == 1 && d.stats.adoptReasons["chunked"] == 1, "2: stats \(d.stats)")
         }
-        // 3. body not UTF-8: Go adopts after Swift read it (the buffered body is pushed to Go)
+        // 3. body not UTF-8: the old core adopts after Swift read it (the buffered body is pushed to the old core)
         do {
             let go = GoFake(), d = NativeRewriteDriver(inner: go, provider: NativeRewriteProvider(source: GoRewriteSnapshotSourceStub()), recorder: nil)
             let h = head("GET", "/b")
@@ -325,7 +325,7 @@ enum NativeBodyDriverChecks {
             d.closeBody(f.id, .response, error: "")
             let a = d.await(f.id)
             expect(a.action == .respond && a.id == f.id, "3: respond \(a.action)")
-            expect(readAll(d, f.id, .response) == Data("GO:".utf8) + bad, "3: Go's body")
+            expect(readAll(d, f.id, .response) == Data("GO:".utf8) + bad, "3: inner driver's body")
             d.end(f.id, sent: 0, error: "")
             expect(go.calls == ["begin /b", "response 200", "write 1 3", "close 1", "await", "end"], "3: calls \(go.calls)")
         }
@@ -343,9 +343,9 @@ enum NativeBodyDriverChecks {
             let r = d.responsePhase(f.id, head: up, length: Int64(body.count))
             expect(r.action == .respond && r.body == .upstream, "4: header-only response \(r.action)")
             d.end(f.id, sent: 9, error: "")
-            expect(go.calls.isEmpty, "4: Go was called \(go.calls)")
+            expect(go.calls.isEmpty, "4: inner driver was called \(go.calls)")
         }
-        // 5. request body not UTF-8: Go adopts the request (nothing went upstream yet)
+        // 5. request body not UTF-8: the old core adopts the request (nothing went upstream yet)
         do {
             let go = GoFake(), d = NativeRewriteDriver(inner: go, provider: NativeRewriteProvider(source: GoRewriteSnapshotSourceStub()), recorder: nil)
             let h = head("POST", "/q", [("Content-Length", "4")])
@@ -354,7 +354,7 @@ enum NativeBodyDriverChecks {
             d.closeBody(f.id, .request, error: "")
             let a = d.await(f.id)
             expect(a.action == .forward && a.id == f.id && a.body == .read, "5: forward \(a.action)")
-            expect(readAll(d, f.id, .request) == Data("GO:".utf8) + Data([0xFF, 0x61, 0x61, 0x61]), "5: Go's request body")
+            expect(readAll(d, f.id, .request) == Data("GO:".utf8) + Data([0xFF, 0x61, 0x61, 0x61]), "5: inner driver's request body")
             d.end(f.id, sent: 0, error: "")
             expect(go.calls == ["begin /q", "write 0 4", "close 0", "await", "end"], "5: calls \(go.calls)")
         }
@@ -384,7 +384,7 @@ final class NativeMitmBodyTests: XCTestCase {
         return try JSONDecoder().decode(NativeBodyConformance.Fixtures.self, from: Data(contentsOf: url))
     }
 
-    /// Every body exchange Swift answers matches Go byte for byte; the rest is handed back.
+    /// Every body exchange Swift answers matches the old core byte for byte; the rest is handed back.
     func testBodyConformanceWithGo() throws {
         let fx = try fixtures()
         XCTAssertEqual(fx.version, RWSnapshot.supportedVersion)
@@ -395,13 +395,13 @@ final class NativeMitmBodyTests: XCTestCase {
         for f in rep.failures { print("NativeMitmBodyTests MISMATCH (passed filter): " + f) }
         XCTAssertEqual(rep.mismatch, 0, rep.failures.prefix(5).joined(separator: "\n"))
         XCTAssertGreaterThan(rep.native, 0)
-        // lane regexp2: body ops on regexp2's path (look-around, \b, $) and Go's RE2 nested repeats run natively —
+        // lane regexp2: body ops on regexp2's path (look-around, \b, $) and the old core's RE2 nested repeats run natively —
         // 297 skipped exchanges before, 166 after (run 40196702919): what remains is jq forms outside the native
         // subset (3 rules × 53) and chunked request bodies (7), no regex rule
         XCTAssertLessThanOrEqual(rep.nativeSkipped, 166)
     }
 
-    /// Go's encoding/json output for the corner cases the corpus may not hold.
+    /// the old core's encoding/json output for the corner cases the corpus may not hold.
     func testJSONEncodingMatchesGo() {
         let cases: [(String, String)] = [
             (#"{"b":1,"a":[true,false,null],"c":{}}"#, #"{"a":[true,false,null],"b":1,"c":{}}"#),

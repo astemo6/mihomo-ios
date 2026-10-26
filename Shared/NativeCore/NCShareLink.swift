@@ -11,7 +11,7 @@ enum ShareLinkError: LocalizedError {
     }
 }
 
-/// Pure Swift share link encoder and converter matching bridge/share.go specifications.
+/// Pure Swift share link encoder and converter matching the retired bridge.
 enum NCShareLink {
 
     // MARK: - Encode (Proxy Dictionary -> Share URI)
@@ -313,7 +313,7 @@ enum NCShareLink {
             var user = ""
             let u = sStr(m, "username")
             if !u.isEmpty {
-                // Go: url.UserPassword(u, pw).String() — colon even when pw == "".
+                // the old core: url.UserPassword(u, pw).String() — colon even when pw == "".
                 user = userPassword(u, sStr(m, "password")) + "@"
             }
             var q = KVList()
@@ -362,7 +362,7 @@ enum NCShareLink {
             return "snell://\(escapePath(sStr(m, "psk")))@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "mieru":
-            // Go: url.UserPassword(username, password) unconditionally.
+            // the old core: url.UserPassword(username, password) unconditionally.
             let user = userPassword(sStr(m, "username"), sStr(m, "password"))
             var q = KVList()
             q.add("profile", name)
@@ -382,7 +382,7 @@ enum NCShareLink {
             return link
 
         case "ssh":
-            // Go: url.User(u) when no password (no colon), else UserPassword.
+            // the old core: url.User(u) when no password (no colon), else UserPassword.
             let u = sStr(m, "username")
             let pw = sStr(m, "password")
             let user = pw.isEmpty ? goEscape(u, mode: .userPassword) : userPassword(u, pw)
@@ -428,7 +428,7 @@ enum NCShareLink {
     }
 
     /// Encode one node given as a JSON string.
-    /// Matches bridge/share.go NodeShareLink semantics.
+    /// Matches the retired bridge semantics.
     static func encode(jsonString: String) throws -> String {
         guard let data = jsonString.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -438,7 +438,7 @@ enum NCShareLink {
     }
 
     /// Encode a node of a profile by name (after script overrides if present).
-    /// Matches bridge/share.go NodeShareLinkByName semantics.
+    /// Matches the retired bridge semantics.
     static func encodeByName(homeDir: String, profilePath: String, name: String) throws -> String {
         let profileURL = URL(fileURLWithPath: profilePath)
         var data: Data?
@@ -524,7 +524,7 @@ enum NCShareLink {
 
     // MARK: - Convert Share Links (ProfileStore.normalize)
 
-    /// Convert a list of share links (or base64 subscription) into a minimal mihomo YAML config.
+    /// Convert a list of share links (or base64 subscription) into a minimal Clash.Meta YAML config.
     /// Returns "" on failure.
     static func convertShareLinks(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -541,7 +541,7 @@ enum NCShareLink {
         return buildConfigFromProxies(proxies)
     }
 
-    /// Build a minimal mihomo config with "节点选择" and "自动选择" proxy-groups.
+    /// Build a minimal Clash.Meta config with "节点选择" and "自动选择" proxy-groups.
     static func buildConfigFromProxies(_ proxies: [[String: Any]]) -> String {
         guard !proxies.isEmpty else { return "" }
         let names = proxies.compactMap { $0["name"] as? String }
@@ -591,8 +591,8 @@ enum NCShareLink {
         }
         guard hasQx || hasSurge else { return nil }
 
-        // feat/nc-integrate: was LibmihomoImportConf (Go). This file is in Shared/, which the Go-free PacketTunnel
-        // compiles too, so it must not import Libmihomo. Swift path: the NativeCore importers (NCQXImport /
+        // feat/nc-integrate: was ImportConf (the old core). This file is in Shared/, which the native-only PacketTunnel
+        // compiles too, so it must not import the old core framework. Swift path: the NativeCore importers (NCQXImport /
         // NCConfImport, the same ones the tunnel uses) → NCConfig → Tern YAML via NCYAMLEmitter.
         // Covers proxies, proxy groups, rules, rule-providers and DNS servers; Surge/QX MitM / rewrite / script
         // sections are not part of a share-link conversion.
@@ -618,9 +618,9 @@ enum NCShareLink {
         if !cfg.dns.fields.isEmpty { root["dns"] = cfg.dns.fields.mapValues { $0.rawAny } }
         let yaml = NCYAMLEmitter.emit(root)
         let formatName = hasQx ? "Quantumult X" : (isLoon ? "Loon" : "Surge")
-        // bridge confsource.go confAsProfile: the import report rides as
+        // the retired bridge confAsProfile: the import report rides as
         // leading comments — what conversion left out is listed, never
-        // dropped silently. (Go also prints a skipped-rules count; Swift's
+        // dropped silently. (the old core also prints a skipped-rules count; Swift's
         // NCImportReport has no such field, sections/warnings are carried.)
         var head = "# Tern: converted from a \(formatName) config (\(formatName) 配置转换)\n"
         func reportLine(_ s: String) {
@@ -732,9 +732,9 @@ enum NCShareLink {
     }
 
     private static func sBool(_ m: [String: Any], _ k: String) -> Bool {
-        // bridge share.go sBool: bool → itself; string → only exactly "true"/"1"
+        // the retired bridge sBool: bool → itself; string → only exactly "true"/"1"
         // (case-sensitive); int → != 0. JSON/YAML floating numbers hit no case
-        // in Go (float64 is not in the switch) and are false — gate NSNumber to
+        // in the old core (float64 is not in the switch) and are false — gate NSNumber to
         // integer-typed values so 1.0 does not silently become true.
         guard let v = m[k] else { return false }
         switch v {
@@ -760,7 +760,7 @@ enum NCShareLink {
             return list.map { String(describing: $0) }
         }
         if let s = v as? String, !s.isEmpty {
-            // bridge share.go sList: strings.Split(t, ",") — no trimming.
+            // the retired bridge sList: strings.Split(t, ",") — no trimming.
             return s.components(separatedBy: ",")
         }
         return []
@@ -789,7 +789,7 @@ enum NCShareLink {
         escapePath(name)
     }
 
-    /// Go net/url shouldEscape byte table: unreserved [A-Za-z0-9-_.~] plus the
+    /// the old core net/url shouldEscape byte table: unreserved [A-Za-z0-9-_.~] plus the
     /// reserved set each mode leaves alone; everything else is %XX (uppercase
     /// hex, over the UTF-8 bytes).
     private static func goEscape(_ s: String, mode: GoEscapeMode) -> String {
@@ -822,13 +822,13 @@ enum NCShareLink {
 
     private enum GoEscapeMode { case pathSegment, userPassword, query }
 
-    /// bridge share.go: url.PathEscape (fragment names, uuid, passwords, keys).
+    /// the retired bridge: url.PathEscape (fragment names, uuid, passwords, keys).
     private static func escapePath(_ s: String) -> String { goEscape(s, mode: .pathSegment) }
 
-    /// bridge share.go: url.QueryEscape (kvList keys and values).
+    /// the retired bridge: url.QueryEscape (kvList keys and values).
     private static func escapeQuery(_ s: String) -> String { goEscape(s, mode: .query) }
 
-    /// bridge share.go: url.UserPassword(u, pw).String() — always carries the
+    /// the retired bridge: url.UserPassword(u, pw).String() — always carries the
     /// colon, even with an empty password.
     private static func userPassword(_ u: String, _ pw: String) -> String {
         goEscape(u, mode: .userPassword) + ":" + goEscape(pw, mode: .userPassword)

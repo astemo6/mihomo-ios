@@ -1,7 +1,7 @@
 import SwiftUI
 import Darwin
 
-/// Mirrors <home>/localdns.json (bridge/localdns.go, v0.7): 本地 DNS 映射 (mihomo `hosts:`) and 真实 IP 域名
+/// Mirrors <home>/localdns.json: 本地 DNS 映射 (Clash.Meta `hosts:`) and 真实 IP 域名
 /// (added to fake-ip-filter). Applied on top of the profile whether or not the custom DNS override is on.
 struct LocalDNSSettings: Codable, Equatable {
     struct Host: Codable, Equatable, Identifiable {
@@ -35,11 +35,11 @@ struct LocalDNSSettings: Codable, Equatable {
     }
 }
 
-/// Mirrors <home>/dns.json (bridge/dns.go DNSOverride). When enabled it replaces the profile's resolvers.
+/// Mirrors <home>/dns.json. When enabled it replaces the profile's resolvers.
 struct DNSOverrideSettings: Codable, Equatable {
     struct Fallback: Codable, Equatable {
         /// Loon gap 查询回落: off = the fallback answer is used only when the main servers fail or return no IP;
-        /// on = also when their IPs are outside geoipCode (mihomo fallback-filter geoip).
+        /// on = also when their IPs are outside geoipCode (Clash.Meta fallback-filter geoip).
         var geoip: Bool = false
         var geoipCode: String = "CN"
         var ipcidr: [String] = []
@@ -83,7 +83,7 @@ struct DNSOverrideSettings: Codable, Equatable {
     var preferH3 = false
     var respectRules = false
     var cacheAlgorithm = ""
-    /// Loon gap 「包含系统 DNS」: the core adds `system` to the domestic servers (bridge dns.go IncludeSystem).
+    /// Loon gap 「包含系统 DNS」: the core adds `system` to the domestic servers.
     var includeSystem = false
 
     init() {}
@@ -345,7 +345,7 @@ struct DNSView: View {
 
             hostsSection
             if VPNManager.shared.isConnected {
-                // v0.12: mihomo /cache/dns/flush + /cache/fakeip/flush (QX dns_clear_cache).
+                // v0.12: Clash.Meta /cache/dns/flush + /cache/fakeip/flush (QX dns_clear_cache).
                 Section {
                     Button { Task { await flush("/cache/dns/flush", String(localized: "DNS 缓存已清空")) } } label: {
                         Label("清空 DNS 缓存", systemImage: "arrow.counterclockwise")

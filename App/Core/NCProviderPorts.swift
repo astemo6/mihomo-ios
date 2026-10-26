@@ -1,6 +1,6 @@
 import Foundation
 
-/// nc-integrate B3: the app-side provider downloads in Swift — ports of bridge/providers.go (ProviderPlan,
+/// nc-integrate B3: the app-side provider downloads in Swift — ports of the retired bridge (ProviderPlan,
 /// ProviderStore, MigrateProfileProviders), the converters ProviderStore uses (customrules.go convertListTo /
 /// convertNodesText, mitm/rules.go ConvertListLine, mitm/egern.go IsEgernRuleSet / ConvertEgernRuleSet,
 /// ownpolicy.go splitOwnPolicyList, runtimejson.go marshalProxiesYAML).
@@ -9,14 +9,14 @@ import Foundation
 /// NCRuntimeSteps.providerConvert / uniqueProviderName, NCRuleValidator.prettyProviderName,
 /// NCProfileInspectorPort.parseProviderNodes / parseRuleCache, NCSubscriptionParser (= parseNodeText).
 ///
-/// Divergences: Go streamed list conversion from an io.Reader; here the downloaded Data is scanned line by line
+/// Divergences: the old core streamed list conversion from an io.Reader; here the downloaded Data is scanned line by line
 /// in place (one UTF-8 decode of the download, no per-line arrays kept). MigrateProfileProviders re-emits the
-/// profile with NCYAML.emit as Go re-marshalled it with yaml.v3 (comments dropped in both).
+/// profile with NCYAML.emit as the old core re-marshalled it with yaml.v3 (comments dropped in both).
 enum NCProviderPorts {
 
     // MARK: - mitm ConvertListLine
 
-    /// bridge mitm.ConvertListLine: one Surge / Loon / Stash / QX list line as a mihomo classical line, or nil.
+    /// bridge mitm.ConvertListLine: one Surge / Loon / Stash / QX list line as a Clash.Meta classical line, or nil.
     static func convertListLine(_ line: String, kind: String) -> String? {
         var l = line.trimmingCharacters(in: .whitespaces)
         if l.isEmpty || l.hasPrefix("#") || l.hasPrefix(";") || l.hasPrefix("//") || l == "payload:" { return nil }
@@ -161,7 +161,7 @@ enum NCProviderPorts {
         }
     }
 
-    /// bridge convertListText / convertListTo: (mihomo text, converted lines, skipped lines).
+    /// bridge convertListText / convertListTo: (Clash.Meta text, converted lines, skipped lines).
     static func convertListText(_ data: Data, kind: String) -> (text: String, ok: Int, skipped: Int) {
         var text = String(decoding: data, as: UTF8.self)
         if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
@@ -327,7 +327,7 @@ enum NCProviderPorts {
                                         "updated": mtime(path)]
                 let fmt = ncStr(m["format"])
                 if !fmt.isEmpty { t["format"] = fmt }
-                // fix/nc-open-6-10 #10: the provider's own User-Agent (mihomo `header`), e.g. QuanX for QX imports.
+                // fix/nc-open-6-10 #10: the provider's own User-Agent (Clash.Meta `header`), e.g. QuanX for QX imports.
                 if case .object(let h)? = m["header"] {
                     for (k, v) in h where k.lowercased() == "user-agent" {
                         if case .array(let a) = v, case .string(let ua)? = a.first, !ua.isEmpty { t["userAgent"] = ua }
@@ -461,7 +461,7 @@ enum NCProviderPorts {
         for m in ruleSetRefRE.matches(in: r, range: NSRange(location: 0, length: ns.length)).reversed() {
             let g = ns.substring(with: m.range(at: 1))
             guard let nn = renames[g.trimmingCharacters(in: .whitespaces)] else { continue }
-            // Go: strings.Replace(match, sub[1], nn, 1) — the first occurrence of the captured text in the match.
+            // the old core: strings.Replace(match, sub[1], nn, 1) — the first occurrence of the captured text in the match.
             let whole = ns.substring(with: m.range)
             guard let rr = whole.range(of: g) else { continue }
             let replaced = whole.replacingCharacters(in: rr, with: nn)

@@ -4,7 +4,7 @@ import SwiftUI
 /// and the enabled local script lines in one list, one section per owner (本地 first). A row shows name,
 /// type (http-request / http-response) and pattern; tap → source. Tasks (cron / event / …) are on 定时任务.
 /// The switch on a row turns that script file off everywhere it is used (engine.json scriptResources,
-/// the same setting the resource manager writes; bridge/mitm Config.scriptAllowed honours it).
+/// the same setting the resource manager writes; the retired bridge Config.scriptAllowed honours it).
 struct ScriptListView: View {
     @ObservedObject private var store = EngineStore.shared
     @State private var groups: [ScriptListData.ScriptGroup] = []
@@ -192,7 +192,7 @@ enum ScriptListData {
         return out
     }
 
-    /// Parses the local script lines (Go) and collects module scripts from the already parsed moduleInfo.
+    /// Parses the local script lines (the old core) and collects module scripts from the already parsed moduleInfo.
     static func build(config: EngineConfig, info: [String: ParsedEngineText], localTitle: String) -> [ScriptListData.ScriptGroup] {
         var out: [ScriptListData.ScriptGroup] = []
         var local: [ScriptEntry] = []

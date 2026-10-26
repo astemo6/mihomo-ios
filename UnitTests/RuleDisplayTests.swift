@@ -2,12 +2,12 @@ import XCTest
 @testable import Mihomo
 
 /// fix/rule-labels: Egern-style rule / policy text for the Home 规则 card, 规则命中 and the 连接 pages. Inputs are the
-/// strings mihomo puts in /connections `rule` / `rulePayload` (and ConnectionItem.ruleText = `Type(payload)`).
+/// strings Clash.Meta puts in /connections `rule` / `rulePayload` (and ConnectionItem.ruleText = `Type(payload)`).
 final class RuleDisplayTests: XCTestCase {
     private let rewrite = String(localized: "重写")
 
     func testEngineRulesNeverShowInternals() {
-        // bridge/mitm/config.go: AND,((NETWORK,TCP),(NOT,((IN-TYPE,INNER))),(DST-PORT,80)),__MITM__
+        // the retired bridge: AND,((NETWORK,TCP),(NOT,((IN-TYPE,INNER))),(DST-PORT,80)),__MITM__
         let http = RuleDisplay.describe("AND(((Network,tcp) && (NOT,(!(InType,INNER))) && (DstPort,80)))", policy: "__MITM__")
         XCTAssertEqual(http.primary, String(localized: "HTTP 明文（端口 80）"))
         XCTAssertEqual(http.type, rewrite)

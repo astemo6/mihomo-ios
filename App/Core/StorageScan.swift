@@ -58,9 +58,9 @@ enum StorageScan {
     /// Whether `rel` is a leftover nothing reads, so deleting it changes nothing for the user:
     /// - staging directories of a crashed / killed runtime prepare (`mihomo/.nativecore-stage-*`, also the
     ///   hard-link backups inside them), older than `orphanAge`;
-    /// - orphaned atomic-write temp files (`.<name>.tmp…` from writeAtomic / Tailscale / the old Go bridge,
+    /// - orphaned atomic-write temp files (`.<name>.tmp…` from writeAtomic / Tailscale / the old old bridge,
     ///   Foundation's `.<name>.nosync…`, `<geo>.download`), older than `orphanAge`;
-    /// - files only the removed Go core used: `mihomo/cache.db` (bbolt), `mihomo/tunnel-stats.json`, `mihomo/ui/`
+    /// - files only the removed old core used: `mihomo/cache.db` (bbolt), `mihomo/tunnel-stats.json`, `mihomo/ui/`
     ///   (external-ui; NativeCore strips external-ui from the runtime config);
     /// - `Library/Caches/` of the group container (system caches, rebuilt on demand).
     static func isLeftover(_ rel: String, age: TimeInterval) -> Bool {
@@ -197,7 +197,7 @@ enum StorageScan {
 
     /// The largest subpaths of `files` (relative paths), at most `limit`. Starts from the top-level entries
     /// and keeps opening the largest directory while it holds at least half of the bytes (up to depth 5), so a
-    /// single runaway directory shows its own children instead of just "mihomo".
+    /// single runaway directory shows its own children instead of just "Clash.Meta".
     static func topPaths(_ files: [File], limit: Int = 5, leftover: (File) -> Bool = { StorageScan.isLeftover($0.rel, age: $0.age) }) -> [PathUsage] {
         let total = files.reduce(Int64(0)) { $0 + $1.bytes }
         guard total > 0 else { return [] }
@@ -251,7 +251,7 @@ enum StorageScan {
     }
 
     /// The subset removed without asking (app launch): crashed staging and orphaned temp files only — never the
-    /// Go-era files or caches, which go through the page's button.
+    /// old-core files or caches, which go through the page's button.
     static func isAutoSweepable(_ rel: String, age: TimeInterval) -> Bool {
         guard age >= orphanAge, isLeftover(rel, age: age) else { return false }
         if rel == "mihomo/cache.db" || rel == "mihomo/tunnel-stats.json" || rel.hasPrefix("mihomo/ui/") || rel.hasPrefix("Library/Caches/") {

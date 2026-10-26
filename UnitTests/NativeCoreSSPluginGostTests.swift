@@ -1,7 +1,7 @@
 import XCTest
 @testable import Mihomo
 
-/// feat/nc-ss-plugins2: Shadowsocks gost-plugin (mihomo v1.19.33 adapter/outbound/shadowsocks.go
+/// feat/nc-ss-plugins2: Shadowsocks gost-plugin (Clash.Meta v1.19.33 adapter/outbound/shadowsocks.go
 /// gostObfsOption + transport/gost/websocket.go NewGostWebsocket) and the kcptun gate.
 /// Expected wire bytes come from the smux v1 frame layout (metacubex/smux frame.go: ver | cmd | LE16 len |
 /// LE32 sid) and smux's client stream numbering (nextStreamID starts at 1, OpenStream adds 2 → 3), never
@@ -81,7 +81,7 @@ final class NativeCoreSSPluginGostTests: XCTestCase {
         return (got, failure)
     }
 
-    // MARK: - plugin-opts decode (mihomo gostObfsOption)
+    // MARK: - plugin-opts decode (Clash.Meta gostObfsOption)
 
     func testWebsocketDefaultsMirrorUpstream() {
         let (o, why) = NCGostPluginOptions.parse(["mode": .string("websocket")])
@@ -107,7 +107,7 @@ final class NativeCoreSSPluginGostTests: XCTestCase {
     }
 
     func testNonWebsocketModesRejectedLikeUpstream() {
-        // mihomo: `if opts.Mode != "websocket" { obfs mode error }` — gost binary modes are not reachable.
+        // Clash.Meta: `if opts.Mode != "websocket" { obfs mode error }` — gost binary modes are not reachable.
         for mode in ["", "tls", "mws", "wss", "quic", "grpc", "kcp", "Websocket"] {
             var opts: [String: NCJSONValue] = [:]
             if !mode.isEmpty { opts["mode"] = .string(mode) }
@@ -135,12 +135,12 @@ final class NativeCoreSSPluginGostTests: XCTestCase {
         XCTAssertEqual(o?.pinnedCertSHA256, unhex("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"))
         XCTAssertEqual(o?.nameCertVerify, "real.example")
         XCTAssertEqual(o?.needsCustomTLS, true)
-        // Browser names / wrong length are mihomo config errors.
+        // Browser names / wrong length are Clash.Meta config errors.
         for bad in ["chrome", "abcd", String(repeating: "zz", count: 32)] {
             XCTAssertNotNil(NCGostPluginOptions.parse(["mode": .string("websocket"), "tls": .bool(true),
                                                        "fingerprint": .string(bad)]).1, bad)
         }
-        // mihomo only reads TLS options when tls: true.
+        // Clash.Meta only reads TLS options when tls: true.
         XCTAssertNil(NCGostPluginOptions.parse(["mode": .string("websocket"), "fingerprint": .string("chrome")]).1)
         XCTAssertEqual(NCGostPluginOptions.parse(["mode": .string("websocket")]).0?.needsCustomTLS, false)
     }

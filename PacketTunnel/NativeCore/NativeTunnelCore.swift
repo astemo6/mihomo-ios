@@ -1,9 +1,9 @@
 import Foundation
 import NetworkExtension
 
-/// feat/native-core-eval: everything the tunnel used to ask the Go core for (Libmihomo*), served by NativeCore.
-/// The PacketTunnel target does not link Libmihomo any more; the app writes the runtime config
-/// (bridge/nativeprep.go PrepareNativeRuntime) and the tunnel only reads it.
+/// feat/native-core-eval: everything the tunnel used to ask the old core for, served by NativeCore.
+/// The PacketTunnel target does not link the old core framework any more; the app writes the runtime config
+/// and the tunnel only reads it.
 final class NativeTunnelCore {
     static let shared = NativeTunnelCore()
 
@@ -23,12 +23,12 @@ final class NativeTunnelCore {
     var localProxy: NCLocalProxy? { lock.lock(); defer { lock.unlock() }; return _localProxy }
     private var home = ""
     private var watchdog: NCQueueWatchdog?
-    // feat/nc-lan-share: what the local mixed port needs, kept for reload (局域网共享 applies on reload, like Go).
+    // feat/nc-lan-share: what the local mixed port needs, kept for reload (局域网共享 applies on reload, like the old core).
     private var mixedPortSetting = 0
     private var localProxyNeeded = false
     private var lanFallback = NCLanShare()
 
-    // reload status (bridge/reloadstatus.go shape: running, seq, done, kind, lastError, lastMs, lastDoneAgoMs, runningMs)
+    // reload status
     private var reloadRunning = 0
     private var reloadSeq: Int64 = 0
     private var reloadDone: Int64 = 0
@@ -381,8 +381,8 @@ final class NativeTunnelCore {
         return report
     }
 
-    /// The app's rewrite / MitM snapshot (bridge/mitm ExportRewriteSnapshot); .conf profiles carry their own.
-    /// gap C5: rules the native rewrite engine skipped (Go-free: they used to make the whole request pass through)
+    /// The app's rewrite / MitM snapshot; .conf profiles carry their own.
+    /// gap C5: rules the native rewrite engine skipped (native-only: they used to make the whole request pass through)
     private func logRewriteSkips() {
         let sk = NativeRewriteEngine.skipStats()
         guard !sk.isEmpty else { return }
@@ -426,7 +426,7 @@ final class NativeTunnelCore {
         if let data = try? JSONSerialization.data(withJSONObject: lines) { try? data.write(to: url, options: .atomic) }
     }
 
-    // MARK: Libmihomo replacements
+    // MARK: the old core framework replacements
 
     func reloadStatus() -> String {
         lock.lock(); defer { lock.unlock() }
@@ -439,13 +439,13 @@ final class NativeTunnelCore {
         return Self.json(out)
     }
 
-    /// "up,down" totals since start (LibmihomoTrafficTotals).
+    /// "up,down" totals since start.
     func trafficTotals() -> String {
         guard let s = plane?.stats.snapshot() else { return "0,0" }
         return "\(s.up),\(s.down)"
     }
 
-    /// LibmihomoLiveStatus: "up\tdown\ttotalUp\ttotalDown\tnode\tproxyUp\tproxyDown\tproxyUpTotal\tproxyDownTotal".
+    /// LiveStatus: "up\tdown\ttotalUp\ttotalDown\tnode\tproxyUp\tproxyDown\tproxyUpTotal\tproxyDownTotal".
     func liveStatus() -> String {
         guard let s = plane?.stats.snapshot() else { return "" }
         let now = Date()
@@ -482,7 +482,7 @@ final class NativeTunnelCore {
         return ""
     }
 
-    /// LibmihomoMemorySnapshot's shape (TunnelMemorySnapshot in the app); Go fields are absent.
+    /// MemorySnapshot's shape (TunnelMemorySnapshot in the app); the old core fields are absent.
     func memorySnapshot(footprint: UInt64, peak: UInt64, available: Int) -> [String: Any] {
         let conns = plane?.stats.snapshot().connections.count ?? 0
         var obj: [String: Any] = [
@@ -496,13 +496,13 @@ final class NativeTunnelCore {
         return obj
     }
 
-    /// LibmihomoSetPhysicalInterface: remembered for 诊断. Native sockets are NWConnections, which iOS keeps off the
+    /// SetPhysicalInterface: remembered for 诊断. Native sockets are NWConnections, which iOS keeps off the
     /// tunnel for the provider's own process; with includeAllNetworks this is still unverified on device.
     func setPhysicalInterface(_ name: String) {
         lock.lock(); physicalInterface = name; lock.unlock()
     }
 
-    /// LibmihomoSetNetworkState: the SSID feeds SUBNET groups (NCGroupEngine.ssidProvider reads the app group).
+    /// SetNetworkState: the SSID feeds SUBNET groups (NCGroupEngine.ssidProvider reads the app group).
     func setNetworkState(type: String, ssid: String?) -> String {
         lock.lock(); networkType = type; lock.unlock()
         let d = UserDefaults(suiteName: AppShared.appGroup)
@@ -510,18 +510,18 @@ final class NativeTunnelCore {
         return ""
     }
 
-    /// LibmihomoFlushDNSCache (network change, $httpAPI): the rule-matching resolver cache — answers cached on the
+    /// FlushDNSCache (network change, $httpAPI): the rule-matching resolver cache — answers cached on the
     /// old network would keep IP rules matching stale addresses. The fake-IP pool must survive (fix/nc-e2e-real).
     func flushDNSCache() { engine?.flushDNSCache() }
 
-    /// LibmihomoNotifyNetworkChanged: infoJSON becomes $network; every enabled network-changed event script runs
+    /// NotifyNetworkChanged: infoJSON becomes $network; every enabled network-changed event script runs
     /// (gap C3, NativeTaskRunner). Returns how many were started.
     func notifyNetworkChanged(_ json: String) -> Int {
         let info = ((try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]) ?? [:]
         return NativeTaskRunner.shared.networkChanged(info)
     }
 
-    /// LibmihomoShedConnections: close the oldest `percent` % of connections.
+    /// ShedConnections: close the oldest `percent` % of connections.
     func shedConnections(percent: Int) -> Int {
         guard let plane else { return 0 }
         let conns = plane.stats.snapshot().connections

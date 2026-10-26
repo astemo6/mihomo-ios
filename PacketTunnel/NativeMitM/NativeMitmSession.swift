@@ -1,31 +1,31 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 // Native MitM STAGE 2 — B9: one decrypted MitM connection, end to end (lane `wire`).
 //
-//   Go engine (nativeterm.go: peek ClientHello, MitM host list, pinning memory) → MitmTLSFronting.listen →
+//   old engine (nativeterm.go: peek ClientHello, MitM host list, pinning memory) → MitmTLSFronting.listen →
 //   TLS lane terminates TLS → acceptHandler → NativeMitmSession:
-//     HTTPCodec parses the request head → MitmFlowDriving.requestPhase (Go decides: rewrite / reject / redirect /
-//     map local / request script / admission — nothing is decided here) → [request body pushed to Go when asked]
-//     → forward via MitmUpstreamConnecting (Go relay → Tern rules/proxies) → response head → responsePhase
-//     (Go: header/body rewrites, response scripts, body lane) → body from upstream / Go pipe / NativeBodyStore
+//     HTTPCodec parses the request head → MitmFlowDriving.requestPhase (the old core decided: rewrite / reject / redirect /
+//     map local / request script / admission — nothing is decided here) → [request body pushed to the old core when asked]
+//     → forward via MitmUpstreamConnecting (old relay → Tern rules/proxies) → response head → responsePhase
+//     (the old core: header/body rewrites, response scripts, body lane) → body from upstream / the old core pipe / NativeBodyStore
 //     → client. Keep-alive loop; pipelined bytes stay in the client buffer.
 //
 // Stage 3 lane s3-h2 (H2/NativeH2Session.swift): a connection whose TLS handshake negotiated h2 (offered only
 // while the switch `nativeMitmH2` is on, default OFF) is served by NativeH2Session with the same driver.
 //
 // Stage 3a (Rewrite/NativeRewriteDriver.swift): the default driver asks the native rewrite engine first when the
-// separate switch `nativeMitmRewrite` is on (default OFF); a native decision never reaches Go, a deferral or the
+// separate switch `nativeMitmRewrite` is on (default OFF); a native decision never reaches the old core, a deferral or the
 // switch off goes to MitmFlowDriverAdapter exactly as before.
 //
-// Fallback: the session only exists after Go handed the connection over (first byte from the TLS lane). Before
-// that every failure is Go's first-byte fallback (nativeterm.go). The runtime switch (NativeMitmRuntime, default
+// Fallback: the session only exists after the old core handed the connection over (first byte from the TLS lane). Before
+// that every failure is the old core's first-byte fallback (nativeterm.go). The runtime switch (NativeMitmRuntime, default
 // `defaultOn`, iOS 17+; app-group key nativeMitmStage2 overrides) decides whether the TLS front is registered at all; when off, or past the session cap, listen() answers 0
-// and Go terminates TLS itself — the Go path is the fallback for everything unsupported.
+// and the old core terminates TLS itself — the old path is the fallback for everything unsupported.
 // After the handover an error answers 502 if no response byte went out yet, else cuts the connection (never a
 // truncated body presented as complete).
 //
 // Cleanup: every exit goes through finish(); an active flow gets MitmFlowCancel (client gone) or MitmFlowEnd, which
-// frees what Go holds for it, including lane handles (never freed here). Leases go back non-reusable unless the
+// frees what the old core holds for it, including lane handles (never freed here). Leases go back non-reusable unless the
 // exchange completed cleanly.
 
 import Foundation
@@ -92,7 +92,7 @@ enum NativeMitmRuntime {
     /// App-group override key; an explicit value wins over `defaultOn`. iOS 17+ only (installDefault's caller).
     static let defaultsKey = "nativeMitmStage2"
     /// Default when the key is absent. OFF until the memory comparison (UnitTests/NativeMitmMemoryTests,
-    /// bridge/mitm/s2burst_test.go) shows the native front lowering the tunnel's footprint.
+    /// the retired bridge) shows the native front lowering the tunnel's footprint.
     static let defaultOn = false
     static let appGroup = "group.com.astemo6.mihomo"
 
@@ -105,8 +105,8 @@ enum NativeMitmRuntime {
     }
 
     /// feat/selective-native: how the front is used. `.all` every eligible connection (nativeMitmStage2 on);
-    /// `.selective` only hosts with a body / jq / json rewrite or a script rule (NativeMitmSelective, Go decides per
-    /// host: bridge/mitm/selective.go); `.off` Go terminates everything. An explicit nativeMitmStage2 wins both ways
+    /// `.selective` only hosts with a body / jq / json rewrite or a script rule (NativeMitmSelective, the old core decided per
+    /// host: the retired bridge); `.off` the old core terminates everything. An explicit nativeMitmStage2 wins both ways
     /// (false also turns selective mode off).
     enum Mode: Equatable { case off, selective, all }
 
@@ -126,9 +126,9 @@ enum NativeMitmRuntime {
 
     /// A native engine switch: an explicit app-group value wins, else ON while selective mode is installed.
     /// `explicit` is the cached app-group value (nil: key absent).
-    /// feat/native-core-eval: in the Go-free tunnel the native rewrite / body / script engines are the only ones — an
+    /// feat/native-core-eval: in the native-only tunnel the native rewrite / body / script engines are the only ones — an
     /// engine "off" would leave its rules unapplied with nothing behind it, so they are always on (an app-group value
-    /// left over from the Go builds is ignored).
+    /// left over from the old core builds is ignored).
     static func engineSwitch(explicit: Bool?) -> Bool { true }
 
     /// Reads an engine's app-group key (nil: absent).
@@ -140,7 +140,7 @@ enum NativeMitmRuntime {
     /// Bounds (memory cap): live sessions, bytes buffered per session.
     static var maxSessions = 48
     static var maxBufferedPerSession = 256 << 10
-    /// Largest piece one read / Go pull / lane read asks for. 16 KB = one TLS record (feat/native-slim; was 64 KB):
+    /// Largest piece one read / the old core pull / lane read asks for. 16 KB = one TLS record (feat/native-slim; was 64 KB):
     /// a bigger max only makes Network.framework / dispatch_data hand over (and Swift copy) bigger contiguous slabs.
     static var ioChunk: Int { slim.smallChunks ? 16 << 10 : 64 << 10 }
 
@@ -148,7 +148,7 @@ enum NativeMitmRuntime {
     /// what it saves (all on in production; `legacy` = the 13f6c41 behaviour).
     struct Slim: Equatable {
         /// Session queues target one shared concurrent (non-overcommit) queue instead of each being its own
-        /// overcommit root: a burst whose sessions block in Go calls no longer spawns a GCD thread per session.
+        /// overcommit root: a burst whose sessions block in the old core calls no longer spawns a GCD thread per session.
         var sharedQueues = true
         /// ioChunk 16 KB instead of 64 KB.
         var smallChunks = true
@@ -165,7 +165,7 @@ enum NativeMitmRuntime {
         var reliefAfterBurst = true
         /// Upstream dials (TCP + relay CONNECT + TLS handshake) in flight at once (UpstreamPool); nil = no limit.
         /// 8 (cdd2ae2, NativeMitmMemoryTests, 100-connection burst, every connection native): peak footprint
-        /// +19.4 MB unlimited → +11.6 MB at 24 → +7.5 MB at 8 (Go path +7.0). Each Network.framework TLS dial through
+        /// +19.4 MB unlimited → +11.6 MB at 24 → +7.5 MB at 8 (old path +7.0). Each Network.framework TLS dial through
         /// the relay's CONNECT proxy costs ~130 KB of malloc while it handshakes; a burst of them is the whole native
         /// excess. Cost: a burst of more than 8 new upstream connections waits for dial slots (FIFO; a connection
         /// released meanwhile serves a waiter first).
@@ -215,10 +215,10 @@ enum NativeMitmRuntime {
     }
     private static var ids: Int64 = 0
 
-    /// listen()-time reservations not yet claimed by a session (oldest first). Go asks listen() and then hands the
+    /// listen()-time reservations not yet claimed by a session (oldest first). the old core asks listen() and then hands the
     /// connection over; without a reservation a burst could pass listen() far beyond the cap and the sessions
-    /// over it would be refused after the handshake — too late for Go's fallback, the client saw a closed
-    /// connection. A reservation nobody claims (Go fell back before the handshake) expires.
+    /// over it would be refused after the handshake — too late for the old core's fallback, the client saw a closed
+    /// connection. A reservation nobody claims (the old core fell back before the handshake) expires.
     private static var reserved: [Date] = []
     static var reservationTTL: TimeInterval = 15
 
@@ -228,7 +228,7 @@ enum NativeMitmRuntime {
     }
 
     /// Whether another session may start: live + reserved below the cap, then (feat/s3-mem) the native memory
-    /// governor, when on, admits it as small work; declined → Go path.
+    /// governor, when on, admits it as small work; declined → old path.
     static var canAccept: Bool {
         lock.lock()
         pruneLocked()
@@ -243,7 +243,7 @@ enum NativeMitmRuntime {
     }
     static var liveSessions: Int { lock.lock(); defer { lock.unlock() }; return live }
 
-    /// listen(): hold a slot for the connection Go is about to hand over. false → decline (Go terminates TLS).
+    /// listen(): hold a slot for the connection the old core is about to hand over. false → decline (the old core terminates TLS).
     /// Order: reservation room (cap) → governor admission (feat/s3-mem) → the session runs with the installed
     /// driver (NativeRewriteDriver, feat/s3-rewrite).
     static func reserve() -> Bool {
@@ -299,7 +299,7 @@ enum NativeMitmRuntime {
                         h2Opener: H2UpstreamOpening? = nil, selective: Bool? = nil) -> Bool {
         let m = mode
         forced = force
-        // feat/selective-native: selective = Go hands over only hosts with heavy rules; the engines default ON then.
+        // feat/selective-native: selective = the old core hands over only hosts with heavy rules; the engines default ON then.
         // nil: from the switches (never for a forced install unless asked — the memory benches pick explicitly).
         let sel = selective ?? (!force && m == .selective)
         lock.lock(); _selectiveEngines = sel; lock.unlock()
@@ -343,12 +343,12 @@ enum NativeMitmSelective {
     /// App-group key; an explicit value wins over `defaultOn`. Only used while nativeMitmStage2 is absent.
     static let defaultsKey = "nativeMitmSelective"
     /// Default when the key is absent — decided by UnitTests/NativeMitmSelectiveTests (78837e9, Self-test 40102633460,
-    /// light:1 + dark:0, medians of 4, footprint Δ peak / 1 s after, selective − all Go): script 2 MB −18…−20 / −40 MB,
+    /// light:1 + dark:0, medians of 4, footprint Δ peak / 1 s after, selective − all the old core): script 2 MB −18…−20 / −40 MB,
     /// script 3.5 MB −7…−16 / −22…−26 MB, jq 960 KB −3…−9 / −4…−30 MB, jq 200 KB +1.2…+1.5 / −2…−4.5 MB,
     /// mixed 90 plain + 10 script −20…−26 / −24…−28 MB, plain 100 +0.3 / −0.8 MB (noise: no host qualifies, the code
-    /// path is the Go one). ON.
+    /// path is the old core one). ON.
     static let defaultOn = true
-    /// Which rules make a host native (bridge/mitm/selective.go): 1 = body / jq / json rewrites + scripts,
+    /// Which rules make a host native: 1 = body / jq / json rewrites + scripts,
     /// 2 = scripts only.
     static let kinds = 1
 
@@ -579,7 +579,7 @@ final class NativeMitmSession {
         case .forward:
             forward(d, head: head, reqFraming: reqFraming, requestBodyConsumed: requestBodyConsumed)
         case .local:
-            // Go answered itself (reject / redirect / map local / script mock). Unread request body → close after.
+            // the old core answered itself (reject / redirect / map local / script mock). Unread request body → close after.
             let keep = requestBodyConsumed && head.keepAlive && clientMayContinue
             sendResponse(status: d.status ?? 200, headers: d.headerFields, mode: d.body ?? .none, length: d.length,
                          lane: d.lane, method: head.method, clientVersion: head.version, keepAlive: keep) { [self] ok in
@@ -595,7 +595,7 @@ final class NativeMitmSession {
         }
     }
 
-    // MARK: request body → Go
+    // MARK: request body → the old core
 
     private func pushClientBody(_ framing: HTTPBodyFraming, done: @escaping () -> Void) {
         let dec = codec.makeDecoder(framing)
@@ -625,10 +625,10 @@ final class NativeMitmSession {
         step()
     }
 
-    /// FlowWrite with back-pressure: "full" → Go's phase goroutine is behind; wait a little and retry.
+    /// FlowWrite with back-pressure: "full" → the old core's phase thread is behind; wait a little and retry.
     private func pushToGo(_ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult {
         var delay: useconds_t = 1000
-        for _ in 0..<400 {   // ≤ ~10 s backstop; flowAwaitMax/budgets in Go are shorter
+        for _ in 0..<400 {   // ≤ ~10 s backstop; flowAwaitMax/budgets in the old core are shorter
             let r = driver.write(flowID, which, data)
             if r != .full { return r }
             usleep(delay); delay = min(delay * 2, 50_000)
@@ -692,7 +692,7 @@ final class NativeMitmSession {
         }
     }
 
-    /// Serializes a head the session built from Go's decision; a head Go's values made unserializable (CR/LF in a
+    /// Serializes a head the session built from the old core's decision; a head the old core's values made unserializable (CR/LF in a
     /// header) fails the exchange (502 if nothing went out yet) instead of putting bad bytes on the wire.
     private func serialized(_ h: HTTPRequestHead) -> Data? {
         do { return try codec.serialize(h) } catch { fail(error, status: 502); return nil }
@@ -749,9 +749,9 @@ final class NativeMitmSession {
         }
     }
 
-    /// Streams a body Go produced (FlowRead / FlowReadState).
+    /// Streams a body the old core produced (FlowRead / FlowReadState).
     /// The source body of a streaming "read": the client's request body (.request) or the upstream's response
-    /// body (.response), de-framed and pushed to Go piece by piece when FlowReadState says "more".
+    /// body (.response), de-framed and pushed to the old core piece by piece when FlowReadState says "more".
     final class BodyFeed {
         let dec: HTTPBodyDecoding
         var pending = Data()
@@ -760,8 +760,8 @@ final class NativeMitmSession {
         init(_ dec: HTTPBodyDecoding) { self.dec = dec }
     }
 
-    /// Pushes the next piece of `which`'s source body to Go (or closes it at the end), then cont(). A piece Go
-    /// refuses ("full") stays pending and goes first next time — Go wants a FlowRead before it takes more.
+    /// Pushes the next piece of `which`'s source body to the old core (or closes it at the end), then cont(). A piece the old core
+    /// refuses ("full") stays pending and goes first next time — the old core wants a FlowRead before it takes more.
     private func feedGo(_ which: FlowBodyWhich, _ f: BodyFeed, _ cont: @escaping () -> Void) {
         if f.closed { return cont() }
         let end = { [self] (err: String) in
@@ -786,7 +786,7 @@ final class NativeMitmSession {
                 f.pending = c.payload
                 if c.done { f.cleanEnd = true }
                 return feedGo(which, f) { [self] in
-                    // a piece that completed the body: close it once Go took it
+                    // a piece that completed the body: close it once the old core took it
                     if f.cleanEnd && f.pending.isEmpty && !f.closed { f.closed = true; driver.closeBody(flowID, which, error: "") }
                     cont()
                 }
@@ -816,7 +816,7 @@ final class NativeMitmSession {
         case .again: queue.asyncAfter(deadline: .now() + 0.002) { [self] in if !finished { pullFromGo(which, feed: feed, out: out, done: done) } }
         case .eof: done()
         case .more:
-            // Streaming "read" (design §12: "more" → push the next piece of the same body): Go reads the source body
+            // Streaming "read" (design §12: "more" → push the next piece of the same body): the old core reads the source body
             // as it is pushed. Before 2026-10-24 this was fatal, so every plain response through the native front
             // got its head and then a cut (memory bench: native 0/100).
             guard let feed else { return fail(S2Error.flow("read wants more of a body native does not push"), status: 502) }
@@ -870,7 +870,7 @@ final class NativeMitmSession {
             if mode == .upstream && bodyPushed { return fail(S2Error.flow("body upstream after push"), status: 502) }
             var len = d.length
             if mode == .upstream { switch framing { case .contentLength(let n): len = n; case .none: len = 0; default: len = -1 } }
-            // read over a body not pushed yet: Go streams it, the session feeds it on "more"
+            // read over a body not pushed yet: the old core streams it, the session feeds it on "more"
             let feed = mode == .read && !bodyPushed ? BodyFeed(codec.makeDecoder(framing)) : nil
             let keep = req.keepAlive && up.keepAlive && clientMayContinue && framing != .untilClose
             sendResponse(status: d.status ?? up.status, headers: d.headerFields, mode: mode, length: len, lane: d.lane,
@@ -903,7 +903,7 @@ final class NativeMitmSession {
                 upBuf.removeFirst(c.consumed)
                 if !c.payload.isEmpty && !stopped {
                     switch pushToGo(.response, c.payload) {
-                    case .stop: stopped = true   // Go no longer wants it: stop reading the origin
+                    case .stop: stopped = true   // the old core no longer wants it: stop reading the origin
                     case .gone: return fail(S2Error.flow("flow gone"), status: 502)
                     default: break
                     }
@@ -999,7 +999,7 @@ final class NativeMitmSession {
         step()
     }
 
-    // MARK: upgrade (WebSocket etc.): raw bidirectional pipe after Go said "upgrade"
+    // MARK: upgrade (WebSocket etc.): raw bidirectional pipe after the old core said "upgrade"
 
     private func tunnel() {
         guard let lease else { return fail(S2Error.upstream("no lease"), status: nil) }
@@ -1066,7 +1066,7 @@ final class NativeMitmSession {
         finish(cancelled: nil, error: "\(error)")
     }
 
-    /// The one exit. cancelled non-nil: the client went away / external cancel (Go sees MitmFlowCancel).
+    /// The one exit. cancelled non-nil: the client went away / external cancel (the old core sees MitmFlowCancel).
     private func finish(cancelled: String?, error: String = "") {
         guard !finished else { return }
         finished = true

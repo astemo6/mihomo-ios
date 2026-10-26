@@ -9,7 +9,7 @@ import Security
 /// Scope: X25519 key share, suites 1301/1302/1303, no client
 /// certs, no resumption. Certificate policy: REALITY mode verifies the leaf
 /// by its HMAC proof (falling back to "not verified" → handshake failure,
-/// exactly like the Go client); plain mode uses SecTrust against the system
+/// exactly like the old core client); plain mode uses SecTrust against the system
 /// roots for the configured server name.
 final class NCTLSClientStream: NCRelayStream {
     struct Config {
@@ -18,11 +18,11 @@ final class NCTLSClientStream: NCRelayStream {
         var reality: NCTLS13.RealityParams? = nil
         var allowInsecure: Bool = false // plain mode only: skip SecTrust result
         /// Hostname the certificate chain is verified against when it differs from the SNI
-        /// (`serverName`) — restls / plugin `name-cert-verify` (mihomo SetNameCertVerify).
+        /// (`serverName`) — restls / plugin `name-cert-verify` (Clash.Meta SetNameCertVerify).
         var certVerifyName: String? = nil
-        /// SHA-256 fingerprint pinning (restls `fingerprint`, mihomo ca.NewFingerprintVerifier): the
+        /// SHA-256 fingerprint pinning (restls `fingerprint`, Clash.Meta ca.NewFingerprintVerifier): the
         /// handshake only proceeds when one of the presented certificates hashes to this value.
-        /// Overrides `allowInsecure`, exactly like mihomo (SetFingerprint forces InsecureSkipVerify
+        /// Overrides `allowInsecure`, exactly like Clash.Meta (SetFingerprint forces InsecureSkipVerify
         /// and does the check in VerifyConnection).
         var pinnedCertSHA256: Data? = nil
         /// ClientHello shape from the proxy's `fingerprint` field.
@@ -231,7 +231,7 @@ final class NCTLSClientStream: NCRelayStream {
             )
 
             clientRandom = NCConnector.randomData(32) // Outer random
-            // RFC 9849 §6.1: the outer SNI is always ECHConfig.public_name (no override; mihomo has none either).
+            // RFC 9849 §6.1: the outer SNI is always ECHConfig.public_name (no override; Clash.Meta has none either).
             let publicName = selected.config.publicName
             guard publicName.utf8.count <= 255 else { throw TLSError.handshake("outer public_name too long") }
 
@@ -741,7 +741,7 @@ final class NCTLSClientStream: NCRelayStream {
 
     /// The certificate decision for plain mode (both TLS versions): fingerprint pinning when
     /// configured, else SecTrust against the system roots — always under `certVerifyName`
-    /// when set (name-cert-verify), else the SNI name. A pin overrides allowInsecure (mihomo
+    /// when set (name-cert-verify), else the SNI name. A pin overrides allowInsecure (Clash.Meta
     /// semantics); without a pin, allowInsecure waives the SecTrust result.
     private func certificatePolicyValid() -> Bool {
         // RFC 9849 §6.1.6: When server rejects ECH, the certificate presented in the
@@ -756,7 +756,7 @@ final class NCTLSClientStream: NCRelayStream {
 
         if let pin = config.pinnedCertSHA256 {
             for (i, der) in certsDER.enumerated() where Data(SHA256.hash(data: der)) == pin {
-                // Leaf match: accepted as-is (mihomo's verifier does no hostname check here).
+                // Leaf match: accepted as-is (Clash.Meta's verifier does no hostname check here).
                 // Non-leaf match: that certificate becomes the trust anchor and the leaf chain
                 // (plus hostname) must verify up to it.
                 return i == 0 || secTrustValid(anchoredAt: i)
@@ -1260,7 +1260,7 @@ final class NCTLSClientStream: NCRelayStream {
     /// Detach from the record layer (XTLS Vision commandDirect): returns the
     /// decrypted-but-unconsumed plaintext chunks and the unparsed raw tail —
     /// bytes past the last complete record, which after a splice are inner
-    /// plaintext (mirrors Go tls.Conn's rawInput drain). From now on, raw
+    /// plaintext (mirrors the old core tls.Conn's rawInput drain). From now on, raw
     /// socket bytes are delivered verbatim through `receiveSpliced`.
     func spliceOut() -> (plaintext: [Data], rawTail: Data) {
         spliced = true
@@ -1531,7 +1531,7 @@ extension NCTLSClientStream {
     /// After a restls handshake: a server record is either a restls record (data + command) or a real TLS record
     /// relayed from the camouflage server (decrypted with the real keys, application data dropped).
     fileprivate func restlsAccept(_ restls: NCRestlsSession, header: Data, payload: Data, realOpen: () -> Bool) {
-        if header.first == 21 { // Go: an outer alert after auth is treated as fatal bad_record_mac
+        if header.first == 21 { // the old core: an outer alert after auth is treated as fatal bad_record_mac
             fail(TLSError.handshake("restls: alert from server"))
             return
         }

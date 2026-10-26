@@ -1,6 +1,6 @@
 import Foundation
 
-/// B6 (nc-dego-rest): bridge/engine.go EngineTaskList in Swift — the cron / event / generic / interaction tasks of
+/// B6 (nc-dego-rest): the retired bridge in Swift — the cron / event / generic / interaction tasks of
 /// the user's scripts and enabled modules (NCMitmBuild, #112 on the #111 parser), in the user's order
 /// (mitm.OrderTasks / ReorderSlots), for the 任务 list while disconnected.
 enum NCEngineTaskList {

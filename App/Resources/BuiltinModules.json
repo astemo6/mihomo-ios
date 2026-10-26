@@ -1,5 +1,5 @@
 {
- "comment": "Mihomo built-in curated module index. Links only; every module is maintained by its author. Schema: id, name{lang}, category (adblock|subtitles|enhance|tools), author, homepage, url (preferred), alternates (same module in other formats), desc{lang}. Langs: zh-Hans zh-Hant en ja ko ru.",
+ "comment": "Tern built-in curated module index. Links only; every module is maintained by its author. Schema: id, name{lang}, category (adblock|subtitles|enhance|tools), author, homepage, url (preferred), alternates (same module in other formats), desc{lang}. Langs: zh-Hans zh-Hant en ja ko ru.",
  "version": 1,
  "updated": "2026-10-17",
  "categories": [

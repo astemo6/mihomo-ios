@@ -1,7 +1,7 @@
 import Foundation
 
 // P0-2 (「App 进入后台或被杀后，流量和规则不再被记录」): the session statistics Home shows are recorded inside the
-// tunnel (bridge/statsrecorder.go), every second, also while the app is in the background or killed. The app reads
+// tunnel, every second, also while the app is in the background or killed. The app reads
 // them from the core's REST API:
 //   GET /app/stats?session=&closedAfter=&hosts=&rules=  → TunnelStats (ConnectionAnalytics.refreshFromTunnel)
 //   GET /app/stats/speed?seconds=&buckets=              → TunnelSpeedHistory (NetworkHistory / SpeedSeries)
@@ -43,7 +43,7 @@ struct TunnelStats: Decodable {
     let full: Bool
 }
 
-/// One closed connection: the fields of mihomo's /connections item (decoded as ConnectionItem) plus its sequence
+/// One closed connection: the fields of Clash.Meta's /connections item (decoded as ConnectionItem) plus its sequence
 /// number and close time (unix ms).
 struct TunnelClosedConnection: Decodable {
     let seq: Int64

@@ -1,11 +1,11 @@
 import Foundation
 import CryptoKit
 
-/// B6 (nc-dego-rest): bridge/workbench.go ScriptSource / mitm.ScriptSource + mitm/resources.go (Get, cachePath,
+/// B6 (nc-dego-rest): the retired bridge / mitm.ScriptSource + mitm/resources.go (Get, cachePath,
 /// LocalPath, fetch) in Swift — the code of a local script, or the cached copy of a remote one (downloaded and
 /// cached when missing). Used by 脚本列表, 脚本调试台, 地理位置检测 and the workbench's debug runs.
 ///
-/// Difference: Go downloaded through the core's own client (the user's rules applied in-process); the app
+/// Difference: the old core downloaded through the core's own client (the user's rules applied in-process); the app
 /// downloads with URLSession, i.e. through the VPN when it is connected, directly otherwise.
 enum NCScriptSource {
 
@@ -43,7 +43,7 @@ enum NCScriptSource {
         return fetch(home: home, url: path).map { String(decoding: $0, as: UTF8.self) }
     }
 
-    /// The (code, error) pair the call sites used with LibmihomoScriptSource + LibmihomoLastError.
+    /// The (code, error) pair the call sites used with ScriptSource + LastError.
     static func codeAndError(home: String, path: String) -> (String, String) {
         switch source(home: home, path: path) {
         case .success(let s): return (s, "")

@@ -2,24 +2,24 @@ import Foundation
 
 /// E-B1b stage 4: prepare the runtime configuration for NativeCore purely in Swift.
 ///
-/// Port of `bridge/nativeprep.go` (PrepareNativeRuntime).
+/// Port of the retired bridge (PrepareNativeRuntime).
 ///
-/// The tunnel kernel is NativeCore and has no Go dependencies. The runtime config
+/// The tunnel kernel is NativeCore and has no the old core dependencies. The runtime config
 /// files the tunnel reads (`runtime.yaml`, `nativecore-runtime.json`, `runtime-groups.json`,
 /// `nativecore-rewrite.json`, `nativecore-scripts.json`, `nativecore-geosite/*.list`,
 /// `nativecore-prep.json`) are generated in the app process before every tunnel start
 /// and configuration reload.
 ///
-/// DIVERGENCES from bridge/nativeprep.go:
-/// - `C.SetHomeDir` / `C.SetConfig`: Go calls these global mutations on the C/Go runtime.
-///   In Swift, there is no corresponding global engine state; any remaining Go callers
+/// DIVERGENCES from the retired bridge:
+/// - `C.SetHomeDir` / `C.SetConfig`: the old core calls these global mutations on the C/old runtime.
+///   In Swift, there is no corresponding global engine state; any remaining the old core callers
 ///   in the app maintain their own paths, so no synthetic side-effects are introduced.
-/// - `nativecore-runtime.json`: Go writes `runtime.yaml` and re-reads it through
+/// - `nativecore-runtime.json`: the old core writes `runtime.yaml` and re-reads it through
 ///   `NativeConfigJSON` to produce JSON. The Swift pipeline reuses the in-memory AST
 ///   `raw` returned by `NCRuntimeBuilder.build`, serializing via `NCRuntimeBuilder.jsonData`
 ///   directly (declared seam difference from #112, semantically equivalent).
-/// - File I/O errors reflect Swift `Error.localizedDescription` instead of Go `os.PathError`.
-/// - Transactional output (review rv2): Go wrote each file in turn, so a failure part-way left e.g. a new
+/// - File I/O errors reflect Swift `Error.localizedDescription` instead of the old core `os.PathError`.
+/// - Transactional output (review rv2): the old core wrote each file in turn, so a failure part-way left e.g. a new
 ///   runtime.yaml next to the old nativecore-runtime.json (which the tunnel prefers) and several writes were
 ///   `try?` while the prepare still reported success. Here every output is first written into a staging directory
 ///   on the same volume (`<home>/.nativecore-stage-<uuid>/`); nothing in `<home>` changes until all of them are
@@ -182,7 +182,7 @@ enum NativeRuntimePrep {
         let safeMode = req.settings.core.safeMode
 
         guard let profileData = NCRuntimeFiles.readRuntimeProfile(home: home, path: profile.path, safe: safeMode) else {
-            // Go surfaces the raw os.ReadFile error after the
+            // the old core surfaces the raw os.ReadFile error after the
             // prefix; mirror that with the real read error.
             var detail = "配置文件不可读"
             do { _ = try Data(contentsOf: profile) } catch {
@@ -236,7 +236,7 @@ enum NativeRuntimePrep {
                         raw["rules"] = .array([.string("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT")] + raw.list("rules"))
                     }
                 }
-                // Geosite list writes: Go ignores their errors
+                // Geosite list writes: the old core ignores their errors
                 // (`_ = writeAtomicFile` in lowerForNative) — surface
                 // them as warnings, not a failed prepare.
                 NCRuntimeBuilder.lowerForNative(home: home, &raw, &box.rep, stageDir: tx.stage) { box.rep.warnings = (box.rep.warnings ?? []) + [$0] }
@@ -271,7 +271,7 @@ enum NativeRuntimePrep {
                 scriptKeep = man.keep
                 timing?.lap("scripts", "\(man.scripts) scripts, \(man.bad) bad")
             } catch {
-                // Restored after #139 (deliberate divergence from bridge nativeprep.go): the manifest indexes the
+                // Restored after #139: the manifest indexes the
                 // rule set by position, so an OLD manifest next to the NEW rule set would run scripts on the wrong
                 // rules. Stage an empty one: this start runs without scripts, with a warning.
                 let errStr = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -280,7 +280,7 @@ enum NativeRuntimePrep {
                 try tx.put(try JSONEncoder().encode(NCScriptManifestRoot()), NCScriptManifest.scriptManifestFile)
             }
 
-            // Rewrite / MitM snapshot. Restored after #139 (deliberate divergence from bridge nativeprep.go): a
+            // Rewrite / MitM snapshot. Restored after #139: a
             // snapshot failure is a warning and this start runs without rewrite / MitM (the old snapshot is removed
             // so it cannot be paired with the new rule set). Aborting the whole prepare meant one bad module blocked
             // every connect / reload. Only a staging-write failure (TxError) stays fatal.
@@ -312,7 +312,7 @@ enum NativeRuntimePrep {
             }
             timing?.lap("rewrite snapshot", "\(rep.mitmHosts) hosts")
 
-            // bridge nativeprep.go ignores failures of the group-order
+            // the retired bridge ignores failures of the group-order
             // and prep-report writes (`_ = writeAtomicFile`); runtime.yaml
             // and the runtime JSON stay fatal.
             do {

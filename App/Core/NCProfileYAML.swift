@@ -2,7 +2,7 @@ import Foundation
 
 // DIVERGENCES:
 // 1. YAML Node Engine:
-//    - Go (bridge/profilenodes.go): Uses go.yaml.in/yaml/v3 AST (yaml.Node tree) where all comments and
+//    - the old core: Uses go.yaml.in/yaml/v3 AST (yaml.Node tree) where all comments and
 //      formatting styles (flow vs block) are parsed into AST nodes, and serialized back out with yaml.Encoder.
 //    - Swift (NCProfileYAML): Uses a line/block-based document editor that locates sections (`proxies:`,
 //      `proxy-groups:`, `rules:`, `sub-rules:`) and entries by line structure. For modified/inserted proxy entries,
@@ -11,11 +11,11 @@ import Foundation
 //    - Impact: Comments, custom spacing, and formatting outside touched entries are 100% preserved bit-for-bit
 //      without any AST re-serialization reformatting side-effects.
 // 2. Flow Style Proxy Handling:
-//    - Go: Uses yaml.FlowStyle bitmask on yaml.Node.
+//    - the old core: Uses yaml.FlowStyle bitmask on yaml.Node.
 //    - Swift: Detects flow-style proxy entries (`- { ... }`) and preserves flow-style mapping formatting on updates.
 //    - Impact: Flow-style entries remain flow-style; block-style entries remain block-style.
 // 3. Line endings / BOM (rv2):
-//    - Go: yaml.v3 re-encodes the whole document with LF endings.
+//    - the old core: yaml.v3 re-encodes the whole document with LF endings.
 //    - Swift: the dominant line ending of the input (CRLF or LF) and a leading UTF-8 BOM are kept on output, so an
 //      edit to a uniformly-CRLF file changes only the touched lines. Mixed-ending files are written with the
 //      dominant ending.

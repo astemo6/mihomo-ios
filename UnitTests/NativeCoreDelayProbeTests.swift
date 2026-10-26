@@ -3,7 +3,7 @@ import XCTest
 @testable import Mihomo
 
 /// fix/nc-delay-test (build 404 device report: group 测延迟 showed 超时 for almost every node, the two that answered
-/// took ~1 s where the Go core showed 100–300 ms): the delay probe's HTTP exchange (cold vs mihomo unified-delay),
+/// took ~1 s where the old core showed 100–300 ms): the delay probe's HTTP exchange (cold vs Clash.Meta unified-delay),
 /// per-probe timeout accounting and group concurrency against a real loopback HTTP server, stage tracing, and the
 /// readable failure text.
 final class NativeCoreDelayProbeTests: XCTestCase {

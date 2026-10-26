@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import Network
 
-/// Hysteria v1 packet layer and UDP relay (feat/nc-proto2, based on astemo6/Muse NativeCore); behaviour from mihomo
+/// Hysteria v1 packet layer and UDP relay (feat/nc-proto2, based on astemo6/Muse NativeCore); behaviour from Clash.Meta
 /// v1.19.33 transport/hysteria (obfs/xplus.go, conns/udp/hop.go, conns/wechat/obfs.go, core/protocol.go, core/frag.go).
 ///
 /// Network.framework's QUIC owns its UDP socket, so packet-level transforms (XPlus obfs, wechat-video header, port
@@ -36,7 +36,7 @@ enum NCHy1Obfs {
         return Data(out)
     }
 
-    /// mihomo parsePorts: "443,1000-2000"; nil when empty / invalid.
+    /// Clash.Meta parsePorts: "443,1000-2000"; nil when empty / invalid.
     static func parsePorts(_ s: String?) -> [UInt16]? {
         guard let s = s?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
         var out: [UInt16] = []

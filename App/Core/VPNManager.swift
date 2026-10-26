@@ -713,7 +713,7 @@ final class VPNManager: ObservableObject {
 
     /// Asks the tunnel to re-read the active profile and overrides. Returns an error message or nil.
     /// `hot` (v0.19.22 开关类设置热应用): a switch the user flipped — the core applies rule / rule-set / mode / log-level /
-    /// engine changes in place and does the full reload for anything else (bridge hotapply.go). File refreshes (geo,
+    /// engine changes in place and does the full reload for anything else. File refreshes (geo,
     /// providers, resources) and edits keep the full reload.
     /// Requests made while one is running share one trailing reload (full when any of them asked for full), so a burst
     /// of toggles costs at most two.

@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - mihomo REST models (decoded tolerantly; unknown keys ignored)
+// MARK: - Clash.Meta REST models (decoded tolerantly; unknown keys ignored)
 
 struct DelayHistory: Decodable, Hashable {
     var time: String?
@@ -163,7 +163,7 @@ struct RuleItem: Decodable, Identifiable, Hashable {
     var payload: String
     var proxy: String
     var size: Int?
-    /// v0.14: mihomo's per-rule counters for the running session (top-level rules only).
+    /// v0.14: Clash.Meta's per-rule counters for the running session (top-level rules only).
     var extra: RuleExtraItem?
 }
 
@@ -347,7 +347,7 @@ struct ScriptLogLine: Decodable, Identifiable, Hashable {
     var count: Int?
 }
 
-/// Result of the module text parser (NCEngineParser, formerly the Go
+/// Result of the module text parser (NCEngineParser, formerly the old core
 /// bridge's EngineParseText / EngineParseLine).
 struct ParsedEngineText: Decodable {
     struct Rule: Decodable, Hashable {

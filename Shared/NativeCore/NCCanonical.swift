@@ -3,9 +3,9 @@ import Foundation
 /// Canonical (source-neutral) config model for the native core.
 ///
 /// Design: docs/native-config-model.md. The user's direction is that the
-/// native core is NOT bounded by mihomo: the internal model takes the union
+/// native core is NOT bounded by Clash.Meta: the internal model takes the union
 /// of Quantumult X / Loon / Surge semantics, and every source format
-/// (mihomo YAML included) is just an importer into this model. Engines
+/// (Clash.Meta YAML included) is just an importer into this model. Engines
 /// consume only this model; adding a format means adding an importer.
 ///
 /// Nodes reuse `NCProxy` (type + parameter bag) and rules stay raw strings
@@ -83,7 +83,7 @@ struct NCHostEntry: Equatable {
         return .alias
     }
     /// Static addresses of an address entry. `value` may list several,
-    /// comma-separated (mihomo `hosts: {name: [ip4, ip6]}`), so a dual-stack
+    /// comma-separated (Clash.Meta `hosts: {name: [ip4, ip6]}`), so a dual-stack
     /// entry answers both A and AAAA.
     var addresses: [NCIP] {
         if let one = NCIP(value) { return [one] }
@@ -99,7 +99,7 @@ struct NCHostEntry: Equatable {
 }
 
 /// A remote node subscription: QX [server_remote], Loon [Remote Proxy],
-/// mihomo proxy-providers, Surge external policy sources — one concept.
+/// Clash.Meta proxy-providers, Surge external policy sources — one concept.
 struct NCNodeSubscription: Equatable {
     let name: String
     let url: String
@@ -199,7 +199,7 @@ struct NCDNSModel: Equatable {
     }
 }
 
-/// MitM configuration parsed from canonical sources (Surge / Loon [Mitm], QX [mitm], mihomo mitm:).
+/// MitM configuration parsed from canonical sources (Surge / Loon [Mitm], QX [mitm], Clash.Meta mitm:).
 struct NCMitmConfig: Equatable {
     var enabled: Bool = false
     var hostnames: [String] = []
@@ -321,7 +321,7 @@ struct NCCanonicalConfig: Equatable {
     }
 }
 
-// MARK: - mihomo importer (NCConfig → canonical)
+// MARK: - Clash.Meta importer (NCConfig → canonical)
 
 extension NCCanonicalConfig {
     static func from(clash cfg: NCConfig) -> NCCanonicalConfig {
@@ -390,9 +390,9 @@ extension NCCanonicalConfig {
         if let providers = cfg.raw["proxy-providers"]?.object {
             // fix/nc-ruleset-convert: `type: file` providers (the App's 节点订阅 → ./nodesubs/<id>.yaml) have a
             // path and no url; they used to be dropped here, so every group fed only by them was empty in the
-            // tunnel. http providers keep their url (a Go-era loopback /nodes/convert URL is unwrapped at fetch
+            // tunnel. http providers keep their url (a old-core loopback /nodes/convert URL is unwrapped at fetch
             // time) and their path (the App downloads them there too). The provider's own filter /
-            // exclude-filter apply to its nodes (mihomo semantics); exclude-type / override in the store.
+            // exclude-filter apply to its nodes (Clash.Meta semantics); exclude-type / override in the store.
             out.subscriptions = providers.keys.sorted().compactMap { name in
                 guard let o = providers[name]?.object else { return nil }
                 let vehicle = o["type"]?.string?.lowercased() ?? ""

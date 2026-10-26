@@ -1,16 +1,16 @@
 import Foundation
 
-/// E-B1 stage 3b: port of bridge/subrules.go's runtime half —
+/// E-B1 stage 3b: port of the retired bridge's runtime half —
 /// applySubRules (per-subscription node processing: include /
 /// exclude / dedupe / rename / region sort, forwarded to providers
 /// as filter + override rules) with fixReferences.
 ///
-/// Engine notes: Go matches user regexes with regexp2 (.NET) under a
+/// Engine notes: the old core matches user regexes with regexp2 (.NET) under a
 /// 1 s timeout; here NSRegularExpression (ICU) stands in — the
 /// patterns involved are simple, but .NET-only template forms in
 /// rename replacements (${name}, $$ for a literal $) are not expanded
 /// by ICU templates. Region detection scans the same 44-pattern
-/// table in order with ICU instead of Go's literal fast path; the
+/// table in order with ICU instead of the old core's literal fast path; the
 /// fast path only skips regions that provably cannot match, so the
 /// first-match result is the same.
 
@@ -104,7 +104,7 @@ func ncStripFlagEmojis(_ s: String) -> String {
     return out.trimmingCharacters(in: .whitespaces)
 }
 
-/// Go detectRegion: (ISO code, table index or table count).
+/// the old core detectRegion: (ISO code, table index or table count).
 func ncDetectRegion(_ name: String) -> (code: String, index: Int) {
     if !ncFirstFlag(name).isEmpty {
         let f = ncFirstFlag(name)
@@ -176,7 +176,7 @@ func ncRegexEscape(_ s: String) -> String {
     return out
 }
 
-/// Go providerFilter.
+/// the old core providerFilter.
 private func ncProviderFilter(_ expr0: String, regex: Bool) -> String {
     let expr = expr0.trimmingCharacters(in: .whitespaces)
     if expr.isEmpty { return "" }
@@ -223,7 +223,7 @@ private struct NCCompiledSub {
         }
         for p in r.stripPrefixes ?? [] where !p.isEmpty {
             if n.hasPrefix(p) {
-                // Go: TrimLeftFunc(unicode.IsSpace) — leading side only.
+                // the old core: TrimLeftFunc(unicode.IsSpace) — leading side only.
                 n = String(n.dropFirst(p.count).drop(while: { $0.isWhitespace }))
             }
         }
@@ -248,7 +248,7 @@ private func ncDedupeKey(_ p: [String: NCJSONValue]) -> String {
         let v = p.str(k)
         if !v.isEmpty { cred += k + "=" + v + ";" }
     }
-    // Go fmt.Sprint(p["port"]). NCValueCoercion.sprint renders integral
+    // the old core fmt.Sprint(p["port"]). NCValueCoercion.sprint renders integral
     // values as integers only inside Int64 range: the old
     // `n == floor(n) ? String(Int64(n))` trapped on a subscription node
     // with `port: 1e30` or `.inf` (floor(inf) == inf).
@@ -325,7 +325,7 @@ extension NCRuntimeSteps {
                 let (_, regionIdx) = ncDetectRegion(orig + " " + newName)
                 items.append(Item(nodeIdx: idx, name: newName, region: regionIdx))
             }
-            // Go sort.SliceStable: Swift's sort is not stable, so ties keep input order via nodeIdx.
+            // the old core sort.SliceStable: Swift's sort is not stable, so ties keep input order via nodeIdx.
             switch r.sort ?? "" {
             case "name":
                 items.sort {
@@ -431,7 +431,7 @@ extension NCRuntimeSteps {
             guard m["proxies"] != nil else { continue }
             var out: [NCJSONValue] = []
             for p in m.list("proxies") {
-                // Go reads members with fmt.Sprint; strings dominate.
+                // the old core reads members with fmt.Sprint; strings dominate.
                 let s: String
                 switch p {
                 case .string(let v): s = v
@@ -491,7 +491,7 @@ extension NCRuntimeSteps {
     }
 }
 
-// MARK: - SubPreview (bridge subrules.go SubPreview + processNodes rows)
+// MARK: - SubPreview
 
 /// nc-integrate B3: bridge SubPreview — runs a 节点处理 rule set against the profile without saving. Inline nodes
 /// get the full pipeline (filter → dedupe → rename → sort → unique suffix); cached provider nodes get filter +
@@ -585,7 +585,7 @@ enum NCSubPreview {
         r.enabled = true
         var raw: [String: NCJSONValue] = [:]
         if let b = FileManager.default.contents(atPath: profilePath) {
-            // Go: readOverrides(home) with o.home = "" and MergeManual off — no profile attachments
+            // the old core: readOverrides(home) with o.home = "" and MergeManual off — no profile attachments
             // (sub rules, chains, overrides), no manual nodes.
             var settings = NCRuntimeSettings.load(home: home)
             settings.home = ""

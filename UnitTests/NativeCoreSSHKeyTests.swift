@@ -55,8 +55,8 @@ final class NativeCoreSSHKeyTests: XCTestCase {
     """
     private static let cbcPub = "AAAAC3NzaC1lZDI1NTE5AAAAIB6nkNfA0HSGXtLIGUdIzEsOoKDcbcm7+e3Ycwl5eTZT"
 
-    // The unencrypted throwaway key from the deleted Go test suite
-    // (bridge/nodes_test.go, deleted in 81de91b, parent 81de91b^): its
+    // The unencrypted throwaway key from the deleted the old core test suite
+    //: its
     // ssh-ed25519 host-key blob was asserted there, so the same blob must
     // come out of the Swift parser here.
     private static let goVectorPEM = """

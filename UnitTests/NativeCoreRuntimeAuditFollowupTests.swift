@@ -9,7 +9,7 @@ final class NativeCoreRuntimeAuditFollowupTests: XCTestCase {
     /// 节点处理 dedupe keyed a node's port with String(Int64(n)), which
     /// traps for a YAML number outside Int64 range (`port: 1e30`) or inf;
     /// fixReferences did the same for numeric group members. Both now go
-    /// through NCValueCoercion.sprint (Go fmt.Sprint shape).
+    /// through NCValueCoercion.sprint (the old core fmt.Sprint shape).
     func testSubRulesDedupeAndRefsSurviveHugeNumbers() {
         func node(_ n: String, _ port: Double) -> NCJSONValue {
             .object(["name": .string(n), "type": .string("ss"), "server": .string("1.1.1.1"), "port": .number(port)])

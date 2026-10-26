@@ -2,9 +2,9 @@ import CryptoKit
 import Foundation
 
 // SS restls plugin (feat/native-core-eval, based on astemo6/Muse NativeCore): pure-Swift client side of restls,
-// ported from github.com/metacubex/restls-client-go v0.1.9 (the version mihomo v1.19.33 pins; restls_utils.go,
+// ported from github.com/metacubex/restls-client-go v0.1.9 (the version Clash.Meta v1.19.33 pins; restls_utils.go,
 // conn.go readRecordOrCCS / writeRestlsApplicationRecord, handshake_client.go generateSessionID*, u_conn.go,
-// key_agreement.go eager ECDHE) as mihomo transport/restls + adapter/outbound/shadowsocks.go drive it.
+// key_agreement.go eager ECDHE) as Clash.Meta transport/restls + adapter/outbound/shadowsocks.go drive it.
 //
 // It rides on NCTLSClientStream (the hand-rolled TLS 1.3 / 1.2 client): the TLS handshake is a real one with the
 // camouflage server (`host`), relayed by the restls server, which proves itself inside it:
@@ -16,7 +16,7 @@ import Foundation
 //   Server auth: the first server record under the new read keys (1.3: first encrypted handshake record;
 //     1.2: Finished after CCS) has its first 16 ciphertext bytes (1.2 AES-GCM with explicit nonce 0: after the
 //     nonce) XORed with BLAKE3-keyed(secret; ServerHello.random)[:16]. Unmasking + decrypting succeeds only for a
-//     restls server. mihomo falls back to plain TLS when it fails; here the handshake fails instead, so Shadowsocks
+//     restls server. Clash.Meta falls back to plain TLS when it fails; here the handshake fails instead, so Shadowsocks
 //     bytes never go to the camouflage site.
 //   Application records (both directions), after the handshake:
 //     header(5) [‖ 8-byte counter, TLS 1.2 AES-GCM only] ‖ mac(8) ‖ masked(len(2) ‖ cmd(2)) ‖ data ‖ padding
@@ -30,7 +30,7 @@ import Foundation
 //     responses and hold further writes until a server record arrives. The server's commands ask the client for
 //     K empty (padding-only) records.
 // Not ported: TLS 1.2 session-ticket resumption (layout-4 session IDs; the server accepts full handshakes).
-// `fingerprint` (SHA-256 certificate pinning, mihomo ca.NewFingerprintVerifier semantics) and
+// `fingerprint` (SHA-256 certificate pinning, Clash.Meta ca.NewFingerprintVerifier semantics) and
 // `name-cert-verify` (verify the chain against a name other than the SNI host) are implemented in
 // NCTLSClientStream's certificate policy (Config.pinnedCertSHA256 / certVerifyName).
 
@@ -91,7 +91,7 @@ enum NCRestls {
         return lines
     }
 
-    /// Parsed scripts per proxy: `N?R` is randomised once per client config in mihomo, not per connection.
+    /// Parsed scripts per proxy: `N?R` is randomised once per client config in Clash.Meta, not per connection.
     private static var scriptCache: [String: [Line]] = [:]
     private static let cacheLock = NSLock()
 
@@ -225,7 +225,7 @@ final class NCRestlsSession {
 
     // MARK: ClientHello session ID
 
-    /// The 32-byte session ID for this hello (zero ID in place). Go: generateSessionIDForTLS13 / ForTLS12.
+    /// The 32-byte session ID for this hello (zero ID in place). the old core: generateSessionIDForTLS13 / ForTLS12.
     func sessionID(hello: Data) -> Data {
         var sid = [UInt8](NCConnector.randomData(32))
         if hint == .tls13 && NCRestls.helloOffersTLS13(hello) {
@@ -254,7 +254,7 @@ final class NCRestlsSession {
     }
 
     /// ClientKeyExchange with the eager key for the server's curve (nil: not eager → caller generates one;
-    /// mihomo does the same for P-521, which then fails restls auth).
+    /// Clash.Meta does the same for P-521, which then fails restls auth).
     func eagerECDHE(group: UInt16, serverPublic: Data) -> (Data, Data)? {
         switch group {
         case 0x001d:
@@ -408,7 +408,7 @@ final class NCRestlsSession {
         }
         let headerLen = 12 + (gcm12 ? 8 : 0)
         let maxPlaintext = 16384
-        paddingLen = min(paddingLen, maxPlaintext - headerLen) // Go would panic past this; clamp instead
+        paddingLen = min(paddingLen, maxPlaintext - headerLen) // the old core would panic past this; clamp instead
         var payloadLen = dataLen + paddingLen + headerLen
         if payloadLen > maxPlaintext { payloadLen = maxPlaintext }
         dataLen = max(0, payloadLen - headerLen - paddingLen)
@@ -432,7 +432,7 @@ extension NCConnector {
         return out
     }
 
-    /// mihomo restlsOption (plugin-opts): host, password, version-hint (tls12 | tls13 — anything else,
+    /// Clash.Meta restlsOption (plugin-opts): host, password, version-hint (tls12 | tls13 — anything else,
     /// including an empty hint, is an explicit error, exactly like restls-client-go's NewRestlsConfig),
     /// restls-script, skip-cert-verify, fingerprint, name-cert-verify, force-tls12; the proxy's
     /// client-fingerprint picks the ClientHello shape.
@@ -457,7 +457,7 @@ extension NCConnector {
             queue.async { completion(nil, Failure.handshake("restls: \(error)")) }
             return
         }
-        // fingerprint: hex SHA-256 of a presented certificate (colons tolerated), mihomo
+        // fingerprint: hex SHA-256 of a presented certificate (colons tolerated), Clash.Meta
         // ca.NewFingerprintVerifier — browser names here are a config error there, and so here.
         var pin: Data?
         if let fp = opts["fingerprint"]?.string, !fp.isEmpty {

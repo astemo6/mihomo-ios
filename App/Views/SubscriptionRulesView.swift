@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Mirrors bridge/subrules.go SubRules. Stored in <home>/subscriptions.json keyed by profile id and
-/// applied by the Go side whenever the runtime config is built (the downloaded file is untouched).
+/// Mirrors the retired bridge. Stored in <home>/subscriptions.json keyed by profile id and
+/// applied by the old side whenever the runtime config is built (the downloaded file is untouched).
 struct SubRules: Codable, Equatable {
     struct Rename: Codable, Equatable, Identifiable {
         var id = UUID()

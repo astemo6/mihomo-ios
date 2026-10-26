@@ -1,7 +1,7 @@
 import SwiftUI
 
 // 规则 (live from the controller, or offline from the profile), 自定义规则 (rules.json, Surge / QX /
-// Loon / mihomo syntax with live validation) and 提供者 (live, or offline from the cache files).
+// Loon / Clash.Meta syntax with live validation) and 提供者 (live, or offline from the cache files).
 
 // MARK: - Custom rules store
 
@@ -147,7 +147,7 @@ struct LocalRulesView: View {
     @State private var editing: CustomRule?
     @State private var adding = false
     /// User 2026-10-23 「本地规则点进去无法修改」: 配置规则 rows are edited / 停用 / 删除 like 自定义 rows, kept as
-    /// overrides (provider-overrides.json `#profile-rules`, bridge/profileruleoverrides.go).
+    /// overrides.
     @State private var editingProfile: ProfileRuleItem?
     @State private var confirmDeleteProfile: ProfileRuleItem?
     @State private var confirmRestoreAll = false
@@ -532,7 +532,7 @@ struct RuleCheckLine: View {
 /// v0.19.8: one rule type of the structured editor.
 struct RuleKind: Identifiable, Hashable {
     enum Group: String, CaseIterable { case domain, ip, other }
-    let id: String          // the mihomo rule type
+    let id: String          // the Clash.Meta rule type
     let group: Group
     let caption: String
     let placeholder: String
@@ -565,7 +565,7 @@ struct RuleKind: Identifiable, Hashable {
         }
     }
 
-    /// Surge / QX spellings → the mihomo type the form shows.
+    /// Surge / QX spellings → the Clash.Meta type the form shows.
     static let aliases: [String: String] = [
         "HOST": "DOMAIN", "HOST-SUFFIX": "DOMAIN-SUFFIX", "HOST-KEYWORD": "DOMAIN-KEYWORD", "HOST-REGEX": "DOMAIN-REGEX",
         "IP6-CIDR": "IP-CIDR6", "IP-CIDR6": "IP-CIDR6", "FINAL": "MATCH", "PROCESS": "PROCESS-NAME", "DEST-PORT": "DST-PORT",

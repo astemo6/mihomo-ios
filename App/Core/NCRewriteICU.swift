@@ -1,24 +1,24 @@
 // App/Core/NCRewriteICU.swift
-// E-B1b stage 1: Port of Go regexp2 (.NET) regex portability analysis and ICU translation to Swift.
+// E-B1b stage 1: Port of the old core regexp2 (.NET) regex portability analysis and ICU translation to Swift.
 //
 // Sources:
-//   - bridge/mitm/rewriteicu.go (lines 1..1044: rx2Translate, rx2Parser, atom sets, template parsing)
-//   - bridge/mitm/rewritesnap.go (snapRegexOf, hasNamedGroup, snapRegex, portableRegex, requiredLiteral, portableRepl)
-//   - bridge/mitm/parse.go (dropJSIdentityEscapes)
-//   - bridge/mitm/bodylimits.go (compileURLRe)
+//   - the retired bridge (lines 1..1044: rx2Translate, rx2Parser, atom sets, template parsing)
+//   - the retired bridge (snapRegexOf, hasNamedGroup, snapRegex, portableRegex, requiredLiteral, portableRepl)
+//   - the retired bridge (dropJSIdentityEscapes)
+//   - the retired bridge (compileURLRe)
 //
 // Alignment with PacketTunnel decoding model:
 //   - NCSnapRegex matches PacketTunnel/NativeMitM/Rewrite/RewriteSnapshot.swift: RWSnapRegex
 //     JSON keys: p, ok, icu, slots, lit, fold, groups, named, empty.
 //   - NCSnapTemplate matches PacketTunnel/NativeMitM/Rewrite/RewriteSnapshot.swift: RWSnapTemplate
 //     JSON keys: s, r.
-//   - Optional fields set to nil are omitted during JSON encoding, exactly aligning with Go's omitempty.
-//     In Go, Empty/Fold/Named are bool+omitempty (omitted when false). In Swift, Bool? is used where false is
+//   - Optional fields set to nil are omitted during JSON encoding, exactly aligning with the old core's omitempty.
+//     In the old core, Empty/Fold/Named are bool+omitempty (omitted when false). In Swift, Bool? is used where false is
 //     represented as nil so that JSONEncoder does not emit the key. Groups is non-optional and always emitted.
 //
 // DIVERGENCES:
 //   1. Regexp2 Object vs Pure Text Derivation:
-//      - Go behavior: rx2Translate and snapRegexOf receive an already-compiled *regexp2.Regexp object and query
+//      - the old core behavior: rx2Translate and snapRegexOf receive an already-compiled *regexp2.Regexp object and query
 //        GetGroupNumbers(), GetGroupNames(), GroupNumberFromName(), and internal capture tables (rx2Internals).
 //      - Swift behavior: Swift has no regexp2 runtime. All group numbers, names, and slot allocations are
 //        derived purely from pattern text via rx2Parser during AST traversal. Unnamed groups are assigned
@@ -27,7 +27,7 @@
 //      - Impact: Identical group numbering and slot mapping for all valid patterns without needing a .NET regex engine.
 //
 //   2. RE2 Equivalence Check in rx2AtomSet:
-//      - Go behavior: When re2 == true (URL matchers), Go compiles atomRE2 with Go's regexp package (RE2) and
+//      - the old core behavior: When re2 == true (URL matchers), the old core compiles atomRE2 with the old core's regexp package (RE2) and
 //        asserts that RE2 matches the identical subset of characters over 0x20..0x7E as regexp2.
 //      - Swift behavior: Swift has no RE2 engine. We enforce the RE2 syntax restriction rules (rejecting `[:`,
 //        `\Q`, `\x{`, `(?P`, `\C`, `(?U`, `\p` without `{`, and class subtraction `-[`) and evaluate character
@@ -37,20 +37,20 @@
 //        on non-ASCII input is gated away because Swift gates inputs to ASCII.
 //
 //   3. Empty String Matching (Empty flag):
-//      - Go behavior: Go evaluates Empty by running cre.MatchString("") with RE2, or re.MatchString("") with regexp2.
+//      - the old core behavior: the old core evaluates Empty by running cre.MatchString("") with RE2, or re.MatchString("") with regexp2.
 //      - Swift behavior: Evaluated via NSRegularExpression test match against "" using the translated ICU pattern
 //        (or original pattern with dropped JS escapes). If uncompilable, defaults conservatively to true.
-//      - Impact: Approximates Go's empty-string check without requiring a separate RE2/regexp2 runtime.
+//      - Impact: Approximates the old core's empty-string check without requiring a separate RE2/regexp2 runtime.
 //
 //   4. Pattern Validity / Compilation Failure:
-//      - Go behavior: compileRe compiles with regexp2, falling back to dropJSIdentityEscapes. Failure returns
+//      - the old core behavior: compileRe compiles with regexp2, falling back to dropJSIdentityEscapes. Failure returns
 //        &SnapRegex{P: p} with OK=false, Groups=0.
 //      - Swift behavior: Validated via NSRegularExpression compilation (with dropJSIdentityEscapes and class
 //        subtraction normalization) combined with rx2Parser's own syntax failure paths.
-//      - Impact: Uncompilable patterns return NCSnapRegex with ok=false and groups=0, matching Go.
+//      - Impact: Uncompilable patterns return NCSnapRegex with ok=false and groups=0, matching the old core.
 //
 //   5. Replacement Error Detection in snapTemplate:
-//      - Go behavior: Calls re.Replace("", repl, -1, -1) to verify regexp2's replacement parsing.
+//      - the old core behavior: Calls re.Replace("", repl, -1, -1) to verify regexp2's replacement parsing.
 //      - Swift behavior: parseReplacementTemplate parses the replacement string, validating greedy decimal group
 //        references against Int32.max overflow (ErrCaptureGroupOutOfRange) and $_ rejection.
 //      - Impact: Produces identical (NCSnapTemplate?, Bool) output, where the second return indicates tperr.
@@ -59,7 +59,7 @@ import Foundation
 
 // MARK: - Snapshot Models
 
-/// NCSnapRegex is one compiled pattern. JSON keys align with Go SnapRegex and PacketTunnel RWSnapRegex.
+/// NCSnapRegex is one compiled pattern. JSON keys align with the old core SnapRegex and PacketTunnel RWSnapRegex.
 struct NCSnapRegex: Codable, Equatable {
     var p: String                       // "p": the pattern as regexp2 compiled it
     var ok: Bool                        // "ok": Swift can match it on ASCII input via ICU
@@ -107,7 +107,7 @@ struct NCSnapRegex: Codable, Equatable {
 }
 
 /// NCSnapTemplate is a replacement program (regexp2 syntax.ReplacerData).
-/// JSON keys align with Go SnapTemplate and PacketTunnel RWSnapTemplate.
+/// JSON keys align with the old core SnapTemplate and PacketTunnel RWSnapTemplate.
 struct NCSnapTemplate: Codable, Equatable {
     var s: [String]?                    // "s": string literals table (nil when omitted)
     var r: [Int]                        // "r": replacement instructions (always emitted)
@@ -162,7 +162,7 @@ enum NCRewriteICU {
                 sr.slots = t.slots
             }
         } else if let rt = RX2ICU.translate(pattern).0 {
-            // Go-zero (lane regexp2): what the ASCII-exact translation refuses (x mode, \p in a union, capture in a
+            // native-only (lane regexp2): what the ASCII-exact translation refuses (x mode, \p in a union, capture in a
             // look-ahead, multi-digit back-references …) gets the Unicode-faithful regexp2 → ICU translation; the
             // tunnel compiles `icu` the same way (PacketTunnel/NativeMitM/Rewrite/RX2ICU.swift).
             sr.ok = true
@@ -179,13 +179,13 @@ enum NCRewriteICU {
         if scanNamed {
             sr.named = true
         }
-        // Note: Go runs cre.MatchString("") / re.MatchString(""). In Swift, this is approximated
+        // Note: the old core runs cre.MatchString("") / re.MatchString(""). In Swift, this is approximated
         // using NSRegularExpression on the translated ICU pattern or the source pattern.
         sr.empty = matchesEmptyString(pattern: pattern, icu: sr.icu) ? true : nil
         return sr
     }
 
-    /// Convenience overload describing pattern p with auto-detected re2 and replace=true (Go snapRegex(p)).
+    /// Convenience overload describing pattern p with auto-detected re2 and replace=true (the old core snapRegex(p)).
     static func snapRegex(_ pattern: String) -> NCSnapRegex {
         snapRegex(pattern: pattern, re2: isCompileURLRe(pattern), replace: true)
     }
@@ -734,7 +734,7 @@ private func rx2TranslateUncached(p: String, re2: Bool, replace: Bool) -> rx2Tra
     slots[0] = 0
     // build #374 crash (EXC_BREAKPOINT): this was `for s in 1...totalGroups`, and a ClosedRange with
     // upperBound < lowerBound traps — i.e. every pattern WITHOUT a capture group (`^https?://ad\.x\.com/`, the
-    // most common rewrite shape) crashed runtime preparation. Go's `for s := 1; s <= n; s++` simply does not run.
+    // most common rewrite shape) crashed runtime preparation. the old core's `for s := 1; s <= n; s++` simply does not run.
     var s = 1
     while s <= totalGroups {
         guard let g = ps.byNum[s] else {
@@ -1439,7 +1439,7 @@ private func rx2AtomSet(_ atom: String, _ atomRE2: String, _ f: rx2Flags, _ re2:
     }
 
     if re2 {
-        // Go asserts equivalence against RE2 for URL matching.
+        // the old core asserts equivalence against RE2 for URL matching.
         // In Swift, syntax restrictions ([: \Q \x{ (?P \C (?U \p -[) are pre-validated,
         // and standard character classes match identically over printable ASCII 0x20..0x7E.
         if atomRE2.contains("-[") || (atomRE2.contains("\\p") && !atomRE2.contains("\\p{")) {
@@ -1584,7 +1584,7 @@ private func rx2StripZero(_ s: String) -> String {
 /// Returns (NCSnapTemplate?, tperr).
 private func parseReplacementTemplate(repl: String, unnamedCount: Int, capnames: [String: Int]) -> (NCSnapTemplate?, Bool) {
     if repl.contains("$_") {
-        return (nil, false) // $_ not reproduced on native path (Go rx2Template)
+        return (nil, false) // $_ not reproduced on native path (the old core rx2Template)
     }
     let capsize = 1 + unnamedCount + capnames.count
     let bytes = Array(repl.utf8)

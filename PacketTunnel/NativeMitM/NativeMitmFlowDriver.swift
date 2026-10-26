@@ -1,10 +1,10 @@
 import Foundation
 
-/// feat/native-core-eval: pass-through flow driver behind NativeRewriteDriver (the inner driver of the Go-free tunnel).
+/// feat/native-core-eval: pass-through flow driver behind NativeRewriteDriver (the inner driver of the native-only tunnel).
 ///
 /// NativeRewriteDriver (main's stage 3a, s3-full, s3-script) already decides every rewrite / reject / redirect /
-/// map local / header / body / script rule natively. What it defers used to go to Go's flow API
-/// (bridge/mitm/flow.go via MitmFlowDriverAdapter). With no Go in the extension, a deferred flow is forwarded unchanged:
+/// map local / header / body / script rule natively. What it defers used to go to the old core's flow API
+///. With no the old core in the extension, a deferred flow is forwarded unchanged:
 /// the request goes to its origin as the client sent it (body streamed from the client) and the response comes back
 /// as the origin sent it (body streamed from upstream). Nothing is buffered here; the driver only remembers each
 /// flow's head to build the forward URL. Flows the native engine cannot handle are therefore not rewritten — that is
@@ -64,7 +64,7 @@ final class NativeMitmFlowDriver: MitmFlowDriving, MitmScriptedFlowStarting {
     }
 
     /// Request scripts already ran natively (NativeRequestScripts); `scripted` holds their outcomes in run order
-    /// (FlowHead.Scripted, bridge/mitm/flowscripted.go). Go applied them in its request phase; here they are folded
+    ///. the old core applied them in its request phase; here they are folded
     /// onto the forward: abort → drop, a local answer (mock) → local, else the last url / method / headers / body.
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision {
         var f = Flow(method: head.method, url: Self.forwardURL(head: head, conn: conn), host: head.host,
@@ -88,7 +88,7 @@ final class NativeMitmFlowDriver: MitmFlowDriving, MitmScriptedFlowStarting {
                 }
             }
             if let u = o["url"] as? String, !u.isEmpty, let c = URLComponents(string: u), let h = c.host, !h.isEmpty {
-                // a new URL: the request goes to its host (Go sets req.Host from it)
+                // a new URL: the request goes to its host (the old core sets req.Host from it)
                 let authority = c.port.map { "\(h):\($0)" } ?? h
                 f.url = u
                 f.host = authority

@@ -2,7 +2,7 @@ import XCTest
 @testable import Mihomo
 
 /// fix/xmly-memory-2 (device 2026-10-24 22:14: 「重载失败：重新加载超时」 while 喜马拉雅 kept the extension memory-critical):
-/// after a reload reply times out the app asks the core for its reload state (LibmihomoReloadStatus JSON).
+/// after a reload reply times out the app asks the core for its reload state.
 final class ReloadFollowUpTests: XCTestCase {
     private func st(_ json: String) -> VPNManager.ReloadStatus? { VPNManager.reloadStatus(Data(json.utf8)) }
 

@@ -102,7 +102,7 @@ enum NCConfImport {
     }
 
     /// YAML-flavoured coercion for verbatim-preserved parameters (mirrors how
-    /// the same value would be typed had it come through a mihomo YAML file).
+    /// the same value would be typed had it come through a Clash.Meta YAML file).
     static func coerce(_ s: String) -> NCJSONValue {
         if let b = boolValue(s) { return .bool(b) }
         if let i = Int(s) { return .number(Double(i)) }
@@ -147,7 +147,7 @@ enum NCConfImport {
     }
 
     /// Surge/Loon/QX simple-obfs (ss `obfs=http|tls` + obfs-host/obfs-uri)
-    /// expressed in the mihomo plugin shape the connector ecosystem uses.
+    /// expressed in the Clash.Meta plugin shape the connector ecosystem uses.
     static func applySimpleObfs(kv: [String: String], consumed: inout Set<String>,
                                 fields: inout [String: NCJSONValue]) {
         guard let obfs = kv["obfs"] else { return }
@@ -324,7 +324,7 @@ enum NCConfImport {
             report.warnings.append("node '\(name)': hysteria v1 approximated as hysteria2")
         case "wireguard": type = "wireguard"
         // feat/nc-gost-relay: Shadowrocket `Name = relay, host, port, user, pass, …` (GOST relay; a [Proxy] node
-        // line, unrelated to the `relay` chain group) and the mihomo spelling.
+        // line, unrelated to the `relay` chain group) and the Clash.Meta spelling.
         case "relay", "gost-relay", "gostrelay": type = "gost-relay"
         case "direct": type = "direct"
         case "reject", "reject-tinygif": type = "reject"
@@ -548,7 +548,7 @@ enum NCConfImport {
 
     // MARK: - Surge/Loon [Rule]
 
-    /// [Rule] lines are already in the mihomo-style spelling and are kept
+    /// [Rule] lines are already in the Clash.Meta-style spelling and are kept
     /// verbatim, with two translations: FINAL,x → MATCH,x, and RULE-SET /
     /// DOMAIN-SET lines additionally registering an NCRuleSetRef whose
     /// forced policy is the line's policy column.

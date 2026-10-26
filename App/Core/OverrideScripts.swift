@@ -9,7 +9,7 @@ import Darwin
 // (group edits, node subscriptions, chains, DNS …, which the core applies afterwards). Several scripts per
 // profile run in order, each one getting the previous one's result. The output is validated by the core
 // exactly as a connect would parse it and only then stored (<home>/scripted/<id>.yaml); see
-// bridge/overridescript.go for how the core picks it up and ignores it once the profile changed.
+// the retired bridge how the core picks it up and ignores it once the profile changed.
 //
 // Bettbox UI declaration: a script with `const Compatible_With_Bettbox = { ruleOptionsEnable: true,
 // policyGroupOptions: [...] }` and a `ruleOptionsEnable` object gets one switch per key. The user's values are
@@ -585,7 +585,7 @@ final class OverrideScriptStore: ObservableObject {
     nonisolated static func runChain(home: String, path: String, profileName: String, scripts: [(OverrideScript, String)])
         -> (OverrideChainResult, [String: (Int?, String?, Int?, [String])]) {
         // v0.19.1: the profile can change while the chain runs (a subscription download or copy regeneration
-        // landing mid-run); Go then refuses the output. Run once more on the new content before reporting it,
+        // landing mid-run); the old core then refuses the output. Run once more on the new content before reporting it,
         // instead of failing the connect / reload with 「请重新运行」.
         var out = runChainCore(home: home, path: path, profileName: profileName, scripts: scripts)
         if out.2 {

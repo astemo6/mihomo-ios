@@ -93,7 +93,7 @@ struct ManagedNode: Identifiable, Hashable {
                                              "selector", "urltest", "fallback", "loadbalance", "relay", "select", "url-test", "load-balance", "smart"]
 }
 
-/// Summary of one node from bridge/nodemanager.go (no secret values).
+/// Summary of one node from the retired bridge (no secret values).
 struct NodeSummaryInfo: Decodable {
     var name: String?
     var type: String?
@@ -340,7 +340,7 @@ final class NodeManagerModel: ObservableObject {
     /// with the overrides applied) still declares a provider of that name (e.g. a profile provider sharing the name).
     nonisolated static func excludedProviders(runtime: Set<String>, overrides: [String: ProviderOverride], subs: [NodeSubscription]) -> Set<String> {
         var out = Set(overrides.filter { $0.value.disabled == true || $0.value.deleted == true }.map(\.key))
-        // r7: the Go build names a subscription's provider firstNonEmpty(trimmed name, "订阅") (mergeNodeSubs); an
+        // r7: the old core build names a subscription's provider firstNonEmpty(trimmed name, "订阅") (mergeNodeSubs); an
         // unnamed disabled subscription was matched as "" and never excluded.
         out.formUnion(subs.filter { !$0.enabled }.map {
             let n = $0.name.trimmingCharacters(in: .whitespaces)

@@ -115,18 +115,18 @@ enum NCTailscaleConsts {
 
     /// Minimum available bytes in the Network Extension required before starting a Tailscale node.
     /// Below 14 MB (14 << 20), start is refused to protect against iOS Jetsam terminations.
-    /// Aligns with Go bridge specification: `tsMinAvailableToStart = 14 << 20`.
+    /// Aligns with old bridge specification: `tsMinAvailableToStart = 14 << 20`.
     static let minAvailableToStart: Int64 = 14 << 20
 
     /// If available memory drops below 5 MB (5 << 20) during execution, Tailscale is stopped.
-    /// Aligns with Go bridge specification: `tsStopBelowAvailable = 5 << 20`.
+    /// Aligns with old bridge specification: `tsStopBelowAvailable = 5 << 20`.
     static let stopBelowAvailable: Int64 = 5 << 20
 
     /// Memory watchdog check interval in seconds.
-    /// Aligns with Go bridge specification: `tsWatchInterval = 2 * time.Second`.
+    /// Aligns with old bridge specification: `tsWatchInterval = 2 * time.Second`.
     static let watchdogInterval: TimeInterval = 2.0
 
-    // MARK: - Error Text Formatting (Aligned with GoText / Go Bridge)
+    // MARK: - Error Text Formatting (Aligned with GoText / the old core Bridge)
 
     /// Formats the refusal error message when memory is insufficient at startup.
     static func refusalErrorMessage(availableBytes: Int64) -> String {

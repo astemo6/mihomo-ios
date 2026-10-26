@@ -1,6 +1,6 @@
 import Foundation
 
-/// v0.19.8: the order of the running core's policy groups. The app used GLOBAL's member list for it (mihomo builds
+/// v0.19.8: the order of the running core's policy groups. The app used GLOBAL's member list for it (Clash.Meta builds
 /// GLOBAL from every proxy and group in config order); once the profile or a 策略组编辑 edit defines its own GLOBAL
 /// group, GLOBAL lists only what the user put in it. Every apply writes the runtime's group order to
 /// <home>/runtime-groups.json (bridge writeRuntimeGroupOrder); it is read here, and groups the file does not know

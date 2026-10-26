@@ -6,7 +6,7 @@ import Foundation
 /// buckets, per the user's direction to benchmark rule subscriptions
 /// against Quantumult X / Loon / Surge rather than only mihomo:
 ///
-/// - mihomo classical provider payload: `DOMAIN-SUFFIX,google.com[,policy]`
+/// - Clash.Meta classical provider payload: `DOMAIN-SUFFIX,google.com[,policy]`
 ///   lines, or a YAML document with a `payload:` list of such strings
 ///   (behavior "classical" / "domain" / "ipcidr" texts all reduce to lines)
 /// - Surge RULE-SET lists: same classical lines; DOMAIN-SET lists: bare
@@ -22,17 +22,17 @@ import Foundation
 /// DOMAIN-SET semantics (Surge manual, "DOMAIN-SET File Format"): a plain
 /// line matches the hostname exactly (like DOMAIN); a line starting with `.`
 /// matches the domain itself and all subdomains (like DOMAIN-SUFFIX). The
-/// clash spelling `+.d` means the same as `.d`; `*.d` (mihomo one-level
+/// clash spelling `+.d` means the same as `.d`; `*.d` (Clash.Meta one-level
 /// wildcard) is approximated as subdomains-only. Exact and suffix entries
 /// live in one compact sorted table of reversed hostnames (NCDomainTable,
 /// fix/nc-mem-providers): ~15 bytes + 5 bytes of index per entry instead of a
 /// String Set plus a class-per-label trie (~120 bytes per entry), and a
 /// lookup is one binary search per label boundary of the queried host.
-/// (mihomo's `.d` excludes `d` itself; the leaner Surge reading is used for
-/// both — a mihomo list gains at most the bare parent domain.)
+/// (Clash.Meta's `.d` excludes `d` itself; the leaner Surge reading is used for
+/// both — a Clash.Meta list gains at most the bare parent domain.)
 
 enum NCRuleSetFlavor {
-    case classical   // TYPE,payload[,policy] lines (mihomo / Surge RULE-SET / Loon)
+    case classical   // TYPE,payload[,policy] lines (Clash.Meta / Surge RULE-SET / Loon)
     case qx          // lowercase QX dialect lines
     case domainSet   // bare domains per line (Surge DOMAIN-SET)
     case auto        // per-line detection (mixed sources)
@@ -60,7 +60,7 @@ struct NCRuleSetIndex {
         "URL-REGEX", "PROTOCOL", "USER-AGENT",
     ]
     /// Whether any entry reads the destination IP (CIDR sets, IP-CIDR /
-    /// GEOIP / IP-ASN lines): mihomo RuleSet.ShouldResolveIP.
+    /// GEOIP / IP-ASN lines): Clash.Meta RuleSet.ShouldResolveIP.
     var needsIP: Bool {
         mrsIPCIDRSet != nil || !asns.isEmpty || hasDeadIPEntry || others.contains { NCRuleMatcher.ipKinds.contains($0.kind) }
     }
@@ -158,7 +158,7 @@ struct NCRuleSetIndex {
     }
 
     mutating func addText(_ text: String, flavor: NCRuleSetFlavor) {
-        // mihomo YAML provider document: `payload: [ "line", … ]`. Only tried when the text has a `payload:` key —
+        // Clash.Meta YAML provider document: `payload: [ "line", … ]`. Only tried when the text has a `payload:` key —
         // building a YAML tree of a 36k-line text list just to find none cost several MB (fix/nc-mem-providers).
         if flavor == .classical || flavor == .auto, text.contains("payload:"),
            let root = NCYAML.parse(text), let payload = root["payload"]?.array {
@@ -264,7 +264,7 @@ struct NCRuleSetIndex {
         // QX type names. Applied in both dialects (fix/nc-mem-providers): QX matches type names case-insensitively
         // and the blackmatrix7 QuantumultX lists spell them UPPERCASE (HOST-SUFFIX,google.com,Google), which the
         // lowercase-only QX detection sent down the standard path, where no rule type HOST* exists — every such
-        // line was dead. None of these names is a mihomo / Surge type, so the mapping cannot shadow one.
+        // line was dead. None of these names is a Clash.Meta / Surge type, so the mapping cannot shadow one.
         _ = dialect
         kind = Self.qxKinds[kind] ?? kind
         switch kind {

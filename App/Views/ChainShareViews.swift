@@ -10,7 +10,7 @@ struct ChainCandidate: Decodable, Hashable {
     var group: Bool
 }
 
-/// Picks the policy a node or group dials through (mihomo dialer-proxy). Candidates come from NCChainCandidates and
+/// Picks the policy a node or group dials through (Clash.Meta dialer-proxy). Candidates come from NCChainCandidates and
 /// already exclude everything that would form a loop.
 struct ChainPickerView: View {
     @Environment(\.dismiss) var dismiss

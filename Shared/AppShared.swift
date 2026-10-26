@@ -179,7 +179,7 @@ enum AppShared {
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
-    /// mihomo home dir (geo data, cache.db, runtime.yaml, overrides.json).
+    /// Clash.Meta home dir (geo data, cache.db, runtime.yaml, overrides.json).
     static var homeURL: URL { ensureDir(containerURL.appendingPathComponent("mihomo", isDirectory: true)) }
     static var profilesURL: URL { ensureDir(containerURL.appendingPathComponent("profiles", isDirectory: true)) }
     static var overridesURL: URL { homeURL.appendingPathComponent("overrides.json") }
@@ -210,8 +210,8 @@ enum AppShared {
     }
 }
 
-/// Options applied on top of the user's profile. Written as overrides.json; read by the Go bridge
-/// (bridge/bridge.go Overrides). Decoding is tolerant: missing or mistyped keys fall back to defaults,
+/// Options applied on top of the user's profile. Written as overrides.json; read by the old bridge
+///. Decoding is tolerant: missing or mistyped keys fall back to defaults,
 /// so files written by older builds keep working.
 struct CoreOverrides: Codable, Equatable {
     var logLevel: String = "info"
@@ -222,7 +222,7 @@ struct CoreOverrides: Codable, Equatable {
     var controllerPort: Int = 9090
     var secret: String = ""
     var mode: String = "rule"
-    /// Go soft memory limit (GOMEMLIMIT) in MB; 20…30 (v0.6.1; older values fall back to the default).
+    /// the old core soft memory limit (heap limit) in MB; 20…30 (v0.6.1; older values fall back to the default).
     var memoryLimitMB: Int = 26
     /// "tun" = NEPacketTunnelFlow bridge (all traffic) · "mix" = tun + system HTTP proxy to the mixed port
     /// (Loon proxymode=mix / Surge compat) · "proxy" = NEProxySettings only.
@@ -269,7 +269,7 @@ struct CoreOverrides: Codable, Equatable {
     /// 兼容性增强模式 (NEVPNProtocol.enforceRoutes): split routes enforced; never together with includeAllNetworks.
     var enforceRoutes: Bool = false
     /// User 2026-10-22 「加一个功能开关，打开后 FaceTime 就能走代理」: forces includeAllNetworks on and APNs into the
-    /// tunnel (VPNManager.applyScope), and the core prepends FaceTime / APNs rules to the proxy group (bridge facetime.go).
+    /// tunnel (VPNManager.applyScope), and the core prepends FaceTime / APNs rules to the proxy group.
     var faceTimeProxy: Bool = false
     /// 局域网共享: optional username / password, and only LAN source addresses.
     var lanAuth = LanAuth()
@@ -277,7 +277,7 @@ struct CoreOverrides: Codable, Equatable {
     /// v0.8 IPv6: "off" · "auto" (only when the physical network has a global IPv6 address at start) · "always".
     /// `ipv6` stays as the value older builds read (and the extension's resolved value in memory).
     var ipv6Mode: String = "off"
-    /// v0.8 IP preference for nodes without their own ip-version: "dual" (mihomo default) · "ipv4-prefer" ·
+    /// v0.8 IP preference for nodes without their own ip-version: "dual" (Clash.Meta default) · "ipv4-prefer" ·
     /// "ipv6-prefer" · "ipv4" · "ipv6".
     var ipPreference: String = "dual"
     /// v0.19: the extension clears the core's DNS cache after the physical network changes (Wi-Fi ⇄ cellular,
@@ -288,12 +288,12 @@ struct CoreOverrides: Codable, Equatable {
 
     // feat/loon-net-route (Loon parity, 2026-10-23)
     /// 直连时丢弃 STUN: UDP to STUN ports (3478/3479/5349/5350/19302–19309) that the rules send DIRECT is rejected
-    /// (bridge netextras.go stunDropRule).
+    ///.
     var stunDropDirect: Bool = false
     /// 阻止 WebRTC: every STUN / TURN UDP (same ports as 直连时丢弃 STUN) is rejected whatever the policy; Apple
-    /// destinations (FaceTime) are exempt. Supersedes 直连时丢弃 STUN while on (bridge netextras.go).
+    /// destinations (FaceTime) are exempt. Supersedes 直连时丢弃 STUN while on.
     var blockWebRTC: Bool = false
-    /// UDP 回落: "direct" (mihomo: UDP whose policy has no UDP support ends on DIRECT) · "reject".
+    /// UDP 回落: "direct" (Clash.Meta: UDP whose policy has no UDP support ends on DIRECT) · "reject".
     var udpFallback: String = "direct"
     /// 不作为默认路由: the tunnel only takes the Fake-IP range and the non-default 接管的路由 (PacketTunnelProvider).
     var notDefaultRoute: Bool = false
@@ -379,7 +379,7 @@ struct CoreOverrides: Codable, Equatable {
     }
     static let mtuChoices = [1280, 1500, 4064, 9000]
 
-    /// v0.8 节点探测: loopback port of the probe listener (same rule as bridge/probe.go probePort): 7899, or the
+    /// v0.8 节点探测: loopback port of the probe listener: 7899, or the
     /// next lower port when the mixed or controller port already uses it.
     var probePort: Int {
         let ctrl = (1...65535).contains(controllerPort) ? controllerPort : 9090
@@ -487,8 +487,8 @@ struct CoreOverrides: Codable, Equatable {
 
     /// r7 (backlog B01): where the secrets live. overrides.json carries no secret any more — it goes into backups,
     /// the sync folder and diagnostics. The controller secret, the LAN-share password and the 其他用户 passwords are
-    /// in <home>/secrets.json (0600, protected until first unlock), which the extension's Go core overlays on
-    /// overrides.json (bridge/secrets.go). The app also mirrors them into the Keychain, but only as a recovery copy
+    /// in <home>/secrets.json (0600, protected until first unlock), which the extension's old core overlays on
+    /// overrides.json. The app also mirrors them into the Keychain, but only as a recovery copy
     /// after a reinstall: after an ipasign / zsign re-sign the Keychain access group (= App Group id) is often not
     /// readable from the extension, so the extension never depends on it (build-log item 15 / review item 14).
     /// Precedence when reading: a value still in overrides.json (older build, restored older backup) → secrets.json
@@ -556,7 +556,7 @@ struct CoreOverrides: Codable, Equatable {
 
     fileprivate var secrets: CoreSecrets {
         var m: [String: String] = [:]
-        for u in lanUsers where !u.password.isEmpty && m[u.username] == nil { m[u.username] = u.password } // first wins, like Go
+        for u in lanUsers where !u.password.isEmpty && m[u.username] == nil { m[u.username] = u.password } // first wins, like the old core
         return CoreSecrets(secret: secret, lanPassword: lanAuth.password, lanUsers: m)
     }
 
@@ -631,7 +631,7 @@ struct CoreOverrides: Codable, Equatable {
 }
 
 /// r7 (backlog B01): <home>/secrets.json — the controller secret, the LAN-share password and the 其他用户 passwords
-/// (username → password). Read by the app, the widget and the extension's Go core (bridge/secrets.go); kept out of
+/// (username → password). Read by the app, the widget and the extension's old core; kept out of
 /// unencrypted backups, the sync folder and diagnostics.
 struct CoreSecrets: Codable, Equatable {
     var secret: String = ""
@@ -749,9 +749,9 @@ enum TunnelMessage: String {
     case memoryStats
     /// feat/loon-menu-notify: 更多 → 通知 switches changed; the tunnel re-reads NotifyPrefs (core policy watcher mask).
     case notifyPrefs
-    /// v0.19.22 更多 → 高级设置 → 网络 → Tailscale: the live Tailscale nodes and their tailnet addresses (JSON, LibmihomoTailscaleNodes).
+    /// v0.19.22 更多 → 高级设置 → 网络 → Tailscale: the live Tailscale nodes and their tailnet addresses.
     case tailscaleInfo
-    /// fix/xmly-memory-2: the core's reload state (JSON, LibmihomoReloadStatus) — the app asks after a reload reply timed
+    /// fix/xmly-memory-2: the core's reload state — the app asks after a reload reply timed
     /// out, to tell a reload still being applied from a finished or lost one.
     case reloadStatus
 
@@ -897,7 +897,7 @@ struct RouteSpec: Equatable {
     }
 }
 
-/// One DNS 劫持 entry, as mihomo's tun listener parses it: [tcp:// | udp://]any|IPv4|[IPv6]:port.
+/// One DNS 劫持 entry, as Clash.Meta's tun listener parses it: [tcp:// | udp://]any|IPv4|[IPv6]:port.
 enum DNSHijackSpec {
     static func isValid(_ text: String) -> Bool {
         var t = text.trimmingCharacters(in: .whitespaces)

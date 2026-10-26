@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// v0.18 示例配置 (Quantumult X style sample): a heavily commented mihomo profile bundled with the app
+/// v0.18 示例配置 (Quantumult X style sample): a heavily commented Clash.Meta profile bundled with the app
 /// (App/Resources/sample-profile.yaml), shown read-only with highlighting; copy it, or create a new local
 /// profile from it. The bridge test TestV018SampleProfileValidates keeps it valid.
 enum SampleProfile {

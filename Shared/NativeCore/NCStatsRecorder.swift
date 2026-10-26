@@ -1,13 +1,13 @@
 import Foundation
 
 /// fix/nc-e2e-gaps: the native core's session statistics behind `GET /app/stats`, `DELETE /app/stats` and
-/// `GET /app/stats/speed` (统计 page, 首页速度历史, 网络 page). Same JSON as the Go-era recorder
-/// (bridge/statsrecorder.go) that the App decodes as `TunnelStats` / `TunnelSpeedHistory`, so the App needs no change.
+/// `GET /app/stats/speed` (统计 page, 首页速度历史, 网络 page). Same JSON as the old-core recorder
+/// that the App decodes as `TunnelStats` / `TunnelSpeedHistory`, so the App needs no change.
 ///
 /// Lean and bounded (memory first): policies ≤ 256, hosts ≤ 600, rules ≤ 300 (the limits the App asks for), closed
 /// connections ≤ 300 in a ring of compact structs (JSON built only when asked), speed 600 × 1 s / 180 × 1 min /
 /// 48 × 1 h. Strings are clipped to 256 bytes. Worst case well under 0.5 MB. Not persisted across a tunnel restart
-/// (the Go recorder resumed from a file; here a fresh process starts a new session, which the App handles as `full`).
+/// (the old core recorder resumed from a file; here a fresh process starts a new session, which the App handles as `full`).
 ///
 /// Thread-safe (one NSLock); the data plane writes once per stats tick and per closed connection, the controller reads.
 final class NCStatsRecorder {
@@ -218,7 +218,7 @@ final class NCStatsRecorder {
                     pUp: rate(proxyUp, l.pUp), pDown: rate(proxyDown, l.pDown))
     }
 
-    /// One speed point (B/s), the Go recorder's speedLocked.
+    /// One speed point (B/s), the old core recorder's speedLocked.
     func speed(t: Int64, up: Int64, down: Int64, pUp: Int64, pDown: Int64) {
         lock.lock(); defer { lock.unlock() }
         speedLocked(t: t, up: up, down: down, pUp: pUp, pDown: pDown)

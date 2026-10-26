@@ -3,9 +3,9 @@ import Network
 import Security
 
 /// Pure-Swift latency and connectivity tester for outbounds and proxy nodes.
-/// Replaces the Go bridge functions (LibmihomoNodeTestDelayIn, LibmihomoNodeTCPDelayIn,
-/// LibmihomoTestDelay, LibmihomoTestTCPDelay, LibmihomoTestDelayByName, LibmihomoTCPDelayByName)
-/// so latency tests can be performed directly in the app process without Go or tunnel dependency.
+/// Replaces the old bridge functions (NodeTestDelayIn, NodeTCPDelayIn,
+/// TestDelay, TestTCPDelay, TestDelayByName, TCPDelayByName)
+/// so latency tests can be performed directly in the app process without the old core or tunnel dependency.
 enum NCDelayTester {
 
     // MARK: - Physical Interface Configuration
@@ -196,7 +196,7 @@ enum NCDelayTester {
             }
         }
 
-        // fix/nc-delay-2: same accounting as the tunnel's probe (NCTunnelDelayTester, mihomo unified-delay, which
+        // fix/nc-delay-2: same accounting as the tunnel's probe (NCTunnelDelayTester, Clash.Meta unified-delay, which
         // Tern always sets): the cold phase (dial + inner TLS + first request) gets max(timeout, 5000); the reported
         // value is the second request on the warm connection, bounded by `timeout`. Offline tests used to time the
         // cold dial against `timeout` alone, so a CDN node on a high-RTT network always showed 超时.
@@ -285,7 +285,7 @@ enum NCDelayTester {
         }
 
         workQueue.async {
-            // DNS resolution is performed before starting the connection timer (mirrors Go tcpHandshake)
+            // DNS resolution is performed before starting the connection timer (mirrors the old core tcpHandshake)
             let ip = resolveIP(server) ?? server
             let start = Date()
 
@@ -474,7 +474,7 @@ final class NCNodeResolver {
         }
 
         // 3. Manual nodes. rv2: the App keeps them in the manual profile <container>/profiles/manual-nodes.yaml
-        // (NCManualNodes / AppShared.profileURL(id: "manual-nodes"), bridge runtimeinputs.go manualNodesPath) —
+        // —
         // nothing ever wrote the <home>/manual-nodes.json this used to read, so manual nodes never resolved here.
         if !manualPath.isEmpty, manualPath != profilePath {
             for (_, p) in loadNodesFromFile(manualPath).sorted(by: { $0.key < $1.key }) {
@@ -526,7 +526,7 @@ final class NCNodeResolver {
         return NCProxy(name: name, type: type, fields: obj)
     }
 
-    /// Same path as the App's NCRuntimeOverrides.manualNodesPath (bridge runtimeinputs.go):
+    /// Same path as the App's NCRuntimeOverrides.manualNodesPath:
     /// filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml"). Duplicated here because NCDelayTester is
     /// Shared and NCRuntimeOverrides is App-only; keep the two in step.
     static func manualNodesPath(home: String) -> String {

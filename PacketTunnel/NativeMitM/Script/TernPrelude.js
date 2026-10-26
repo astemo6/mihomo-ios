@@ -1,9 +1,9 @@
-// Tern script host prelude (v0.19.22, feat/jsc-engine). ONE source for every script engine: goja (Go: tests,
-// Android, fallback) and JavaScriptCore (iOS tunnel, PacketTunnel/JSCScriptEngine.swift) both evaluate this
+// Tern script host prelude (v0.19.22, feat/jsc-engine). ONE source for every script engine: JavaScriptCore in the
+// tunnel (PacketTunnel/JSCScriptEngine.swift) and the app's 脚本调试 both evaluate this
 // file, so the Surge / Loon / Quantumult X / Egern API behaves the same whichever engine runs the script.
 //
 // The engine provides three primitives on the global object `__tern` (non-enumerable):
-//   __tern.host(op, arg)         -> string      synchronous call into the Go host (script.go hostOp)
+//   __tern.host(op, arg)         -> string      synchronous call into the native script host (NativeScriptRun)
 //   __tern.put(ab, off, len)     -> number      hands bytes of an ArrayBuffer to the host, returns a blob id
 //   __tern.take(id)              -> Uint8Array  a fresh copy of a host blob (own ArrayBuffer, offset 0)
 // and the host calls three entry points defined here:
@@ -49,7 +49,7 @@
 
   // ---- bytes ----
   // putBytes: final = the bytes a finished run hands back ($done); an engine whose buffers live in the host's
-  // heap may keep them instead of copying (goja), others ignore the flag.
+  // heap may keep them instead of copying, others ignore the flag.
   function putBytes(v, final) {
     if (v instanceof ArrayBuffer) return putRaw(v, 0, v.byteLength, !!final);
     return putRaw(v.buffer, v.byteOffset, v.byteLength, !!final);
@@ -131,7 +131,7 @@
   // $done($response) with a body the script never touched hands nothing back: the host keeps its bytes.
   // borrow (large bodies, engines whose take() can map the host's bytes): the phase body's own buffer handed
   // back returns the original blob instead of a copy; a body changed in place but not handed back (error, no
-  // $done body) is restored by the host (handler.go).
+  // $done body) is restored by the host.
   function setBody(obj, blob, binary, borrow) {
     R.bodyObj = obj; R.bodyBlob = blob; R.borrow = !!borrow;
     if (binary) {
@@ -161,7 +161,7 @@
     });
   }
 
-  // ---- $done → descriptor the host turns into the rewrite (script.go parseDone) ----
+  // ---- $done → descriptor the host turns into the rewrite (NativeScriptRun) ----
   function statusOf(x) { return x === undefined ? null : (typeof x === 'number' ? x : String(x)); }
   // bodyBlob: a body value the run hands back. The phase body's own borrowed buffer (whole) is the original blob.
   function bodyBlob(v) {
@@ -317,7 +317,7 @@
   }
 
   // ---- URL / URLSearchParams (lazy: the polyfill runs on first use of either name) ----
-  // The WHATWG-style implementation is urlPolyfillJS (urlglobal.go), spliced in by PreludeSource.
+  // The WHATWG-style implementation, inlined below.
   function __ternURLPolyfill() { return (function () {
 "use strict";
 var special = { "http:": "80", "https:": "443", "ws:": "80", "wss:": "443", "ftp:": "21", "file:": "" };
@@ -594,7 +594,7 @@ return { URL: URLImpl, URLSearchParams: USP };
     ['get', 'post', 'put', 'delete', 'head', 'options', 'patch'].forEach(function (m) { hc[m] = httpClient(m.toUpperCase()); });
     G.$httpClient = hc;
 
-    // $httpAPI (Surge): policy groups, outbound mode, profile reload — answered by the bridge.
+    // $httpAPI (Surge): policy groups, outbound mode, profile reload — answered by the native host.
     G.$httpAPI = function (m, p, b, cb) {
       var d = { m: argStr(m).toUpperCase(), p: argStr(p), cb: -1 };
       if (b !== undefined && b !== null) {
@@ -607,8 +607,8 @@ return { URL: URLImpl, URLSearchParams: USP };
     };
     G.$task = { fetch: taskFetch };
 
-    // Loon $config (NativeCore gap C3): synchronous answers from the host's $httpAPI ("apisync" — the Go-free
-    // tunnel answers; elsewhere it returns "" and these return null / false).
+    // Loon $config (NativeCore gap C3): synchronous answers from the host's $httpAPI ("apisync" — the tunnel
+    // answers; elsewhere it returns "" and these return null / false).
     function apiSync(m, p, b) {
       var d = { m: m, p: p };
       if (b !== undefined) { d.hasB = true; d.b = b; }
@@ -675,7 +675,7 @@ return { URL: URLImpl, URLSearchParams: USP };
         return o < 0 ? null : take(o);
       }
     };
-    // Egern adapter helpers (egernadapter.go)
+    // Egern adapter helpers
     G.__egernEnv = S.egernEnv;
     G.__egernCron = S.egernCron;
     G.__egernCompress = function (op, x) {

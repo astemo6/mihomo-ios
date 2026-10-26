@@ -5,18 +5,18 @@ import Foundation
 /// readable summary of a logical rule), a human rule-type name under it, then the policy. One place for the Home 规则
 /// card, 规则命中, the 连接 list and its filter sheet, and the connection detail.
 ///
-/// Input is what mihomo's /connections (and the tunnel's stats) carry: `rule` = Go type name (constant/rule.go
+/// Input is what Clash.Meta's /connections (and the tunnel's stats) carry: `rule` = the old core type name (constant/rule.go
 /// RuleType.String(): Domain, DomainSuffix, RuleSet, GeoIP, IPCIDR, Match, AND, ProcessName…), `rulePayload` = the
 /// rule's Payload(); logical rules log their sub-rules as `((Network,tcp) && (DstPort,80))`, `(… || …)` and NOT as
 /// `(!(Type,payload))` (rules/logic/logic.go). The combined `Type(payload)` form is ConnectionItem.ruleText, the key the
 /// session stats count hits by. Filtering always keeps using those raw values; only the text shown changes.
 ///
-/// App-injected rules never show their internals: the engine's outbound `__MITM__` (bridge/mitm/config.go ProxyName)
+/// App-injected rules never show their internals: the engine's outbound `__MITM__`
 /// is 「重写引擎」, its `AND,((NETWORK,TCP),(NOT,((IN-TYPE,INNER))),(DST-PORT,80))` rule is 「HTTP 明文（端口 80）」 · 重写,
 /// the MitM-hosts TCP rule 「HTTPS 解密（MitM）」 · 重写, and the QUIC refusals 「UDP 443（QUIC）」 · 阻止 QUIC.
 /// Pure and nonisolated: the 连接 page calls it off the main thread while filtering.
 enum RuleDisplay {
-    /// The engine outbound the app injects (bridge/mitm/config.go ProxyName). Never shown by this name.
+    /// The engine outbound the app injects. Never shown by this name.
     static let engineOutbound = "__MITM__"
 
     struct Parts: Equatable {
@@ -82,7 +82,7 @@ enum RuleDisplay {
         return (String(r[..<open]), String(r[r.index(after: open)..<r.index(before: r.endIndex)]))
     }
 
-    /// Human name of a mihomo rule type (Go spelling or profile spelling).
+    /// Human name of a Clash.Meta rule type (the old core spelling or profile spelling).
     static func typeName(_ raw: String) -> String {
         switch norm(raw) {
         case "DOMAIN": return String(localized: "域名")

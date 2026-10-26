@@ -3,7 +3,7 @@ import Foundation
 
 /// E-B1 stage 2 (foundation): the runtime builder's tree helpers and
 /// store readers — ports of the bridge's small accessors (str / strList
-/// / boolOf / intOf / asList / asMap in bridge/bridge.go) and of the
+/// / boolOf / intOf / asList / asMap in the retired bridge) and of the
 /// per-profile store readers buildRuntimeWith consults
 /// (provider-overrides.json, group-edits.json, subscriptions.json,
 /// groups.json, proxy-chains.json, rules.json). The config tree is
@@ -12,9 +12,9 @@ import Foundation
 
 // MARK: - Tree accessors (bridge str / strList / boolOf / intOf)
 //
-// Review R-4: these follow Go's inspect.go semantics on the go.yaml.in/yaml/v3
+// Review R-4: these follow the old core's inspect.go semantics on the go.yaml.in/yaml/v3
 // tree exactly. yaml v3 keeps `yes` / `on` / `no` / `off` as STRINGS (only
-// true/false are bools), so the Go helpers coerce:
+// true/false are bools), so the old core helpers coerce:
 //   str(v)     string as-is; nil -> ""; anything else fmt.Sprint(v)
 //              (so `name: 123` reads "123", `name: true` reads "true")
 //   boolOf(v)  bool as-is; string -> truthy (1/true/yes/on, trimmed, any case)
@@ -132,7 +132,7 @@ extension NCJSONValue {
     }
 }
 
-// MARK: - provider-overrides.json (bridge provideroverrides.go)
+// MARK: - provider-overrides.json
 
 struct NCProfileRuleOverride: Codable {
     var rule: String = ""
@@ -159,7 +159,7 @@ struct NCProviderOverride: Codable {
     var rules: [NCProfileRuleOverride]? = nil
 }
 
-// MARK: - subscriptions.json (bridge subrules.go SubRules)
+// MARK: - subscriptions.json
 
 struct NCSubRules: Codable {
     struct RenameRule: Codable {
@@ -181,7 +181,7 @@ struct NCSubRules: Codable {
     var sort: String? = nil
 }
 
-// MARK: - proxy-chains.json (bridge proxychains.go)
+// MARK: - proxy-chains.json
 
 struct NCProxyChain: Codable {
     var id: String = ""

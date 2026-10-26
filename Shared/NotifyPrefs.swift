@@ -32,7 +32,7 @@ enum NotifyKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Bit for LibmihomoSetPolicyEvents (policywatch.go: 1 change, 2 failure, 4 node).
+    /// Bit for SetPolicyEvents (policywatch.go: 1 change, 2 failure, 4 node).
     var coreBit: Int32 {
         switch self {
         case .policyChange: return 1
@@ -63,7 +63,7 @@ enum NotifyPrefs {
     /// Master switch and the kind's own switch.
     static func allows(_ k: NotifyKind) -> Bool { masterEnabled && isOn(k) }
 
-    /// The policy-watcher kinds that are on, as LibmihomoSetPolicyEvents' mask (0 = watcher stopped).
+    /// The policy-watcher kinds that are on, as SetPolicyEvents' mask (0 = watcher stopped).
     static var coreMask: Int32 {
         guard masterEnabled else { return 0 }
         var m: Int32 = 0
