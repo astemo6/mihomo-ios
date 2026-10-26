@@ -513,7 +513,7 @@ final class NativeCoreSudokuTests: XCTestCase {
     // MARK: - Codec boundaries (S2)
 
     private func makeCodec(_ table: NCSudoku.TableType = .preferEntropy,
-                           key: String = Self.vectorKey64,
+                           key: String = NativeCoreSudokuTests.vectorKey64,
                            custom: String? = nil) -> NCSudokuCodec {
         NCSudokuCodec(key: key, tableType: table, customTable: custom,
                       enablePureDownlink: true, paddingMin: 0, paddingMax: 0)
