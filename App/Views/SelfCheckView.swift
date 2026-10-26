@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 设置 → 诊断与反馈 → 一键自检 (feat/nc-e2e): runs SelfCheck step by step with live status, then offers the
-/// 诊断包 (selfcheck.txt first). In the simulator every step that needs the VPN shows 「需要真机」.
+/// 诊断包 (selfcheck.txt first). In the simulator every step that needs the VPN shows 「需要真机」. selfcheck-2: KNOWN
+/// (a known gap, not a pass) gets its own icon.
 struct SelfCheckView: View {
     @EnvironmentObject var vpn: VPNManager
     @StateObject private var check = SelfCheck()
@@ -22,7 +23,7 @@ struct SelfCheckView: View {
                 .disabled(check.running)
                 .accessibilityIdentifier("selfcheck.run")
             } footer: {
-                Text("依次检查：启动 VPN、内核接口、加载数量、策略组测延迟、经隧道访问网址、MitM 与证书信任、脚本日志、断开重连后的 Fake-IP。会断开并重新连接 VPN 两次。")
+                Text("依次检查：断开时测延迟、启动 VPN、内核接口、配置完整性（配置 → 运行时 → 内核）、远程资源、策略组与逐个节点测延迟、首页出口 IP、经隧道访问网址与数据面计数、MitM 证书与重写、脚本日志、断开重连后的 Fake-IP、隧道内存。会断开并重新连接 VPN 两次，每一步都有时限。")
             }
             .listRowBackground(Theme.card)
 
@@ -73,6 +74,7 @@ struct SelfCheckView: View {
         case .running: ProgressView()
         case .pass: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.good)
         case .fail: Image(systemName: "xmark.octagon.fill").foregroundStyle(Theme.bad)
+        case .known: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .skip: Image(systemName: "minus.circle").foregroundStyle(.secondary)
         case .needsDevice: Image(systemName: "iphone").foregroundStyle(.secondary)
         }
