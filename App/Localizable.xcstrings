@@ -49530,36 +49530,71 @@
         }
       }
     },
-    "脚本、jq 与正则引擎": {
+    "脚本与正则引擎": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Script, jq and regex engines"
+            "value": "Script and regex engines"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "腳本、jq 與正則引擎"
+            "value": "腳本與正則引擎"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクリプト、jq、正規表現エンジン"
+            "value": "スクリプト、正規表現エンジン"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스크립트, jq, 정규식 엔진"
+            "value": "스크립트, 정규식 엔진"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Движки скриптов, jq и регулярных выражений"
+            "value": "Движки скриптов и регулярных выражений"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "Tern 自己的 jq 解释器（纯 Swift，不含 Go 代码），用于 jq 请求体 / 响应体重写，语义与 jq 1.7.1 一致": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern's own jq interpreter (pure Swift, no Go code) for jq request / response body rewrites, matching jq 1.7.1 semantics"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern 自己的 jq 直譯器（純 Swift，不含 Go 程式碼），用於 jq 請求體 / 回應體重寫，語義與 jq 1.7.1 一致"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern 独自の jq インタプリタ（純 Swift、Go コードなし）。jq によるリクエスト / レスポンスボディの書き換えに使用し、jq 1.7.1 と同じ挙動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern 자체 jq 인터프리터(순수 Swift, Go 코드 없음). jq 요청 / 응답 본문 재작성에 사용하며 jq 1.7.1과 동일한 의미"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Собственный интерпретатор jq в Tern (чистый Swift, без кода на Go) для перезаписи тел запросов / ответов через jq, семантика jq 1.7.1"
           }
         }
       },

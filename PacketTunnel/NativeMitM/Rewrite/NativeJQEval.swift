@@ -2085,7 +2085,9 @@ enum NativeJQ {
             defer { sem.signal() }
             let input: JQValue
             do { input = try JQJSONParser.parse(body) } catch {
-                box.r = .skip("body is not JSON")
+                // the reason rides along: "Exceeds depth limit for parsing" (nesting past maxDepth) reads differently
+                // from a truncated / HTML body in the WARN line
+                box.r = .skip("body is not JSON: " + ((error as? JQError)?.message ?? "\(error)"))
                 return
             }
             switch runHere(p, input: input, budget: b) {

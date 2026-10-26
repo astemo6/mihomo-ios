@@ -852,7 +852,8 @@ struct AboutView: View {
         Credit(name: "Hako-Adapter", note: "PacketFlowBridge 思路：socketpair 连接 NEPacketTunnelFlow 与内核（现 ProjectClash/Clash-Adapter-Legacy）", license: "GPL-3.0", url: "https://github.com/ProjectClash/Clash-Adapter-Legacy"),
         Credit(name: "ProjectClash", note: "Hako / Hako-Adapter 的维护者，后续项目 Clash-Adapter", license: "GPL-3.0", url: "https://github.com/ProjectClash"),
         Credit(name: "MetaCubeX/meta-rules-dat", note: "内置 GeoIP / GeoSite / ASN 数据库", license: "见上游仓库", url: "https://github.com/MetaCubeX/meta-rules-dat"),
-        Credit(name: "goja · gojq · regexp2", note: "脚本、jq 与正则引擎", license: "MIT", url: "https://github.com/dop251/goja"),
+        Credit(name: "goja · regexp2", note: "脚本与正则引擎", license: "MIT", url: "https://github.com/dop251/goja"),
+        Credit(name: "Tern jq", note: "Tern 自己的 jq 解释器（纯 Swift，不含 Go 代码），用于 jq 请求体 / 响应体重写，语义与 jq 1.7.1 一致", license: "GPL-3.0", url: "https://github.com/astemo6/mihomo-ios"),
     ]
 
     var body: some View {

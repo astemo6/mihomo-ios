@@ -413,7 +413,7 @@ final class NativeMitmBodyTests: XCTestCase {
         }
     }
 
-    /// jq set / del follow gojq (setpath creates, delpaths ignores missing paths, wrong types throw).
+    /// jq set / del follow jq 1.7.1 (setpath creates, delpaths ignores missing paths, wrong types throw).
     func testJQSubset() throws {
         let doc = BodyJSON.parse(#"{"data":{"list":[1,2,3],"n":5}}"#)!
         let set = try BodyJQ.setpath(doc, [.key(Array("data".utf8)), .key(Array("new".utf8)), .index(2)], .bool(true))
