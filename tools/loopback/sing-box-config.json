@@ -65,10 +65,55 @@
     },
     {
       "listen": "127.0.0.1",
+      "listen_port": 18014,
+      "tag": "vless-ech-in",
+      "tls": {
+        "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "ech": {
+          "enabled": true,
+          "key_path": "__LOOPBACK_DIR__/ech_key.pem"
+        },
+        "enabled": true,
+        "key_path": "__LOOPBACK_DIR__/key.pem",
+        "server_name": "localhost"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "",
+          "name": "nc-loop",
+          "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811"
+        }
+      ]
+    },
+    {
+      "listen": "127.0.0.1",
       "listen_port": 18005,
       "tag": "trojan-in",
       "tls": {
         "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "enabled": true,
+        "key_path": "__LOOPBACK_DIR__/key.pem",
+        "server_name": "localhost"
+      },
+      "type": "trojan",
+      "users": [
+        {
+          "name": "nc-loop",
+          "password": "nc-loop-trojan-pw"
+        }
+      ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18015,
+      "tag": "trojan-ech-in",
+      "tls": {
+        "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "ech": {
+          "enabled": true,
+          "key_path": "__LOOPBACK_DIR__/ech_key.pem"
+        },
         "enabled": true,
         "key_path": "__LOOPBACK_DIR__/key.pem",
         "server_name": "localhost"

@@ -27,6 +27,8 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let vlessEchPort = 18014
+    private static let trojanEchPort = 18015
     private static let tcpEchoPort = 18080
     private static let udpEchoPort = 18081
     private static let blackholePort = 18082
@@ -40,6 +42,14 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPassword = "nc-loop-trojan-pw"
     private static let hy2Password = "nc-loop-hy2-pw"
     private static let tuicPassword = "nc-loop-tuic-pw"
+
+    private static let echInnerSni = "localhost"
+    /// Base64 of ECHConfigList matching tools/loopback/ech_config.pem
+    /// Generated via: sing-box generate ech-keypair outer.localhost
+    private static let echConfigBase64 = "AEr+DQBGAAAgACCb7RpDhFlwk1UfROZmEKsx55OeBngAV46wCg57TCInAQAMAAEAAQABAAIAAQADAA9vdXRlci5sb2NhbGhvc3QAAA=="
+    /// Base64 of mismatched ECHConfigList matching tools/loopback/ech_config_stale.pem
+    /// Generated via: sing-box generate ech-keypair stale.outer.localhost
+    private static let staleEchConfigBase64 = "AFD+DQBMAAAgACBJO61PMZnuwwy2kKPiDFuetw4JyJqPZifWvUGvRed0ewAMAAEAAQABAAIAAQADABVzdGFsZS5vdXRlci5sb2NhbGhvc3QAAA=="
 
     /// Same generator as the validation probe: byte i = (i * 7 + 3) % 256.
     private static let payload = Data((0..<8192).map { UInt8(($0 * 7 + 3) & 0xff) })
@@ -148,6 +158,44 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-tuic", type: "tuic", port: Self.tuicPort, extra: [
             "uuid": .string(Self.uuid), "password": .string(Self.tuicPassword),
             "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    private static var trojanECHProxy: NCProxy {
+        Self.proxy(name: "loop-trojan-ech", type: "trojan", port: Self.trojanEchPort, extra: [
+            "password": .string(Self.trojanPassword),
+            "sni": .string(Self.echInnerSni),
+            "skip-cert-verify": .bool(true),
+            "ech-opts": .object([
+                "enable": .bool(true),
+                "config": .string(Self.echConfigBase64),
+            ]),
+        ])
+    }
+
+    private static var trojanECHStaleProxy: NCProxy {
+        Self.proxy(name: "loop-trojan-ech-stale", type: "trojan", port: Self.trojanEchPort, extra: [
+            "password": .string(Self.trojanPassword),
+            "sni": .string(Self.echInnerSni),
+            "skip-cert-verify": .bool(true),
+            "ech-opts": .object([
+                "enable": .bool(true),
+                "config": .string(Self.staleEchConfigBase64),
+            ]),
+        ])
+    }
+
+    private static var vlessECHProxy: NCProxy {
+        Self.proxy(name: "loop-vless-ech", type: "vless", port: Self.vlessEchPort, extra: [
+            "uuid": .string(Self.uuid),
+            "network": .string("tcp"),
+            "tls": .bool(true),
+            "sni": .string(Self.echInnerSni),
+            "skip-cert-verify": .bool(true),
+            "ech-opts": .object([
+                "enable": .bool(true),
+                "config": .string(Self.echConfigBase64),
+            ]),
         ])
     }
 
@@ -263,7 +311,8 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
     func testServerPortsReachable() {
         for port in [Self.ssPort, Self.ss2022Port, Self.vmessPort, Self.vlessPort,
-                     Self.trojanPort, Self.tcpEchoPort, Self.blackholePort] {
+                     Self.trojanPort, Self.vlessEchPort, Self.trojanEchPort,
+                     Self.tcpEchoPort, Self.blackholePort] {
             let conn = NWConnection(host: NWEndpoint.Host(Self.host),
                                     port: NWEndpoint.Port(rawValue: UInt16(port))!,
                                     using: .tcp)
@@ -338,6 +387,51 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
     func testTUICTCPEcho() throws {
         let stream = try self.connect(proxy: Self.tuicProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    // MARK: - ECH (Encrypted Client Hello) loopback
+
+    /// ECH client-side TLS 1.3 handshake and retry_configs handling land in E4 (feat/nc-ech-tls).
+    /// Until E4 lands on this branch, the tests below specify the exact wire assertion contract
+    /// and are skipped with a clear reason pointing to E4.
+    /// The sing-box reference inbounds (:18014 and :18015) and test keypair materials are live.
+    private static var isClientECHImplemented: Bool {
+        false
+    }
+
+    /// Trojan + TLS ECH accept: client connects with valid ECH config matching the server's
+    /// private key. Server decrypts ClientHelloInner (SNI localhost), completes handshake,
+    /// and echo traffic round-trips byte-for-byte.
+    func testTrojanECHAccept() throws {
+        guard Self.isClientECHImplemented else {
+            throw XCTSkip("client-side ECH handshake pending E4 (feat/nc-ech-tls)")
+        }
+        let stream = try self.connect(proxy: Self.trojanECHProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// VLESS + TLS ECH accept: client connects with valid ECH config to the VLESS ECH inbound.
+    func testVLESSECHAccept() throws {
+        guard Self.isClientECHImplemented else {
+            throw XCTSkip("client-side ECH handshake pending E4 (feat/nc-ech-tls)")
+        }
+        let stream = try self.connect(proxy: Self.vlessECHProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// Trojan + TLS ECH retry: client connects with a stale/mismatched ECH config.
+    /// Server cannot decrypt ClientHelloInner, continues outer handshake, and replies with
+    /// retry_configs in outer EncryptedExtensions. Client updates its ECHConfigList and
+    /// retries, establishing connection and passing echo payload.
+    func testTrojanECHRetry() throws {
+        guard Self.isClientECHImplemented else {
+            throw XCTSkip("client-side ECH retry_configs handling pending E4 (feat/nc-ech-tls)")
+        }
+        let stream = try self.connect(proxy: Self.trojanECHStaleProxy, target: Self.echoTarget)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
     }

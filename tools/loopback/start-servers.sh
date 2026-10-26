@@ -63,14 +63,17 @@ gen_cert() {
     if [ -f "$RUN/cert.pem" ] && [ -f "$RUN/key.pem" ]; then
         return
     fi
-    log "generating self-signed cert (CN=localhost, SAN DNS:localhost IP:127.0.0.1)"
+    log "generating self-signed cert (CN=localhost, SAN DNS:localhost,DNS:outer.localhost,DNS:stale.outer.localhost,IP:127.0.0.1)"
     openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
         -subj "/CN=localhost" \
-        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+        -addext "subjectAltName=DNS:localhost,DNS:outer.localhost,DNS:stale.outer.localhost,IP:127.0.0.1" \
         -keyout "$RUN/key.pem" -out "$RUN/cert.pem" >/dev/null 2>&1
 }
 
 render_config() {
+    cp -f "$DIR/ech_key.pem" "$RUN/ech_key.pem"
+    cp -f "$DIR/ech_config.pem" "$RUN/ech_config.pem"
+    cp -f "$DIR/ech_config_stale.pem" "$RUN/ech_config_stale.pem"
     sed -e "s|__LOOPBACK_DIR__|$RUN|g" "$DIR/sing-box-config.json" > "$RUN/sing-box.json"
 }
 
@@ -117,12 +120,12 @@ do_start() {
     # (hysteria2 / tuic / wireguard) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
-    for p in 18001 18002 18003 18004 18005 18080 18082; do
+    for p in 18001 18002 18003 18004 18005 18014 18015 18080 18082; do
         wait_tcp "$p"
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 echo :18080/:18081 blackhole :18082"
 }
 
 do_stop() {

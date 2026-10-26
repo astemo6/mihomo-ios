@@ -79,7 +79,7 @@ jobs:
           xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/loop -resultBundlePath results/loopback.xcresult \
             -only-testing:MihomoUnitTests/NativeCoreLoopbackTests test-without-building 2>&1 | tee results/loopback.log \
-            | grep -E "Test Case .*(failed|passed)|error:|XCTAssert|Executed"
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed"
           RC=${PIPESTATUS[0]}
           [ "$RC" = 0 ] || tail -n 150 results/loopback.log
           {
