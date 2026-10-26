@@ -113,7 +113,16 @@ final class SelfCheckLogicTests: XCTestCase {
 
     func testProbeURL() {
         XCTAssertEqual(SelfCheckLogic.probeURL(fromPattern: #"^https?:\/\/api\.example\.com\/ad\/v1"#)?.absoluteString, "https://api.example.com/ad/v1")
-        XCTAssertEqual(SelfCheckLogic.probeURL(fromPattern: #"^https://ads\.example\.com/x.+"#)?.absoluteString, "https://ads.example.com/x")
+        XCTAssertEqual(SelfCheckLogic.probeURL(fromPattern: #"^https://ads\.example\.com/x.+"#)?.absoluteString, "https://ads.example.com/xa")
+        // fix/nc-diag-439 (B): the synthesized URL must match the rule (build 439: …/kprime/v never matched \/v\d\/)
+        XCTAssertEqual(SelfCheckLogic.probeURL(fromPattern: #"^https?:\/\/api\.gotokeep\.com\/kprime\/v\d\/popups\/primeGuide"#)?.absoluteString,
+                       "https://api.gotokeep.com/kprime/v1/popups/primeGuide")
+        XCTAssertEqual(SelfCheckLogic.probeURL(fromPattern: #"^https?:\/\/api.gotokeep.com/cauchy/growth/init"#)?.absoluteString,
+                       "https://api.gotokeep.com/cauchy/growth/init")
+        XCTAssertEqual(SelfCheckLogic.probeURL(fromPattern: #"^https?:\/\/api\.example\.com\/(?:ad|banner)s?\/v\d+\/[a-z]+\?id=\w{3}$"#)?.absoluteString,
+                       "https://api.example.com/ad/v1/a?id=aaa")
+        XCTAssertEqual(SelfCheckLogic.probeURL(fromPattern: #"^https:\/\/api\.example\.com\/config$"#)?.absoluteString, "https://api.example.com/config")
+        XCTAssertNil(SelfCheckLogic.probeURL(fromPattern: #"^https?:\/\/api\.example\.com\/(a)\1"#), "backreference")
         XCTAssertEqual(SelfCheckLogic.probeURL(fromPattern: #"^https?://ads.example.com"#)?.absoluteString, "https://ads.example.com/")
         XCTAssertNil(SelfCheckLogic.probeURL(fromPattern: #"^https?://(www|m)\.example\.com/"#), "host with a group")
         XCTAssertNil(SelfCheckLogic.probeURL(fromPattern: #"^https?://.+\.example\.com/"#))

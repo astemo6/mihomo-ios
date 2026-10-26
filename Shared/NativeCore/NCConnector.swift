@@ -676,9 +676,9 @@ enum NCConnector {
             let raw: NCStream
             if useTLS && (!isVision || encVision) {
                 raw = NCStream(to: server, port: port,
-                               tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                               tlsServerName: tlsSNI(proxy, server: server),
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                               alpn: xhttpALPN(proxy), queue: queue)
+                               alpn: streamALPN(proxy), queue: queue)
             } else {
                 // Vision needs the hand-rolled TLS client over a raw socket
                 // (the splice must reach the socket), so no NWConnection TLS.
@@ -698,7 +698,7 @@ enum NCConnector {
                 if isVision, useTLS, let uuidBytes = NCVLESS.uuidBytes(uuid) {
                     // fix/nc-silent-fail: uTLS shape from client-fingerprint; `fingerprint` pins the certificate.
                     var config = NCTLSClientStream.Config(
-                        serverName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                        serverName: tlsSNI(proxy, server: server),
                         allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                         profile: utlsProfile(proxy))
                     switch certPin(proxy) {
@@ -857,7 +857,60 @@ enum NCConnector {
         if let h = opts?["headers"]?.object {
             for (k, v) in h { if let str = v.string { headers[k] = str } }
         }
-        return (opts?["path"]?.string ?? "/", headers)
+        return (wsPathStrippingEarlyData(opts?["path"]?.string ?? "/"), headers)
+    }
+
+    /// fix/nc-diag-439 (G): mihomo reads `?ed=N` off the ws path (Xray early data, sent in Sec-WebSocket-Protocol)
+    /// and never sends it as part of the request path; servers behind CDNs route on the bare path, so sending
+    /// `/path?ed=2048` left the upgrade unanswered (ws-stage 5000 ms timeouts). We strip it and send no early data
+    /// (servers accept a normal upgrade). Other query items are kept as written.
+    static func wsPathStrippingEarlyData(_ path: String) -> String {
+        guard let q = path.firstIndex(of: "?") else { return path }
+        let base = String(path[..<q])
+        let items = path[path.index(after: q)...].split(separator: "&", omittingEmptySubsequences: true)
+            .filter { item in
+                let key = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+                return key != "ed"
+            }
+        let kept = base.isEmpty ? "/" : base
+        return items.isEmpty ? kept : kept + "?" + items.joined(separator: "&")
+    }
+
+    /// fix/nc-diag-439 (G): ALPN for vmess / vless over NWConnection TLS — ws / httpupgrade offer only http/1.1
+    /// (mihomo); other transports keep the previous behaviour (no ALPN extension).
+    static func tlsALPN(_ proxy: NCProxy) -> [String]? {
+        switch proxy.fields["network"]?.string ?? "tcp" {
+        case "ws", "httpupgrade": return ["http/1.1"]
+        default: return nil
+        }
+    }
+
+    /// fix/nc-diag-439 (G): TLS SNI for vmess / vless. `servername` (vmess) / `sni` first; without one mihomo takes
+    /// the transport's host — ws `Host` header, h2 `host[0]`, http-opts `Host` — before falling back to `server`.
+    /// For 优选-IP nodes (server = an IP literal) the old fallback sent no SNI at all and Cloudflare aborted the
+    /// handshake (tls -9824 on build 439's CFT nodes).
+    static func tlsSNI(_ proxy: NCProxy, server: String) -> String {
+        func nonEmpty(_ s: String?) -> String? { (s?.isEmpty ?? true) ? nil : s }
+        if let n = nonEmpty(proxy.fields["servername"]?.string) ?? nonEmpty(proxy.fields["sni"]?.string) { return n }
+        func hostHeader(_ h: [String: NCJSONValue]?) -> String? {
+            guard let h else { return nil }
+            for (k, v) in h where k.caseInsensitiveCompare("Host") == .orderedSame {
+                if let s = nonEmpty(v.string) { return s }
+                if let s = nonEmpty(v.array?.first?.string) { return s }
+            }
+            return nil
+        }
+        switch proxy.fields["network"]?.string ?? "tcp" {
+        case "ws", "httpupgrade":
+            if let h = hostHeader(proxy.fields["ws-opts"]?.object?["headers"]?.object) { return h }
+        case "h2":
+            if let h = nonEmpty(proxy.fields["h2-opts"]?.object?["host"]?.array?.first?.string) { return h }
+        case "http":
+            if let h = hostHeader(proxy.fields["http-opts"]?.object?["headers"]?.object) { return h }
+        default:
+            break
+        }
+        return server
     }
 
     /// Wrap the connected raw stream with the configured transport
@@ -928,6 +981,10 @@ enum NCConnector {
     /// XHTTP runs HTTP/2 over the TLS stream, so it must negotiate h2 (mihomo wrapTLS(isH2: true) forces
     /// NextProtos [h2]); the other transports keep the system default (no ALPN).
     static func xhttpALPN(_ proxy: NCProxy) -> [String] { isXHTTP(proxy) ? ["h2"] : [] }
+
+    /// ALPN for NWConnection TLS (NCStream): XHTTP → h2 (feat/nc-xhttp), ws/httpupgrade → http/1.1 (fix/nc-diag-439 G),
+    /// otherwise the system default.
+    static func streamALPN(_ proxy: NCProxy) -> [String] { isXHTTP(proxy) ? xhttpALPN(proxy) : (tlsALPN(proxy) ?? []) }
 
     /// Wrap `raw` (TLS / REALITY / plain) in the XHTTP stream for the proxy's xhttp-opts.
     static func xhttpStream(raw: NCRelayStream, proxy: NCProxy, queue: DispatchQueue,
@@ -1243,9 +1300,9 @@ enum NCConnector {
         let raw: NCStream
         if proxy.fields["tls"]?.bool ?? false {
             raw = NCStream(to: server, port: port,
-                           tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                           tlsServerName: tlsSNI(proxy, server: server),
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                           alpn: xhttpALPN(proxy), queue: queue)
+                           alpn: streamALPN(proxy), queue: queue)
         } else {
             raw = NCStream(to: server, port: port, queue: queue)
         }

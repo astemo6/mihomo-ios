@@ -1530,25 +1530,37 @@ final class NCNodeSubscriptionStore {
         return stale
     }
 
+    /// fix/nc-diag-439 (E): "HTTP 403" / "no response".
+    static func failureStatusText(_ status: Int) -> String {
+        status > 0 ? "HTTP \(status)" : "no response"
+    }
+
+    /// fix/nc-diag-439 (E): the tunnel extension's URLSession runs outside the tunnel (DIRECT); in the App it goes
+    /// through the VPN when it is on.
+    static let fetchRoute: String = Bundle.main.bundlePath.hasSuffix(".appex")
+        ? "DIRECT (extension URLSession, outside the tunnel)" : "App URLSession (through the tunnel when the VPN is on)"
+
     func refresh(_ sub: NCNodeSubscription, completion: (() -> Void)? = nil) {
         guard !sub.url.isEmpty else { completion?(); return }
         let url = Self.unwrapLoopbackConvert(sub.url)
         let uas = Self.userAgents(for: sub)
         let fetch = fetcher
-        func get(_ i: Int, _ done: @escaping (Data?) -> Void) {
+        func get(_ i: Int, _ done: @escaping (Data?, Int) -> Void) {
             fetch(url, uas[i]) { data, status in
                 if data == nil, i + 1 < uas.count, Self.shouldRetryUA(status: status) {
                     get(i + 1, done)
                 } else {
-                    done(data)
+                    done(data, status)
                 }
             }
         }
-        get(0) { [weak self] data in
+        get(0) { [weak self] data, status in
             guard let self else { completion?(); return }
             guard let data, let text = String(data: data, encoding: .utf8) else {
                 let have = self.allNodes()[sub.name]?.count ?? 0
-                self.log("proxy provider \(sub.name): fetch failed (\(NCRuleProviderStore.logName(url))), keeping \(have) cached nodes")
+                // fix/nc-diag-439 (E): name the HTTP status and the route the fetch took (build 439: 薯条 403 with no status).
+                self.log("proxy provider \(sub.name): fetch failed (\(NCRuleProviderStore.logName(url)), " +
+                         "\(Self.failureStatusText(status)), route \(Self.fetchRoute)), keeping \(have) cached nodes")
                 completion?()
                 return
             }

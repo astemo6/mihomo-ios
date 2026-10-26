@@ -310,7 +310,17 @@ enum NCQXImport {
                 opts["headers"] = .object(["Host": .string(h)])
             }
             if !opts.isEmpty { fields["ws-opts"] = .object(opts) }
-            if obfs.lowercased() == "wss" { fields["tls"] = .bool(true) }
+            if obfs.lowercased() == "wss" {
+                fields["tls"] = .bool(true)
+                // fix/nc-diag-439 (G): QX uses obfs-host as the TLS SNI of `obfs=wss` when tls-host is absent (as for
+                // over-tls). Without it the node had no servername and the SNI fell back to `server` — for CloudFront
+                // 优选-IP nodes an IP literal, so no SNI was sent and the edge aborted the handshake (tls -9824).
+                // A later tls-host / sni still wins.
+                if fields["servername"] == nil, fields["sni"] == nil, let h = kv["obfs-host"], !h.isEmpty {
+                    fields["sni"] = .string(h)
+                    fields["servername"] = .string(h)
+                }
+            }
         case "over-tls":
             consumed.insert("obfs")
             fields["tls"] = .bool(true)
