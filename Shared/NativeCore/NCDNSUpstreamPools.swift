@@ -138,6 +138,7 @@ final class NCDNSUpstreamCoordinator {
                 }
             }
         }
+        return ticket
     }
 
     /// fix/nc-tails: the caller no longer wants this answer (its completion will not run). When no waiter is left on
