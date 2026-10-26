@@ -797,29 +797,37 @@ final class NativeCoreEngine {
         for w in waiters { w(ip) }
     }
 
-    private(set) lazy var echResolver = NCECHResolver(
-        forwarder: resolveForwarder,
-        upstreamProvider: { [weak self] name, type in
-            guard let self else { return (nil, nil, false) }
-            var q = NCDNSMessage()
-            q.id = 1
-            q.questions = [NCDNSQuestion(name: name, type: type, klass: NCDNSMessage.classIN)]
-            let query = q.serialized()
-            return self.dnsRoute(for: query)
+    let echResolver: NCECHResolver
+
+    init(echResolver: NCECHResolver? = nil) {
+        let forwarder = self.resolveForwarder
+        let resolver = echResolver ?? NCECHResolver(forwarder: forwarder)
+        self.echResolver = resolver
+        if echResolver == nil {
+            resolver.upstreamProvider = { [weak self] name, type in
+                guard let self else { return (nil, nil, false) }
+                var q = NCDNSMessage()
+                q.id = 1
+                q.questions = [NCDNSQuestion(name: name, type: type, klass: NCDNSMessage.classIN)]
+                let query = q.serialized()
+                return self.dnsRoute(for: query)
+            }
         }
-    )
+    }
 
     /// Query HTTPS/SVCB DNS records to retrieve ECH configuration for outbound connections.
     /// Honors query-server-name, kernel nameserver-policy routing, and caches results by TTL.
     func resolveECH(for host: String, queryServerName: String? = nil,
+                    timeout: TimeInterval = NCECHResolver.defaultTimeout,
                     callerQueue: DispatchQueue = .main,
                     completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
-        echResolver.resolveECH(for: host, queryServerName: queryServerName, callerQueue: callerQueue, completion: completion)
+        echResolver.resolveECH(for: host, queryServerName: queryServerName, timeout: timeout, callerQueue: callerQueue, completion: completion)
     }
 
     @available(iOS 13.0, macOS 10.15, *)
-    func resolveECH(for host: String, queryServerName: String? = nil) async throws -> NCECHResolution {
-        try await echResolver.resolveECH(for: host, queryServerName: queryServerName)
+    func resolveECH(for host: String, queryServerName: String? = nil,
+                    timeout: TimeInterval = NCECHResolver.defaultTimeout) async throws -> NCECHResolution {
+        try await echResolver.resolveECH(for: host, queryServerName: queryServerName, timeout: timeout)
     }
 
     /// Load-time diagnostics (one line each, capped).

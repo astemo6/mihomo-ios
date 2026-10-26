@@ -7,6 +7,7 @@ struct NCECHRecord: Equatable {
 
     /// Raw ECHConfigList bytes extracted from SvcParam ech (key 5).
     /// Passed directly to E1's parser for TLS handshake consumption.
+    /// This is the sole stored representation of ECH bytes in cache.
     var echConfigList: Data
 
     /// Record TTL in seconds (clamped).
@@ -15,14 +16,48 @@ struct NCECHRecord: Equatable {
     /// Cache expiration date.
     var expires: Date
 
-    /// The structured SVCB/HTTPS candidate record containing this ECH config.
-    var candidate: NCSVCCandidate
-
-    /// The raw DNS answer record from which this candidate was decoded.
-    var sourceRecord: NCDNSRecord
-
     /// The chain of domain names followed if AliasMode (or CNAME) was traversed.
     var aliasChain: [String] = []
+
+    /// Derived candidate view generated on demand from echConfigList.
+    /// Eliminates memory overhead of caching duplicate Data buffers and dictionary trees.
+    var candidate: NCSVCCandidate {
+        NCSVCCandidate(
+            priority: 1,
+            targetName: ".",
+            alpn: nil,
+            noDefaultALPN: false,
+            port: nil,
+            ipv4Hints: nil,
+            echConfigList: echConfigList,
+            ipv6Hints: nil,
+            mandatoryKeys: nil,
+            rawParams: [NCSvcParamKey.ech.rawValue: echConfigList]
+        )
+    }
+
+    /// Derived source record view generated on demand.
+    var sourceRecord: NCDNSRecord {
+        NCDNSRecord(
+            name: queryName,
+            type: NCDNSMessage.typeHTTPS,
+            klass: NCDNSMessage.classIN,
+            ttl: ttl,
+            rdata: candidate.serializedRData()
+        )
+    }
+
+    init(queryName: String,
+         echConfigList: Data,
+         ttl: UInt32,
+         expires: Date,
+         aliasChain: [String] = []) {
+        self.queryName = queryName
+        self.echConfigList = echConfigList
+        self.ttl = ttl
+        self.expires = expires
+        self.aliasChain = aliasChain
+    }
 }
 
 /// Resolution outcome distinguishing "ECH found" from "No ECH advertised".
@@ -63,7 +98,7 @@ enum NCECHResolution: Equatable {
         return false
     }
 
-    /// Structured candidate record if found.
+    /// Structured candidate record if found (derived on demand).
     var candidate: NCSVCCandidate? {
         if case .found(let rec) = self { return rec.candidate }
         return nil
@@ -106,10 +141,20 @@ enum NCECHError: Error, Equatable, CustomStringConvertible {
 /// - Supports `query-server-name` override for target domains / IP destinations.
 /// - TTL-bound caching with negative caching for non-ECH domains.
 /// - In-flight query coalescing to prevent redundant network requests.
+/// - Overall timeout covering all upstream attempts and alias hops without polluting cache.
 final class NCECHResolver {
     /// Upstream routing provider type. Given queryName and RR type, returns the
     /// primary upstream, optional fallback upstream, and whether fallbackFirst applies.
     typealias UpstreamProvider = (_ queryName: String, _ type: UInt16) -> (primary: NCDNSUpstream?, fallback: NCDNSUpstream?, fallbackFirst: Bool)
+
+    /// Upstream query forwarding function type for testing or custom forwarders.
+    typealias QueryForwarder = (_ query: Data, _ upstream: NCDNSUpstream, _ completion: @escaping (Data?) -> Void) -> Void
+
+    /// Named constant for overall ECH resolution deadline (covering all upstream attempts and alias hops).
+    /// Default: 6.0 seconds. Bounded tight to avoid stalling TLS handshakes while leaving
+    /// sufficient margin for sequential fallback / alias hops over mobile connections.
+    static let overallTimeout: TimeInterval = 6.0
+    static let defaultTimeout: TimeInterval = overallTimeout
 
     /// Cache key combining normalized query name and DNS type.
     struct CacheKey: Hashable {
@@ -122,17 +167,32 @@ final class NCECHResolver {
         let expires: Date
     }
 
-    private struct Waiter {
+    private final class Waiter {
+        let id: UUID
         let callerQueue: DispatchQueue
         let completion: (Result<NCECHResolution, NCECHError>) -> Void
+        var timer: DispatchWorkItem?
+        var isSettled: Bool = false
+
+        init(id: UUID = UUID(), callerQueue: DispatchQueue, completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
+            self.id = id
+            self.callerQueue = callerQueue
+            self.completion = completion
+        }
     }
 
     static let shared = NCECHResolver()
 
     private let queue: DispatchQueue
     private let forwarder: NCDNSForwarder
-    private let upstreamProvider: UpstreamProvider
     private let capacity: Int
+
+    /// Injected routing provider. Can be replaced/injected at runtime or during construction.
+    var upstreamProvider: UpstreamProvider
+
+    /// Injected query forwarder. When non-nil, queries are routed through this function
+    /// instead of the network NCDNSForwarder (used by UnitTests to mock upstreams).
+    var queryForwarder: QueryForwarder? = nil
 
     /// Injected time provider for deterministic unit testing.
     var now: () -> Date = { Date() }
@@ -156,11 +216,13 @@ final class NCECHResolver {
     ///   - host: The destination host or IP address.
     ///   - queryServerName: Optional override for the DNS query name (per ech-opts query-server-name).
     ///   - type: DNS RR type (defaults to TYPE 65 HTTPS; TYPE 64 SVCB also supported).
+    ///   - timeout: Overall timeout for the resolution covering all upstreams and alias hops.
     ///   - callerQueue: Queue on which `completion` is called (defaults to main).
     ///   - completion: Callback returning `Result<NCECHResolution, NCECHError>`.
     func resolveECH(for host: String,
                     queryServerName: String? = nil,
                     type: UInt16 = NCDNSMessage.typeHTTPS,
+                    timeout: TimeInterval = NCECHResolver.defaultTimeout,
                     callerQueue: DispatchQueue = .main,
                     completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
         let rawTarget: String
@@ -184,16 +246,22 @@ final class NCECHResolver {
         }
 
         let key = CacheKey(name: effectiveName, type: type)
+        let deadline = now().addingTimeInterval(timeout)
 
         queue.async {
-            self.resolveInternal(key: key, aliasChain: [], callerQueue: callerQueue, completion: completion)
+            self.startResolution(key: key,
+                                 timeout: timeout,
+                                 deadline: deadline,
+                                 callerQueue: callerQueue,
+                                 completion: completion)
         }
     }
 
-    private func resolveInternal(key: CacheKey,
-                                  aliasChain: [String],
-                                  callerQueue: DispatchQueue,
-                                  completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
+    private func startResolution(key: CacheKey,
+                                 timeout: TimeInterval,
+                                 deadline: Date,
+                                 callerQueue: DispatchQueue,
+                                 completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
         let currentTime = now()
 
         // 1. Check TTL cache
@@ -206,60 +274,124 @@ final class NCECHResolver {
             }
         }
 
-        // 2. Coalesce in-flight requests for identical (name, type)
+        // 2. Check if deadline has already passed
+        if deadline <= currentTime {
+            callerQueue.async { completion(.failure(.timeout)) }
+            return
+        }
+
+        // 3. Create waiter with timeout timer scheduled on `queue`
+        let waiter = Waiter(callerQueue: callerQueue, completion: completion)
+        let remaining = max(0.001, deadline.timeIntervalSince(currentTime))
+        let timerItem = DispatchWorkItem { [weak self, weak waiter] in
+            guard let self, let waiter, !waiter.isSettled else { return }
+            self.queue.async {
+                self.handleWaiterTimeout(key: key, waiter: waiter)
+            }
+        }
+        waiter.timer = timerItem
+        queue.asyncAfter(deadline: .now() + remaining, execute: timerItem)
+
+        // 4. Coalesce in-flight requests for identical (name, type)
         if waiters[key] != nil {
             if waiters[key]!.count < 64 {
-                waiters[key]!.append(Waiter(callerQueue: callerQueue, completion: completion))
+                waiters[key]!.append(waiter)
             } else {
+                timerItem.cancel()
+                waiter.isSettled = true
                 callerQueue.async { completion(.failure(.timeout)) }
             }
             return
         }
 
-        waiters[key] = [Waiter(callerQueue: callerQueue, completion: completion)]
+        waiters[key] = [waiter]
 
-        // 3. Resolve upstream route
+        // 5. Kick off internal resolution
+        resolveInternal(key: key, aliasChain: [], deadline: deadline)
+    }
+
+    private func handleWaiterTimeout(key: CacheKey, waiter: Waiter) {
+        guard !waiter.isSettled else { return }
+        waiter.isSettled = true
+        if var list = waiters[key] {
+            list.removeAll { $0.id == waiter.id }
+            if list.isEmpty {
+                waiters.removeValue(forKey: key)
+            } else {
+                waiters[key] = list
+            }
+        }
+        // Timeout is treated as a query failure: do NOT store negative cache!
+        waiter.callerQueue.async {
+            waiter.completion(.failure(.timeout))
+        }
+    }
+
+    private func resolveInternal(key: CacheKey,
+                                  aliasChain: [String],
+                                  deadline: Date) {
+        let currentTime = now()
+        if deadline <= currentTime {
+            deliver(key: key, result: .failure(.timeout))
+            return
+        }
+
+        // 1. Resolve upstream route
         let (primary, fallback, fallbackFirst) = upstreamProvider(key.name, key.type)
         guard let primaryUpstream = primary ?? fallback else {
             deliver(key: key, result: .failure(.noUpstreamAvailable))
             return
         }
 
-        // 4. Construct DNS query message
+        // 2. Construct DNS query message
         var msg = NCDNSMessage()
         msg.id = UInt16.random(in: 1...0xffff)
         msg.recursionDesired = true
         msg.questions = [NCDNSQuestion(name: key.name, type: key.type, klass: NCDNSMessage.classIN)]
         let queryData = msg.serialized()
 
-        // 5. Forward through kernel upstream pool
+        // 3. Forward through upstream pool / mock forwarder
         sendQuery(queryData, primary: primaryUpstream, fallback: fallback, fallbackFirst: fallbackFirst) { [weak self] respData in
             guard let self else { return }
             self.queue.async {
-                self.handleQueryResponse(key: key, aliasChain: aliasChain, respData: respData)
+                self.handleQueryResponse(key: key, aliasChain: aliasChain, deadline: deadline, respData: respData)
             }
+        }
+    }
+
+    private func forwardQuery(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
+        if let custom = queryForwarder {
+            custom(query, upstream, completion)
+        } else {
+            forwarder.forward(query, upstream: upstream, completion: completion)
         }
     }
 
     private func sendQuery(_ query: Data, primary: NCDNSUpstream, fallback: NCDNSUpstream?,
                            fallbackFirst: Bool, completion: @escaping (Data?) -> Void) {
         if fallbackFirst, let fallback {
-            forwarder.forward(query, upstream: fallback) { [weak self] resp in
+            forwardQuery(query, upstream: fallback) { [weak self] resp in
                 if let resp { completion(resp); return }
                 guard let self else { completion(nil); return }
-                self.forwarder.forward(query, upstream: primary, completion: completion)
+                self.forwardQuery(query, upstream: primary, completion: completion)
             }
             return
         }
 
-        forwarder.forward(query, upstream: primary) { [weak self] resp in
+        forwardQuery(query, upstream: primary) { [weak self] resp in
             if let resp { completion(resp); return }
             guard let fallback, let self else { completion(resp); return }
-            self.forwarder.forward(query, upstream: fallback, completion: completion)
+            self.forwardQuery(query, upstream: fallback, completion: completion)
         }
     }
 
-    private func handleQueryResponse(key: CacheKey, aliasChain: [String], respData: Data?) {
+    private func handleQueryResponse(key: CacheKey, aliasChain: [String], deadline: Date, respData: Data?) {
+        let currentTime = now()
+        if deadline <= currentTime {
+            deliver(key: key, result: .failure(.timeout))
+            return
+        }
+
         guard let respData else {
             deliver(key: key, result: .failure(.networkError("Upstream DNS query returned no response")))
             return
@@ -269,8 +401,6 @@ final class NCECHResolver {
             deliver(key: key, result: .failure(.malformedResponse))
             return
         }
-
-        let currentTime = now()
 
         // Handle DNS rcodes
         if msg.rcode == 3 { // NXDOMAIN: cache negative result conservatively
@@ -308,34 +438,12 @@ final class NCECHResolver {
 
             // Follow alias by resolving aliasTarget
             let aliasKey = CacheKey(name: aliasTarget, type: key.type)
-            resolveInternal(key: aliasKey, aliasChain: newChain, callerQueue: queue) { [weak self] result in
-                guard let self else { return }
-                self.queue.async {
-                    switch result {
-                    case .success(let targetRes):
-                        let effectiveTTL = min(aliasEntry.record.ttl, targetRes.ttl)
-                        let clampedTTL = min(max(effectiveTTL, 30), 3600)
-                        let exp = currentTime.addingTimeInterval(Double(clampedTTL))
-
-                        let finalRes: NCECHResolution
-                        switch targetRes {
-                        case .found(var rec):
-                            rec.queryName = key.name
-                            rec.ttl = clampedTTL
-                            rec.expires = exp
-                            rec.aliasChain = newChain + [aliasTarget]
-                            finalRes = .found(rec)
-                        case .noECH:
-                            finalRes = .noECH(queryName: key.name, ttl: clampedTTL, expires: exp)
-                        }
-                        self.storeCache(key: key, resolution: finalRes)
-                        self.deliver(key: key, result: .success(finalRes))
-
-                    case .failure(let err):
-                        self.deliver(key: key, result: .failure(err))
-                    }
-                }
-            }
+            resolveInternalAlias(key: aliasKey,
+                                 originalKey: key,
+                                 aliasChain: newChain,
+                                 deadline: deadline,
+                                 aliasRecordTTL: aliasEntry.record.ttl,
+                                 aliasTarget: aliasTarget)
             return
         }
 
@@ -349,8 +457,6 @@ final class NCECHResolver {
                 echConfigList: hit.candidate.echConfigList!,
                 ttl: clampedTTL,
                 expires: exp,
-                candidate: hit.candidate,
-                sourceRecord: hit.record,
                 aliasChain: aliasChain
             )
             let res = NCECHResolution.found(rec)
@@ -384,31 +490,12 @@ final class NCECHResolver {
             }
 
             let targetKey = CacheKey(name: target, type: key.type)
-            resolveInternal(key: targetKey, aliasChain: newChain, callerQueue: queue) { [weak self] result in
-                guard let self else { return }
-                self.queue.async {
-                    switch result {
-                    case .success(let targetRes):
-                        let clampedTTL = min(max(targetRes.ttl, 30), 3600)
-                        let exp = currentTime.addingTimeInterval(Double(clampedTTL))
-                        let finalRes: NCECHResolution
-                        switch targetRes {
-                        case .found(var rec):
-                            rec.queryName = key.name
-                            rec.ttl = clampedTTL
-                            rec.expires = exp
-                            rec.aliasChain = newChain + [target]
-                            finalRes = .found(rec)
-                        case .noECH:
-                            finalRes = .noECH(queryName: key.name, ttl: clampedTTL, expires: exp)
-                        }
-                        self.storeCache(key: key, resolution: finalRes)
-                        self.deliver(key: key, result: .success(finalRes))
-                    case .failure(let err):
-                        self.deliver(key: key, result: .failure(err))
-                    }
-                }
-            }
+            resolveInternalAlias(key: targetKey,
+                                 originalKey: key,
+                                 aliasChain: newChain,
+                                 deadline: deadline,
+                                 aliasRecordTTL: 3600,
+                                 aliasTarget: target)
             return
         }
 
@@ -420,11 +507,106 @@ final class NCECHResolver {
         deliver(key: key, result: .success(res))
     }
 
+    private func resolveInternalAlias(key aliasKey: CacheKey,
+                                       originalKey: CacheKey,
+                                       aliasChain: [String],
+                                       deadline: Date,
+                                       aliasRecordTTL: UInt32,
+                                       aliasTarget: String) {
+        let currentTime = now()
+        if deadline <= currentTime {
+            deliver(key: originalKey, result: .failure(.timeout))
+            return
+        }
+
+        // Check if aliasKey is already cached
+        if let cached = cache[aliasKey], cached.expires > currentTime {
+            let targetRes = cached.resolution
+            let effectiveTTL = min(aliasRecordTTL, targetRes.ttl)
+            let clampedTTL = min(max(effectiveTTL, 30), 3600)
+            let exp = currentTime.addingTimeInterval(Double(clampedTTL))
+
+            let finalRes: NCECHResolution
+            switch targetRes {
+            case .found(var rec):
+                rec.queryName = originalKey.name
+                rec.ttl = clampedTTL
+                rec.expires = exp
+                rec.aliasChain = aliasChain + [aliasTarget]
+                finalRes = .found(rec)
+            case .noECH:
+                finalRes = .noECH(queryName: originalKey.name, ttl: clampedTTL, expires: exp)
+            }
+            storeCache(key: originalKey, resolution: finalRes)
+            deliver(key: originalKey, result: .success(finalRes))
+            return
+        }
+
+        let remaining = max(0.001, deadline.timeIntervalSince(currentTime))
+        let aliasWaiter = Waiter(callerQueue: queue) { [weak self] result in
+            guard let self else { return }
+            self.queue.async {
+                switch result {
+                case .success(let targetRes):
+                    let effectiveTTL = min(aliasRecordTTL, targetRes.ttl)
+                    let clampedTTL = min(max(effectiveTTL, 30), 3600)
+                    let exp = self.now().addingTimeInterval(Double(clampedTTL))
+
+                    let finalRes: NCECHResolution
+                    switch targetRes {
+                    case .found(var rec):
+                        rec.queryName = originalKey.name
+                        rec.ttl = clampedTTL
+                        rec.expires = exp
+                        rec.aliasChain = aliasChain + [aliasTarget]
+                        finalRes = .found(rec)
+                    case .noECH:
+                        finalRes = .noECH(queryName: originalKey.name, ttl: clampedTTL, expires: exp)
+                    }
+                    self.storeCache(key: originalKey, resolution: finalRes)
+                    self.deliver(key: originalKey, result: .success(finalRes))
+
+                case .failure(let err):
+                    self.deliver(key: originalKey, result: .failure(err))
+                }
+            }
+        }
+
+        let timerItem = DispatchWorkItem { [weak self, weak aliasWaiter] in
+            guard let self, let aliasWaiter, !aliasWaiter.isSettled else { return }
+            self.queue.async {
+                self.handleWaiterTimeout(key: aliasKey, waiter: aliasWaiter)
+            }
+        }
+        aliasWaiter.timer = timerItem
+        queue.asyncAfter(deadline: .now() + remaining, execute: timerItem)
+
+        if waiters[aliasKey] != nil {
+            if waiters[aliasKey]!.count < 64 {
+                waiters[aliasKey]!.append(aliasWaiter)
+            } else {
+                timerItem.cancel()
+                aliasWaiter.isSettled = true
+                deliver(key: originalKey, result: .failure(.timeout))
+            }
+            return
+        }
+
+        waiters[aliasKey] = [aliasWaiter]
+        resolveInternal(key: aliasKey, aliasChain: aliasChain, deadline: deadline)
+    }
+
     private func storeCache(key: CacheKey, resolution: NCECHResolution) {
         if cache.count >= capacity {
             let t = now()
             cache = cache.filter { $0.value.expires > t }
-            if cache.count >= capacity { cache.removeAll() }
+            while cache.count >= capacity {
+                if let oldest = cache.min(by: { $0.value.expires < $1.value.expires })?.key {
+                    cache.removeValue(forKey: oldest)
+                } else {
+                    break
+                }
+            }
         }
         cache[key] = CacheEntry(resolution: resolution, expires: resolution.expires)
     }
@@ -432,6 +614,9 @@ final class NCECHResolver {
     private func deliver(key: CacheKey, result: Result<NCECHResolution, NCECHError>) {
         guard let list = waiters.removeValue(forKey: key) else { return }
         for w in list {
+            w.timer?.cancel()
+            guard !w.isSettled else { continue }
+            w.isSettled = true
             w.callerQueue.async { w.completion(result) }
         }
     }
@@ -471,6 +656,9 @@ final class NCECHResolver {
             self.waiters.removeAll()
             for (_, list) in allWaiters {
                 for w in list {
+                    w.timer?.cancel()
+                    guard !w.isSettled else { continue }
+                    w.isSettled = true
                     w.callerQueue.async { w.completion(.failure(.cancelled)) }
                 }
             }
@@ -494,9 +682,10 @@ extension NCECHResolver {
     /// Async convenience wrapper for `resolveECH`.
     func resolveECH(for host: String,
                     queryServerName: String? = nil,
-                    type: UInt16 = NCDNSMessage.typeHTTPS) async throws -> NCECHResolution {
+                    type: UInt16 = NCDNSMessage.typeHTTPS,
+                    timeout: TimeInterval = NCECHResolver.defaultTimeout) async throws -> NCECHResolution {
         try await withCheckedThrowingContinuation { continuation in
-            resolveECH(for: host, queryServerName: queryServerName, type: type, callerQueue: .global()) { result in
+            resolveECH(for: host, queryServerName: queryServerName, type: type, timeout: timeout, callerQueue: .global()) { result in
                 switch result {
                 case .success(let resolution):
                     continuation.resume(returning: resolution)
