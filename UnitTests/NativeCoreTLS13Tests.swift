@@ -1,6 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import Mihomo
+@testable import Tern
 
 /// Vectors for the hand-rolled TLS 1.3 key schedule and the REALITY
 /// handshake math. Sources: RFC 8448 §3, RFC 5869 test case 1, and vectors

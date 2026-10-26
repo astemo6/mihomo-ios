@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-silent-fail: nodes that used to look usable but connected wrongly — Trojan ws/grpc/h2, ws early data,
 /// v2ray-http-upgrade, http-opts (HTTP/1.1 obfs), Snell obfs-opts, smux/yamux, VMess alterId > 0, ECH, and the

@@ -6,7 +6,7 @@ import XCTest
 /// installed, 更新 (arrow.clockwise) once it is, red 重试 after an error.
 /// Paused indicators: 请求 / DNS 日志 / 日志 show 「已暂停刷新 · 点按继续」 while paused (tap resumes) and the toolbar
 /// button reads 暂停刷新 / 继续刷新.
-extension MihomoUITests {
+extension TernUITests {
 
     private func geoMirrorSegment(_ key: String) -> XCUIElement {
         let byId = app.segmentedControls["geo.mirror.picker"]

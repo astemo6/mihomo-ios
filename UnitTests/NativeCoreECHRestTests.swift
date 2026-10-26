@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-ech-rest: the integration layer of the ECH stack (#148–#153) — one NCSupport judgement, dynamic ECH
 /// through the DNS lookup hook, transport-aware default ALPN, the system QUIC switch default, share-link `ech=0`.

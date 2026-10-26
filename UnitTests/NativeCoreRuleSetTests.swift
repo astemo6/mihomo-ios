@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 final class NativeCoreRuleSetTests: XCTestCase {
 

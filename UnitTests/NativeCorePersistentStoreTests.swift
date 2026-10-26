@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/native-core-eval: $persistentStore in the native-only tunnel.
 final class NativeCorePersistentStoreTests: XCTestCase {

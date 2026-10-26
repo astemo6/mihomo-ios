@@ -12,9 +12,9 @@ for c, u, n in rows[:15]:
 groups = collections.defaultdict(lambda: [0, 0])
 for c, u, n in rows:
     base = n.rsplit("/", 1)[-1]
-    if n.endswith("Mihomo.app/Mihomo"): k = "app binary"
+    if n.endswith("Tern.app/Tern"): k = "app binary"
     elif n.endswith("PacketTunnel.appex/PacketTunnel"): k = "tunnel binary"
-    elif n.endswith("MihomoWidget.appex/MihomoWidget"): k = "widget binary"
+    elif n.endswith("TernWidget.appex/TernWidget"): k = "widget binary"
     elif base.endswith((".dat", ".metadb", ".mmdb")): k = "geo databases"
     elif base.endswith(".car") or base.endswith(".png"): k = "assets / icons"
     elif ".lproj/" in n: k = "localizations"

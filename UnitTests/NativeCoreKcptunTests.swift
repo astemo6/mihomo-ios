@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// kcptun layers (Shared/NativeCore/NCKcptun*.swift) against kcp-go / kcptun wire behaviour.
 /// Crypt vectors: work/nc/kcptun-vec/gen.py (PBKDF2-SHA1 "kcp-go" 4096, AES-CFB with kcp-go's fixed IV,

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Native MitM stage 2 (lane wire, B9): NativeMitmSession against fakes of the other lanes and of the old core's flow API.
 /// Uses the integrated http lane (HTTPLaneCodec); what is under test is the wiring: which the old core call happens when,

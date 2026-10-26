@@ -1,4 +1,4 @@
-# Unit tests (review rv2 #12): the MihomoUnitTests bundle (UnitTests/ + AppTests/ sources, hosted in the app) on an
+# Unit tests (review rv2 #12): the TernUnitTests bundle (UnitTests/ + AppTests/ sources, hosted in the app) on an
 # iOS simulator — no UI tests. Before this, the only workflow that ran unit tests was Self-test (ui-tests.yml), which
 # triggers on test/** pushes only, so a PR could be merged to main without any test having run on it.
 #
@@ -68,7 +68,7 @@ jobs:
       - name: Build for testing
         run: |
           set -o pipefail
-          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/ut \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
             build-for-testing 2>&1 | tee build-ut.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
@@ -80,9 +80,9 @@ jobs:
           mkdir -p results
           # Same JSC setting as Self-test / a device: no JIT in the test host.
           TEST_RUNNER_JSC_useJIT=false \
-          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/ut -resultBundlePath results/unit.xcresult \
-            -only-testing:MihomoUnitTests test-without-building 2>&1 | tee results/unit.log \
+            -only-testing:TernUnitTests test-without-building 2>&1 | tee results/unit.log \
             | grep -E "Test Case .*(failed|passed)|error:|XCTAssert|Executed"
           RC=${PIPESTATUS[0]}
           [ "$RC" = 0 ] || tail -n 150 results/unit.log

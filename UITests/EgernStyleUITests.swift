@@ -3,7 +3,7 @@ import XCTest
 /// feat/egern-style (user 2026-10-21 「所以你的整体风格可向它看齐」): the whole app in Egern's compact style. This test
 /// walks the main screens for review screenshots and checks the new Egern pieces: the 启动 capsule on Home, the
 /// 出站模式 menu row, the compact policy rows with the chain subtitle, and the five tabs still in place.
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 65. Egern style screenshots
 

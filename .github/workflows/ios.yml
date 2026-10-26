@@ -153,20 +153,20 @@ jobs:
           if [ "$SIGNED" != "1" ]; then
             EXTRA=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="")
           fi
-          xcodebuild -project Mihomo.xcodeproj -scheme Mihomo -configuration Release \
+          xcodebuild -project Tern.xcodeproj -scheme Tern -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
-            -archivePath build/Mihomo.xcarchive \
+            -archivePath build/Tern.xcarchive \
             CURRENT_PROJECT_VERSION="${BUILD_NO}" \
             "${EXTRA[@]}" archive 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|\*\* (ARCHIVE|BUILD)" || true
           # review 5 P2-10: no `| head` downstream of xcodebuild (SIGPIPE could kill the archive); tail on failure.
-          test -d build/Mihomo.xcarchive/Products/Applications/Mihomo.app || { tail -n 150 build.log; exit 1; }
+          test -d build/Tern.xcarchive/Products/Applications/Tern.app || { tail -n 150 build.log; exit 1; }
 
       # i18n tooling: the compiler-extracted string tables (keys with format specifiers) for the catalog.
       - name: Collect extracted strings
         if: always()
         run: |
           mkdir -p stringsdata
-          find "$HOME/Library/Developer/Xcode/DerivedData" -name '*.stringsdata' -path '*Mihomo.build*' -exec cp {} stringsdata/ \; 2>/dev/null || true
+          find "$HOME/Library/Developer/Xcode/DerivedData" -name '*.stringsdata' -path '*Tern.build*' -exec cp {} stringsdata/ \; 2>/dev/null || true
           ls stringsdata | wc -l
 
       - uses: actions/upload-artifact@v6
@@ -181,7 +181,7 @@ jobs:
         if: env.SIGNED == '1'
         run: |
           set -o pipefail
-          xcodebuild -exportArchive -archivePath build/Mihomo.xcarchive \
+          xcodebuild -exportArchive -archivePath build/Tern.xcarchive \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath build/export 2>&1 | tee export.log | tail -n 40
           IPA="Tern-${VER}-build${BUILD_NO}-signed.ipa"
           mv build/export/*.ipa "$IPA"
@@ -194,17 +194,17 @@ jobs:
         if: env.SIGNED != '1'
         run: |
           set -euo pipefail
-          APP=build/Mihomo.xcarchive/Products/Applications/Mihomo.app
+          APP=build/Tern.xcarchive/Products/Applications/Tern.app
           sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" PacketTunnel/PacketTunnel.entitlements > tunnel.entitlements
-          sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" App/Mihomo.entitlements > app.entitlements
-          sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" Widget/MihomoWidget.entitlements > widget.entitlements
+          sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" App/Tern.entitlements > app.entitlements
+          sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" Widget/TernWidget.entitlements > widget.entitlements
           plutil -lint tunnel.entitlements app.entitlements widget.entitlements
-          test -d "$APP/PlugIns/MihomoWidget.appex"
+          test -d "$APP/PlugIns/TernWidget.appex"
           codesign -f -s - --entitlements tunnel.entitlements "$APP/PlugIns/PacketTunnel.appex"
-          codesign -f -s - --entitlements widget.entitlements "$APP/PlugIns/MihomoWidget.appex"
+          codesign -f -s - --entitlements widget.entitlements "$APP/PlugIns/TernWidget.appex"
           codesign -f -s - --entitlements app.entitlements "$APP"
           echo "--- appex entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/PacketTunnel.appex" 2>&1 | tail -n 20
-          echo "--- widget entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/MihomoWidget.appex" 2>&1 | tail -n 20
+          echo "--- widget entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/TernWidget.appex" 2>&1 | tail -n 20
           echo "--- app entitlements ---"; codesign -d --entitlements - "$APP" 2>&1 | tail -n 20
           # Review 6 R6A-8: the IPA users install gets a strict codesign check.
           codesign --verify --deep --strict --verbose=2 "$APP"
@@ -226,20 +226,20 @@ jobs:
       - name: Inspect IPA
         run: |
           ls -la "$IPA"
-          unzip -l "$IPA" | grep -E "Mihomo.app/(Mihomo|Info.plist)$|PacketTunnel.appex/(PacketTunnel|Info.plist)$"
+          unzip -l "$IPA" | grep -E "Tern.app/(Tern|Info.plist)$|PacketTunnel.appex/(PacketTunnel|Info.plist)$"
           if [ "$SIGNED" != "1" ]; then
-            unzip -l "$IPA" | grep -E "MihomoWidget.appex/(MihomoWidget|Info.plist)$"
-            unzip -p "$IPA" Payload/Mihomo.app/PlugIns/MihomoWidget.appex/Info.plist > /tmp/wid.plist && plutil -p /tmp/wid.plist | grep -E "NSExtensionPointIdentifier|CFBundleIdentifier|MinimumOSVersion"
+            unzip -l "$IPA" | grep -E "TernWidget.appex/(TernWidget|Info.plist)$"
+            unzip -p "$IPA" Payload/Tern.app/PlugIns/TernWidget.appex/Info.plist > /tmp/wid.plist && plutil -p /tmp/wid.plist | grep -E "NSExtensionPointIdentifier|CFBundleIdentifier|MinimumOSVersion"
           fi
-          unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/Info.plist > /tmp/ext.plist && plutil -p /tmp/ext.plist | grep -E "NSExtension|Mihomo|CFBundleIdentifier"
-          # Regression guard: neither the app nor the extension may contain a Go runtime or the old core framework.
-          for b in Payload/Mihomo.app/Mihomo Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel; do
+          unzip -p "$IPA" Payload/Tern.app/PlugIns/PacketTunnel.appex/Info.plist > /tmp/ext.plist && plutil -p /tmp/ext.plist | grep -E "NSExtension|Tern|CFBundleIdentifier"
+          # Regression guard: neither the app nor the extension may embed a foreign language runtime (build-info marker) or the retired core framework.
+          for b in Payload/Tern.app/Tern Payload/Tern.app/PlugIns/PacketTunnel.appex/PacketTunnel; do
             if unzip -p "$IPA" "$b" | grep -aq "Go buildinf:"; then
-              echo "::error::$b contains a Go runtime"; exit 1
+              echo "::error::$b embeds a foreign language runtime"; exit 1
             fi
           done
-          if unzip -l "$IPA" | grep -q "Libmihomo"; then echo "::error::IPA still ships Libmihomo"; exit 1; fi
-          echo "App + PacketTunnel: no Go runtime"
+          if unzip -l "$IPA" | grep -q "Libmihomo"; then echo "::error::IPA ships the retired core framework"; exit 1; fi
+          echo "App + PacketTunnel: no foreign runtime or retired framework"
           # The native script host reads the bundled prelude.
           unzip -l "$IPA" > /tmp/ipa-list.txt
           if ! grep -q "PacketTunnel.appex/TernPrelude.js" /tmp/ipa-list.txt; then
@@ -250,15 +250,15 @@ jobs:
             echo "### $IPA"
             echo "- kernel: NativeCore (Swift), signed=${SIGNED}"
             echo "- size: $(du -h "$IPA" | cut -f1)"
-            echo "- app binary: $(unzip -l "$IPA" | awk '$4=="Payload/Mihomo.app/Mihomo"{printf "%.1f MB", $1/1048576}')"
-            echo "- PacketTunnel binary: $(unzip -l "$IPA" | awk '$4=="Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel"{printf "%.1f MB", $1/1048576}')"
+            echo "- app binary: $(unzip -l "$IPA" | awk '$4=="Payload/Tern.app/Tern"{printf "%.1f MB", $1/1048576}')"
+            echo "- PacketTunnel binary: $(unzip -l "$IPA" | awk '$4=="Payload/Tern.app/PlugIns/PacketTunnel.appex/PacketTunnel"{printf "%.1f MB", $1/1048576}')"
             echo "- PacketTunnel.appex total: $(unzip -l "$IPA" | awk '$4 ~ /PacketTunnel.appex\//{s+=$1} END{printf "%.1f MB", s/1048576}')"
-            echo "- MihomoWidget.appex: $(unzip -l "$IPA" | awk '$4 ~ /MihomoWidget.appex\//{s+=$1} END{printf "%.1f MB", s/1048576}')"
+            echo "- TernWidget.appex: $(unzip -l "$IPA" | awk '$4 ~ /TernWidget.appex\//{s+=$1} END{printf "%.1f MB", s/1048576}')"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v6
         with:
-          name: Mihomo-ipa
+          name: Tern-ipa
           path: |
             ${{ env.IPA }}
             app.entitlements

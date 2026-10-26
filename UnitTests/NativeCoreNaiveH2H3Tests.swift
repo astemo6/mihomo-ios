@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/nc-naive-h2h3: NaïveProxy padding codec, CONNECT request building (HPACK / QPACK), the HTTP/3 frame
 /// reader, option parsing / support gating, share-link import / export, and the multiplexed HTTP/2 CONNECT

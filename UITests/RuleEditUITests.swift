@@ -3,7 +3,7 @@ import XCTest
 /// User 2026-10-23 「Final 指向无法修改」「本地规则点进去无法修改」: 规则 → Final opens a policy picker; 本地规则 →
 /// 配置规则 rows are edited / 停用 / 删除 like 自定义 rows. Both are overrides (provider-overrides.json), the profile
 /// file is not touched, and 恢复配置原样 undoes them.
-extension MihomoUITests {
+extension TernUITests {
 
     func waitLabel(_ e: XCUIElement, contains s: String, _ want: Bool = true, timeout: TimeInterval = 8) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)

@@ -1,6 +1,6 @@
 // BEGIN XCTEST
 import XCTest
-@testable import Mihomo
+@testable import Tern
 // END XCTEST
 import Foundation
 

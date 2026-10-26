@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// NativeCore script body admission (NativeScriptBodyBudget): bodies start on their raw length and are charged by the
 /// bytes the decoder actually produces. Injected availability that falls as bytes are charged (a decoded buffer is

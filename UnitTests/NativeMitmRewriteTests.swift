@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Native MitM stage 3a: the Swift rewrite engine must decide every request it claims exactly like the old core's flow API.
 /// NativeMitmRewriteFixtures.json is written by the old core: per

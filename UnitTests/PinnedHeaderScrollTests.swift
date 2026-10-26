@@ -1,6 +1,6 @@
 import XCTest
 import Combine
-@testable import Mihomo
+@testable import Tern
 
 /// fix/home-pull-jank (v0.19.21 「首页下拉卡顿的问题在这个版本中又出现了」): the pinned 首页 header's scroll state must
 /// not publish on every scroll frame. Ordinary scrolling publishes nothing but the one `scrolled` flip; only a

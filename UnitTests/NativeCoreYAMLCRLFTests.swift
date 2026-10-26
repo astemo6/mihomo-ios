@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // CRLF / CR profiles (Windows-edited or exported by some subscription
 // converters): NCYAML must read them exactly like LF, and group reorder on a

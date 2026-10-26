@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-c-followup task 2: regression tests for the bugs found auditing
 /// NCRuntimeFiles / NCRuntimeSubRules / NCRuntimeSteps / GroupEditing.

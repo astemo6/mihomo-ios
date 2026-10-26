@@ -1,6 +1,6 @@
 import XCTest
 import NetworkExtension
-@testable import Mihomo
+@testable import Tern
 
 /// fix/vpn-stays-on: 保持连接 — with 按需连接 关闭 a manual connect arms one "connect on any network" rule, so iOS
 /// restarts the tunnel after the extension is ended; settings saved by older builds get it on.

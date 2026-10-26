@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Cloak SS plugin options + the Salsa20 core it (and kcptun's salsa20 crypt) relies on.
 final class NativeCoreCloakTests: XCTestCase {

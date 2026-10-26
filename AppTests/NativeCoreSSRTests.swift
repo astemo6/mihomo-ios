@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// SSR primitives — stream cipher vectors from reference implementations
 /// (the old core stdlib AES modes, x/crypto-style ChaCha per RFC 8439, RC4-MD5),

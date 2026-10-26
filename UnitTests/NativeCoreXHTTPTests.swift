@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/nc-xhttp: XHTTP (splithttp) transport — config parsing (Clash.Meta xhttp-opts), request construction
 /// (paths, placements, padding, browser headers), the multi-stream HTTP/2 core, the relay stream's three

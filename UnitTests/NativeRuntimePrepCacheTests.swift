@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // fix/app-toggle-hitch (build 404, iPhone17,1: the Home switch hitched ~1.5 s while the connect regenerated the
 // runtime every time). Pins the generation cache: identical bytes rewritten still hit, any input change misses,

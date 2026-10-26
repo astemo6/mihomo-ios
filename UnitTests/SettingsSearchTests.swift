@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-@testable import Mihomo
+@testable import Tern
 
 /// feat/more-search: the static feature index behind 更多's search field.
 @MainActor

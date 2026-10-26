@@ -102,11 +102,11 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 
 `.github/workflows/ui-tests.yml`（Self-test，push 到 `test/**` 或手动运行）：模拟器 UI / 单元测试，不发布。UI 部分先由 `plan` job 选路径：
 
-- **冒烟（smoke）**：分支相对 `origin/main` 的 merge-base（分支就在 main 上时，相对最近的发布标签 `v*-build*`）没有改动任何影响界面或文案的文件时，只跑一个组合（zh-Hans 浅色）：`test01_TabsAndHome`、`test03_MoreEveryPage`、`test04_NodeManager` + 全部 `MihomoUnitTests`；App 与测试包照常完整编译。
+- **冒烟（smoke）**：分支相对 `origin/main` 的 merge-base（分支就在 main 上时，相对最近的发布标签 `v*-build*`）没有改动任何影响界面或文案的文件时，只跑一个组合（zh-Hans 浅色）：`test01_TabsAndHome`、`test03_MoreEveryPage`、`test04_NodeManager` + 全部 `TernUnitTests`；App 与测试包照常完整编译。
 - **完整（full）**：改到 `App/**`、`Shared/**`、`Widget/**`、`UITests/**`、`project-uitests.yml`、任意 `*.xcstrings` / `*.strings` / `*.lproj` / `*.xcassets`，或 `project.yml` 里涉及 App/Shared/Widget 路径、字符串目录、资源、Info.plist、产品名、图标的行时，按原来的矩阵跑。
 - 提交信息标记：`[shard:all]` 本仓库跑全部 8 个组合；`[shard:smoke]` 强制冒烟；`[shard:full]` 强制完整矩阵；`[only:<测试>]` / `[unit:<类>]` 只跑指定测试；`[skip-ui]` 跳过 UI。手动运行的 `shard` 输入对应 auto / full / smoke / all。完整规则见该 workflow 文件头部注释。
 
-另外：`checks.yml`（Checks）在 main / `test/**` / `core/**` 推送与 PR 上跑术语审计（`scripts/term_audit.py`）；`unit-tests.yml`（Unit tests）在目标为 `main` 的 PR 上跑整个 `MihomoUnitTests` 包。触发与去重的现行规则见 `CI.md`。
+另外：`checks.yml`（Checks）在 main / `test/**` / `core/**` 推送与 PR 上跑术语审计（`scripts/term_audit.py`）；`unit-tests.yml`（Unit tests）在目标为 `main` 的 PR 上跑整个 `TernUnitTests` 包。触发与去重的现行规则见 `CI.md`。
 
 ## 获取可安装的签名版本
 

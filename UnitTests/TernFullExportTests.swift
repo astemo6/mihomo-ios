@@ -1,6 +1,6 @@
 import XCTest
 import Security
-@testable import Mihomo
+@testable import Tern
 
 // feat/nc-full-export: 完整导出（.conf）round trip and failure atomicity. Every test works in scratch containers
 // and its own UserDefaults suite, never in the app's container.

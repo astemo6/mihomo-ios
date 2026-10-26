@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-diag-439: regressions for the build-439 device diagnosis (root causes A–I).
 final class NativeCoreDiag439Tests: XCTestCase {

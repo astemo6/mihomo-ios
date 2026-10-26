@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// hotfix/node-cred-reveal: credential lookup by summary key and the 添加到本地节点 name.
 final class CredRevealTests: XCTestCase {

@@ -2,7 +2,7 @@ import XCTest
 
 /// r7 (backlog B13): UI tests that were never written — custom rule drag reorder, Home tile reorder, node
 /// subscription add / edit (the seed fakes the download for *.uitest.invalid, Debug builds only).
-extension MihomoUITests {
+extension TernUITests {
 
     /// The trailing drag area of a List row (edit mode reorder handle / the row itself for long-press reorder).
     func rowHandle(_ e: XCUIElement, dx: CGFloat? = nil) -> XCUICoordinate {

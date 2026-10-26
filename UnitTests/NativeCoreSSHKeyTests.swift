@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // Coverage for PR #118 (fix/nc-perf), SSH half: `private-key` may be a file
 // path, and encrypted OpenSSH keys (bcrypt_pbkdf + aes256-ctr / aes256-cbc)

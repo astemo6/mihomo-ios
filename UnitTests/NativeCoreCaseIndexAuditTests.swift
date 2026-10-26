@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-callsite-audit (task 1): regression guards for the case-transform
 /// index audit. The build-372 crash came from slicing an original string

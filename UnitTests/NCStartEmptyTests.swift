@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-start-empty (build 382 device report): DNS default upstream when `nameserver` has nothing forwardable,
 /// page loads cancelled by navigation are not errors, and a stuck start no longer blocks 启动 forever.

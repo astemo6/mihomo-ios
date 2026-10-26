@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/s3-mem: NativeMemoryGovernor driven with injected memory readings and a fake old side (deterministic: no
 /// real os_proc_available_memory, no old runtime, a manual clock).

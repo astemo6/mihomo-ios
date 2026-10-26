@@ -1,6 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import Mihomo
+@testable import Tern
 
 /// SS2022 (SIP022): session-key vectors generated with
 /// sing-shadowsocks2's own SessionKey (the library Clash.Meta ships);

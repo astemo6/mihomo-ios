@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-jq-full: the native jq interpreter (PacketTunnel/NativeMitM/Rewrite/NativeJQ*.swift).
 ///

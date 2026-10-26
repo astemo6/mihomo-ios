@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/rule-labels: Egern-style rule / policy text for the Home 规则 card, 规则命中 and the 连接 pages. Inputs are the
 /// strings Clash.Meta puts in /connections `rule` / `rulePayload` (and ConnectionItem.ruleText = `Type(payload)`).

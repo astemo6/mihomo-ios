@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// HPACK checks against RFC 7541 worked examples.
 final class NativeCoreHpackTests: XCTestCase {

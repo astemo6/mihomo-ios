@@ -2,7 +2,7 @@ import XCTest
 
 /// test/selftest: offline UI paths on the simulator (the tunnel cannot run there). Every screen gets a
 /// screenshot and an audit (no crash, no unformatted %lld / %@, no Chinese left in English).
-final class MihomoUITests: MihomoUITestCase {
+final class TernUITests: TernUITestCase {
 
     // MARK: 1. Launch + every tab
 
@@ -1977,7 +1977,7 @@ final class MihomoUITests: MihomoUITestCase {
         // One job is enough (the suite already runs zh-Hans and en end to end); en-light skips it.
         guard !Env.isEnglish else { return }
         let langs: [(String, String)] = [("en", "en_US"), ("ja", "ja_JP"), ("ko", "ko_KR"), ("ru", "ru_RU"), ("zh-Hant", "zh_TW"), ("zh-Hans", "zh_CN")]
-        let testBundle = Bundle(for: MihomoUITests.self)
+        let testBundle = Bundle(for: TernUITests.self)
         // Data names in the seed that happen to equal catalog keys (group / profile names written by the seed).
         let dataNames: Set<String> = ["手动节点", "节点订阅"]
         for (lang, locale) in langs {

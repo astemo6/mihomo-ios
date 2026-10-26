@@ -1,6 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import Mihomo
+@testable import Tern
 
 /// RFC 9180 test vectors for HPKE Base Mode (mode_base = 0x00) and RFC 9849 ECHConfigList parsing.
 ///

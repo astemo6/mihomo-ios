@@ -1,6 +1,6 @@
 import XCTest
 import Network
-@testable import Mihomo
+@testable import Tern
 
 /// Protocol loopback tests (fix/nc-proto-loopback): drive the real NativeCore
 /// outbound stacks (NCConnector) against a local sing-box server and check

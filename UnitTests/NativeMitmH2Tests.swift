@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Native MitM stage 3 lane s3-h2: HPACK (RFC 7541 Appendix C + the old core hpack fixtures), the frame codec (the old core Framer
 /// fixtures), H2Connection (flow control, back-pressure, limits, protocol errors) over in-memory streams, and

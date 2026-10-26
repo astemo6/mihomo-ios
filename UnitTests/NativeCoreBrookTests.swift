@@ -1,6 +1,6 @@
 import CryptoKit
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/nc-brook: Brook wire vectors + link / support gates. The vectors come from a Python port of
 /// txthinking/brook's streamclient.go / streamserver.go / packetclient.go / packetserver.go /

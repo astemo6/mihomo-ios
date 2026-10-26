@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// nc-callsite-audit REWORK regressions (follow-up to PR #139, which the
 /// maintainer review rejected on three counts):

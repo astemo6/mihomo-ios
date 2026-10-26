@@ -51,7 +51,7 @@
 ## 模块图（代码落位）
 
 - `Shared/NativeCore/`：纯逻辑（Foundation/CryptoKit，无 NE 依赖），App 与
-  PacketTunnel 共编译，单元测试从 MihomoUnitTests 以 `@testable import Mihomo` 覆盖。
+  PacketTunnel 共编译，单元测试从 TernUnitTests 以 `@testable import Tern` 覆盖。
   Widget 目标在 project.yml 里排除 NativeCore，保持小体积。
   - NCConfig（配置模型，JSON 解码）、NCRule（规则解析/匹配）、NCIP（IP/CIDR 工具）、
     NCFakeIP（Fake-IP 池）、NCOutbound（出站报文构造）、NCShadowsocks（SS AEAD）。

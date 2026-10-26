@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // v0.19.5: Swift-only logic that the old core suite cannot reach. Hosted in the app (simulator, Debug); every test
 // works in its own scratch directory / UserDefaults suite, never in the app's container.

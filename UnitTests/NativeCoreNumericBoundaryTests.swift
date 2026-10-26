@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-followup-b: numeric-boundary sweep (Shared/NativeCore + App/Core). Every case below used to trap
 /// (Int(Double) past 2^63, Int overflow, a reversed range, a huge reserveCapacity, unbounded recursion) on a

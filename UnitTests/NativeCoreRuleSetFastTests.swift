@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-ruleset-fast: rule-set / module / script updates as fast as QuantumultX's 「更新」 without costing memory —
 /// conditional GET (ETag / Last-Modified sidecar), 304 and byte-identical bodies keep the index without a parse,

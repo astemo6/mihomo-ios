@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// merge-440 (UI test10_ProfileNodeEdit, baseline failure since the Swift port): renaming / deleting a profile node
 /// must follow it into one-line flow-mapping groups (`- {name: Auto, type: url-test, proxies: [...]}`) and flow-mapping

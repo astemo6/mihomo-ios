@@ -3,7 +3,7 @@ import XCTest
 /// feat/subs-split (user 2026-10-21 「将这里的配置订阅与节点订阅拆开」): 节点与订阅 has a 配置订阅 section and a 节点订阅
 /// section; a profile's 节点集 (proxy-provider) works like a node subscription (unified rows since fix/modules-only:
 /// right 更新, left 删除, long-press 更新 · 编辑 · 复制地址 · 关闭 · 删除) — through the override store.
-extension MihomoUITests {
+extension TernUITests {
 
     func header(_ key: String, _ n: Int) -> XCUIElement {
         app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", String(format: L(key), n))).firstMatch

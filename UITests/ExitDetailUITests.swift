@@ -3,7 +3,7 @@ import XCTest
 /// hotfix/home-isp (device 2026-10-21 「首页最上方也显示运营商信息的 比如xtom」, then 「做成可选的，供选择」): the Home
 /// header's small line shows 运营商 · ASN · IP by default; 更多 → 高级设置 → 出口信息来源 → 首页副标题显示 picks the items
 /// and Home follows live. Demo exit info: Example Net · AS64500 · 203.0.113.45 (no time zone).
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 62. 首页副标题显示
 

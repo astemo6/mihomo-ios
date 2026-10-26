@@ -1,6 +1,6 @@
 import XCTest
 import Darwin
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-storage-other: 存储空间 accounting (allocated bytes, symlinks, hard links, exact 其他) and leftover cleanup.
 final class StorageScanTests: XCTestCase {
