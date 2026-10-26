@@ -55,7 +55,10 @@ final class NativeCoreFlowGroupRenameTests: XCTestCase {
         _ = d.renameRefs(oldName: "Nope", newName: "X")
         XCTAssertEqual(d.text(), NCProfileYAML(text: doc).text())
         XCTAssertNil(NCProfileYAML.renameInFlowMapping("  - {name: A, proxies: [B, C]}  # c", oldName: "Z", newName: "Y"))
-        XCTAssertEqual(NCProfileYAML.renameInFlowMapping("  - {name: A, proxies: [B, C]}  # c", oldName: "B", newName: "Y")?.line,
-                       "  - {name: A, proxies: [Y, C]}  # c")
+        XCTAssertEqual(NCProfileYAML.renameInFlowMapping("  - {name: A, proxies: [B, C]}  # c", oldName: "B", newName: "Node Y")?.line,
+                       "  - {name: A, proxies: [Node Y, C]}  # c")
+        // A name that YAML 1.1 reads as a bool (y / Y / on …) is quoted, as yaml.v3 writes it.
+        XCTAssertEqual(NCProfileYAML.renameInFlowMapping("  - {name: A, proxies: [B, C]}", oldName: "B", newName: "Y")?.line,
+                       "  - {name: A, proxies: [\"Y\", C]}")
     }
 }
