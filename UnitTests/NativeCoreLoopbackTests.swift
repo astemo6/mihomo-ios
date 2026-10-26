@@ -568,6 +568,164 @@ final class NativeCoreLoopbackTests: XCTestCase {
         XCTContext.runActivity(named: line) { _ in }
         XCTAssertTrue(defaultOK, "fragmented 3000-byte UDP packet did not round-trip at the default budget [\(line)]")
     }
+
+    /// Fragmentation experiment (feat/nc-hy2-frag — measurement only, NOT a regression gate, and
+    /// this branch must not merge): one 3000-byte packet per round at a fixed 1197 budget, exactly
+    /// one send, no retries, three rounds per sending mode. Every round diffs three counter sets
+    /// so a loss has a direction:
+    ///   - the echo backend's per-source stats (control port "stats"): what ARRIVED at the backend
+    ///     after sing-box reassembly. A fragmented packet shows up there as exactly ONE 3000-byte
+    ///     datagram, and only if every fragment reached sing-box — so echoRx=1/echoB=3000 proves
+    ///     the whole client→server leg, echoRx=0 puts the loss on it;
+    ///   - our own receive counters (cliRx raw datagrams back / cliFrag / cliPk reassembled) —
+    ///     echoRx=1 with cliPk=0 puts the loss on the return leg instead;
+    ///   - the connection's send-error delta (sErr) — a loss with sErr=0 was silent by definition.
+    /// Modes: 0 burst, 1 completion-gated, 2 gated+1 ms (the shipped default), 3 one
+    /// NWConnection.batch per packet, 4/5/6 fixed 10/20/50 ms inter-fragment gaps (ungated).
+    /// Results print as one "HY2FRAG" line (proto-loopback.yml greps it). Experimental rungs are
+    /// reported, never asserted — only harness sanity (plain echo + stats answer) is asserted.
+    func testHysteria2UDPFragmentExperiment() throws {
+        let queue = DispatchQueue(label: "nc.loopback.hy2frag")
+        let exp = self.expectation(description: "hy2 connect (frag)")
+        let box = LockedBox<(NCHysteria2Connection?, Error?)>((nil, nil))
+        NCConnector.sharedHysteria2(proxy: Self.hy2Proxy, server: Self.host, port: Self.hy2Port, queue: queue) { c, e in
+            box.set((c, e))
+            exp.fulfill()
+        }
+        self.wait(for: [exp], timeout: 30)
+        let (connOpt, connErr) = box.get()
+        if let connErr { throw connErr }
+        let conn = try XCTUnwrap(connOpt)
+        XCTAssertTrue(conn.udpEnabled, "sing-box hy2 inbound must answer Hysteria-UDP: true")
+
+        let replies = UDPReplies()
+        let sessionID = try XCTUnwrap(conn.registerUDP { raw in replies.feed(raw) }, "registerUDP refused")
+        replies.sessionID = sessionID
+        defer { conn.unregisterUDP(sessionID) }
+        let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
+
+        // Sanity + datagram-flow warm-up: resend until the first echo lands (same as the ladder).
+        var first: Data?
+        let deadline = Date().addingTimeInterval(15)
+        while first == nil && Date() < deadline {
+            conn.sendUDP(sessionID: sessionID, target: target, payload: Self.dnsQuery)
+            first = replies.wait(timeout: 1.0)
+        }
+        XCTAssertEqual(first, Self.dnsQuery, "no hysteria2 UDP echo (\(conn.udpDiagnostics))")
+        XCTAssertNotNil(self.echoStats(), "echo backend did not answer \"stats\" — no direction accounting possible")
+
+        let addr = NCHysteria2Connection.udpAddress(target)
+        func payload(_ seed: Int) -> Data {
+            var d = Data(count: 3000)
+            for j in 0..<3000 { d[j] = UInt8(truncatingIfNeeded: j * 13 + seed) }
+            return d
+        }
+        // One round = one send of one 3000-byte packet; success is its byte-equal echo.
+        func fragRound(mode: Int, seed: Int) -> String {
+            conn.setUDPFragmentPacingForTesting(mode)
+            conn.setUDPDatagramLimitForTesting(1197)
+            Thread.sleep(forTimeInterval: 0.3) // settle: stragglers land before the baseline
+            let p = payload(seed)
+            let pieces = NCHy2UDP.fragment(sessionID: sessionID, packetID: 0, address: addr,
+                                            payload: p, maxDatagramSize: 1197).count
+            let s0 = self.echoStats()
+            let c0 = replies.counters()
+            let e0 = conn.udpSendErrorCount
+            conn.sendUDP(sessionID: sessionID, target: target, payload: p)
+            var ok = false
+            let until = Date().addingTimeInterval(2.5)
+            while Date() < until, let got = replies.wait(timeout: until.timeIntervalSinceNow) {
+                if got == p { ok = true; break }
+            }
+            Thread.sleep(forTimeInterval: 0.25) // stragglers land before the after-snapshot
+            let s1 = self.echoStats()
+            let c1 = replies.counters()
+            let e1 = conn.udpSendErrorCount
+            let echoRx = (s1?.rx ?? -1) - (s0?.rx ?? 0)
+            let echoB = (s1?.rxBytes ?? -1) - (s0?.rxBytes ?? 0)
+            return "\(ok ? 1 : 0)[pieces=\(pieces) echoRx=\(echoRx) echoB=\(echoB) cliRx=\(c1.raw - c0.raw) cliFrag=\(c1.frags - c0.frags) cliPk=\(c1.packets - c0.packets) sErr=\(e1 - e0)]"
+        }
+        var lines: [String] = []
+        for (mode, name) in [(0, "burst"), (1, "gated"), (2, "gated1ms"), (3, "batch"),
+                             (4, "gap10"), (5, "gap20"), (6, "gap50")] {
+            var rounds: [String] = []
+            for r in 0..<3 { rounds.append(fragRound(mode: mode, seed: mode * 100 + r * 7 + 1)) }
+            lines.append("\(name):" + rounds.joined(separator: ","))
+        }
+        // Cross-check the original observation with backend accounting: six SEPARATE unfragmented
+        // packets back-to-back. Pacing modes only apply inside one packet, so these still go out
+        // as six immediate sends; echoRx says how many sing-box ever saw.
+        conn.setUDPFragmentPacingForTesting(2)
+        conn.setUDPDatagramLimitForTesting(1197)
+        for round in 0..<2 {
+            Thread.sleep(forTimeInterval: 0.3)
+            let s0 = self.echoStats()
+            var want = Set<Data>()
+            let n = 6
+            let count = 600 - NCHy2UDP.headerSize(address: addr)
+            for i in 0..<n {
+                var p = Data(count: count)
+                let seed = round * 977 + i * 31 + 600
+                for j in 0..<count { p[j] = UInt8(truncatingIfNeeded: j * 7 + seed) }
+                want.insert(p)
+                conn.sendUDP(sessionID: sessionID, target: target, payload: p)
+            }
+            var got = 0
+            let until = Date().addingTimeInterval(2.0)
+            while Date() < until, got < n, let r = replies.wait(timeout: until.timeIntervalSinceNow) {
+                if want.remove(r) != nil { got += 1 }
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+            let s1 = self.echoStats()
+            lines.append("burst6x600r\(round):\(got)/\(n)[echoRx=\((s1?.rx ?? -1) - (s0?.rx ?? 0))]")
+        }
+        // Restore the shipped defaults for whatever runs after us on this shared connection.
+        conn.setUDPFragmentPacingForTesting(2)
+        conn.setUDPDatagramLimitForTesting(0)
+        let srcs = self.echoStats()?.sources ?? -1
+        let line = "HY2FRAG " + lines.joined(separator: " ") + " | srcs=\(srcs) " + conn.udpDiagnostics
+        print(line)
+        XCTContext.runActivity(named: line) { _ in }
+    }
+
+    /// One "stats" query to the echo backend's control port (see tools/loopback/echo_server.py):
+    /// datagrams / bytes the UDP echo socket received and echoed back, plus how many distinct
+    /// sources it has seen. Nil when the backend does not answer.
+    private func echoStats() -> (rx: Int, rxBytes: Int, tx: Int, sources: Int)? {
+        let conn = NWConnection(host: NWEndpoint.Host(Self.host),
+                                port: NWEndpoint.Port(rawValue: UInt16(Self.controlPort))!,
+                                using: .udp)
+        let box = LockedBox<Data?>(nil)
+        let sem = DispatchSemaphore(value: 0)
+        let once = NCCallOnce { sem.signal() }
+        conn.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                conn.send(content: Data("stats".utf8), completion: .contentProcessed { _ in })
+                conn.receiveMessage { data, _, _, _ in
+                    box.set(data)
+                    once.call()
+                }
+            case .failed:
+                once.call()
+            default:
+                break
+            }
+        }
+        conn.start(queue: DispatchQueue(label: "nc.loopback.stats"))
+        _ = sem.wait(timeout: .now() + 3)
+        conn.stateUpdateHandler = nil
+        conn.cancel()
+        guard let data = box.get(),
+              let obj = try? JSONSerialization.jsonObject(with: data),
+              let root = obj as? [String: Any],
+              let echo = root["udp_echo"] as? [String: Any],
+              let rx = echo["total_rx"] as? Int,
+              let rxBytes = echo["total_rx_bytes"] as? Int,
+              let tx = echo["total_tx"] as? Int else { return nil }
+        let sources = (echo["sources"] as? [String: Any])?.count ?? 0
+        return (rx, rxBytes, tx, sources)
+    }
 }
 
 // MARK: - Small thread-safe helpers

@@ -48,7 +48,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
-| 18083 | `echo_server.py` UDP control: datagram `go` → blackhole discards; `pause` → holds again |
+| 18083 | `echo_server.py` UDP control: datagram `go` → blackhole discards; `pause` → holds again; `stats` → JSON snapshot of the UDP echo counters (total + per source); `resetstats` → zeroes them |
 
 All inbounds route to a `direct` outbound, so the target a client asks for
 *is* the backend it reaches: tests aim at 18080 for echo and 18082 for
@@ -75,6 +75,13 @@ self-signed cert the start script generates into the runtime dir
 - Hysteria2 UDP echo: the shared `NCHysteria2Connection` (Shared) over its
   RFC 9221 QUIC datagram flow — spec UDPMessages to the hy2 inbound → UDP echo
   backend; a 3000-byte packet exercises fragmentation and reassembly both ways.
+- Hysteria2 fragmentation experiment (feat/nc-hy2-frag, measurement only):
+  `testHysteria2UDPFragmentExperiment` sends one 3000-byte packet per round at
+  a 1197 budget under seven sending modes (burst / completion-gated / gated
+  +1 ms / one `NWConnection.batch` / fixed 10/20/50 ms gaps), three rounds
+  each, and prints one `HY2FRAG` line. Each round diffs the echo backend's
+  per-source counters (control `stats`) against the client's receive and
+  send-error counters, so a lost packet has a direction instead of a shrug.
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.
