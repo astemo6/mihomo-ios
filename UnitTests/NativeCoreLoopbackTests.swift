@@ -454,6 +454,93 @@ final class NativeCoreLoopbackTests: XCTestCase {
         XCTAssertEqual(decoded.1, Self.dnsQuery)
         XCTAssertEqual(decoded.0.port, Self.udpEchoPort)
     }
+
+    // MARK: - NaïveProxy (feat/nc-naive-h2h3): sing-box naive inbound, h2 on 18040 (TCP), h3 on 18041 (UDP)
+
+    private static let naiveH2Port = 18040
+    private static let naiveH3Port = 18041
+    private static let naiveUser = "nc-loop"
+    private static let naivePassword = "nc-loop-naive-pw"
+
+    private static func naiveProxy(name: String, quic: Bool, password: String = NativeCoreLoopbackTests.naivePassword) -> NCProxy {
+        Self.proxy(name: name, type: "naive", port: quic ? Self.naiveH3Port : Self.naiveH2Port, extra: [
+            "username": .string(Self.naiveUser), "password": .string(password),
+            "sni": .string("localhost"), "skip-cert-verify": .bool(true), "quic": .bool(quic),
+            "udp-over-tcp": .bool(true),
+        ])
+    }
+
+    /// Many small writes: the first eight cross the wire padded, the rest raw — both directions.
+    private func assertChunkedEcho(_ stream: NCRelayStream, chunks: Int = 20, size: Int = 700) throws {
+        var all = Data()
+        for i in 0..<chunks { all.append(Data((0..<size).map { UInt8(($0 + i * 31) & 0xff) })) }
+        let exp = self.expectation(description: "chunked echo")
+        let state = EchoState(want: all.count) { exp.fulfill() }
+        for i in 0..<chunks { stream.send(all.subdata(in: (i * size)..<((i + 1) * size))) }
+        state.pump(stream)
+        self.wait(for: [exp], timeout: 20)
+        let (data, err) = state.result()
+        if let err { throw err }
+        XCTAssertEqual(data, all)
+    }
+
+    func testNaiveH2TCPEcho() throws {
+        let proxy = Self.naiveProxy(name: "loop-naive-h2", quic: false)
+        let stream = try self.connect(proxy: proxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        try self.assertChunkedEcho(stream)
+    }
+
+    func testNaiveH2ConcurrentStreamsShareOneSession() throws {
+        let proxy = Self.naiveProxy(name: "loop-naive-h2-multi", quic: false)
+        let streams = try (0..<3).map { _ in try self.connect(proxy: proxy, target: Self.echoTarget) }
+        defer { streams.forEach { $0.cancel() } }
+        XCTAssertEqual(Set(streams.compactMap { ($0 as? NCH2ProxyStream).map { ObjectIdentifier($0) } }).count, 3)
+        for s in streams { try self.assertEcho(s, payload: Self.payload) }
+        XCTAssertGreaterThanOrEqual(NCConnector.sharedSessionCounts()["naive"] ?? 0, 1)
+    }
+
+    func testNaiveH3TCPEcho() throws {
+        let proxy = Self.naiveProxy(name: "loop-naive-h3", quic: true)
+        let stream = try self.connect(proxy: proxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        try self.assertChunkedEcho(stream)
+    }
+
+    func testNaiveWrongPasswordRejected() {
+        let proxy = Self.naiveProxy(name: "loop-naive-badpw", quic: false, password: "wrong")
+        XCTAssertThrowsError(try self.connect(proxy: proxy, target: Self.echoTarget)) { err in
+            XCTAssertTrue((err as NSError).localizedDescription.contains("407"), "\(err)")
+        }
+    }
+
+    /// UDP-over-TCP v2 through the naive CONNECT tunnel (NCUDPUoTSession's wire, driven directly).
+    func testNaiveUoTUDPEcho() throws {
+        for quic in [false, true] {
+            let proxy = Self.naiveProxy(name: "loop-naive-uot-\(quic)", quic: quic)
+            let stream = try self.connect(proxy: proxy, target: NCUoT.magicTarget)
+            defer { stream.cancel() }
+            let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
+            stream.send(NCUoT.request(destination: target))
+            stream.send(NCUoT.packet(target: target, payload: Self.dnsQuery))
+            let exp = self.expectation(description: "uot reply \(quic)")
+            let box = LockedBox<Data>(Data())
+            func pump() {
+                stream.receive { d, _ in
+                    guard let d else { exp.fulfill(); return }
+                    var b = box.get(); b.append(d); box.set(b)
+                    if NCUoT.parsePacket(b) != nil { exp.fulfill() } else { pump() }
+                }
+            }
+            pump()
+            self.wait(for: [exp], timeout: 15)
+            let (from, payload, _) = try XCTUnwrap(NCUoT.parsePacket(box.get()), "no UoT reply (quic \(quic))")
+            XCTAssertEqual(payload, Self.dnsQuery)
+            XCTAssertEqual(from.port, Self.udpEchoPort)
+        }
+    }
 }
 
 // MARK: - Small thread-safe helpers

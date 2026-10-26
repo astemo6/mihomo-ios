@@ -8,6 +8,9 @@ enum NCSupport {
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
         "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
+        // feat/nc-naive-h2h3 (NCNaive / NCH2ProxySession / NCH3ProxySession): NaïveProxy (h2, or h3 with
+        // quic: true) and Shadowrocket-style HTTP/2 / HTTP/3 CONNECT proxies.
+        "naive", "http2", "h2", "http3", "h3",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -38,6 +41,8 @@ enum NCSupport {
             if let why = wireguardUnsupported(p) { return why }
         case "mieru":
             if let why = mieruUnsupported(p) { return why }
+        case "naive", "http2", "h2", "http3", "h3":
+            if NCH2H3ProxyOptions(proxy: p) == nil { return "\(t) 缺少 server / port" }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }

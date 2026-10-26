@@ -124,6 +124,47 @@
           "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811"
         }
       ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18040,
+      "network": "tcp",
+      "tag": "naive-h2-in",
+      "tls": {
+        "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "enabled": true,
+        "key_path": "__LOOPBACK_DIR__/key.pem",
+        "server_name": "localhost"
+      },
+      "type": "naive",
+      "users": [
+        {
+          "password": "nc-loop-naive-pw",
+          "username": "nc-loop"
+        }
+      ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18041,
+      "network": "udp",
+      "tag": "naive-h3-in",
+      "tls": {
+        "alpn": [
+          "h3"
+        ],
+        "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "enabled": true,
+        "key_path": "__LOOPBACK_DIR__/key.pem",
+        "server_name": "localhost"
+      },
+      "type": "naive",
+      "users": [
+        {
+          "password": "nc-loop-naive-pw",
+          "username": "nc-loop"
+        }
+      ]
     }
   ],
   "log": {

@@ -104,10 +104,15 @@ final class NCH2MuxCore {
 
     /// Open a CONNECT stream; returns its id and the HEADERS frame bytes.
     func openStream() -> (Int, Data) {
+        openStream(headers: [(":method", "CONNECT"), (":authority", "localhost")])
+    }
+
+    /// Open a stream with an arbitrary request header list (feat/nc-naive-h2h3: HTTP/2 CONNECT proxies and
+    /// NaïveProxy send `:authority host:port` plus auth / padding headers). The stream stays open.
+    func openStream(headers: [(String, String)]) -> (Int, Data) {
         let id = nextStreamID
         nextStreamID += 2
         streamWindows[id] = peerInitialWindow
-        let headers: [(String, String)] = [(":method", "CONNECT"), (":authority", "localhost")]
         let frame = NCH2ClientCore.frame(type: 0x1, flags: 0x4, streamID: id,
                                          payload: NCHPACK.encodeHeaders(headers))
         return (id, frame)

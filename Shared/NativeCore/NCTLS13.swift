@@ -541,7 +541,10 @@ extension NCTLS13 {
         if profile.sct { ext(18, Data()) }
         ext(23, Data())
         if profile.sessionTicket { ext(35, Data()) }
-        ext(43, Data([0x03, 0x03, 0x04, 0x03, 0x03]))
+        // supported_versions: u8 list length 4, then TLS 1.3 and TLS 1.2. (feat/nc-naive-h2h3: was length 3 —
+        // an odd-length list Go's crypto/tls (sing-box / Xray / REALITY servers) rejects with decode_error,
+        // alert 50; verified against the sing-box 1.12.24 loopback inbounds.)
+        ext(43, Data([0x04, 0x03, 0x04, 0x03, 0x03]))
         ext(45, Data([0x01, 0x01]))
         var share = Data()
         share.appendBE16(UInt16(keyShare.count + 4))

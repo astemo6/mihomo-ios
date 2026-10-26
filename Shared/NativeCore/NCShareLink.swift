@@ -211,6 +211,29 @@ enum NCShareLink {
             q.add("hpkp", sStr(m, "fingerprint"))
             return "anytls://\(escapePath(sStr(m, "password")))@\(hostPort(m))/\(q.queryString)#\(frag(name))"
 
+        case "naive", "http2", "h2", "http3", "h3":
+            // feat/nc-naive-h2h3. naive: DuckSoft's naive+https:// / naive+quic:// (NekoBox, v2rayN, Hiddify);
+            // HTTP/2 / HTTP/3 proxies: http2:// / http3:// with the same userinfo@host:port shape.
+            let quic = typ == "http3" || typ == "h3" || sBool(m, "quic")
+            let scheme: String
+            switch typ {
+            case "naive": scheme = quic ? "naive+quic" : "naive+https"
+            case "http3", "h3": scheme = "http3"
+            default: scheme = "http2"
+            }
+            var user = ""
+            let u = sStr(m, "username"), pw = sStr(m, "password")
+            if !u.isEmpty || !pw.isEmpty { user = userPassword(u, pw) + "@" }
+            var q = KVList()
+            q.add("sni", sStr(m, "sni", "servername"))
+            if sBool(m, "skip-cert-verify") { q.add("insecure", "1") }
+            if typ == "naive" {
+                let headers = NCH2H3ProxyOptions.parseHeaders((m["extra-headers"] ?? m["headers"]).map { NCJSONValue($0) })
+                q.add("extra-headers", headers.map { "\($0.0):\($0.1)" }.joined(separator: "\r\n")) // no space: QueryEscape turns it into "+"
+                if sBool(m, "udp-over-tcp") { q.add("uot", "1") }
+            }
+            return "\(scheme)://\(user)\(hostPort(m))\(q.queryString)#\(frag(name))"
+
         case "socks5", "http":
             var scheme = "socks5"
             if typ == "http" {
