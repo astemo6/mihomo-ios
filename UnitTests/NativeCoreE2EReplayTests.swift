@@ -130,6 +130,7 @@ final class NativeCoreE2EReplayTests: XCTestCase {
             XCTFail("prepare failed"); return
         }
         let counts = Self.runtimeCounts(home: home)
+        for l in Self.shapeNotes(home: home, profile: profileURL) { r.note(l) }
         r.addSecrets(counts.secrets)
         let unloadable = counts.badScripts
         let detail = "\(prepMs) ms — proxies \(counts.proxies), proxy-providers \(counts.providers), groups \(counts.groups), rules \(counts.rules), rule-providers \(counts.ruleProviders), modules \(counts.modules), rewrite rules \(counts.rewriteRules), MitM hosts \(counts.mitmHosts), scripts \(counts.scripts) (\(unloadable.count) unloadable), tasks \(counts.tasks), warnings \(counts.warnings.count)"
@@ -143,7 +144,7 @@ final class NativeCoreE2EReplayTests: XCTestCase {
         }
 
         E2EReport.writeHandoff([
-            "home": home, "profile": profile.fileURL.path, "profileID": profile.id,
+            "home": home, "profile": profile.fileURL.path, "profileID": profile.id, "container": NSHomeDirectory(),
             "proxies": counts.proxies, "providers": counts.providers, "groups": counts.groups, "rules": counts.rules,
             "ruleProviders": counts.ruleProviders, "mitmHosts": counts.mitmHosts, "scripts": counts.scripts,
             "tasks": counts.tasks, "importMs": importMs, "prepMs": prepMs,
@@ -209,6 +210,42 @@ final class NativeCoreE2EReplayTests: XCTestCase {
                 }
             }
         }
+        return out
+    }
+
+    /// Non-secret shape of what runtime generation read and wrote (counts and key names only): which profile file,
+    /// how big, how many proxies / groups / rules it declares, and the top-level keys of nativecore-runtime.json.
+    static func shapeNotes(home: String, profile: URL) -> [String] {
+        var out: [String] = []
+        let all = ProfileStore.shared.profiles
+        out.append("profiles in store: \(all.count) (active \(AppShared.activeProfileID ?? "nil"), using \(profile.lastPathComponent))")
+        if let t = try? String(contentsOf: profile, encoding: .utf8) {
+            var section = "", counts: [String: Int] = [:]
+            for raw in t.components(separatedBy: .newlines) {
+                if let c = raw.first, c != " ", c != "#", c != "-", let colon = raw.firstIndex(of: ":") {
+                    section = String(raw[..<colon]); continue
+                }
+                let l = raw.trimmingCharacters(in: .whitespaces)
+                if l.hasPrefix("- ") && (raw.hasPrefix("  - ") || raw.hasPrefix("- ")) { counts[section, default: 0] += 1 }
+            }
+            out.append("profile yaml: \(t.utf8.count) bytes, list items by key: " + counts.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ", "))
+        } else {
+            out.append("profile yaml: unreadable at \(profile.lastPathComponent)")
+        }
+        let rtURL = URL(fileURLWithPath: home).appendingPathComponent("nativecore-runtime.json")
+        if let d = try? Data(contentsOf: rtURL), let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
+            let keys = o.keys.sorted().map { k -> String in
+                let v = o[k]!
+                if let a = v as? [Any] { return "\(k)[\(a.count)]" }
+                if let m = v as? [String: Any] { return "\(k){\(m.count)}" }
+                return k
+            }
+            out.append("nativecore-runtime.json: \(d.count) bytes, keys: " + keys.joined(separator: " "))
+        } else {
+            out.append("nativecore-runtime.json: missing or not a JSON object")
+        }
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: home)) ?? []
+        out.append("home files: " + files.sorted().prefix(60).joined(separator: " "))
         return out
     }
 

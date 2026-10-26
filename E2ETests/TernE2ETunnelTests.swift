@@ -39,7 +39,7 @@ final class TernE2ETunnelTests: XCTestCase {
             r.record("handoff", .fail, "no handoff.json from stage 1 (did NativeCoreE2EReplayTests run and pass?)")
             XCTFail("no handoff"); return
         }
-        home = h
+        home = relocate(home: h, from: ho["container"] as? String)
         sample = E2EReport.env("TERN_E2E_SAMPLE") == "1"
         r.addSecrets(runtimeSecrets())
         let mem = E2EMemory()
@@ -564,6 +564,31 @@ final class TernE2ETunnelTests: XCTestCase {
     // MARK: - helpers
 
     private func ms(_ t: Date) -> Int { Int(Date().timeIntervalSince(t) * 1000) }
+
+    /// Each `xcodebuild test-without-building` reinstalls the host app and the simulator gives it a NEW data container
+    /// (run 40268231519: stage 1 …/D31662A7…, stage 2 …/8CA29A7C…); the files move along but every absolute path stage 1
+    /// wrote (handoff home, provider / script / geo paths inside the runtime files) still names the old one. On a device
+    /// the App Group container is stable, so rewrite the old container prefix to the current one before starting.
+    private func relocate(home h: String, from old: String?) -> String {
+        let now = NSHomeDirectory()
+        guard let old, !old.isEmpty, old != now, h.hasPrefix(old) else { return h }
+        let newHome = now + h.dropFirst(old.count)
+        let fm = FileManager.default
+        let oldEsc = old.replacingOccurrences(of: "/", with: "\\/"), nowEsc = now.replacingOccurrences(of: "/", with: "\\/")
+        var n = 0
+        if let en = fm.enumerator(atPath: newHome) {
+            for case let rel as String in en {
+                let p = (newHome as NSString).appendingPathComponent(rel)
+                guard let a = try? fm.attributesOfItem(atPath: p), (a[.type] as? FileAttributeType) == .typeRegular,
+                      ((a[.size] as? NSNumber)?.intValue ?? 0) < 32 << 20,
+                      let t = try? String(contentsOfFile: p, encoding: .utf8), t.contains(old) || t.contains(oldEsc) else { continue }
+                let u = t.replacingOccurrences(of: old, with: now).replacingOccurrences(of: oldEsc, with: nowEsc)
+                if (try? u.write(toFile: p, atomically: true, encoding: .utf8)) != nil { n += 1 }
+            }
+        }
+        r.note("app container moved between stages (reinstall): \(n) file(s) under home rewritten to the new container path")
+        return newHome
+    }
 
     private func runtimeSecrets() -> [String] {
         guard let d = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent("nativecore-runtime.json")),
