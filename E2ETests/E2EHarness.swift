@@ -350,8 +350,21 @@ final class E2EMemory {
         return UInt64(st.size_in_use)
     }
 
+    /// fix/nc-mem-4: the kernel's lifetime peak (ledger_phys_footprint_peak) when the window opened. The 100 ms sampler
+    /// misses short transients (gate 3a: sampled +40.9 MB while the kernel peak was +65.6 MB), so each checkpoint also
+    /// records the kernel peak minus the baseline, and the gate is judged on that.
+    private(set) var kernelPeakAtStart: UInt64 = 0
+
+    /// fix/nc-mem-4: one `[nc-mem] scene=e2e:<label>` line in the stage-2 log (footprint + kernel peak), so the test's
+    /// own steps sit on the same timeline as the core's `[nc-mem]` lines.
+    static func mark(_ label: String) {
+        let fp = Double(ProcessMemory.footprintBytes()) / 1_048_576, pk = Double(ProcessMemory.peakBytes()) / 1_048_576
+        NSLog("[nc-mem] scene=e2e:%@ footprint=%.1fMB peak=%.1fMB heap=%.1fMB", label, fp, pk, Double(heapInUse()) / 1_048_576)
+    }
+
     func start() {
         baseline = ProcessMemory.footprintBytes()
+        kernelPeakAtStart = ProcessMemory.peakBytes()
         baselineHeap = Self.heapInUse()
         peak = baseline
         started = Date(); peakAt = started
@@ -367,30 +380,35 @@ final class E2EMemory {
     }
 
     /// fix/nc-e2e-real: a named reading — current footprint and the peak so far, both minus the baseline (MB).
-    private(set) var checkpoints: [(label: String, nowMB: Double, peakMB: Double, heapMB: Double, at: Double)] = []
+    private(set) var checkpoints: [(label: String, nowMB: Double, peakMB: Double, heapMB: Double, at: Double, kpeakMB: Double)] = []
+    /// `kpeakMB`: kernel lifetime peak minus the baseline (fix/nc-mem-4) — catches what the 100 ms sampler misses.
     @discardableResult
-    func checkpoint(_ label: String) -> (nowMB: Double, peakMB: Double) {
+    func checkpoint(_ label: String) -> (nowMB: Double, peakMB: Double, kpeakMB: Double) {
         let f = ProcessMemory.footprintBytes()
+        let k = ProcessMemory.peakBytes()
         let h = Self.heapInUse()
         lock.lock(); if f > peak { peak = f; peakAt = Date() }; let p = peak; lock.unlock()
         let b = Double(baseline)
-        let c = (nowMB: (Double(f) - b) / 1_048_576, peakMB: (Double(p) - b) / 1_048_576)
+        let c = (nowMB: (Double(f) - b) / 1_048_576, peakMB: (Double(p) - b) / 1_048_576, kpeakMB: (Double(max(k, p)) - b) / 1_048_576)
         checkpoints.append((label, c.nowMB, c.peakMB, (Double(h) - Double(baselineHeap)) / 1_048_576,
-                            Date().timeIntervalSince(started)))
+                            Date().timeIntervalSince(started), c.kpeakMB))
+        Self.mark("checkpoint-" + label)
         return c
     }
 
     var checkpointLine: String {
         lock.lock(); let pAt = peakAt.timeIntervalSince(started); lock.unlock()
         let phase = checkpoints.first { $0.at >= pAt }?.label ?? "after the last checkpoint"
-        let rows = checkpoints.map { String(format: "%@ +%.1f (peak +%.1f, heap %+.1f, t+%.0fs)", $0.label, $0.nowMB, $0.peakMB, $0.heapMB, $0.at) }
-        return rows.joined(separator: ", ") + String(format: "; peak sampled at t+%.1fs (phase %@)", pAt, phase)
+        let rows = checkpoints.map { String(format: "%@ +%.1f (peak +%.1f, kernel peak +%.1f, heap %+.1f, t+%.0fs)", $0.label, $0.nowMB, $0.peakMB, $0.kpeakMB, $0.heapMB, $0.at) }
+        let pre = (Double(kernelPeakAtStart) - Double(baseline)) / 1_048_576
+        return rows.joined(separator: ", ") + String(format: "; peak sampled at t+%.1fs (phase %@); kernel peak at window start +%.1f", pAt, phase, pre)
     }
 
-    func stop() -> (baselineMB: Double, peakMB: Double, deltaMB: Double) {
+    func stop() -> (baselineMB: Double, peakMB: Double, deltaMB: Double, kpeakMB: Double) {
         timer?.cancel(); timer = nil
         lock.lock(); let p = max(peak, ProcessMemory.footprintBytes()); lock.unlock()
         let b = Double(baseline) / 1_048_576, pk = Double(p) / 1_048_576
-        return (b, pk, pk - b)
+        let k = Double(max(ProcessMemory.peakBytes(), p)) / 1_048_576
+        return (b, pk, pk - b, k)
     }
 }

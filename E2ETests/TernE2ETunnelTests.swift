@@ -69,10 +69,13 @@ final class TernE2ETunnelTests: XCTestCase {
 
         mem.checkpoint("started")
         controllerAndCounts(engine)
+        E2EMemory.mark("controller-counts-done")
         providers(engine)
+        E2EMemory.mark("providers-done")
         ruleSets(engine)
         mem.checkpoint("providers+rule-sets")
         contract(engine)
+        E2EMemory.mark("contract-done")
         groupDelay(engine)
         mem.checkpoint("contract+delay")
         let mapped = trafficFakeIP(engine)
@@ -85,9 +88,12 @@ final class TernE2ETunnelTests: XCTestCase {
         // INFO. Run 40278215218 measured them together: 54.4 MB.
         let core = mem.checkpoint("core-phases")
         let limit = 44.0 // the extension's 50 MB jetsam budget minus the ~6 MB the extension uses without the core
-        r.record("memory-footprint", core.peakMB <= limit ? .pass : .fail,
-                 String(format: "core phases: peak +%.1f MB over the pre-start baseline %.1f MB, now +%.1f MB (limit %.0f MB); %@",
-                        core.peakMB, Double(mem.baseline) / 1_048_576, core.nowMB, limit, mem.checkpointLine))
+        // fix/nc-mem-4: judged on the kernel's lifetime peak (ledger_phys_footprint_peak, what jetsam would have seen
+        // at the worst moment) — the 100 ms sampler alone passed a run whose real transient was +65.6 MB (gate 3a).
+        let judged = max(core.peakMB, core.kpeakMB)
+        r.record("memory-footprint", judged <= limit ? .pass : .fail,
+                 String(format: "core phases: kernel peak +%.1f MB (sampled peak +%.1f) over the pre-start baseline %.1f MB, now +%.1f MB (limit %.0f MB); %@",
+                        core.kpeakMB, core.peakMB, Double(mem.baseline) / 1_048_576, core.nowMB, limit, mem.checkpointLine))
         restartAndStaleFakeIP(mapped: mapped)
         mem.checkpoint("restart")
         redirHost(mappedFakeIP: mapped)
@@ -96,8 +102,8 @@ final class TernE2ETunnelTests: XCTestCase {
         NativeTunnelCore.shared.stop()
         let m = mem.stop()
         r.record("memory-footprint-full", .info,
-                 String(format: "whole replay incl. restart + redir-host reload: baseline %.1f MB, peak %.1f MB, delta %.1f MB; %@",
-                        m.baselineMB, m.peakMB, m.deltaMB, mem.checkpointLine))
+                 String(format: "whole replay incl. restart + redir-host reload: baseline %.1f MB, peak %.1f MB, delta %.1f MB, kernel peak %.1f MB (delta %.1f); %@",
+                        m.baselineMB, m.peakMB, m.deltaMB, m.kpeakMB, m.kpeakMB - m.baselineMB, mem.checkpointLine))
         dumpStartupLog()
         let fails = r.counts[.fail] ?? 0
         r.note("tunnel stage: \(r.counts[.pass] ?? 0) pass, \(fails) fail, \(r.counts[.skip] ?? 0) skip")
@@ -108,13 +114,25 @@ final class TernE2ETunnelTests: XCTestCase {
     // MARK: - controller + counts
 
     private func controllerAndCounts(_ engine: NativeCoreEngine) {
+        // fix/nc-mem-4: test-side [nc-mem] marks around each call (core-side lines: ctrl-in / ctrl-done).
+        E2EMemory.mark("call /version")
         let v = api.call("GET", "/version")
+        E2EMemory.mark("done /version \(v.data.count) B \(v.ms) ms")
         r.record("controller-version", v.ok && v.object?["version"] != nil ? .pass : .fail, "HTTP \(v.status) in \(v.ms) ms \(v.ok ? "" : v.message)")
-        let px = api.call("GET", "/proxies").object?["proxies"] as? [String: Any] ?? [:]
+        E2EMemory.mark("call /proxies")
+        let pxr = api.call("GET", "/proxies")
+        E2EMemory.mark("done /proxies \(pxr.data.count) B \(pxr.ms) ms")
+        let px = pxr.object?["proxies"] as? [String: Any] ?? [:]
         let groups = px.values.filter { ($0 as? [String: Any])?["all"] != nil }.count
         let proxies = px.count - groups
-        let rules = (api.call("GET", "/rules").object?["rules"] as? [Any])?.count ?? 0
-        let prov = api.call("GET", "/providers/proxies").object?["providers"] as? [String: Any] ?? [:]
+        E2EMemory.mark("call /rules")
+        let rr = api.call("GET", "/rules")
+        E2EMemory.mark("done /rules \(rr.data.count) B \(rr.ms) ms")
+        let rules = (rr.object?["rules"] as? [Any])?.count ?? 0
+        E2EMemory.mark("call /providers/proxies")
+        let pr = api.call("GET", "/providers/proxies")
+        E2EMemory.mark("done /providers/proxies \(pr.data.count) B \(pr.ms) ms")
+        let prov = pr.object?["providers"] as? [String: Any] ?? [:]
         let ho = E2EReport.readHandoff() ?? [:]
         let runtimeRules = ho["rules"] as? Int ?? -1
         let detail = "proxies \(proxies), groups \(groups), rules \(rules) (runtime \(runtimeRules), unparsed \(engine.unparsedRules.count)), providers \(prov.count)"

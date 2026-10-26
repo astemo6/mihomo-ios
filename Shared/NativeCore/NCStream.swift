@@ -10,6 +10,10 @@ final class NCStream {
     let conn: NWConnection
     let queue: DispatchQueue
     private var cancelled = false
+    /// fix/nc-mem-4: counted in NCMemTrace (DEBUG) from start() until deinit.
+    private var traced = false
+
+    deinit { if traced { NCMemTrace.stream(-1) } }
 
     init(to host: String, port: Int, tls: Bool = false, queue: DispatchQueue) {
         self.queue = queue
@@ -70,6 +74,7 @@ final class NCStream {
     /// was reported as a bare 超时. Real flows keep NWConnection's waiting behaviour; a slow one (≥ slowDialMs) gets
     /// one rate-limited `[dial]` line with the same split.
     func start(ready: @escaping (Error?) -> Void) {
+        if NCMemTrace.enabled, !traced { traced = true; NCMemTrace.stream(1) }
         var fired = false
         let trace = NCDialTrace.on(queue)
         let t0 = DispatchTime.now()

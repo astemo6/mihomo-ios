@@ -227,7 +227,11 @@ final class NCController {
             return
         }
         let t0 = DispatchTime.now()
+        // fix/nc-mem-4: [nc-mem] lines around every handler (DEBUG builds; NCMemTrace).
+        NCMemTrace.event("ctrl> \(req.method) \(req.path)")
+        NCMemTrace.line("ctrl-in", "\(req.method) \(req.path)")
         defer {
+            NCMemTrace.line("ctrl-done", "\(req.method) \(req.path)")
             let ms = Int((DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000)
             if ms > slowest.ms {
                 slowest = (req.path, ms)
@@ -852,6 +856,7 @@ final class NCController {
     }
 
     private func respondRaw(_ conn: NCLoopbackConn, _ body: Data) {
+        NCMemTrace.event("ctrl< 200 \(body.count) B")
         var out = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
         out.append(body)
         conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })
@@ -865,6 +870,7 @@ final class NCController {
             head += "Content-Type: application/json\r\n"
         }
         head += "Content-Length: \(bodyData.count)\r\nConnection: close\r\n\r\n"
+        NCMemTrace.event("ctrl< \(status) \(bodyData.count) B")
         var out = Data(head.utf8)
         out.append(bodyData)
         conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })
