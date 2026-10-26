@@ -155,6 +155,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static var masqueProxy: NCProxy {
         Self.proxy(name: "loop-masque", type: "masque", port: Self.masquePort, extra: [
             "mode": .string("connect-udp"),
+            "username": .string("loop"), "password": .string("loop"),
             "uri": .string("https://\(Self.host):\(Self.masquePort)/.well-known/masque/udp/{target_host}/{target_port}/"),
             "sni": .string("localhost"),
             "skip-cert-verify": .bool(true),
