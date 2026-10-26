@@ -421,4 +421,176 @@ final class NativeCoreHPKETests: XCTestCase {
             }
         }
     }
+
+    // MARK: - RFC 9849: Mandatory Extension Handling & Data Slice Parsing
+
+    private func buildTestECHConfig(
+        configID: UInt8,
+        aeadID: UInt16,
+        publicName: String = "test.example",
+        extensions: [(type: UInt16, data: Data)] = []
+    ) -> Data {
+        let pk = Data(repeating: 0x22, count: 32)
+        var contents = Data()
+        contents.append(configID) // config_id
+        contents.append(contentsOf: [0x00, 0x20]) // kem_id = X25519
+        contents.append(contentsOf: [0x00, 0x20]) // pk_len = 32
+        contents.append(pk)
+        contents.append(contentsOf: [0x00, 0x04]) // cs_len = 4
+        contents.append(contentsOf: [0x00, 0x01, UInt8((aeadID >> 8) & 0xff), UInt8(aeadID & 0xff)]) // kdf=0x0001, aead
+        contents.append(0x00) // max_name_len
+        let nameBytes = Array(publicName.utf8)
+        contents.append(UInt8(nameBytes.count))
+        contents.append(contentsOf: nameBytes)
+
+        var extPayload = Data()
+        for ext in extensions {
+            extPayload.append(UInt8((ext.type >> 8) & 0xff))
+            extPayload.append(UInt8(ext.type & 0xff))
+            extPayload.append(UInt8((ext.data.count >> 8) & 0xff))
+            extPayload.append(UInt8(ext.data.count & 0xff))
+            extPayload.append(ext.data)
+        }
+        contents.append(UInt8((extPayload.count >> 8) & 0xff))
+        contents.append(UInt8(extPayload.count & 0xff))
+        contents.append(extPayload)
+
+        var config = Data()
+        config.append(contentsOf: [0xfe, 0x0d]) // version
+        let len = contents.count
+        config.append(UInt8((len >> 8) & 0xff))
+        config.append(UInt8(len & 0xff))
+        config.append(contents)
+        return config
+    }
+
+    private func buildTestECHList(configs: [Data]) -> Data {
+        let totalLen = configs.reduce(0) { $0 + $1.count }
+        var list = Data()
+        list.append(UInt8((totalLen >> 8) & 0xff))
+        list.append(UInt8(totalLen & 0xff))
+        for c in configs {
+            list.append(c)
+        }
+        return list
+    }
+
+    func testECHConfigMandatoryExtensionHandling() throws {
+        // Config 1: High-bit set mandatory extension (0x8001), unsupported -> must be skipped
+        let c1 = buildTestECHConfig(
+            configID: 10,
+            aeadID: 0x0001, // AES-128-GCM
+            publicName: "server1.com",
+            extensions: [(type: 0x8001, data: Data([0x01, 0x02]))]
+        )
+
+        // Config 2: Mandatory extension (0x0020) requiring unsupported type 0x1234 -> must be skipped
+        let c2 = buildTestECHConfig(
+            configID: 20,
+            aeadID: 0x0002, // AES-256-GCM
+            publicName: "server2.com",
+            extensions: [(type: 0x0020, data: Data([0x00, 0x02, 0x12, 0x34]))]
+        )
+
+        // Config 3: Optional extension 0x0005 (high bit 0) + valid AEAD ChaChaPoly -> must be selected
+        let c3 = buildTestECHConfig(
+            configID: 30,
+            aeadID: 0x0003, // ChaCha20Poly1305
+            publicName: "server3.com",
+            extensions: [(type: 0x0005, data: Data([0xde, 0xad]))]
+        )
+
+        // Config 4: Mandatory extension 0x0020 requiring only supported type 0x0020 -> supported
+        let c4 = buildTestECHConfig(
+            configID: 40,
+            aeadID: 0x0001, // AES-128-GCM
+            publicName: "server4.com",
+            extensions: [(type: 0x0020, data: Data([0x00, 0x02, 0x00, 0x20]))]
+        )
+
+        let listData = buildTestECHList(configs: [c1, c2, c3])
+        let parsedConfigs = try NCECHConfigParser.parseList(listData)
+        XCTAssertEqual(parsedConfigs.count, 3)
+
+        // Verify individual configs
+        XCTAssertTrue(parsedConfigs[0].hasUnsupportedMandatoryExtension)
+        XCTAssertTrue(parsedConfigs[1].hasUnsupportedMandatoryExtension)
+        XCTAssertFalse(parsedConfigs[2].hasUnsupportedMandatoryExtension)
+
+        // Selection should skip config 1 & 2, and select config 3
+        let selected = try NCECHConfigParser.selectSupported(from: parsedConfigs)
+        XCTAssertEqual(selected.config.configID, 30)
+        XCTAssertEqual(selected.config.publicName, "server3.com")
+        XCTAssertEqual(selected.hpkeSuite.aead, .chaCha20Poly1305)
+
+        // Also verify selection directly from ECHConfigList bytes
+        let selectedFromList = try NCECHConfigParser.select(fromECHConfigList: listData)
+        XCTAssertEqual(selectedFromList.config.configID, 30)
+
+        // Verify list where all configs are unsupported
+        let allUnsupportedData = buildTestECHList(configs: [c1, c2])
+        let unsupportedConfigs = try NCECHConfigParser.parseList(allUnsupportedData)
+        XCTAssertEqual(unsupportedConfigs.count, 2)
+        XCTAssertThrowsError(try NCECHConfigParser.selectSupported(from: unsupportedConfigs)) { err in
+            guard case NCECHConfigError.noSupportedConfig = err else {
+                XCTFail("Expected noSupportedConfig error but got \(err)")
+                return
+            }
+        }
+        XCTAssertNil(try? NCECHConfigParser.selectSupported(from: unsupportedConfigs))
+        XCTAssertNil(NCECHConfigParser.selectOptional(from: unsupportedConfigs))
+        XCTAssertNil(try? NCECHConfigParser.select(fromECHConfigList: allUnsupportedData))
+        XCTAssertNil(NCECHConfigParser.selectOptional(fromECHConfigList: allUnsupportedData))
+
+        // Verify config with supported mandatory extension (c4) is selected over skipped (c1)
+        let listWithSupportedMandatory = buildTestECHList(configs: [c1, c4])
+        let selectedC4 = try NCECHConfigParser.select(fromECHConfigList: listWithSupportedMandatory)
+        XCTAssertEqual(selectedC4.config.configID, 40)
+        XCTAssertEqual(selectedC4.config.publicName, "server4.com")
+    }
+
+    func testECHConfigListParsingFromDataSlice() throws {
+        // Real-world DNS HTTPS record from crypto.cloudflare.com
+        let echListBytes = unhex("0045fe0d0041f200200020261e68cdb7e70947d4e87743635c72a5d0e14c487cdbb0093d252a4addf766410004000100010012636c6f7564666c6172652d6563682e636f6d0000")
+
+        // Parse directly as baseline
+        let directConfigs = try NCECHConfigParser.parseList(echListBytes)
+        XCTAssertEqual(directConfigs.count, 1)
+        let directSelected = try NCECHConfigParser.select(fromECHConfigList: echListBytes)
+
+        // Wrap echListBytes inside a larger buffer with non-zero start offset
+        let prefix = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04, 0x05])
+        let suffix = Data([0xCA, 0xFE, 0xBA, 0xBE, 0x99])
+        let fullBuffer = prefix + echListBytes + suffix
+
+        // 1. Slice using subdata(in:)
+        let subdataSlice = fullBuffer.subdata(in: prefix.count..<(prefix.count + echListBytes.count))
+        let subdataConfigs = try NCECHConfigParser.parseList(subdataSlice)
+        XCTAssertEqual(subdataConfigs, directConfigs)
+
+        // 2. Slice using SubSequence (data[range]) with guaranteed startIndex != 0
+        let subseqSlice = fullBuffer[prefix.count..<(prefix.count + echListBytes.count)]
+        XCTAssertEqual(subseqSlice.startIndex, prefix.count)
+        XCTAssertGreaterThan(subseqSlice.startIndex, 0)
+
+        // Verify parseList handles non-zero startIndex slice without crash or misaligned offsets
+        let subseqConfigs = try NCECHConfigParser.parseList(subseqSlice)
+        XCTAssertEqual(subseqConfigs, directConfigs)
+
+        // Verify select(fromECHConfigList:) handles slice
+        let selectedFromSlice = try NCECHConfigParser.select(fromECHConfigList: subseqSlice)
+        XCTAssertEqual(selectedFromSlice.config, directSelected.config)
+        XCTAssertEqual(selectedFromSlice.cipherSuite, directSelected.cipherSuite)
+        XCTAssertEqual(selectedFromSlice.hpkeSuite, directSelected.hpkeSuite)
+
+        // 3. Raw ECHConfig slice (omitting the 2-byte outer list length) with non-zero startIndex
+        let rawConfigBytes = directConfigs[0].rawBytes
+        let rawBuffer = prefix + rawConfigBytes + suffix
+        let rawSlice = rawBuffer[prefix.count..<(prefix.count + rawConfigBytes.count)]
+        XCTAssertEqual(rawSlice.startIndex, prefix.count)
+
+        let parsedRawSlice = try NCECHConfigParser.parseList(rawSlice)
+        XCTAssertEqual(parsedRawSlice.count, 1)
+        XCTAssertEqual(parsedRawSlice[0], directConfigs[0])
+    }
 }

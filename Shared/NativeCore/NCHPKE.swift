@@ -442,15 +442,16 @@ public enum NCHPKE {
 
     /// RFC 9180 §5.2: ComputeNonce(seq) = xor(base_nonce, I2OSP(seq, Nn))
     public static func computeNonce(baseNonce: Data, seq: UInt64) -> Data {
-        var seqBytes = [UInt8](repeating: 0, count: baseNonce.count)
+        let base = Data(baseNonce)
+        var seqBytes = [UInt8](repeating: 0, count: base.count)
         var s = seq
-        for i in stride(from: baseNonce.count - 1, through: 0, by: -1) {
+        for i in stride(from: base.count - 1, through: 0, by: -1) {
             seqBytes[i] = UInt8(s & 0xff)
             s >>= 8
         }
-        var nonce = Data(count: baseNonce.count)
-        for i in 0..<baseNonce.count {
-            nonce[i] = baseNonce[i] ^ seqBytes[i]
+        var nonce = Data(count: base.count)
+        for i in 0..<base.count {
+            nonce[i] = base[i] ^ seqBytes[i]
         }
         return nonce
     }

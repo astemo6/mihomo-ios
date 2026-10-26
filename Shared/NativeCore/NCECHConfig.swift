@@ -40,6 +40,12 @@ public struct NCECHConfigExtension: Equatable, Sendable {
         self.type = type
         self.data = data
     }
+
+    /// Whether this extension is marked mandatory per RFC 9849 §4:
+    /// either has the high-order bit set (`type & 0x8000 != 0`) or is the `mandatory` extension (0x0020).
+    public var isMandatory: Bool {
+        (type & 0x8000) != 0 || type == NCECHConfigParser.mandatoryExtensionType
+    }
 }
 
 /// An HPKE symmetric cipher suite pair (kdf_id, aead_id): RFC 9849 §4.
@@ -76,6 +82,11 @@ public struct NCECHConfig: Equatable, Sendable {
     /// The complete serialized ECHConfig bytes (version + length + contents),
     /// required for computing HPKE info = "tls ech\0" || ECHConfig (RFC 9849 §6.1).
     public let rawBytes: Data
+
+    /// Whether this configuration contains any unsupported mandatory extension.
+    public var hasUnsupportedMandatoryExtension: Bool {
+        NCECHConfigParser.hasUnsupportedMandatoryExtension(self)
+    }
 
     public init(
         version: UInt16,
@@ -145,24 +156,108 @@ public enum NCECHConfigParser {
     /// Supported HPKE KDF: HKDF-SHA256 (0x0001)
     public static let supportedKDF: UInt16 = 0x0001
 
+    /// Supported ECH configuration extension types.
+    ///
+    /// RFC 9849 §4:
+    /// - Extension types with the high bit set (`type & 0x8000 != 0`) are mandatory.
+    /// - Extension type 0x0020 is the `mandatory` extension listing required extension types.
+    ///
+    /// The current implementation recognizes the `mandatory` extension (0x0020) and
+    /// evaluates its required extension types against the supported extension set.
+    /// No additional ECH extensions are currently supported.
+    public static let mandatoryExtensionType: UInt16 = 0x0020
+    public static let supportedExtensionTypes: Set<UInt16> = [
+        mandatoryExtensionType
+    ]
+
+    /// Evaluates whether an ECHConfig contains any unsupported mandatory extensions per RFC 9849 §4.
+    ///
+    /// An extension is mandatory if:
+    /// 1. Its type code point has the high-order bit set (`type & 0x8000 != 0`).
+    /// 2. It is listed in the `mandatory` extension (type 0x0020).
+    ///
+    /// Returns `true` if any mandatory extension required by this config is not supported.
+    public static func hasUnsupportedMandatoryExtension(_ config: NCECHConfig) -> Bool {
+        for ext in config.extensions {
+            // Case 1: Extension marked mandatory by high bit (type & 0x8000 != 0)
+            if (ext.type & 0x8000) != 0 && !supportedExtensionTypes.contains(ext.type) {
+                return true
+            }
+
+            // Case 2: The `mandatory` extension (0x0020) listing required extension types
+            if ext.type == mandatoryExtensionType {
+                guard let requiredTypes = parseMandatoryExtensionPayload(ext.data) else {
+                    // Malformed mandatory extension payload -> cannot satisfy requirements
+                    return true
+                }
+                for reqType in requiredTypes {
+                    if !supportedExtensionTypes.contains(reqType) {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    /// Parses the payload of a `mandatory` extension (type 0x0020).
+    /// Supports both uint16-length prefixed vector and raw uint16 list.
+    private static func parseMandatoryExtensionPayload(_ data: Data) -> [UInt16]? {
+        let bytes = Data(data)
+        if bytes.isEmpty {
+            return []
+        }
+        guard bytes.count >= 2 else {
+            return nil
+        }
+
+        // Check for 2-byte length prefix matching remaining payload
+        let prefixLen = (Int(bytes[0]) << 8) | Int(bytes[1])
+        if prefixLen + 2 == bytes.count && prefixLen >= 2 && prefixLen % 2 == 0 {
+            var types: [UInt16] = []
+            var offset = 2
+            while offset < bytes.count {
+                let t = (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
+                types.append(t)
+                offset += 2
+            }
+            return types
+        } else if bytes.count % 2 == 0 {
+            // Direct sequence of uint16
+            var types: [UInt16] = []
+            var offset = 0
+            while offset < bytes.count {
+                let t = (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
+                types.append(t)
+                offset += 2
+            }
+            return types
+        } else {
+            return nil
+        }
+    }
+
     /// Parses an ECHConfigList (or raw ECHConfig bytes) per RFC 9849 §4.
     ///
     /// Skips entries with unsupported version or malformed headers while advancing
     /// through the list, but reports discrete errors if the list is truncated or corrupt.
     public static func parseList(_ data: Data) throws -> [NCECHConfig] {
-        guard data.count >= 4 else {
-            throw NCECHConfigError.truncatedData("Data too short (\(data.count) bytes)")
+        // Normalize input Data to guarantee contiguous 0-indexed storage.
+        // If data is a subdata/slice with startIndex != 0, Data(data) creates a fresh 0-indexed copy.
+        let normalizedData = Data(data)
+        guard normalizedData.count >= 4 else {
+            throw NCECHConfigError.truncatedData("Data too short (\(normalizedData.count) bytes)")
         }
 
         // RFC 9849 §4: ECHConfigList is prefixed by uint16 list_length
-        let listLen = (Int(data[0]) << 8) | Int(data[1])
+        let listLen = (Int(normalizedData[0]) << 8) | Int(normalizedData[1])
         let contentBytes: Data
-        if data.count == 2 + listLen {
-            contentBytes = data.subdata(in: 2..<data.count)
+        if normalizedData.count == 2 + listLen {
+            contentBytes = Data(normalizedData[2..<normalizedData.count])
         } else {
             // If the outer 2-byte list prefix is omitted (e.g. raw single ECHConfig or direct stream),
             // check if the first 2 bytes are a valid version code point.
-            contentBytes = data
+            contentBytes = normalizedData
         }
 
         var configs: [NCECHConfig] = []
@@ -184,7 +279,7 @@ public enum NCECHConfigParser {
             }
 
             let contentsEnd = offset + length
-            let rawConfig = contentBytes.subdata(in: configStart..<contentsEnd)
+            let rawConfig = Data(contentBytes[configStart..<contentsEnd])
 
             if version != supportedVersion {
                 // RFC 9849 §4: Clients MUST ignore any ECHConfig structure with a version they do not support.
@@ -219,7 +314,7 @@ public enum NCECHConfigParser {
             guard pkLen > 0, offset + pkLen <= contentsEnd else {
                 throw NCECHConfigError.truncatedData("Truncated public_key payload (len: \(pkLen))")
             }
-            let publicKey = contentBytes.subdata(in: offset..<offset + pkLen)
+            let publicKey = Data(contentBytes[offset..<offset + pkLen])
             offset += pkLen
 
             // cipher_suites: HpkeSymmetricCipherSuite cipher_suites<4..2^16-4> (uint16 length prefix)
@@ -259,7 +354,7 @@ public enum NCECHConfigParser {
             guard nameLen > 0, offset + nameLen <= contentsEnd else {
                 throw NCECHConfigError.truncatedData("Truncated public_name payload (len: \(nameLen))")
             }
-            let nameData = contentBytes.subdata(in: offset..<offset + nameLen)
+            let nameData = Data(contentBytes[offset..<offset + nameLen])
             guard let publicName = String(data: nameData, encoding: .utf8) else {
                 throw NCECHConfigError.invalidPublicName("public_name is not valid UTF-8 string")
             }
@@ -289,7 +384,7 @@ public enum NCECHConfigParser {
                 guard offset + extDataLen <= extEnd else {
                     throw NCECHConfigError.truncatedData("Truncated extension data (len: \(extDataLen))")
                 }
-                let extData = contentBytes.subdata(in: offset..<offset + extDataLen)
+                let extData = Data(contentBytes[offset..<offset + extDataLen])
                 extensions.append(NCECHConfigExtension(type: extType, data: extData))
                 offset += extDataLen
             }
@@ -334,6 +429,7 @@ public enum NCECHConfigParser {
 
         for config in configs {
             guard config.version == supportedVersion else { continue }
+            guard !hasUnsupportedMandatoryExtension(config) else { continue }
             guard config.kemID == supportedKEM else { continue }
             guard config.publicKey.count == 32 else { continue }
 
@@ -363,9 +459,21 @@ public enum NCECHConfigParser {
         throw NCECHConfigError.noSupportedConfig("No compatible KEM (0x0020) and AEAD suite found in \(configs.count) configs")
     }
 
+    /// Selects the first compatible ECHConfig and cipher suite from the parsed configs list,
+    /// or returns `nil` if none is supported.
+    public static func selectOptional(from configs: [NCECHConfig]) -> NCECHSelectedConfig? {
+        try? selectSupported(from: configs)
+    }
+
     /// Parses an ECHConfigList byte string and selects the first supported configuration and cipher suite.
     public static func select(fromECHConfigList data: Data) throws -> NCECHSelectedConfig {
         let configs = try parseList(data)
         return try selectSupported(from: configs)
+    }
+
+    /// Parses an ECHConfigList byte string and selects the first supported configuration,
+    /// or returns `nil` if none is supported.
+    public static func selectOptional(fromECHConfigList data: Data) -> NCECHSelectedConfig? {
+        try? select(fromECHConfigList: data)
     }
 }
