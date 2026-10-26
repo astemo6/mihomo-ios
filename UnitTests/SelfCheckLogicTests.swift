@@ -237,7 +237,8 @@ final class SelfCheckLogicTests: XCTestCase {
         XCTAssertEqual(f.first?.reason, "handshake failed: ws upgrade refused")
         XCTAssertEqual(f.first?.nodes.count, 3, "distinct nodes")
         XCTAssertEqual(f[1].stage, "tls"); XCTAssertEqual(f[1].reason, "-9824: 握手失败"); XCTAssertEqual(f[1].nodes.count, 2)
-        XCTAssertTrue(f.contains { $0.stage == "request" && $0.reason.hasPrefix("超时") })
+        // "超时" is localized (the unit-test runner may use en): check the reason is the localized timeout word.
+        XCTAssertTrue(f.contains { $0.stage == "request" && $0.reason == String(localized: "超时") }, "\(f)")
         XCTAssertTrue(f.contains { $0.stage == "route" && $0.nodes == ["a/b"] })
         XCTAssertFalse(f.contains { $0.nodes.contains("Proxy") }, "successes are not failures")
         let lines = SelfCheckLogic.delayFailureLines(f, top: 2)
