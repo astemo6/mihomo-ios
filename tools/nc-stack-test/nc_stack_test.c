@@ -87,6 +87,21 @@ int main(void) {
     if (!iphdr_ok || !udp_ok) { printf("FAIL: v4 udp reply checksums\n"); return 4; }
     if (!(last[0] == 0x45 && last[12] == 198 && last[15] == 2 && last[19] == 1 && last[20] == 0 && last[21] == 53)) { printf("FAIL: v4 reply addressing\n"); return 5; }
   }
+  // e2e-real-3: several client sockets to the same dst:53 (each DNS query from a new source port, or a second
+  // QUIC flow to the same server:port) — every one must get its own session and its reply on its own port.
+  for (int k = 0; k < 3; k++) {
+    uint16_t sp = (uint16_t)(6000 + k);
+    uint8_t p[100] = {0x45, 0, 0, 37, 0, 0, 0x40, 0, 64, 17, 0, 0, 198, 18, 0, 1, 198, 18, 0, 2};
+    uint8_t *uu = p + 20; uu[0] = sp >> 8; uu[1] = sp & 0xff; uu[3] = 53; uu[5] = 17; memset(uu + 8, 0x42 + k, 9);
+    uint16_t c = csum(p, 20, 0); p[10] = c >> 8; p[11] = c;
+    c = csum(uu, 17, psum(p + 12, 4, p + 16, 17, 17)); uu[6] = c >> 8; uu[7] = c;
+    int before = udps; nc_input(p, 37);
+    if (udps != before + 1) { printf("FAIL: udp flow %d from port %u to :53 not delivered\n", k, sp); return 7; }
+    outs = 0; lastn = 0;
+    nc_udp_send(lastsess, (const uint8_t *)"zyxwvutsr", 9);
+    if (!(lastn == 37 && ((last[22] << 8) | last[23]) == sp && last[21] == 53)) { printf("FAIL: reply for flow %d not to port %u\n", k, sp); return 8; }
+  }
+  printf("multi-flow :53 ok\n");
   if (!(a4 == 1 && accepts == 2 && udps >= 2)) { printf("FAIL: accepts=%d udps=%d\n", accepts, udps); return 1; }
   if (st.v6_not_ours != 0 || st.syn_v6 != 1 || st.accepted != 2) { printf("FAIL: stats\n"); return 6; }
   printf("PASS\n");

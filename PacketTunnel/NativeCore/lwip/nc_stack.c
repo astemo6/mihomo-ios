@@ -397,6 +397,7 @@ static nc_udp_session *nc_ensure_udp_session(const ip_addr_t *src, u16_t src_por
   memset(s, 0, sizeof(*s));
   struct udp_pcb *pcb = udp_new_ip_type(dst->type);
   if (!pcb) return NULL;
+  ip_set_option(pcb, SOF_REUSEADDR);
   if (udp_bind(pcb, dst, dst_port) != ERR_OK) {
     udp_remove(pcb);
     return NULL;

@@ -51,6 +51,10 @@
 #define LWIP_IPV6 1
 #define LWIP_TCP 1
 #define LWIP_UDP 1
+/* e2e-real-3: one UDP pcb per client flow, all bound to the same local dst:port (198.18.0.2:53, a QUIC server:443).
+   Without SO_REUSE every bind after the first returns ERR_USE → only the first DNS socket ever got answers.
+   udp_input still picks the fully matching connected pcb first. */
+#define SO_REUSE 1
 #define LWIP_ICMP 1
 #define LWIP_ICMP6 1
 #define LWIP_RAW 1
