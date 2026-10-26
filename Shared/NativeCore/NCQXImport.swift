@@ -58,7 +58,13 @@ enum NCQXImport {
                 } else if action.hasPrefix("script-") || action.hasPrefix("request-") || action.hasPrefix("response-") {
                     let type = action.contains("response") ? "http-response" : "http-request"
                     let path = parts.count >= 4 ? parts[3] : ""
-                    cfg.scripts.append(NCScriptRule(name: "qx_script", type: type, pattern: pattern, scriptPath: path))
+                    var extra: [String: String] = [:]
+                    if path.lowercased().hasSuffix(".lua") {
+                        extra["engine"] = "lua"
+                        extra["status"] = "pending_s2"
+                        report.warnings.append("quantumultx rewrite: lua script '\(path)' recognized (S1 design, pending S2 implementation)")
+                    }
+                    cfg.scripts.append(NCScriptRule(name: "qx_script", type: type, pattern: pattern, scriptPath: path, extra: extra))
                 }
             }
         }
@@ -261,6 +267,13 @@ enum NCQXImport {
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "lua":
+            type = "lua"
+            if let f = take("file") ?? take("script-path") { fields["file"] = .string(f) }
+            if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            fields["lua-status"] = .string("pending_s2")
+            report.warnings.append("quantumultx [server_local]: lua proxy backend '\(name)' recognized (S1 design, pending S2 implementation)")
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.

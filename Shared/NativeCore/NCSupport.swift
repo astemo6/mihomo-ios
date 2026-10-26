@@ -16,6 +16,9 @@ enum NCSupport {
     static func unsupportedReason(_ p: NCProxy) -> String? {
         let t = p.type.lowercased()
         guard types.contains(t) else {
+            if t == "lua" {
+                return "Lua 自定义后端已识别 (待 S2 接入)"
+            }
             return "类型 \(t) 尚未接入"
         }
         if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {

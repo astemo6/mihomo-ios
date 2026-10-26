@@ -264,6 +264,7 @@ enum NCConfImport {
             type = "hysteria2"
             report.warnings.append("node '\(name)': hysteria v1 approximated as hysteria2")
         case "wireguard": type = "wireguard"
+        case "lua": type = "lua"
         case "direct": type = "direct"
         case "reject", "reject-tinygif": type = "reject"
         default:
@@ -323,6 +324,14 @@ enum NCConfImport {
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") { fields["sni"] = .string(s) }
+        case "lua":
+            // Shadowrocket Lua custom protocol backend:
+            // Node = lua, server, port, file=backend.lua, username=user, password=pass
+            if let f = take("file") ?? take("script-path") { fields["file"] = .string(f) }
+            if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            fields["lua-status"] = .string("pending_s2")
+            report.warnings.append("node '\(name)': lua proxy backend recognized (S1 design, pending S2 implementation)")
         case "http", "https", "socks5":
             // Surge spells credentials positionally after the port for these
             // types; the k=v form is accepted too.
@@ -772,6 +781,7 @@ enum NCConfImport {
                 var name = "script"
                 var path = ""
                 var reqBody = false
+                var extra: [String: String] = [:]
                 for t in tokens.dropFirst() {
                     if let eq = t.firstIndex(of: "=") {
                         let k = String(t[..<eq]).trimmingCharacters(in: .whitespaces).lowercased()
@@ -779,9 +789,15 @@ enum NCConfImport {
                         if k == "tag" || k == "name" { name = v }
                         else if k == "script-path" { path = v }
                         else if k == "requires-body" { reqBody = (boolValue(v) ?? false) }
+                        else { extra[k] = v }
                     }
                 }
-                cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody))
+                if path.lowercased().hasSuffix(".lua") || type.lowercased() == "lua" || extra["engine"]?.lowercased() == "lua" {
+                    extra["engine"] = "lua"
+                    extra["status"] = "pending_s2"
+                    cfg.report.warnings.append("script '\(name)': lua script recognized (S1 design, pending S2 implementation)")
+                }
+                cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody, extra: extra))
             } else if let eq = trimmed.firstIndex(of: "=") {
                 let name = String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces)
                 let params = String(trimmed[trimmed.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
@@ -790,6 +806,7 @@ enum NCConfImport {
                 var pattern = ""
                 var path = ""
                 var reqBody = false
+                var extra: [String: String] = [:]
                 for t in tokens {
                     if let peq = t.firstIndex(of: "=") {
                         let k = String(t[..<peq]).trimmingCharacters(in: .whitespaces).lowercased()
@@ -798,10 +815,16 @@ enum NCConfImport {
                         else if k == "pattern" { pattern = v }
                         else if k == "script-path" { path = v }
                         else if k == "requires-body" { reqBody = (boolValue(v) ?? (v == "1")) }
+                        else { extra[k] = v }
                     }
                 }
+                if path.lowercased().hasSuffix(".lua") || type.lowercased() == "lua" || extra["engine"]?.lowercased() == "lua" {
+                    extra["engine"] = "lua"
+                    extra["status"] = "pending_s2"
+                    cfg.report.warnings.append("script '\(name)': lua script recognized (S1 design, pending S2 implementation)")
+                }
                 if !pattern.isEmpty {
-                    cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody))
+                    cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody, extra: extra))
                 }
             }
         }
