@@ -69,6 +69,16 @@ final class CustomRulesStore: ObservableObject {
         orderChanged()
     }
 
+    /// fix/app-policy-ui #3: 分流规则 → 编辑排序 — the user's remote lists in this order (ids), each keeping the
+    /// slots the lists hold in `rules`; saved and the core reloaded (nil = done, else the reload error).
+    func setRemoteOrder(_ ids: [String]) async -> String? {
+        let next = RuleSetOrderPlan.reordered(rules, ids: ids)
+        guard next != rules else { return nil }
+        rules = next
+        orderChanged()
+        return await saveAndReload()
+    }
+
     func moveSubset(_ subset: [CustomRule], from: IndexSet, to: Int) {
         var list = subset
         list.move(fromOffsets: from, toOffset: to)
@@ -206,6 +216,7 @@ struct LocalRulesView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("本地规则")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if tab == 1 {
@@ -884,6 +895,7 @@ struct OfflineProviderDetail: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(p.name)
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
     }
 }
 

@@ -687,6 +687,8 @@ struct HomeAnalysisEditorSection: View {
 struct HomeQuickAddButton: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var vpn: VPNManager
+    /// fix/app-policy-ui #5b: the + sits in Home's bar now (a plain bar glyph like the other tabs' +), not floating.
+    var inBar = false
 
     enum Sheet: String, Identifiable {
         case subscription, scan, node, rule
@@ -711,13 +713,17 @@ struct HomeQuickAddButton: View {
             Button { ImportRouter.shared.pickFile() } label: { Label("导入配置", systemImage: "square.and.arrow.down") }
                 .accessibilityIdentifier("home.quickAdd.import")
         } label: {
-            Image(systemName: "plus")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Theme.onAccent)
-                .frame(width: 50, height: 50)
-                .background(Circle().fill(Theme.accent))
-                .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
-                .contentShape(Circle())
+            if inBar {
+                Image(systemName: "plus")
+            } else {
+                Image(systemName: "plus")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Theme.onAccent)
+                    .frame(width: 50, height: 50)
+                    .background(Circle().fill(Theme.accent))
+                    .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+                    .contentShape(Circle())
+            }
         }
         .menuOrder(.fixed) // 添加订阅 stays on top even though the menu opens upwards (Egern order)
         .accessibilityLabel(Text("快速添加"))

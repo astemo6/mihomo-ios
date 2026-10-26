@@ -412,6 +412,7 @@ struct GeoView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("地理数据库") // r7 P3-8: same name as the 高级设置 row
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("全部更新") { Task { await model.updateAll() } }

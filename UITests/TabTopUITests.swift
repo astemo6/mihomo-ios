@@ -1,5 +1,6 @@
 import XCTest
 
+/// fix/app-policy-ui #5b (user 2026-10-26): every tab root has its title in the bar row with its buttons.
 /// fix/tab-top-spacing (user 2026-10-22): the five tab roots share one compact top — no large titles (the tab bar
 /// names the page), one slim row right under the status bar (system inline bar with the trailing buttons on 策略 /
 /// 请求 / 工具 / 更多, the pinned Quantumult X-style exit header on 首页), same gap on every tab. Home's header stays put
@@ -13,16 +14,38 @@ extension MihomoUITests {
         XCTAssertEqual(app.tabBars.buttons.count, 5, "five tabs")
         let names = ["home", "policy", "requests", "tools", "more"]
         let titles = ["首页", "策略", "请求", "工具", "更多"]
-        var tops: [String: CGFloat] = [:]     // top of the first row under the status bar
+        var tops: [String: CGFloat] = [:]       // top of the bar row under the status bar
         var barHeights: [String: CGFloat] = [:]
+        var titleMid: [String: CGFloat] = [:]   // vertical centre of the drawn title
+        var titleLeft: [String: CGFloat] = [:]
+        var buttonMid: [String: CGFloat] = [:]  // vertical centre of the first trailing button
 
-        // 首页: pinned header.
+        // fix/app-policy-ui #5b (user 2026-10-26): every tab root, 首页 included, shows its title IN the bar row,
+        // leading, on the same line as its trailing buttons — no separate large-title row.
+        func measure(_ i: Int) {
+            let bar = app.navigationBars[L(titles[i])]
+            _ = bar.waitForExistence(timeout: 8)
+            guard bar.exists else { return }
+            tops[names[i]] = bar.frame.minY
+            barHeights[names[i]] = bar.frame.height
+            // The drawn title is the leading item (id tabroot.title); the bar also keeps the navigation title as a
+            // zero-size centred text (VoiceOver / back button), so match by identifier, not by label.
+            let drawn = bar.descendants(matching: .any).matching(identifier: "tabroot.title").firstMatch
+            let t: XCUIElement? = drawn.exists ? drawn : bar.staticTexts.matching(NSPredicate(format: "label == %@", L(titles[i])))
+                .allElementsBoundByIndex.first { $0.exists && $0.frame.width > 1 }
+            if let t, t.exists { titleMid[names[i]] = t.frame.midY; titleLeft[names[i]] = t.frame.minX }
+            let buttons = bar.buttons.allElementsBoundByIndex.filter { $0.exists && $0.frame.minX > bar.frame.midX }
+            if let b = buttons.first { buttonMid[names[i]] = b.frame.midY }
+        }
+
+        // 首页: bar row + the pinned exit header under it.
         let place = app.element(id: "home.exit.place")
         _ = place.waitForExistence(timeout: 8)
+        measure(0)
         snap("tabtop-0-home")
-        if place.exists { tops["home"] = place.frame.minY }
         let powerShown = app.element(id: "home.power").exists
         let placeTop = place.exists ? place.frame.minY : -1
+        let homeBarBottom = (tops["home"] ?? 0) + (barHeights["home"] ?? 0)
         for _ in 0..<2 { app.swipeUp(velocity: .slow) }
         usleep(500_000)
         snap("tabtop-0-home-scrolled")
@@ -31,10 +54,8 @@ extension MihomoUITests {
         for i in 1..<5 {
             tab(i)
             usleep(700_000)
-            let bar = app.navigationBars[L(titles[i])]
-            _ = bar.waitForExistence(timeout: 8)
+            measure(i)
             snap("tabtop-\(i)-\(names[i])")
-            if bar.exists { tops[names[i]] = bar.frame.minY; barHeights[names[i]] = bar.frame.height }
             for _ in 0..<2 { app.swipeUp(velocity: .slow) }
             usleep(500_000)
             snap("tabtop-\(i)-\(names[i])-scrolled")
@@ -42,13 +63,12 @@ extension MihomoUITests {
             usleep(300_000)
         }
 
-        // Large Dynamic Type: header still pinned and readable, bars still slim.
+        // Large Dynamic Type: header still pinned and readable.
         app.terminate()
         launch(["-UITestDemoAnalytics", "-UITestDemoConnections", "-UITestDemoExitIP",
                 "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"])
         _ = app.element(id: "home.exit.place").waitForExistence(timeout: 8)
         snap("tabtop-0-home-xl")
-        // Long enough to scroll at this size: the header stays, cards pass under its material + hairline.
         let xlTop = app.element(id: "home.exit.place").frame.minY
         for _ in 0..<2 { app.swipeUp(velocity: .slow) }
         usleep(500_000)
@@ -58,23 +78,34 @@ extension MihomoUITests {
         usleep(700_000)
         snap("tabtop-2-requests-xl")
 
-        // Checks after all screenshots (the same test also documents the old layout).
-        XCTAssertTrue(place.exists || tops["home"] != nil, "pinned exit header on 首页")
+        // Checks after all screenshots.
+        XCTAssertTrue(place.exists || placeTop >= 0, "pinned exit header on 首页")
         XCTAssertTrue(powerShown, "VPN switch in the header")
         XCTAssertEqual(xlTop, xlTopScrolled, accuracy: 1, "Home header does not scroll away (large text)")
         XCTAssertEqual(placeTop, placeTopScrolled, accuracy: 1, "Home header does not scroll away")
-        for n in ["policy", "requests", "tools", "more"] {
-            XCTAssertNotNil(barHeights[n], "\(n): navigation bar")
-            // User 2026-10-22 「现在这样太空了」: tab roots show a large title again (44 pt row + ~52 pt title);
-            // 请求 and 更多 also carry a search drawer (~52 pt) under it.
-            let floor: CGFloat = (n == "requests" || n == "more") ? 130 : 80
-            if let h = barHeights[n] { XCTAssertGreaterThan(h, floor, "\(n): large title (bar \(h) pt)") }
+        XCTAssertGreaterThanOrEqual(placeTop, homeBarBottom - 2, "exit header sits under Home's bar row")
+        XCTAssertEqual(tops.count, 5, "bar measured on all five tabs: \(tops)")
+        if let lo = tops.values.min(), let hi = tops.values.max() {
+            XCTAssertLessThanOrEqual(hi - lo, 2, "same bar top on every tab: \(tops)")
         }
-        // 首页 has its own pinned exit header above the bold 首页 title; the other four tabs share one top.
-        let values = tops.filter { $0.key != "home" }.values
-        if let lo = values.min(), let hi = values.max() {
-            XCTAssertLessThanOrEqual(hi - lo, 12, "same top on the four bar tabs: \(tops)")
+        // 请求 / 更多 carry a search drawer inside their bar; compare the bar row on the other three, and the title
+        // position on all five.
+        let rows = barHeights.filter { $0.key != "requests" && $0.key != "more" }.values
+        if let lo = rows.min(), let hi = rows.max() {
+            XCTAssertLessThanOrEqual(hi - lo, 2, "same bar row height on 首页 / 策略 / 工具: \(barHeights)")
+            XCTAssertLessThan(hi, 80, "no separate large-title row: \(barHeights)")
         }
-        XCTAssertEqual(tops.count, 5, "top measured on all five tabs: \(tops)")
+        XCTAssertEqual(titleMid.count, 5, "title drawn in the bar on all five tabs: \(titleMid)")
+        if let lo = titleMid.values.min(), let hi = titleMid.values.max() {
+            XCTAssertLessThanOrEqual(hi - lo, 2, "titles on one line across tabs: \(titleMid)")
+        }
+        if let lo = titleLeft.values.min(), let hi = titleLeft.values.max() {
+            XCTAssertLessThanOrEqual(hi - lo, 2, "titles leading-aligned across tabs: \(titleLeft)")
+            XCTAssertLessThan(hi, 40, "title is leading, not centred: \(titleLeft)")
+        }
+        for (k, m) in buttonMid {
+            if let t = titleMid[k] { XCTAssertEqual(t, m, accuracy: 8, "\(k): title on the same row as its buttons") }
+        }
+        XCTAssertNotNil(buttonMid["home"], "首页 has a trailing button (+) in its bar")
     }
 }

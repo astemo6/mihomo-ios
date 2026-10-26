@@ -210,7 +210,7 @@ struct HomePanelsSection: View {
 
     var body: some View {
         let items = home.visibleIDs.compactMap { home.item($0, connected: vpn.isConnected) }
-        let rows = HomeRow.rows(home.visibleIDs) { home.item($0, connected: vpn.isConnected) }
+        let rows = HomeRow.rows(home.visibleIDs, panel: { home.item($0, connected: vpn.isConnected) }, half: { overrides.isHalf($0) })
         VStack(spacing: 10) {
             if !model.pinned.isEmpty {
                 HStack {
@@ -226,23 +226,12 @@ struct HomePanelsSection: View {
             }
             ForEach(rows) { row in
                 switch row {
-                case .panel(let e):
-                    PanelCard(p: e.item, refreshing: e.live && (model.refreshing.contains(e.item.id) || e.item.running), offline: !e.live,
-                              refreshFailure: e.live ? model.failure(for: e.item) : nil) {
-                        Task { await model.refresh(e.item) }
-                    }
-                    .contextMenu {
-                        Button { home.setHidden(e.item.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
-                        Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
-                        PanelEditButton { editPanel = e.item }
-                        Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("取消固定", systemImage: "pin.slash") }
-                    }
-                case .wide(let t):
-                    tile(t)
+                case .single(let c):
+                    cell(c)
                 case .pair(let a, let b):
                     HStack(alignment: .top, spacing: 12) {
-                        tile(a)
-                        if let b { tile(b) } else { Color.clear.frame(maxWidth: .infinity) }
+                        cell(a)
+                        if let b { cell(b) } else { Color.clear.frame(maxWidth: .infinity) }
                     }
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -294,13 +283,48 @@ struct HomePanelsSection: View {
 }
 
 extension HomePanelsSection {
+    @ViewBuilder
+    func cell(_ c: HomeCell) -> some View {
+        switch c {
+        case .panel(let e):
+            PanelCard(p: e.item, refreshing: e.live && (model.refreshing.contains(e.item.id) || e.item.running), offline: !e.live,
+                      refreshFailure: e.live ? model.failure(for: e.item) : nil) {
+                Task { await model.refresh(e.item) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .contextMenu {
+                arrangeItems(e.item.id)
+                Button { home.setHidden(e.item.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
+                Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                PanelEditButton { editPanel = e.item }
+                Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("取消固定", systemImage: "pin.slash") }
+            }
+        case .tile(let t):
+            tile(t)
+        }
+    }
+
     func tile(_ t: BuiltinTile) -> some View {
         BuiltinTileView(tile: t)
             .contextMenu {
+                arrangeItems(t.id)
                 Button { home.setHidden(t.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
                 Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
                 Button(role: .destructive) { home.unpin(t.id) } label: { Label("取消固定", systemImage: "pin.slash") }
             }
+    }
+
+    /// fix/app-policy-ui #6 / #6a (user 2026-10-26 21:30 / 21:33): long-press on Home → 编辑排序 (the editor's drag /
+    /// 上移下移 list — kept, this is one more way in) and 半宽 / 全宽 (two half-width cards share a row).
+    @ViewBuilder
+    func arrangeItems(_ id: String) -> some View {
+        Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑排序", systemImage: "line.3.horizontal") }
+        if overrides.isHalf(id) {
+            Button { withAnimation { overrides.setHalf(false, for: id) } } label: { Label("全宽显示", systemImage: "rectangle") }
+        } else {
+            Button { withAnimation { overrides.setHalf(true, for: id) } } label: { Label("半宽显示", systemImage: "rectangle.split.2x1") }
+        }
+        Divider()
     }
 }
 
@@ -311,6 +335,7 @@ struct HomePanelsEditor: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var model = PanelsModel.shared
     @ObservedObject var home = HomePanelStore.shared
+    @ObservedObject var overrides = PanelOverrideStore.shared
 
     static var intervals: [(Int, LocalizedStringKey)] { [(0, "打开首页时"), (300, "每 5 分钟"), (900, "每 15 分钟"), (1800, "每 30 分钟"), (3600, "每小时")] }
     /// v0.19.8: the list is always in edit mode (drag handles), which disables NavigationLink rows (device report:
@@ -331,7 +356,7 @@ struct HomePanelsEditor: View {
                 } header: {
                     Text("首页面板")
                 } footer: {
-                    Text("拖动调整顺序。关闭开关的面板保留固定，但不在首页显示，也不会在后台刷新。")
+                    Text("拖动或用右侧菜单调整顺序、切换半宽（两张半宽卡片并排）。关闭开关的面板保留固定，但不在首页显示，也不会在后台刷新。在首页长按卡片也可以编辑排序。")
                         .modifier(UITestOrderValue(id: "homepanels.order", order: home.orderToken))
                 }
                 .listRowBackground(Theme.card)
@@ -417,7 +442,12 @@ struct HomePanelsEditor: View {
                     .accessibilityIdentifier("homepanels.row.\(t.rawValue)")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: t.title).font(.subheadline).lineLimit(1)
-                    Text("内置卡片").font(.caption2).foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text("内置卡片")
+                        if overrides.isHalf(id) { Text(verbatim: "·"); Text("半宽") }
+                    }
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("homepanels.width.\(t.rawValue)")
                 }
                 Spacer(minLength: 6)
                 moveMenu(id, tag: t.rawValue)
@@ -439,7 +469,10 @@ struct HomePanelsEditor: View {
                 .foregroundStyle(Color(hex: shown?.iconColor) ?? Theme.accent)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(home.name(id) ?? String(localized: "不可用的面板")).font(.subheadline).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(home.name(id) ?? String(localized: "不可用的面板")).font(.subheadline).lineLimit(1)
+                    if overrides.isHalf(id) { Text("半宽").font(.caption2).foregroundStyle(.secondary) }
+                }
                 if let task {
                     Menu {
                         ForEach(Self.intervals.indices, id: \.self) { i in
@@ -480,6 +513,15 @@ struct HomePanelsEditor: View {
             Button { withAnimation { home.step(id, by: 1) } } label: { Label("下移", systemImage: "arrow.down") }
                 .disabled(!home.canMove(id, by: 1))
                 .accessibilityIdentifier("homepanels.down.\(tag)")
+            Divider()
+            // fix/app-policy-ui #6: the card's width on Home.
+            if PanelOverrideStore.shared.isHalf(id) {
+                Button { withAnimation { PanelOverrideStore.shared.setHalf(false, for: id) } } label: { Label("全宽显示", systemImage: "rectangle") }
+                    .accessibilityIdentifier("homepanels.full.\(tag)")
+            } else {
+                Button { withAnimation { PanelOverrideStore.shared.setHalf(true, for: id) } } label: { Label("半宽显示", systemImage: "rectangle.split.2x1") }
+                    .accessibilityIdentifier("homepanels.half.\(tag)")
+            }
         } label: {
             Image(systemName: "arrow.up.arrow.down.circle")
                 .font(.body)

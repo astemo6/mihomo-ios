@@ -283,6 +283,7 @@ struct ToolsView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("网络诊断") // ui-audit: same name as the 工具 card
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
     }
 
     func field(_ title: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {

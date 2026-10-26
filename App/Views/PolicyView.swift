@@ -154,11 +154,18 @@ final class PolicyModel: ObservableObject {
         // hotfix/group-test-offline: say so instead of a tap that does nothing (a group of only DIRECT / REJECT).
         guard !members.isEmpty else { notice = String(localized: "「\(group.name)」里没有可测速的节点"); return }
         var failure: String?
+        // fix/app-policy-ui #2: each member's result is shown as it lands (batched ~120 ms); the previous result
+        // stays until then. v0.15.2: still bounded (DelayStream.groupWidth at a time), never /group/delay.
+        let buffer = DelayStreamBuffer { [weak self] got in self?.liveDelays.merge(got) { _, new in new } }
         do {
-            // v0.15.2: bounded concurrency (10 at a time) instead of /group/delay firing every member at once.
-            let got = try await ControllerClient.shared.membersDelay(members)
-            for m in members { liveDelays[m] = got[m] ?? 0 }
+            let got = try await ControllerClient.shared.membersDelay(members, limit: DelayStream.groupWidth,
+                                                                     onResult: { n, ms in await buffer.add(n, ms) })
+            buffer.drain()
+            var all = liveDelays
+            for m in members { all[m] = got[m] ?? 0 }
+            if all != liveDelays { liveDelays = all }
         } catch {
+            buffer.drain()
             // The controller itself did not answer: say so instead of marking every node as timed out.
             failure = String(localized: "测速失败：\(error.localizedDescription)")
         }
@@ -508,7 +515,8 @@ struct PolicyView: View {
                 } else if vpn.isConnected { liveList } else { offlineList }
             }
             .background(Theme.bg.ignoresSafeArea())
-            .tabRootChrome(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"))
+            // fix/app-policy-ui #5b: 编辑排序 keeps the centred title (取消 takes the leading slot).
+            .tabRootChrome(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"), showsTitle: !reorderMode)
             .toolbar {
               if reorderMode {
                 ToolbarItem(placement: .cancellationAction) {
@@ -847,14 +855,18 @@ struct PolicyGroupCard: View {
     }
 
     var body: some View {
-        // feat/egern-style: one compact row per group (28 pt icon, 15 pt name, chain subtitle); tap expands.
+        // fix/app-policy-ui #1 / #4 (user 2026-10-26, IMG_3620/3621): the header row mirrors a 分流规则 订阅 row
+        // (SubscriptionRow) — 32 pt icon, 12 pt to the text, name (+ tags) over two caption lines, 11 pt list-row
+        // padding — so a collapsed group is exactly as tall as a rule row at every text size. The three buttons on
+        // the right (设置 / 测速 / 展开, mis-taps) became one: 测速 with a 44 pt target; a tap anywhere else on the row
+        // expands / collapses; 编辑策略组 is in the long-press menu and inside the expanded section (Surge / Egern).
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: 28)
+            HStack(spacing: PolicyRowMetrics.iconTextSpacing) {
+                GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: PolicyRowMetrics.iconSize)
                     .accessibilityIdentifier("policy.icon." + group.name)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(group.name).font(.subheadline).lineLimit(1)
+                VStack(alignment: .leading, spacing: PolicyRowMetrics.lineSpacing) {
+                    HStack(spacing: 4) {
+                        Text(group.name).font(.subheadline.weight(.semibold)).lineLimit(1)
                             .accessibilityIdentifier("policy.card." + group.name)
                         Text(group.label)
                             .scaledFont(9, weight: .semibold) // r7 P3-4: follows Dynamic Type like the other badges
@@ -870,7 +882,8 @@ struct PolicyGroupCard: View {
                             Label("已固定", systemImage: "pin.fill")
                                 .labelStyle(.titleAndIcon)
                                 .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .lineLimit(1)
                                 .background(Capsule().fill(Theme.warn.opacity(0.18)))
                                 .foregroundStyle(Theme.warn)
                         }
@@ -878,55 +891,61 @@ struct PolicyGroupCard: View {
                             Label("智能", systemImage: "sparkles")
                                 .labelStyle(.titleAndIcon)
                                 .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .lineLimit(1)
                                 .background(Capsule().fill(Theme.accent.opacity(0.18)))
                                 .foregroundStyle(Theme.accent)
                         }
                     }
+                    // Line 2 (= a rule row's link line): the path down to the node.
                     HStack(spacing: 6) {
                       if let chain {
                         // feat/policy-chain: 「日本节点 › 🇯🇵 东京 AZ JP01」; a long path gives way in the middle so the
                         // group's own pick and the final node both stay readable.
-                        // feat/egern-style: middle hops shorten first, the final node keeps its room (phone width).
-                        ChainLine(hops: PolicyChainText.parts(chain), label: PolicyChainText.text(chain))
+                        ChainLine(hops: PolicyChainText.parts(chain), font: .caption, label: PolicyChainText.text(chain))
                             .accessibilityIdentifier("policy.chain." + group.name)
                       } else {
-                        Text(verbatim: FlagSafe.text(group.now ?? "—")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        Text(verbatim: FlagSafe.text(group.now ?? "—")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                       }
                         if chain == nil, let n = group.now, let r = resolved?(n), r.node != n {
-                            Text(verbatim: Self.resolutionText(r)).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(verbatim: Self.resolutionText(r)).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
                                 .accessibilityIdentifier("policy.via." + group.name)
                         }
+                    }
+                    // Line 3 (= a rule row's status line): delay of the current pick · member count.
+                    HStack(spacing: 4) {
                         if let n = group.now, let d = delay(n) {
                             Text(Theme.delayText(d))
-                                .font(.caption2.monospacedDigit())
+                                .font(.caption.monospacedDigit())
                                 .foregroundStyle(Theme.delayColor(d))
+                                .accessibilityIdentifier("policy.delay." + group.name)
+                            Text(verbatim: "·").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        Text("\(group.members.count) 个成员").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .lineLimit(1)
+                }
+                Spacer(minLength: 12)
+                Button(action: onTest) {
+                    Group {
+                        if testing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "speedometer").font(.body).foregroundStyle(.secondary)
                         }
                     }
-                }
-                Spacer()
-                if let onEdit {
-                    Button(action: onEdit) { Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary) }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text("编辑策略组"))
-                }
-                Button(action: onTest) {
-                    if testing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "speedometer").foregroundStyle(.secondary)
-                    }
+                    .frame(width: PolicyRowMetrics.testTarget, height: PolicyRowMetrics.testTarget)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .padding(.trailing, -8) // the 44 pt target reaches into the card padding, the glyph stays aligned
                 .accessibilityLabel(Text("测速"))
                 .accessibilityIdentifier("policy.test." + group.name)
-                Image(systemName: "chevron.down")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(expanded ? 180 : 0))
             }
+            .padding(.vertical, PolicyRowMetrics.verticalPadding)
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.spring(response: 0.3)) { expanded.toggle() } }
+            .accessibilityAction(named: expanded ? Text("收起") : Text("展开")) { withAnimation(.spring(response: 0.3)) { expanded.toggle() } }
             // hotfix/group-longpress (device 2026-10-21 「长按策略组无法编辑」): the menu sat on the 34 pt icon only,
             // while the header's .onDrag (direct reorder) owned a long-press anywhere else, so it lifted the card
             // and showed nothing. The menu now covers the whole header; the drag still starts by moving the
@@ -959,6 +978,21 @@ struct PolicyGroupCard: View {
                 } else if !group.selectable && smart?.wrappedValue != true {
                     Text(onPin != nil ? String(localized: "\(group.hint)。轻点节点可临时固定，自动选择暂停，直到解除固定。") : group.hint)
                         .font(.caption2).foregroundStyle(.secondary)
+                }
+                if let onEdit {
+                    // fix/app-policy-ui #1: the header's 设置 button moved here (and stays in the long-press menu).
+                    Button(action: onEdit) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary)
+                            Text("编辑策略组").font(.subheadline)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cardHi))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("policy.edit." + group.name)
                 }
                 if let onChain {
                     Button(action: onChain) {
@@ -1029,9 +1063,23 @@ struct PolicyGroupCard: View {
                 }
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.bottom, expanded ? 12 : 0)
         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("policy.group." + group.name)
     }
+}
+
+/// fix/app-policy-ui #4: the 策略 group row uses the metrics of a 分流规则 订阅 row (SubscriptionRow in an inset
+/// List): 32 pt icon (SourceIcon), 12 pt icon–text spacing, 2 pt between lines, 11 pt vertical list-row padding.
+enum PolicyRowMetrics {
+    static let iconSize: CGFloat = 32
+    static let iconTextSpacing: CGFloat = 12
+    static let lineSpacing: CGFloat = 2
+    static let verticalPadding: CGFloat = 11
+    /// The 测速 button's hit target (Apple HIG minimum).
+    static let testTarget: CGFloat = 44
 }
 
 struct NodeCell: View {

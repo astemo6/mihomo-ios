@@ -65,6 +65,7 @@ struct SelfCheckView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("一键自检")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .sheet(item: $share) { ActivityView(items: [$0.url]) }
     }
 

@@ -283,24 +283,17 @@ final class ProfileInspector: ObservableObject {
         let iface = await PhysicalInterface.current() ?? ""
         NCDelayTester.setOfflineInterface(iface)
         let tcp = ControllerClient.tcpHandshake
-        var idx = 0
-        while idx < names.count {
-            let batch = Array(names[idx..<min(idx + 6, names.count)])
-            idx += batch.count
-            let got = await withTaskGroup(of: (String, Int).self, returning: [(String, Int)].self) { tg in
-                for n in batch {
-                    let u = NodeSettingsStore.customURL(for: n) ?? url
-                    tg.addTask { (n, Int(await BlockingWork.run {
-                        tcp ? NCDelayTester.tcpDelayByName(homeDir: home, profilePath: path, name: n, url: u, timeoutMs: timeout)
-                            : NCDelayTester.testDelayByName(homeDir: home, profilePath: path, name: n, url: u, timeoutMs: timeout)
-                    })) }
-                }
-                var out: [(String, Int)] = []
-                for await r in tg { out.append(r) }
-                return out
-            }
-            for (n, ms) in got { delays[n] = ms }
-        }
+        // fix/app-policy-ui #2: sliding window (was batches of 6 that each waited for their slowest node) and every
+        // result on screen as it lands (batched ~120 ms); a node keeps its previous result until then.
+        let buffer = DelayStreamBuffer { [weak self] got in self?.delays.merge(got) { _, new in new } }
+        await DelayStream.run(names, width: 6, run: { n -> (String, Int) in
+            let u = NodeSettingsStore.customURL(for: n) ?? url
+            return (n, Int(await BlockingWork.run {
+                tcp ? NCDelayTester.tcpDelayByName(homeDir: home, profilePath: path, name: n, url: u, timeoutMs: timeout)
+                    : NCDelayTester.testDelayByName(homeDir: home, profilePath: path, name: n, url: u, timeoutMs: timeout)
+            }))
+        }, onResult: { r in await buffer.add(r.0, r.1) })
+        buffer.drain()
     }
 
     /// Saves the live selection too, so the offline view and the next connect agree with it.

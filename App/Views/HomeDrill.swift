@@ -162,6 +162,7 @@ struct ConnectionsListView: View {
         .background(Theme.bg.ignoresSafeArea())
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索主机、规则、策略")
         .navigationTitle(Text(verbatim: title))
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !ConnectionFeedSource.demo {
@@ -386,6 +387,7 @@ struct PolicyTrafficView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("策略")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .task {
             // A leaf page: copies the session numbers every 2 s while it is on screen (no store observed).
             while !Task.isCancelled {
@@ -611,6 +613,7 @@ struct NetworkView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("网络")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear { onScreen = true; start() }
         .onDisappear { onScreen = false; model.stop() }
         .onChange(of: scenePhase) { p in if p == .active { if onScreen { start() } } else { model.stop() } }
@@ -975,6 +978,7 @@ struct ExitInfoDetailView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("出口 IP")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
     }
 
     @ViewBuilder func section(title: LocalizedStringKey, info: IPInfo?, id: String) -> some View {

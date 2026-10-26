@@ -37,6 +37,7 @@ struct TunnelSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("隧道")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear {
             debounce.flush()
             o = CoreOverrides.load()

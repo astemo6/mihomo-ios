@@ -304,6 +304,7 @@ struct NodeFilterView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("筛选节点")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onReceive(NodeManagerModel.shared.$nodes.removeDuplicates()) { if $0 != nodes { nodes = $0 } }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
