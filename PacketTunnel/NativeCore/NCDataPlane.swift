@@ -138,6 +138,9 @@ final class NCDataPlane {
     private(set) var totalProxyDown: Int64 = 0
     /// Lock-protected mirror of live state for the controller (other queues).
     let stats = NCDataPlaneStats()
+    /// fix/nc-script-stats: script-issued outbound ($httpClient) counts here; refreshStats folds it
+    /// into the stats mirror. NativeTunnelCore hands this same instance to NativeScriptHost.
+    let scriptTraffic = NCScriptTrafficLedger()
     private(set) var isRunning = false
 
     // rv2-life (#10) back-pressure / memory caps. lwIP's own send buffer per connection is TCP_SND_BUF (16 × 1460 =
@@ -994,6 +997,9 @@ final class NCDataPlane {
         }
         stats.update(connections: conns, up: totalUp, down: totalDown,
                      proxyUp: totalProxyUp, proxyDown: totalProxyDown)
+        // fix/nc-script-stats: fold the script ledger in on the same tick cadence.
+        let sc = scriptTraffic.snapshot()
+        stats.updateScript(connections: sc.connections, up: sc.up, down: sc.down)
         // fix/nc-e2e-gaps: /app/stats — per-policy / per-host growth since the last tick, and one speed point
         // (TUN + local mixed proxy totals).
         var batch: [(policy: String, host: String, up: Int64, down: Int64)] = []
@@ -1628,13 +1634,26 @@ final class NCDataPlaneStats {
         lock.unlock()
     }
 
+    /// fix/nc-script-stats: the script ledger's mirror (written by the data plane's refresh tick);
+    /// snapshot() reports TUN + local proxy + script. Script bytes carry no proxy split (the ledger
+    /// does not know the chain a script request resolved to), so proxyUp / proxyDown are untouched.
+    private var script: (connections: [[String: Any]], up: Int64, down: Int64) = ([], 0, 0)
+
+    func updateScript(connections: [[String: Any]], up: Int64, down: Int64) {
+        lock.lock()
+        script = (connections, up, down)
+        lock.unlock()
+    }
+
     func snapshot() -> (connections: [[String: Any]], up: Int64, down: Int64, proxyUp: Int64, proxyDown: Int64) {
         lock.lock()
         defer { lock.unlock() }
-        if local.connections.isEmpty && local.up == 0 && local.down == 0 {
+        if local.connections.isEmpty && local.up == 0 && local.down == 0
+            && script.connections.isEmpty && script.up == 0 && script.down == 0 {
             return (connections, up, down, proxyUp, proxyDown)
         }
-        return (connections + local.connections, up + local.up, down + local.down,
+        return (connections + local.connections + script.connections,
+                up + local.up + script.up, down + local.down + script.down,
                 proxyUp + local.proxyUp, proxyDown + local.proxyDown)
     }
 }

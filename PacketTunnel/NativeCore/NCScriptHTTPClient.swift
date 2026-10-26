@@ -32,6 +32,10 @@ enum NCScriptHTTPClient {
         var policy: String?
         /// script option `insecure`: do not verify the origin certificate
         var insecure = false
+        /// fix/nc-script-stats: traffic ledger this request's connections count into (nil: uncounted);
+        /// `trafficSource` is the connections-list chain label, "script:<name>".
+        var traffic: NCScriptTrafficLedger? = nil
+        var trafficSource: String = "script"
     }
 
     struct Response {
@@ -146,6 +150,10 @@ enum NCScriptHTTPClient {
         connected = true
         defer { lease.release(reusable: false) }
         let stream = lease.stream
+        // fix/nc-script-stats: one ledger entry per real connection (each redirect hop re-enters
+        // exchange and counts its own); end fires exactly once via defer on every exit path.
+        let trafficID = req.traffic?.begin(source: req.trafficSource, host: host, port: port)
+        defer { if let trafficID { req.traffic?.end(trafficID) } }
 
         // request
         let head = requestHead(req, host: host, port: port, tls: tls)
@@ -158,6 +166,7 @@ enum NCScriptHTTPClient {
         case .some(.some(let e)): return .failure(.io("write: \(e)"))
         case .some(.none): break
         }
+        if let trafficID { req.traffic?.add(trafficID, up: out.count, down: 0) }
 
         // response
         var parser = HTTP1ResponseParser(method: req.method, bodyLimit: bodyLimit, headLimit: headLimit)
@@ -170,6 +179,8 @@ enum NCScriptHTTPClient {
             if let err { return .failure(.io("read: \(err)")) }
             if let d, !d.isEmpty {
                 downBytes += Int64(d.count)
+                // fix/nc-script-stats: wire bytes as read (before any content decoding), the data plane's own convention
+                if let trafficID { req.traffic?.add(trafficID, up: 0, down: d.count) }
                 if let f = parser.feed(d) { return .failure(f) }
             }
             if eof || (d?.isEmpty ?? true) {

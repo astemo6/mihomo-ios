@@ -140,6 +140,8 @@ final class NativeTunnelCore {
         lock.unlock()
         syncProbeListeners(engine, taken: [mixedPort, controllerPort])
         NativeCoreEngine.active = engine
+        // fix/nc-script-stats: script $httpClient traffic counts into this plane's stats mirror.
+        NativeScriptHost.shared.scriptTraffic = plane.scriptTraffic
         // fix/nc-start-empty: logs (once per queue) when the lwIP / controller queue stops running blocks.
         watchdog?.stop()
         var watched: [(String, DispatchQueue)] = [("lwIP data plane (nc.dataplane)", plane.queue)]
@@ -251,6 +253,7 @@ final class NativeTunnelCore {
         p?.stop()
         e?.stop()
         NativeCoreEngine.active = nil
+        NativeScriptHost.shared.scriptTraffic = nil
         NativeTaskRunner.shared.stop()
         // nc-lifecycle: drain the process-wide state no single core instance
         // owns. The shared protocol-session registries, the DNS upstream
