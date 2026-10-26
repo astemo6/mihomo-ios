@@ -294,7 +294,8 @@ final class NativeCoreRSACATests: XCTestCase {
     /// A self-signed RSA root like QuanX's: v3, BasicConstraints CA (critical), KeyUsage certSign|cRLSign (critical), SKI.
     private func makeRSACA(bits: Int, cn: String = "QuanX MitM Test CA") throws -> (cert: SecCertificate, der: Data, key: SecKey, ski: Data) {
         var err: Unmanaged<CFError>?
-        guard let key = SecKeyCreateRandomKey([kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: bits] as CFDictionary, &err),
+        let keyAttrs: [CFString: Any] = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: NSNumber(value: bits)]
+        guard let key = SecKeyCreateRandomKey(keyAttrs as CFDictionary, &err),
               let pub = SecKeyCopyPublicKey(key),
               let pkcs1Pub = SecKeyCopyExternalRepresentation(pub, &err) as Data? else {
             throw XCTSkip("RSA \(bits) key generation failed: \(String(describing: err?.takeRetainedValue()))")
@@ -366,10 +367,14 @@ final class NativeCoreRSACATests: XCTestCase {
         let leaf = try XCTUnwrap(SecCertificateCreateWithData(nil, leafDER as CFData), "leaf DER rejected by Security")
         let ca = try XCTUnwrap(SecCertificateCreateWithData(nil, caDER as CFData))
         var trust: SecTrust?
-        XCTAssertEqual(SecTrustCreateWithCertificates([leaf, ca] as CFArray, SecPolicyCreateSSL(true, host as CFString), &trust), errSecSuccess)
+        let policy = SecPolicyCreateSSL(true, host as CFString)
+        let created = SecTrustCreateWithCertificates([leaf, ca] as CFArray, policy, &trust)
+        XCTAssertEqual(created, errSecSuccess)
         let tr = try XCTUnwrap(trust)
-        XCTAssertEqual(SecTrustSetAnchorCertificates(tr, [ca] as CFArray), errSecSuccess)
-        XCTAssertEqual(SecTrustSetAnchorCertificatesOnly(tr, true), errSecSuccess)
+        let anchored = SecTrustSetAnchorCertificates(tr, [ca] as CFArray)
+        XCTAssertEqual(anchored, errSecSuccess)
+        let only = SecTrustSetAnchorCertificatesOnly(tr, true)
+        XCTAssertEqual(only, errSecSuccess)
         var cfErr: CFError?
         let ok = SecTrustEvaluateWithError(tr, &cfErr)
         return (ok, cfErr.map { String(describing: $0) } ?? "")
