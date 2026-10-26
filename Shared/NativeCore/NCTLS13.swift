@@ -543,9 +543,13 @@ extension NCTLS13 {
             protocols.append(UInt8(name.count))
             protocols.append(contentsOf: name)
         }
-        alpnData.appendBE16(UInt16(protocols.count))
-        alpnData.append(protocols)
-        ext(16, alpnData)
+        // An empty ALPN list is illegal on the wire (RFC 7301 §3.1): no protocols → no extension
+        // (nc-tls-parity: vmess/vless over plain tcp offer none, like mihomo / the system TLS path).
+        if !protocols.isEmpty {
+            alpnData.appendBE16(UInt16(protocols.count))
+            alpnData.append(protocols)
+            ext(16, alpnData)
+        }
         if let cookie, !cookie.isEmpty {
             ext(extensionCookie, cookie)
         }
@@ -825,9 +829,8 @@ extension NCTLS13 {
     ) -> Data? {
         guard hrrECHPayload.count == 8 else { return nil }
         let range: Range<Data.Index>
+        // Review #152 item 6: only the parsed extension offset — a byte search could hit random/cookie first.
         if let found = locateECHExtensionPayload(inHRR: hrrMessage) {
-            range = found
-        } else if let found = hrrMessage.range(of: hrrECHPayload) {
             range = found
         } else {
             return nil

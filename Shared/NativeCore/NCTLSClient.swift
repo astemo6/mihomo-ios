@@ -37,8 +37,6 @@ final class NCTLSClientStream: NCRelayStream {
         /// RFC 9849: Raw ECHConfigList bytes to offer Encrypted Client Hello.
         /// When nil or empty, ECH is disabled and standard TLS handshake is used.
         var echConfigList: Data? = nil
-        /// Optional public name override for ClientHelloOuter SNI (defaults to selected ECHConfig.publicName).
-        var outerServerName: String? = nil
         /// Optional factory to dial a new transport stream for single ECH retry on server retry_configs.
         var rawDialer: ((@escaping (NCRelayStream?, Error?) -> Void) -> Void)? = nil
     }
@@ -199,6 +197,7 @@ final class NCTLSClientStream: NCRelayStream {
         handshakeTimer?.cancel()
         handshakeTimer = nil
         handshakeDone = true
+        releaseECHHandshakeState()
         let handler = handshakeHandler
         handshakeHandler = nil
         handler?(nil)
@@ -232,7 +231,8 @@ final class NCTLSClientStream: NCRelayStream {
             )
 
             clientRandom = NCConnector.randomData(32) // Outer random
-            let publicName = config.outerServerName ?? selected.config.publicName
+            // RFC 9849 §6.1: the outer SNI is always ECHConfig.public_name (no override; mihomo has none either).
+            let publicName = selected.config.publicName
             guard publicName.utf8.count <= 255 else { throw TLSError.handshake("outer public_name too long") }
 
             let outerHello = try NCTLS13.buildClientHelloOuter(
@@ -556,16 +556,13 @@ final class NCTLSClientStream: NCRelayStream {
             guard idx + 4 + n <= end else { break }
             if t == 16 { negotiatedALPN = Self.parseALPN(b[(idx + 4)..<(idx + 4 + n)]) }
             if t == NCTLS13.extensionECH {
-                let payload = Data(b[(idx + 4)..<(idx + 4 + n)])
-                if echAccepted == false {
-                    echRetryConfigs = payload
-                } else if echAccepted == true {
-                    if payload.count == 8, let lastSH = lastServerHelloMessage,
-                       let expected = NCTLS13.computeAcceptConfirmation(kind: kind, innerTranscript: innerTranscriptBeforeSH, serverHello: lastSH, innerRandom: clientHelloInnerRandom),
-                       payload != expected {
-                        echAccepted = false
-                    }
+                // RFC 9849 §6.1.4/§7.1: a server that accepted ECH must not send the extension in
+                // EncryptedExtensions (retry_configs are only for a rejection) → unsupported_extension.
+                if echAccepted == true {
+                    fail(TLSError.handshake("ECH extension in EncryptedExtensions after ECH was accepted"))
+                    return
                 }
+                if echAccepted == false { echRetryConfigs = Data(b[(idx + 4)..<(idx + 4 + n)]) }
             }
             idx += 4 + n
         }
@@ -582,6 +579,13 @@ final class NCTLSClientStream: NCRelayStream {
         guard body.count >= idx + 3 else { fail(TLSError.handshake("bad ServerHello")); return }
         let suiteValue = UInt16(body[idx]) << 8 | UInt16(body[idx + 1]); idx += 2
         if config.reality == nil, NCTLS13.Suite(rawValue: suiteValue) == nil {
+            // RFC 9849 §6.1.6: ECH needs TLS 1.3 — a TLS 1.2 answer to an ECH ClientHello is a rejection
+            // without retry_configs. Never continue in TLS 1.2 (the inner name would be authenticated with
+            // the outer handshake's certificate).
+            if echSelected != nil {
+                fail(TLSError.echRejected(retryConfigs: nil))
+                return
+            }
             handleServerHello12(message: message, body: body, suiteValue: suiteValue, extStart: idx + 1)
             return
         }
@@ -770,7 +774,7 @@ final class NCTLSClientStream: NCRelayStream {
         guard certs.count == presented.count, !certs.isEmpty else { return false }
         let name: String
         if echAccepted == false {
-            name = config.outerServerName ?? echSelected?.config.publicName ?? config.serverName
+            name = echSelected?.config.publicName ?? config.serverName
         } else {
             name = config.certVerifyName ?? config.serverName
         }
@@ -819,6 +823,7 @@ final class NCTLSClientStream: NCRelayStream {
                 echRetried = true
                 let savedHandler = handshakeHandler
                 handshakeHandler = nil
+                sendAlert(description: NCTLS13.alertECHRequired)
                 raw.cancel()
                 resetForRetry()
 
@@ -982,6 +987,24 @@ final class NCTLSClientStream: NCRelayStream {
         }
     }
 
+    /// Review #152 item 7: the hellos / transcripts kept for ECH confirmation and HRR are only needed during the
+    /// handshake (~2–4 KB per ECH connection) — dropped once it completes. echAccepted stays readable.
+    private func releaseECHHandshakeState() {
+        guard echSelected != nil else { return }
+        echSenderContext = nil
+        echEnc = Data()
+        clientHelloInner1 = Data()
+        clientHelloOuter1 = Data()
+        clientHelloInnerRandom = Data()
+        innerTranscript = Data()
+        outerTranscript = Data()
+        innerTranscriptBeforeSH = Data()
+        lastServerHelloMessage = nil
+        echRetryConfigs = nil
+        config.echConfigList = nil
+        config.rawDialer = nil
+    }
+
     private func resetForRetry() {
         handshakeTimer?.cancel()
         handshakeTimer = nil
@@ -998,7 +1021,6 @@ final class NCTLSClientStream: NCRelayStream {
         transcript = Data()
         clientPrivate = nil
         clientRandom = Data()
-        serverFinishedHash = nil
         certsDER = []
         certVerify = nil
         handshakeBuffer = Data()
