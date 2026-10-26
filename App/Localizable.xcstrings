@@ -104569,13 +104569,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在の構成に MitM ホストはありません"
+            "value": "現在のプロファイルに MitM ホストはありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 구성에 MitM 호스트 없음"
+            "value": "현재 프로파일에 MitM 호스트 없음"
           }
         },
         "ru": {
@@ -104603,13 +104603,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在の構成にスクリプトタスクはありません"
+            "value": "現在のプロファイルにスクリプトタスクはありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 구성에 스크립트 작업 없음"
+            "value": "현재 프로파일에 스크립트 작업 없음"
           }
         },
         "ru": {
