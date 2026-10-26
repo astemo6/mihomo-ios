@@ -534,6 +534,13 @@ final class NCHysteria2Connection {
         return queue.sync { datagramLimit }
     }
 
+    /// Failed datagram sends so far (diagnostics / tests — the fragmentation ladder diffs this
+    /// around a rung to prove a loss was NOT a surfaced send error).
+    var udpSendErrorCount: Int {
+        if NCSessionQueues.isCurrent(queue) { return udpSendErrors }
+        return queue.sync { udpSendErrors }
+    }
+
     /// Network.framework's own datagram size for the flow (NWConnection.maximumDatagramSize), read
     /// when the flow is ready; 0 until then.
     private var flowMaxDatagramSize = 0
@@ -888,6 +895,9 @@ final class NCHysteria2Connection {
 
     /// How the fragments of one packet go out (see sendFrames). 0 = back-to-back burst (the first cut),
     /// 1 = each fragment after the previous one's send completion, 2 = as 1 plus a 1 ms gap.
+    /// 3/4/5/6 are experiment-only modes for the fragmentation ladder (feat/nc-hy2-frag; never the
+    /// default, nothing outside the loopback test selects them): 3 = all fragments inside one
+    /// NWConnection.batch, 4/5/6 = fixed 10/20/50 ms inter-fragment gap, NOT gated on completions.
     private var fragmentPacing = 2
 
     /// Test seam: pick the fragment pacing mode (session queue hop).
@@ -895,23 +905,58 @@ final class NCHysteria2Connection {
         ncOnSessionQueue(queue) { self.fragmentPacing = mode }
     }
 
+    /// Session queue only. Bookkeeping for one finished datagram send: error count / last error,
+    /// plus the EMSGSIZE budget shrink. Every pacing driver calls this from its send completions,
+    /// so a silent loss is visible as "no error accounted, nothing arrived".
+    private func noteDatagramSent(frame: Data, error: NWError?) {
+        guard let error else { return }
+        udpSendErrors += 1
+        lastUDPSendError = "\(error) (\(frame.count) B)"
+        // Datagram larger than the path allows right now: shrink for the next packets
+        // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
+        if case .posix(let code) = error, code == .EMSGSIZE {
+            datagramLimit = max(512, min(datagramLimit, frame.count) - 64)
+        }
+    }
+
     /// Session queue only. One packet's datagrams in order; a lone datagram is a single send either way.
     private func sendFrames(_ frames: ArraySlice<Data>, on flow: NWConnection) {
         guard let frame = frames.first else { return }
         let rest = frames.dropFirst()
         let pacing = rest.isEmpty ? 0 : fragmentPacing
+        if pacing == 3 {
+            // Experiment: the whole packet's fragments submitted inside one NWConnection.batch,
+            // so the framework takes them as a single batch of sends. Completions only account.
+            flow.batch { [weak self, weak flow] in
+                guard let self, let flow else { return }
+                for f in frames {
+                    flow.send(content: f, completion: .contentProcessed { [weak self] error in
+                        guard let self else { return }
+                        ncOnSessionQueue(self.queue) { self.noteDatagramSent(frame: f, error: error) }
+                    })
+                }
+            }
+            return
+        }
+        if pacing >= 4 {
+            // Experiment: fixed inter-fragment gap on a timer, deliberately NOT gated on the
+            // previous send's completion (the completion only does the error bookkeeping), so the
+            // ladder separates "spacing helps" from "completion chaining helps".
+            let gapMs = [10, 20, 50][min(pacing - 4, 2)]
+            flow.send(content: frame, completion: .contentProcessed { [weak self] error in
+                guard let self else { return }
+                ncOnSessionQueue(self.queue) { self.noteDatagramSent(frame: frame, error: error) }
+            })
+            queue.asyncAfter(deadline: .now() + .milliseconds(gapMs)) { [weak self, weak flow] in
+                guard let self, let flow, self.datagramFlow === flow else { return }
+                self.sendFrames(rest, on: flow)
+            }
+            return
+        }
         flow.send(content: frame, completion: .contentProcessed { [weak self, weak flow] error in
             guard let self else { return }
             ncOnSessionQueue(self.queue) {
-                if let error {
-                    self.udpSendErrors += 1
-                    self.lastUDPSendError = "\(error) (\(frame.count) B)"
-                    // Datagram larger than the path allows right now: shrink for the next packets
-                    // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
-                    if case .posix(let code) = error, code == .EMSGSIZE {
-                        self.datagramLimit = max(512, min(self.datagramLimit, frame.count) - 64)
-                    }
-                }
+                self.noteDatagramSent(frame: frame, error: error)
                 guard pacing != 0, let flow, self.datagramFlow === flow else { return }
                 if pacing == 2 {
                     self.queue.asyncAfter(deadline: .now() + .milliseconds(1)) { [weak self, weak flow] in
