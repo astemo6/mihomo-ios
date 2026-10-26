@@ -45,6 +45,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18006 | sing-box Hysteria2 inbound — `nc-loop-hy2-pw`, TLS ALPN h3 |
 | 18007 | sing-box TUIC inbound — same uuid / `nc-loop-tuic-pw`, ALPN h3, BBR |
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
+| 18011 | ocserv OpenConnect inbound (TCP+UDP) — user `nc-loop-oc-user` / `nc-loop-oc-pw`, CN=localhost |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
@@ -75,6 +76,11 @@ self-signed cert the start script generates into the runtime dir
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.
+- **OpenConnect** (CSTP + DTLS): ocserv server inbound on port 18011 (TCP+UDP).
+  CSTP echo verifies full HTTPS authentication state machine, HTTP CONNECT
+  tunnel upgrade and 8-byte CSTP packet framing with byte-exact DPD echo.
+  DTLS fallback verifies state machine fallback to CSTP when DTLS preconditions
+  or platform capabilities are missing.
 - **Mieru**: sing-box has no mieru inbound, so there is no reference server;
   not covered rather than faked.
 

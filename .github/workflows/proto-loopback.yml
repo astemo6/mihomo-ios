@@ -41,6 +41,8 @@ jobs:
           xcodebuild -version
       - name: Start loopback servers
         run: |
+          brew install ocserv || true
+          export PATH="/opt/homebrew/sbin:/usr/local/sbin:$PATH"
           tools/loopback/start-servers.sh start
           tools/loopback/start-servers.sh status
       - name: Generate project (with test targets)
@@ -93,8 +95,11 @@ jobs:
         run: |
           tools/loopback/start-servers.sh stop || true
           cp /tmp/nc-loopback/sing-box.log results/sing-box.log 2>/dev/null || true
+          cp /tmp/nc-loopback/ocserv.log results/ocserv.log 2>/dev/null || true
           echo "--- sing-box.log (hy2/tuic/quic lines, last 200) ---"
           grep -i -E "hy2|hysteria|tuic|quic|error|warn" /tmp/nc-loopback/sing-box.log | tail -n 200 || true
+          echo "--- ocserv.log (last 100) ---"
+          tail -n 100 /tmp/nc-loopback/ocserv.log 2>/dev/null || true
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -102,6 +107,7 @@ jobs:
           path: |
             results/loopback.log
             results/sing-box.log
+            results/ocserv.log
             build-loop.log
           if-no-files-found: warn
           retention-days: 14

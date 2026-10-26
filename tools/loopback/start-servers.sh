@@ -59,6 +59,42 @@ find_sing_box() {
     printf '%s' "$bin"
 }
 
+find_ocserv() {
+    if [ -n "${OCSERV_BIN:-}" ]; then
+        printf '%s' "$OCSERV_BIN"
+        return
+    fi
+    if command -v ocserv >/dev/null 2>&1; then
+        command -v ocserv
+        return
+    fi
+    for p in /opt/homebrew/sbin/ocserv /usr/local/sbin/ocserv /usr/sbin/ocserv; do
+        if [ -x "$p" ]; then
+            printf '%s' "$p"
+            return
+        fi
+    done
+    echo ""
+}
+
+find_ocpasswd() {
+    if [ -n "${OCPASSWD_BIN:-}" ]; then
+        printf '%s' "$OCPASSWD_BIN"
+        return
+    fi
+    if command -v ocpasswd >/dev/null 2>&1; then
+        command -v ocpasswd
+        return
+    fi
+    for p in /opt/homebrew/bin/ocpasswd /usr/local/bin/ocpasswd /usr/bin/ocpasswd; do
+        if [ -x "$p" ]; then
+            printf '%s' "$p"
+            return
+        fi
+    done
+    echo ""
+}
+
 gen_cert() {
     if [ -f "$RUN/cert.pem" ] && [ -f "$RUN/key.pem" ]; then
         return
@@ -72,6 +108,10 @@ gen_cert() {
 
 render_config() {
     sed -e "s|__LOOPBACK_DIR__|$RUN|g" "$DIR/sing-box-config.json" > "$RUN/sing-box.json"
+}
+
+render_ocserv_config() {
+    sed -e "s|__LOOPBACK_DIR__|$RUN|g" "$DIR/ocserv.conf" > "$RUN/ocserv.conf"
 }
 
 wait_tcp() {
@@ -113,6 +153,21 @@ do_start() {
     nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &
     echo $! > "$RUN/sing-box.pid"
 
+    local ocs ocp
+    ocs="$(find_ocserv)"
+    ocp="$(find_ocpasswd)"
+    if [ -n "$ocs" ] && [ -n "$ocp" ]; then
+        log "generating ocserv passwd"
+        rm -f "$RUN/ocpasswd"
+        echo "nc-loop-oc-pw" | "$ocp" -c "$RUN/ocpasswd" -g "Engineering" nc-loop-oc-user >/dev/null 2>&1
+        render_ocserv_config
+        log "starting ocserv $("$ocs" -v | head -n1)"
+        nohup "$ocs" -f -c "$RUN/ocserv.conf" >"$RUN/ocserv.log" 2>&1 &
+        echo $! > "$RUN/ocserv.pid"
+    else
+        log "ocserv or ocpasswd not found; skipping OpenConnect loopback server"
+    fi
+
     # TCP inbounds + backends can be probed directly. The UDP inbounds
     # (hysteria2 / tuic / wireguard) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
@@ -120,27 +175,39 @@ do_start() {
     for p in 18001 18002 18003 18004 18005 18080 18082; do
         wait_tcp "$p"
     done
+    if [ -f "$RUN/ocserv.pid" ] && alive "$RUN/ocserv.pid"; then
+        wait_tcp 18011
+    fi
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082"
+    local ready_msg="ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008"
+    if [ -f "$RUN/ocserv.pid" ] && alive "$RUN/ocserv.pid"; then
+        kill -0 "$(cat "$RUN/ocserv.pid")"
+        ready_msg="$ready_msg ocserv :18011"
+    fi
+    ready_msg="$ready_msg echo :18080/:18081 blackhole :18082"
+    log "$ready_msg"
 }
 
 do_stop() {
     local f
-    for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
+    for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/ocserv.pid"; do
         if alive "$f"; then
             kill "$(cat "$f")" 2>/dev/null || true
         fi
         rm -f "$f"
     done
+    rm -f "$RUN/ocserv.sock"
     log "stopped"
 }
 
 do_status() {
     local rc=0
-    for name in sing-box echo; do
-        if alive "$RUN/$name.pid"; then
+    for name in sing-box echo ocserv; do
+        if [ -f "$RUN/$name.pid" ] && alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
+        elif [ "$name" = "ocserv" ] && [ ! -f "$RUN/$name.pid" ]; then
+            log "$name not configured/started"
         else
             log "$name not running"
             rc=1

@@ -719,7 +719,15 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("openconnect: \(why)")) }
                 return
             }
-            queue.async { completion(nil, Failure.unsupported("openconnect: connector 计划于 S2 接入")) }
+            guard let (cfg, errStr) = NCOpenConnect.Config.parse(proxy), let config = cfg else {
+                queue.async { completion(nil, Failure.handshake(errStr ?? "openconnect config invalid")) }
+                return
+            }
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("openconnect over a chain transport")) }
+                return
+            }
+            openconnectStream(config: config, target: target, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
