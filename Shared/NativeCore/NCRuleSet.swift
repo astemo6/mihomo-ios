@@ -187,6 +187,10 @@ struct NCRuleSetIndex {
     }
 
     private enum Dialect { case standard, qx }
+    private static let qxKinds: [String: String] = [
+        "HOST": "DOMAIN", "HOST-SUFFIX": "DOMAIN-SUFFIX", "HOST-KEYWORD": "DOMAIN-KEYWORD",
+        "HOST-WILDCARD": "DOMAIN-WILDCARD", "IP6-CIDR": "IP-CIDR",
+    ]
 
     private mutating func addClassicalLine(_ line: String, dialect: Dialect) {
         let fields = line.split(separator: ",", omittingEmptySubsequences: false)
@@ -194,12 +198,12 @@ struct NCRuleSetIndex {
         guard fields.count >= 2 else { return }
         var kind = fields[0].uppercased()
         let payload = fields[1]
-        if dialect == .qx {
-            kind = [
-                "HOST": "DOMAIN", "HOST-SUFFIX": "DOMAIN-SUFFIX", "HOST-KEYWORD": "DOMAIN-KEYWORD",
-                "HOST-WILDCARD": "DOMAIN-WILDCARD", "IP6-CIDR": "IP-CIDR", "USER-AGENT": "USER-AGENT",
-            ][kind] ?? kind
-        }
+        // QX type names. Applied in both dialects (fix/nc-mem-providers): QX matches type names case-insensitively
+        // and the blackmatrix7 QuantumultX lists spell them UPPERCASE (HOST-SUFFIX,google.com,Google), which the
+        // lowercase-only QX detection sent down the standard path, where no rule type HOST* exists — every such
+        // line was dead. None of these names is a mihomo / Surge type, so the mapping cannot shadow one.
+        _ = dialect
+        kind = Self.qxKinds[kind] ?? kind
         switch kind {
         case "DOMAIN":
             domains.insert(payload.lowercased(), flags: NCDomainTable.exact); entryCount += 1
@@ -224,8 +228,8 @@ struct NCRuleSetIndex {
     private mutating func appendOther(kind: String, payload: String, fields: [String]) {
         // A type NCRuleMatcher has no case for (or a logic / nested RULE-SET line, which never match inside a set:
         // no sub-rules are parsed here and nested sets are disabled) can never match: count it, keep nothing.
-        // Run 40290997704: QX-dialect lists spelled in UPPERCASE (HOST-SUFFIX,…) under behavior classical kept
-        // ~37k such NCRules (blackmatrix7 QuantumultX Global.list alone ~36k, ~7 MB) that no flow could ever hit.
+        // (Before the QX-name mapping above, UPPERCASE HOST-SUFFIX lines landed here: ~37k unmatchable NCRules,
+        // ~7 MB, for the real fixture's blackmatrix7 QuantumultX lists.)
         guard Self.matchableKinds.contains(kind) else { entryCount += 1; return }
         let opts = fields.dropFirst(3)
         others.append(NCRule(raw: "", kind: kind, payload: payload, policy: "",

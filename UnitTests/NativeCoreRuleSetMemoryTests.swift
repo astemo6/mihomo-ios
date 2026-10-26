@@ -125,8 +125,40 @@ final class NativeCoreRuleSetMemoryTests: XCTestCase {
         XCTAssertLessThan(newBytes, 1_500_000)
     }
 
+    func testUnknownTypesAreCountedNotKept() {
+        var idx = NCRuleSetIndex()
+        var text = ""
+        for i in 0..<2000 { text += "NOT-A-TYPE,x\(i).example.com,P\n" }
+        text += "DOMAIN-SUFFIX,real.example.com\n"
+        idx.addText(text, flavor: .classical)
+        idx.finalize()
+        XCTAssertEqual(idx.entryCount, 2001)
+        XCTAssertTrue(idx.others.isEmpty)
+        var c = NCMatchContext(); c.domain = "x1.example.com"
+        XCTAssertFalse(idx.contains(c))
+        c.domain = "a.real.example.com"
+        XCTAssertTrue(idx.contains(c))
+    }
+
+    /// blackmatrix7 QuantumultX lists spell QX type names UPPERCASE (HOST-SUFFIX,google.com,Google) and the import
+    /// declares them behavior classical: they now match like DOMAIN-SUFFIX (they were dead NCRules before).
+    func testUppercaseQXNamesUnderClassical() {
+        var idx = NCRuleSetIndex()
+        idx.addText("HOST-SUFFIX,googleapis.com,Google\nHOST,exact.g.com,Google\nHOST-KEYWORD,gstatic,Google\nIP6-CIDR,2001:db8::/32,Google\n", flavor: .classical)
+        idx.finalize()
+        func has(_ d: String) -> Bool { var c = NCMatchContext(); c.domain = d; return idx.contains(c) }
+        XCTAssertTrue(has("www.googleapis.com"))
+        XCTAssertTrue(has("exact.g.com"))
+        XCTAssertFalse(has("x.exact.g.com"))
+        XCTAssertTrue(has("fonts.gstatic.cn"))
+        var ip = NCMatchContext(); ip.ip = NCIP("2001:db8::1")
+        XCTAssertTrue(idx.contains(ip))
+        XCTAssertFalse(has("example.org"))
+    }
+
     /// The real blackmatrix7 QuantumultX lists spell types in UPPERCASE QX names (HOST-SUFFIX) under behavior
     /// classical: the old index kept one NCRule (with its raw line) per such line in `others`, none matchable.
+    /// Now they go into the compact domain table.
     func testUnmatchableEntriesAreCountedNotKept() throws {
         let lines = globalLikeLines(36_000, qxUpper: true)
         let body = Data(lines.joined(separator: "\n").utf8)
@@ -145,7 +177,7 @@ final class NativeCoreRuleSetMemoryTests: XCTestCase {
         try NCRuleProviderStore.populateIndex(idx: &idx!, data: body, provider: p)
         let newBytes = heapInUse() - h1
         XCTAssertEqual(idx?.entryCount, 36_000)
-        print(String(format: "MEM-MEASURE rule-set QX-uppercase 36k entries under classical: old others[] retained %.2f MB, now %.2f MB",
+        print(String(format: "MEM-MEASURE rule-set QX-uppercase 36k entries under classical: old others[] retained %.2f MB, now (domain table) %.2f MB",
                      Double(oldBytes) / 1_048_576, Double(newBytes) / 1_048_576))
         idx = nil
         XCTAssertLessThan(newBytes, oldBytes / 3)
