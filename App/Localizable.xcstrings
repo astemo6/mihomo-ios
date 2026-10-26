@@ -49496,71 +49496,71 @@
         }
       }
     },
-    "脚本与正则引擎": {
+    "脚本引擎（系统 JavaScriptCore）与正则引擎（Tern 自己把 regexp2 / RE2 写法转成 ICU 执行）": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Script and regex engines"
+            "value": "Script engine (the system's JavaScriptCore) and regex engine (Tern's own regexp2 / RE2 → ICU translation)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "腳本與正則引擎"
+            "value": "腳本引擎（系統 JavaScriptCore）與正則引擎（Tern 自己把 regexp2 / RE2 寫法轉成 ICU 執行）"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクリプト、正規表現エンジン"
+            "value": "スクリプトエンジン（システムの JavaScriptCore）と正規表現エンジン（regexp2 / RE2 の書き方を Tern 独自に ICU へ変換して実行）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스크립트, 정규식 엔진"
+            "value": "스크립트 엔진(시스템 JavaScriptCore)과 정규식 엔진(Tern 자체 regexp2 / RE2 → ICU 변환)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Движки скриптов и регулярных выражений"
+            "value": "Движок скриптов (системный JavaScriptCore) и движок регулярных выражений (собственный перевод regexp2 / RE2 в ICU в Tern)"
           }
         }
       },
       "extractionState": "manual"
     },
-    "Tern 自己的 jq 解释器（纯 Swift，不含 Go 代码），用于 jq 请求体 / 响应体重写，语义与 jq 1.7.1 一致": {
+    "Tern 自己的 jq 解释器（纯 Swift），用于 jq 请求体 / 响应体重写，语义与 jq 1.7.1 一致": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tern's own jq interpreter (pure Swift, no Go code) for jq request / response body rewrites, matching jq 1.7.1 semantics"
+            "value": "Tern's own jq interpreter (pure Swift) for jq request / response body rewrites, matching jq 1.7.1 semantics"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tern 自己的 jq 直譯器（純 Swift，不含 Go 程式碼），用於 jq 請求體 / 回應體重寫，語義與 jq 1.7.1 一致"
+            "value": "Tern 自己的 jq 直譯器（純 Swift），用於 jq 請求體 / 回應體重寫，語義與 jq 1.7.1 一致"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tern 独自の jq インタプリタ（純 Swift、Go コードなし）。jq によるリクエスト / レスポンスボディの書き換えに使用し、jq 1.7.1 と同じ挙動"
+            "value": "Tern 独自の jq インタプリタ（純 Swift）。jq によるリクエスト / レスポンスボディの書き換えに使用し、jq 1.7.1 と同じ挙動"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tern 자체 jq 인터프리터(순수 Swift, Go 코드 없음). jq 요청 / 응답 본문 재작성에 사용하며 jq 1.7.1과 동일한 의미"
+            "value": "Tern 자체 jq 인터프리터(순수 Swift). jq 요청 / 응답 본문 재작성에 사용하며 jq 1.7.1과 동일한 의미"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Собственный интерпретатор jq в Tern (чистый Swift, без кода на Go) для перезаписи тел запросов / ответов через jq, семантика jq 1.7.1"
+            "value": "Собственный интерпретатор jq в Tern (чистый Swift) для перезаписи тел запросов / ответов через jq, семантика jq 1.7.1"
           }
         }
       },
