@@ -16,6 +16,11 @@ final class VPNManager: ObservableObject {
     @Published var lastError: String? { didSet { if lastError != nil { showErrorAlert = true } } }
     @Published var showErrorAlert = false
     @Published private(set) var isBusy = false
+    /// fix/app-toggle-hitch: a tap asked for a connect / disconnect that iOS has not reflected in `status` yet.
+    /// The Home switch shows the requested state at once (连接中… / off) instead of snapping back for the ~1.5 s
+    /// the connect spends preparing, and ignores further taps meanwhile.
+    @Published private(set) var pendingStart = false
+    @Published private(set) var pendingStop = false
     /// The last start failed in the core / extension (not a missing profile or App Group): offer 安全模式.
     @Published private(set) var canOfferSafeMode = false
     /// The running (or last started) connection uses 安全模式.
@@ -29,9 +34,21 @@ final class VPNManager: ObservableObject {
     private var configObserver: NSObjectProtocol?
 
     var isConnected: Bool { status == .connected }
-    var isTransitioning: Bool { [.connecting, .disconnecting, .reasserting].contains(status) }
+    var isTransitioning: Bool { pendingStart || pendingStop || [.connecting, .disconnecting, .reasserting].contains(status) }
+
+    /// fix/app-toggle-hitch: what the Home switch shows — the requested state while a tap is pending.
+    var switchOn: Bool {
+        if pendingStop { return false }
+        if pendingStart { return true }
+        return isConnected || status == .connecting || status == .reasserting
+    }
+
+    /// fix/app-toggle-hitch: the switch / capsule ignores taps while this is true (no double start / stop).
+    var switchBusy: Bool { isBusy || pendingStart || pendingStop || status == .connecting || status == .disconnecting }
 
     var statusText: String {
+        if pendingStart && (status == .disconnected || status == .invalid) { return String(localized: "连接中…") }
+        if pendingStop && status == .connected { return String(localized: "断开中…") }
         switch status {
         case .connected: return String(localized: "已连接")
         case .connecting: return String(localized: "连接中…")
@@ -75,8 +92,14 @@ final class VPNManager: ObservableObject {
     /// tap on 启动 ended without a tunnel (it used to return silently on several paths).
     nonisolated static func trace(_ msg: String) {
         NSLog("[Tern] start: %@", msg)
-        StartupLog.write("vpn start: " + msg, tag: "app", mirror: false)
+        // fix/app-toggle-hitch: the file append (stat + open + write) ran on the main actor several times per tap.
+        // One serial queue keeps the lines in order.
+        traceQueue.async { StartupLog.write("vpn start: " + msg, tag: "app", mirror: false) }
     }
+    nonisolated private static let traceQueue = DispatchQueue(label: "tern.vpn.trace", qos: .utility)
+
+    /// fix/app-toggle-hitch: milliseconds since `t0` (DispatchTime uptime ns), for the phase timing line.
+    nonisolated static func ms(since t0: UInt64) -> Int { Int((DispatchTime.now().uptimeNanoseconds &- t0) / 1_000_000) }
 
     /// fix/nc-start-empty: a start still marked in flight after this long is stuck (an await that never returned);
     /// the next tap proceeds instead of being ignored forever with the switch doing nothing.
@@ -106,15 +129,17 @@ final class VPNManager: ObservableObject {
 
     private func update(from conn: NEVPNConnection) {
         let old = status
-        status = conn.status
-        connectedDate = conn.connectedDate
+        if status != conn.status { status = conn.status }
+        if connectedDate != conn.connectedDate { connectedDate = conn.connectedDate }
+        if pendingStop, [.disconnecting, .disconnected, .invalid].contains(status) { pendingStop = false }
         // v0.19.2: a connect from the widget / Control Center / on-demand clears 安全模式 in overrides.json
         // without going through start(); re-read it so Home stops showing the safe-mode card and reload() runs
         // the override scripts again. Plain file read (no Keychain).
         if old != status, status == .connecting || status == .connected {
-            safeModeActive = CoreOverrides.storedSafeMode()
+            let s = CoreOverrides.storedSafeMode()
+            if safeModeActive != s { safeModeActive = s }
         }
-        if status == .connected { lastError = nil }
+        if status == .connected, lastError != nil { lastError = nil }
         // Connecting -> disconnected without the user stopping: the extension failed. Never stay silent.
         if (old == .connecting || old == .reasserting), status == .disconnected, !userStopped {
             Task { @MainActor in await self.reportStartFailure(conn) }
@@ -253,6 +278,21 @@ final class VPNManager: ObservableObject {
         if isConnected || status == .connecting { stop() } else { await start() }
     }
 
+    /// fix/app-toggle-hitch: the Home switch / capsule entry point. Marks the request synchronously (the switch
+    /// shows it in the same frame) and ignores taps while one is still being carried out.
+    func requestToggle() {
+        guard !switchBusy else {
+            Self.trace("tap ignored: a connect / disconnect is still in progress")
+            return
+        }
+        if isConnected || status == .connecting || status == .reasserting {
+            stop()
+        } else {
+            pendingStart = true
+            Task { await start() }
+        }
+    }
+
     /// Starts the tunnel. safeMode: this connection runs the profile without modules / scripts / MitM /
     /// custom rules (offered after a failed start); every normal start clears it again.
     func start(safeMode: Bool = false) async {
@@ -266,56 +306,93 @@ final class VPNManager: ObservableObject {
         startToken &+= 1
         let token = startToken
         startInFlightSince = Date()
-        defer { if startToken == token { startInFlightSince = nil } }
+        // fix/app-toggle-hitch: optimistic 连接中 until iOS reports the new status (verifyStartTookEffect waits for
+        // it) or the start gives up; then the switch follows `status` again.
+        if !pendingStart { pendingStart = true }
+        defer {
+            if startToken == token {
+                startInFlightSince = nil
+                if pendingStart { pendingStart = false }
+            }
+        }
+        let t0 = DispatchTime.now().uptimeNanoseconds
         Self.trace("requested (status \(status.rawValue), safeMode \(safeMode))")
         let seq = stopSeq
-        lastError = nil
-        canOfferSafeMode = false
-        guard AppShared.containerOK else {
+        if lastError != nil { lastError = nil }
+        if canOfferSafeMode { canOfferSafeMode = false }
+        // fix/app-toggle-hitch: App Group / profile checks, overrides.json (+ secrets.json, Keychain on a fresh
+        // install) read + write and the old error log removal used to run on the main actor; one detached hop now.
+        let pre = await Task.detached(priority: .userInitiated) { () -> (ok: Bool, profile: Bool, o: CoreOverrides) in
+            guard AppShared.containerOK else { return (false, false, CoreOverrides()) }
+            guard AppShared.activeProfileURL != nil else { return (true, false, CoreOverrides()) }
+            var o = CoreOverrides.load()
+            if o.safeMode != safeMode {
+                o.safeMode = safeMode
+                o.save()
+            }
+            TunnelErrorLog.clear()
+            return (true, true, o)
+        }.value
+        guard pre.ok else {
             lastError = String(localized: "App Group 不可用：重签名的描述文件需要包含 App Groups，且主程序和扩展使用同一个组。详见 更多 → 诊断。")
             return
         }
-        guard AppShared.activeProfileURL != nil else {
+        guard pre.profile else {
             lastError = String(localized: "请先在「更多 → 配置」中添加并选择一个配置")
             return
         }
+        let o = pre.o
         isBusy = true
         defer { isBusy = false }
         // v0.19 覆写脚本: the active profile's scripts run (when anything changed) before the tunnel starts;
         // a failing script stops the connect with its error instead of running an unexpected config.
+        let tScripts = DispatchTime.now().uptimeNanoseconds
         if !safeMode, let err = await OverrideScriptStore.shared.prepareActive() {
             lastError = err
             canOfferSafeMode = AppShared.containerOK
             return
         }
+        let scriptsMs = Self.ms(since: tScripts)
+        if safeModeActive != safeMode { safeModeActive = safeMode }
         do {
-            var o = CoreOverrides.load()
-            o.safeMode = safeMode
-            o.save()
-            safeModeActive = safeMode
             // fix/nc-vpn-start-crash: prepare the runtime BEFORE enabling the configuration / arming on-demand.
             // Arming 保持连接 (connect on any network) first let iOS bring the tunnel up by itself while the app was
             // still preparing — with the PREVIOUS generation of runtime files — and then `start` saw .connected and
             // never started the new one. When the prepare crashed the app (build #374), that on-demand tunnel was
             // left running on stale files: "connected, but no network at all".
-            if let err = await NativeRuntimePrep.prepare() {
+            // fix/app-toggle-hitch: off the main actor (detached) and skipped when the runtime on disk was built
+            // from exactly the current inputs (NativeRuntimePrepCache).
+            let prep = await NativeRuntimePrep.prepare(allowCached: true)
+            if let err = prep.error {
+                Self.trace("prepare failed after \(prep.millis) ms")
                 lastError = err
                 return
             }
+            let tPrefs = DispatchTime.now().uptimeNanoseconds
             let m = try await ensureManager()
             // fix/nc-start-empty: what iOS has now (another VPN may have disabled ours since we loaded it).
             do { try await m.loadFromPreferences() } catch { Self.trace("loadFromPreferences failed: \(error.localizedDescription)") }
             if !m.isEnabled { Self.trace("configuration is disabled in iOS (another VPN was enabled?) — enabling it again") }
             // r7 (review7 R7A-2): the scope in overrides.json (restored backup / snapshot / sync, a page that
             // short-circuited) must be what iOS enforces — re-applied before every start when it differs.
-            var scopeStale = false
+            var needsSave = false
             if !UITestSeed.enabled, let proto = m.protocolConfiguration as? NETunnelProviderProtocol, !Self.scopeMatches(o, proto) {
                 Self.applyScope(o, to: proto)
                 m.protocolConfiguration = proto
-                scopeStale = true
+                needsSave = true
             }
-            if !m.isEnabled || scopeStale {
+            if !m.isEnabled {
                 m.isEnabled = true
+                needsSave = true
+            }
+            // A manual connect resumes on-demand rules paused by an earlier manual disconnect, and (保持连接,
+            // fix/vpn-stays-on) arms the keep-alive rule: iOS restarts the tunnel if the extension is ended.
+            // fix/app-toggle-hitch: folded into the same save as enable / scope (one preferences round trip
+            // instead of two).
+            if !UITestSeed.enabled, Self.stageOnDemandRules(on: m, settings: OnDemandSettings.load(), enabled: true) {
+                needsSave = true
+            }
+            if needsSave {
                 do {
                     try await m.saveToPreferences()
                     try await m.loadFromPreferences()
@@ -324,13 +401,8 @@ final class VPNManager: ObservableObject {
                     throw error
                 }
             }
-            // A manual connect resumes on-demand rules paused by an earlier manual disconnect, and (保持连接,
-            // fix/vpn-stays-on) arms the keep-alive rule: iOS restarts the tunnel if the extension is ended.
-            if !UITestSeed.enabled {
-                try await applyOnDemandRules(to: m, settings: OnDemandSettings.load(), enabled: true)
-            }
+            let prefsMs = Self.ms(since: tPrefs)
             userStopped = false
-            TunnelErrorLog.clear()
             // rv2-life: the user stopped while we were preparing, or iOS is already bringing it up (on-demand)
             guard seq == stopSeq else {
                 Self.trace("abandoned: stop() arrived while preparing")
@@ -341,6 +413,7 @@ final class VPNManager: ObservableObject {
                 update(from: m.connection)
                 return
             }
+            let tStart = DispatchTime.now().uptimeNanoseconds
             do {
                 try m.connection.startVPNTunnel(options: TunnelStartOption.options)
             } catch let e as NSError where e.domain == NEVPNErrorDomain && e.code == NEVPNError.Code.configurationDisabled.rawValue {
@@ -352,6 +425,8 @@ final class VPNManager: ObservableObject {
                 try m.connection.startVPNTunnel(options: TunnelStartOption.options)
             }
             Self.trace("startVPNTunnel accepted (status \(m.connection.status.rawValue))")
+            // fix/app-toggle-hitch: one timing line per connect (startup log, tag app).
+            Self.trace("prepare \(prep.millis) ms (\(prep.cached ? "cached" : "built")), prefs \(prefsMs) ms\(needsSave ? " (saved)" : ""), start \(Self.ms(since: tStart)) ms, scripts \(scriptsMs) ms, total \(Self.ms(since: t0)) ms")
             await verifyStartTookEffect(m)
         } catch {
             Self.trace("failed: \(Self.describe(error))")
@@ -521,6 +596,17 @@ final class VPNManager: ObservableObject {
         userStopped = true
         stopSeq &+= 1
         guard let m = manager else { return }
+        // fix/app-toggle-hitch: the switch shows off at once (saving the paused on-demand flag first takes a
+        // preferences round trip); update(from:) clears it on .disconnecting, the timer if iOS never moves.
+        if [.connected, .connecting, .reasserting].contains(m.connection.status) {
+            pendingStop = true
+            let seq = stopSeq
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self, self.stopSeq == seq, self.pendingStop else { return }
+                self.pendingStop = false
+            }
+        }
         if m.isOnDemandEnabled {
             // Otherwise iOS would reconnect right away: pause on-demand until the next manual connect.
             m.isOnDemandEnabled = false
@@ -576,15 +662,23 @@ final class VPNManager: ObservableObject {
     }
 
     private func applyOnDemandRules(to m: NETunnelProviderManager, settings: OnDemandSettings, enabled: Bool) async throws {
+        guard Self.stageOnDemandRules(on: m, settings: settings, enabled: enabled) else { return }
+        try await m.saveToPreferences()
+        try await m.loadFromPreferences()
+    }
+
+    /// fix/app-toggle-hitch: puts the on-demand rules on `m` without saving; true when anything changed (the
+    /// caller saves). Same rules as applyOnDemandRules.
+    @discardableResult
+    static func stageOnDemandRules(on m: NETunnelProviderManager, settings: OnDemandSettings, enabled: Bool) -> Bool {
         let rules = settings.rules
         let want = enabled && !rules.isEmpty
         let changed = m.isOnDemandEnabled != want || OnDemandSettings.signature(m.onDemandRules ?? []) != OnDemandSettings.signature(rules)
-        guard changed else { return }
+        guard changed else { return false }
         m.onDemandRules = rules
         m.isOnDemandEnabled = want
         OnDemandSettings.setPaused(false)
-        try await m.saveToPreferences()
-        try await m.loadFromPreferences()
+        return true
     }
 
     var onDemandPaused: Bool { OnDemandSettings.isPaused && OnDemandSettings.load().mode != .off }

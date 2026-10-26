@@ -51,7 +51,9 @@ struct HomeView: View {
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
                     if vpn.isConnected && !liveGroups.isEmpty {
                         HomePolicySection(groups: liveGroups, live: true, available: liveAvailable)
-                    } else if disconnected && !offlineCards.isEmpty {
+                    } else if !vpn.isConnected && !offlineCards.isEmpty {
+                        // fix/app-toggle-hitch: also while connecting — the policy section used to vanish for the
+                        // whole connect and pop back when connected (a layout jump right after the tap).
                         HomePolicySection(groups: offlineCards, live: false, available: offlineAvailable)
                     }
                     ModeCard()
@@ -455,16 +457,19 @@ struct HomePowerSwitch: View {
     @ObservedObject private var vpn = VPNManager.shared
 
     var body: some View {
-        let busy = vpn.isBusy || vpn.status == .connecting || vpn.status == .disconnecting
-        let on = vpn.isConnected || vpn.status == .connecting
+        // fix/app-toggle-hitch (build 404: the switch snapped back and sat greyed out for ~1.5 s while the connect
+        // prepared): it shows the requested state at once (VPNManager.pendingStart / pendingStop) and ignores taps
+        // until iOS has the new status, without dimming.
+        let busy = vpn.switchBusy
+        let on = vpn.switchOn
         Toggle("", isOn: Binding(get: { on }, set: { want in
-            guard want != on else { return }
+            guard want != on, !vpn.switchBusy else { return }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            Task { await vpn.toggle() }
+            vpn.requestToggle()
         }))
         .labelsHidden()
         .tint(Theme.good)
-        .disabled(busy)
+        .allowsHitTesting(!busy)
         .accessibilityLabel(Text(vpn.isConnected ? "停止" : "启动"))
         .accessibilityValue(Text(vpn.isConnected ? "已连接" : "未连接"))
         .accessibilityIdentifier("home.power")

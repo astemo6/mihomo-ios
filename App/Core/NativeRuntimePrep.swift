@@ -35,16 +35,37 @@ enum NativeRuntimePrep {
     /// cleared selection) returned nil and the UI reported the new config as applied while the tunnel kept the
     /// previous runtime files.
     static func prepare() async -> String? {
-        guard AppShared.containerOK else {
-            return String(localized: "App Group 不可用：重签名的描述文件需要包含 App Groups，且主程序和扩展使用同一个组。详见 更多 → 诊断。")
-        }
-        guard let profile = AppShared.activeProfileURL else {
-            return String(localized: "请先在「更多 → 配置」中添加并选择一个配置")
-        }
-        let home = AppShared.homeURL.path
+        await prepare(allowCached: false).error
+    }
 
-        return await Task.detached(priority: .userInitiated) { () -> String? in
-            prepareSync(home: home, profile: profile)
+    /// fix/app-toggle-hitch: the outcome of one prepare for the connect path's timing log.
+    struct Outcome {
+        var error: String?
+        /// The runtime on disk was already built from exactly the current inputs (NativeRuntimePrepCache): nothing
+        /// was regenerated.
+        var cached = false
+        var millis = 0
+    }
+
+    /// allowCached (connect): skip the generation when NativeRuntimePrepCache says the outputs on disk were built
+    /// from exactly the current inputs. Reloads (`prepare()`) always regenerate. Everything — the AppShared path
+    /// lookups included — runs off the main actor.
+    static func prepare(allowCached: Bool) async -> Outcome {
+        await Task.detached(priority: .userInitiated) { () -> Outcome in
+            let t0 = DispatchTime.now().uptimeNanoseconds
+            func done(_ e: String?, _ cached: Bool) -> Outcome {
+                Outcome(error: e, cached: cached, millis: Int((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000))
+            }
+            guard AppShared.containerOK else {
+                return done(String(localized: "App Group 不可用：重签名的描述文件需要包含 App Groups，且主程序和扩展使用同一个组。详见 更多 → 诊断。"), false)
+            }
+            guard let profile = AppShared.activeProfileURL else {
+                return done(String(localized: "请先在「更多 → 配置」中添加并选择一个配置"), false)
+            }
+            let home = AppShared.homeURL.path
+            let index = AppShared.profilesIndexURL.path
+            let r = prepareSync(home: home, profile: profile, profilesIndex: index, allowCached: allowCached)
+            return done(r.error, r.cached)
         }.value
     }
 
@@ -61,10 +82,28 @@ enum NativeRuntimePrep {
     /// tunnel could load one prepare's runtime with the other's rewrite snapshot.
     /// The whole build+write runs under one per-home NCPathLock key (a sync
     /// context: the lock is never held across a suspension point).
-    private static func prepareSync(home: String, profile: URL) -> String? {
+    private static func prepareSync(home: String, profile: URL, profilesIndex: String, allowCached: Bool) -> (error: String?, cached: Bool) {
         let key = (home as NSString).appendingPathComponent(".nativecore-prepare.lock")
-        return NCPathLock.shared.withLock(for: key) { () -> String? in
-            prepareSyncLocked(home: home, profile: profile)
+        return NCPathLock.shared.withLock(for: key) { () -> (error: String?, cached: Bool) in
+            // fix/app-toggle-hitch: generation cache (see NativeRuntimePrepCache). Fingerprinted under the prepare
+            // lock, so no other prepare can change the outputs between the check and the start.
+            let profilesDir = profile.deletingLastPathComponent().path
+            let build = NCPrepMarkers.currentBuild
+            func inputs() -> String {
+                NativeRuntimePrepCache.inputsFingerprint(home: home, profilesDir: profilesDir, extraFiles: [profilesIndex],
+                                                         profilePath: profile.path, build: build)
+            }
+            if allowCached, NativeRuntimePrepCache.hit(home: home, inputs: inputs()) {
+                NSLog("[Mihomo] native runtime unchanged since the last prepare: reusing it")
+                return (nil, true)
+            }
+            NativeRuntimePrepCache.invalidate(home: home)
+            let err = prepareSyncLocked(home: home, profile: profile)
+            if err == nil {
+                // Taken after the commit: files the prepare itself wrote are part of the recorded state.
+                NativeRuntimePrepCache.write(home: home, .init(inputs: inputs(), outputs: NativeRuntimePrepCache.outputsFingerprint(home: home)))
+            }
+            return (err, false)
         }
     }
 

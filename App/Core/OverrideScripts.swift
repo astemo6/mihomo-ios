@@ -494,8 +494,10 @@ final class OverrideScriptStore: ObservableObject {
         return SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func fingerprint(_ p: Profile, _ list: [OverrideScript]) -> String {
-        var parts = [Self.fileSHA(p.fileURL), p.displayName]
+    /// fix/app-toggle-hitch: nonisolated — hashes the profile and every script file, so it runs in the detached
+    /// task (it used to run on the main actor on every connect, a visible hitch with a large profile).
+    nonisolated private static func fingerprint(_ fileURL: URL, _ displayName: String, _ list: [OverrideScript]) -> String {
+        var parts = [Self.fileSHA(fileURL), displayName]
         for s in list {
             let opts = (s.options ?? [:]).sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
             parts.append(s.id + ":" + Self.fileSHA(Self.contentURL(s.id)) + ":" + opts)
@@ -532,20 +534,25 @@ final class OverrideScriptStore: ObservableObject {
         let list = scripts(p.id).filter(\.enabled)
         let home = AppShared.homeURL.path, path = p.fileURL.path
         if list.isEmpty {
-            NCOverrideOutput.clear(home: home, profilePath: path)
+            // fix/app-toggle-hitch: file removal off the main actor; no @Published write when nothing changes.
+            await Task.detached(priority: .userInitiated) { NCOverrideOutput.clear(home: home, profilePath: path) }.value
             fingerprints[p.id] = nil
             let r = OverrideChainResult(ok: true, message: "")
-            lastResult[p.id] = nil
+            if lastResult[p.id] != nil { lastResult[p.id] = nil }
             return r
         }
-        let fp = fingerprint(p, list)
-        if !force, fingerprints[p.id] == fp, Self.outputFresh(p), let last = lastResult[p.id], last.ok { return last }
+        // fix/app-toggle-hitch: hashing the profile + scripts, the freshness check and reading the scripts all ran on
+        // the main actor before every connect. One detached hop does them now.
+        let fileURL = p.fileURL, name = p.displayName
+        let (fp, fresh) = await Task.detached(priority: .userInitiated) { () -> (String, Bool) in
+            (Self.fingerprint(fileURL, name, list), Self.outputFresh(p))
+        }.value
+        if !force, fingerprints[p.id] == fp, fresh, let last = lastResult[p.id], last.ok { return last }
         running.insert(p.id)
         defer { running.remove(p.id) }
-        let name = p.displayName
-        let inputs = list.map { ($0, Self.content($0.id)) }
         let outcome = await Task.detached(priority: .userInitiated) { () -> (OverrideChainResult, [String: (Int?, String?, Int?, [String])]) in
-            Self.runChain(home: home, path: path, profileName: name, scripts: inputs)
+            let inputs = list.map { ($0, Self.content($0.id)) }
+            return Self.runChain(home: home, path: path, profileName: name, scripts: inputs)
         }.value
         // Per-script status (time, error, console output).
         var l = scripts(p.id)
