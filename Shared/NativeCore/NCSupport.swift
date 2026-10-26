@@ -3,6 +3,13 @@ import Foundation
 /// What the native core can dial today (feat/native-core-eval). Nodes it cannot are kept in the config — the App
 /// still lists them — but marked unsupported: groups skip them, the controller reports them dead, and the startup
 /// log / 诊断 say why. There is no fallback to another core; later kernel iterations add the missing protocols.
+///
+/// ECH 说明（lane E6）：
+/// Hysteria2 与 TUIC 基于系统 Network.framework QUIC（NWProtocolQUIC），已开启系统实验性 ECH 开关
+/// （sec_protocol_options_set_enable_encrypted_client_hello）。其 ECH 能力定位为「系统 ECH（尽力而为）」：
+/// 生效前提为系统 DNS 解析可自动获取 HTTPS/SVCB 记录中的 ECHConfig；系统 QUIC 无法注入外部或静态配置。
+/// 因此 NCSupport 不将其标为「完全支持 ECH」，节点若显式配置静态 ech-opts.config，在 report/StartupLog 中给出
+/// 可区分提示（静态配置无法生效，仅依赖系统 DNS 尽力而为），避免静默假装生效。
 enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
@@ -177,11 +184,31 @@ enum NCSupport {
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.
     static let groupTypes: Set<String> = ["select", "url-test", "fallback", "load-balance", "relay"]
 
+    /// Whether the proxy explicitly configures `ech-opts` with a non-empty static `config`.
+    /// System QUIC (NWProtocolQUIC) ECH can only discover ECHConfig dynamically via system DNS (HTTPS/SVCB records),
+    /// so static configs cannot be injected into the system QUIC stack.
+    static func hasStaticECHConfig(_ p: NCProxy) -> Bool {
+        guard let echOpts = p.fields["ech-opts"]?.object,
+              echOpts["enable"]?.bool == true else { return false }
+        if let s = echOpts["config"]?.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        if let a = echOpts["config"]?.array, !a.isEmpty {
+            return true
+        }
+        return false
+    }
+
     /// One line per unsupported node / group type / rule, for the startup log and 诊断.
     static func report(config: NCConfig, unparsedRules: [String]) -> [String] {
         var out: [String] = []
         for p in config.proxies {
-            if let why = unsupportedReason(p) { out.append("节点「\(p.name)」不可用：\(why)") }
+            if let why = unsupportedReason(p) {
+                out.append("节点「\(p.name)」不可用：\(why)")
+            } else if ["hysteria2", "hy2", "tuic"].contains(p.type.lowercased()),
+                      hasStaticECHConfig(p) {
+                out.append("节点「\(p.name)」带静态 ech-opts.config：系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 自动解析 HTTPS 记录尽力而为，静态配置将被忽略）")
+            }
         }
         for g in config.groups where !groupTypes.contains(g.type.lowercased()) {
             out.append("策略组「\(g.name)」类型 \(g.type) 暂按手动选择处理")

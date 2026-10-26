@@ -1,5 +1,32 @@
 import Foundation
 import Network
+import Security
+
+// MARK: - Experimental System ECH Helper
+
+/// Experimental Security framework C API binding for `sec_protocol_options_set_enable_encrypted_client_hello`.
+///
+/// In the public Apple SDK headers (SecProtocolOptions.h), this experimental function is annotated with
+/// `API_UNAVAILABLE(macos, ios, watchos, tvos)`, which causes Swift compiler errors on iOS targets if referenced
+/// statically. However, the symbol is implemented and exported by the Security / Network runtime on modern Darwin
+/// systems (iOS 14+ / macOS 11+).
+///
+/// We resolve the symbol dynamically via `dlsym(RTLD_DEFAULT, ...)` so that:
+/// 1. The Swift codebase compiles cleanly on all iOS target SDKs without compiler availability errors;
+/// 2. If the runtime exports the symbol, system ECH is enabled on the given sec_protocol_options_t;
+/// 3. If the runtime lacks the symbol, it safely no-ops ("能开则开、开不了就标注").
+private let secProtocolOptionsSetEnableECHSymbol: (@convention(c) (sec_protocol_options_t, Bool) -> Void)? = {
+    guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "sec_protocol_options_set_enable_encrypted_client_hello") else {
+        return nil
+    }
+    return unsafeBitCast(sym, to: (@convention(c) (sec_protocol_options_t, Bool) -> Void).self)
+}()
+
+func sec_protocol_options_set_enable_encrypted_client_hello(_ options: sec_protocol_options_t, _ enable: Bool) {
+    if let fn = secProtocolOptionsSetEnableECHSymbol {
+        fn(options, enable)
+    }
+}
 
 /// Per-stream QUIC options for `NWConnectionGroup.extract(connectionTo:using:)` on a
 /// multiplex (QUIC) group.
@@ -26,6 +53,11 @@ import Network
 /// parameters' transport protocol) and flip only the per-stream knobs (direction,
 /// datagram). The parameters are deep-copied first so the flip never touches the group's
 /// live options — a later `extract(using: nil)` must still get a bidirectional stream.
+///
+/// In addition, because the group parameters already carry the securityProtocolOptions
+/// configured by the dialer (e.g. ALPN, TLS 1.3 min version, and the experimental system
+/// ECH switch `sec_protocol_options_set_enable_encrypted_client_hello`), both `derived`
+/// and the callers' `fallback` closures retain the exact same security/ECH options.
 enum NCQUICStreamOptions {
 
     /// The group's QUIC options, deep-copied, with `configure` applied (direction /

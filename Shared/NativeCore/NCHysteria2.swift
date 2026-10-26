@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 import os
 
 /// Hysteria2 client (protocol v2, apernet/hysteria), built on the Network
@@ -52,6 +53,13 @@ import os
 ///     the group parameters (see NCTUICConnection.quicStreamOptions for the
 ///     same rule): bare options negotiate without ALPN and the server
 ///     refuses the stream.
+///  6. Experimental ECH via `sec_protocol_options_set_enable_encrypted_client_hello` (Security framework):
+///     Network.framework QUIC supports system ECH when enabled on the transport's securityProtocolOptions.
+///     Precondition and limitations:
+///     - System QUIC discovers ECHConfig exclusively via system DNS resolution of HTTPS/SVCB records;
+///     - External/static ECHConfig cannot be injected via Network.framework API;
+///     - Designated as "系统 ECH（尽力而为）" (best-effort system ECH); if no ECHConfig is found in DNS,
+///       it falls back to standard TLS 1.3 ClientHello. Static configs in `ech-opts` are warned in logs/report.
 
 // MARK: - Pure wire functions
 
@@ -418,6 +426,7 @@ final class NCHysteria2Connection {
     private let password: String
     private let sni: String?
     private let allowInsecure: Bool
+    private let echEnabled: Bool
     /// nc-races: the connection's own session queue (the #116 pattern, as in NCMuxSession): every piece of
     /// connection and stream state — the NW group, the streams registry, the control-stream parser, the
     /// datagram channel — is touched only here, no matter which caller (connector, data plane, local proxy)
@@ -513,12 +522,13 @@ final class NCHysteria2Connection {
     private var datagramSinks: [UInt64: (Data) -> Void] = [:]
 
     init(server: String, port: Int, password: String, sni: String? = nil,
-         allowInsecure: Bool = false, queue: DispatchQueue) {
+         allowInsecure: Bool = false, echEnabled: Bool = false, queue: DispatchQueue) {
         self.server = server
         self.port = port
         self.password = password
         self.sni = sni
         self.allowInsecure = allowInsecure
+        self.echEnabled = echEnabled
         self.callbackQueue = queue
         self.queue = NCSessionQueues.make("nc.hy2.\(server):\(port)")
     }
@@ -526,9 +536,14 @@ final class NCHysteria2Connection {
     convenience init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let server = proxy.server, let port = proxy.port,
               let password = proxy.password else { return nil }
+        let echEnabled = proxy.fields["ech-opts"]?.object?["enable"]?.bool == true
+        if echEnabled && NCSupport.hasStaticECHConfig(proxy) {
+            StartupLog.write("hysteria2「\(proxy.name)」: 节点配置了静态 ech-opts.config，但系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 获取，静态配置不生效）")
+        }
         self.init(server: server, port: port, password: password,
                   sni: proxy.fields["sni"]?.string,
                   allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                  echEnabled: echEnabled,
                   queue: queue)
     }
 
@@ -570,6 +585,15 @@ final class NCHysteria2Connection {
         }
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)
+        }
+        // ECH（lane E6）：打开系统 QUIC 的实验性 ECH 开关（Security 框架 C API）。
+        // 生效前提与限制：
+        // 1. 系统 QUIC 的 ECH 只能由系统在 DNS 解析时自动从 HTTPS/SVCB 记录中获取 ECHConfig；
+        // 2. 应用层无法向系统 QUIC 注入外部或静态（E1/E2 / ech-opts.config）获取的 ECHConfig；
+        // 3. 需系统 DNS 解析具备 DoH/HTTPS 记录支持；若无法从 DNS 获取则自动回退为普通 ClientHello。
+        // 因此此处为「系统 ECH（尽力而为）」。
+        if echEnabled {
+            sec_protocol_options_set_enable_encrypted_client_hello(tlsOptions, true)
         }
         // RFC 9221 max_datagram_frame_size: our SETTINGS announce H3_DATAGRAM=1, and a
         // quic-go HTTP/3 peer with datagrams enabled closes the connection
