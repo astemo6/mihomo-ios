@@ -400,7 +400,7 @@ final class NativeCoreOpen610Tests: XCTestCase {
     func testQXImportMarksServerRemote() {
         let conf = """
         [server_remote]
-        https://sub.example.com/api/v1/client/subscribe?token=abc, tag=薯条, update-interval=86400, opt-parser=false, enabled=true
+        https://sub.example.com/api/v1/client/subscribe/abc123, tag=薯条, update-interval=86400, opt-parser=false, enabled=true
         """
         let c = NCQXImport.quantumultx(conf)
         guard !c.subscriptions.isEmpty else { return XCTFail("no subscription") }
