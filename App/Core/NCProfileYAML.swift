@@ -1006,6 +1006,53 @@ final class NCProfileYAML {
 
     /// Renames all references to `oldName` in proxy-groups, proxies dialer-proxy, rules, sub-rules.
     /// If `newName` is empty, references are deleted.
+    /// Rewrites one flow-style entry line (`- {name: X, proxies: [A, B], dialer-proxy: C}`): renames
+    /// oldName inside its `proxies:` member list and its `dialer-proxy:` value (an empty newName drops
+    /// the member / the pair). Returns nil when the line does not reference oldName. Untouched pairs
+    /// keep their raw text; the leading indent and anything after the closing brace (e.g. a comment)
+    /// are preserved.
+    static func renamedFlowEntry(line: String, oldName: String, newName: String)
+        -> (line: String, name: String?, hitMember: Bool, hitDialer: Bool)? {
+        guard let open = line.firstIndex(of: "{"), let close = line.lastIndex(of: "}") else { return nil }
+        let inner = String(line[line.index(after: open)..<close])
+        var name: String? = nil
+        var hitMember = false
+        var hitDialer = false
+        var out: [String] = []
+        for pair in Self.splitFlowItems(inner) {
+            guard let colon = pair.firstIndex(of: ":") else { out.append(pair); continue }
+            let key = String(pair[..<colon]).trimmingCharacters(in: .whitespaces)
+            let value = String(pair[pair.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            switch key {
+            case "name":
+                name = Self.unquoteScalar(value)
+                out.append(pair)
+            case "proxies":
+                guard value.hasPrefix("["), value.hasSuffix("]") else { out.append(pair); continue }
+                let members = Self.splitFlowItems(String(value.dropFirst().dropLast()))
+                var kept: [String] = []
+                for m in members {
+                    if Self.unquoteScalar(m) == oldName {
+                        hitMember = true
+                        if !newName.isEmpty { kept.append(Self.formatYAMLString(newName, flow: true)) }
+                    } else { kept.append(m) }
+                }
+                out.append(hitMember ? "proxies: [" + kept.joined(separator: ", ") + "]" : pair)
+            case "dialer-proxy":
+                if Self.unquoteScalar(value) == oldName {
+                    hitDialer = true
+                    if !newName.isEmpty { out.append("dialer-proxy: " + Self.formatYAMLString(newName, flow: true)) }
+                } else { out.append(pair) }
+            default:
+                out.append(pair)
+            }
+        }
+        guard hitMember || hitDialer else { return nil }
+        let indent = String(line.prefix(while: { $0 == " " }))
+        let suffix = String(line[line.index(after: close)...])
+        return (indent + "- { " + out.joined(separator: ", ") + " }" + suffix, name, hitMember, hitDialer)
+    }
+
     func renameRefs(oldName: String, newName: String) -> RenameStats {
         var st = RenameStats()
 
@@ -1017,6 +1064,26 @@ final class NCProfileYAML {
             while i < section.contentRange.upperBound && i < lines.count {
                 let line = lines[i]
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+                // Flow-style group entry on one line: - {name: X, proxies: [A, B], ...}. The line-shape
+                // checks below ("- name:" / "proxies:" at line start) can never see inside such a line, so
+                // its members kept the old name while upsertProxy renamed the node itself — commit
+                // validation then rejected every rename of a node referenced by a flow group
+                // ("proxy group …: '<old>' not found"; test10). Rewrite the entry in place instead.
+                if trimmed.hasPrefix("- {") {
+                    if let r = Self.renamedFlowEntry(line: line, oldName: oldName, newName: newName) {
+                        lines[i] = r.line
+                        if let g = r.name { currentGroup = g }
+                        if r.hitMember, !currentGroup.isEmpty, !st.groups.contains(currentGroup) {
+                            st.groups.append(currentGroup)
+                        }
+                        if r.hitDialer, !currentGroup.isEmpty, !st.dialers.contains(currentGroup) {
+                            st.dialers.append(currentGroup)
+                        }
+                    }
+                    i += 1
+                    continue
+                }
 
                 if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:") {
                     let clean = trimmed.hasPrefix("- name:") ? String(trimmed.dropFirst(7)) : String(trimmed.dropFirst(5))
@@ -1096,6 +1163,20 @@ final class NCProfileYAML {
             while i < section.contentRange.upperBound && i < lines.count {
                 let line = lines[i]
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+                // Flow-style proxy entry: - {name: A, ..., dialer-proxy: B} — same blind spot as in
+                // proxy-groups above; rewrite its dialer-proxy pair in place.
+                if trimmed.hasPrefix("- {") {
+                    if let r = Self.renamedFlowEntry(line: line, oldName: oldName, newName: newName) {
+                        lines[i] = r.line
+                        if let n = r.name { currentProxy = n }
+                        if r.hitDialer, !currentProxy.isEmpty, !st.dialers.contains(currentProxy) {
+                            st.dialers.append(currentProxy)
+                        }
+                    }
+                    i += 1
+                    continue
+                }
 
                 if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:") {
                     let clean = trimmed.hasPrefix("- name:") ? String(trimmed.dropFirst(7)) : String(trimmed.dropFirst(5))

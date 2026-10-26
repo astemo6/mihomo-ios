@@ -1249,8 +1249,9 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(scrollTo(ts), "Tailscale in 新协议")
         ts.tap()
         XCTAssertTrue(app.navigationBars[L("添加节点")].waitForExistence(timeout: 6), "editor")
-        XCTAssertTrue(app.element(id: "node.experimentalWarning").waitForExistence(timeout: 4), "实验性 warning")
-        XCTAssertTrue(app.element(id: "node.experimentalWarning").label.contains("50 MB"), "warning mentions the 50 MB limit")
+        // UI 现状（Tailscale 改为「未接入」呈现后）: 编辑器不再带实验性内存警告（实验集合已清空），
+        // 改为在参数区底部说明原生内核尚未接入；实验性警告只保留在节点详情页（见下文断言）。
+        XCTAssertFalse(app.element(id: "node.experimentalWarning").exists, "no experimental warning in the editor")
         XCTAssertFalse(app.textFields[L("服务器")].exists, "no server field for Tailscale")
         XCTAssertFalse(app.textFields[L("端口")].exists, "no port field for Tailscale")
         XCTAssertTrue(app.staticTexts[L("设备名")].exists || app.textFields["mihomo-ios"].exists, "hostname field")
@@ -1267,6 +1268,9 @@ final class MihomoUITests: MihomoUITestCase {
         app.swipeUp()
         let accept = app.element(label: L("接受子网路由"))
         XCTAssertTrue(scrollTo(accept, maxSwipes: 4, fail: false) || accept.exists, "accept-routes toggle")
+        // 参数区底部的未接入说明（编辑器里代替旧实验性警告的文案，以当前 UI 为准）。
+        let note = app.element(labelContains: L("Tailscale：原生内核尚未接入，节点会保留在配置中，但不会被连接。"))
+        XCTAssertTrue(scrollTo(note, maxSwipes: 4, fail: false) || note.exists, "unsupported note in the editor")
         snap("tailscale-editor-bottom")
         let save = app.navigationBars.buttons[L("保存")]
         XCTAssertTrue(save.waitHittable(), "保存 enabled without server / port")
@@ -1288,6 +1292,7 @@ final class MihomoUITests: MihomoUITestCase {
         let mem = app.element(id: "node.tailscale.memory")
         XCTAssertTrue(scrollTo(mem), "Tailscale section with memory link")
         XCTAssertTrue(app.element(id: "node.experimentalWarning").exists, "warning on detail")
+        XCTAssertTrue(app.element(id: "node.experimentalWarning").label.contains("50 MB"), "warning mentions the 50 MB limit")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "tskey-auth-uitest")).firstMatch.exists, "auth key not shown")
         snap("tailscale-detail")
         mem.tap()
