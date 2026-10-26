@@ -38,12 +38,11 @@
 //        semantics, unicode.SimpleFold orbit expansion (foldOrbit), and reNullable / reHasRepeatOrAlt rejections.
 //      - Impact: Produces bit-for-bit identical ICU strings, capture counts, and bodyWhy rejection reasons on all rules.
 //
-//   4. JQ Subset Compilation:
-//      - Go behavior: Parses expressions with github.com/itchyny/gojq (gojq.Parse), evaluating constants via gojq.Compile.
-//      - Swift behavior: Implements a recursive-descent parser for the supported JQ subset (del, path = const,
-//        path |= map(select(cond))), encoding constant values as JSON. Unsupported syntax or operators return
-//        identical bodyWhy error strings (e.g. "jq form", "jq cond value", "jq path term").
-//      - Impact: Produces identical NCSnapJQStep and NCSnapJQCond structures without embedding a full gojq runtime.
+//   4. jq (fix/nc-jq-full):
+//      - The whole filter text (inline, or read from a jq-path= / Egern filter URL through NCResources) is checked with
+//        the native interpreter (NativeJQ.compile) and exported as `jqx`; the tunnel runs it with NativeJQ. A filter
+//        that does not compile is exported non-portable (bodyWhy "jq: <reason>") and logged as a warning; its bodies
+//        pass through. The legacy step-list parser below (snapJQ) is kept only for old snapshots / fixtures.
 //
 //   5. Remote Map Local & Script Resource Management (NCResources):
 //      - Go behavior: Resources downloads remote scripts/resources using Go net/http through the core client,
@@ -329,11 +328,13 @@ struct NCSnapRule: Codable, Equatable {
     var body: [NCSnapBodyOp]?
     var jsonOps: [NCSnapJSONOp]?
     var jq: [NCSnapJQStep]?
+    /// fix/nc-jq-full: the full jq filter text (run by NativeJQ in the tunnel)
+    var jqx: String?
     var bodyOK: Bool?
     var bodyWhy: String?
 
     enum CodingKeys: String, CodingKey {
-        case i, kind, phase, re, hgate, hre, action, target, targetOK, tp, tperr, headers, opsOK, local, script, body, jsonOps, jq, bodyOK, bodyWhy
+        case i, kind, phase, re, hgate, hre, action, target, targetOK, tp, tperr, headers, opsOK, local, script, body, jsonOps, jq, jqx, bodyOK, bodyWhy
     }
 
     init(
@@ -2289,7 +2290,7 @@ private func resolvePathAndConst(_ a: String, _ b: String) -> ([NCBodyJSONKey], 
     return (path, constStr, "")
 }
 
-private func snapBody(_ sr: inout NCSnapRule, _ r: NCEngineRule) {
+private func snapBody(_ sr: inout NCSnapRule, _ r: NCEngineRule, res: NCResources? = nil) {
     var why = ""
     switch r.kind {
     case "body":
@@ -2323,16 +2324,26 @@ private func snapBody(_ sr: inout NCSnapRule, _ r: NCEngineRule) {
             sr.jsonOps = jsonOps
         }
     case "jq":
-        if r.jq.isEmpty {
+        // fix/nc-jq-full: the full filter, inline or from jq-path= / an Egern filter URL (prefetched with the other
+        // remote resources: NativeRuntimePrep.remoteResources lists r.data)
+        var src = r.jq
+        if src.isEmpty, !r.data.isEmpty, let res,
+           let d = try? res.get(path: r.data, maxAge: 86400), let text = String(data: d, encoding: .utf8) {
+            src = text
+        }
+        if src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             why = "jq file"
+            NSLog("[Mihomo] WARN jq rule %@: filter file %@ not available, bodies pass through", r.pattern, r.data)
             break
         }
-        let (steps, w) = snapJQ(r.jq)
-        if !w.isEmpty {
-            why = w
+        do {
+            _ = try NativeJQ.compile(src)
+        } catch {
+            why = "jq: \(error)"
+            NSLog("[Mihomo] WARN jq rule %@ does not compile (%@), bodies pass through", r.pattern, "\(error)")
             break
         }
-        sr.jq = steps
+        sr.jqx = src
     default:
         return
     }
@@ -2514,7 +2525,7 @@ private func snapRule(i: Int, r: NCEngineRule, home: String, res: NCResources) -
             )
         }
     case "body", "jq", "json":
-        snapBody(&sr, r)
+        snapBody(&sr, r, res: res)
     default:
         break
     }

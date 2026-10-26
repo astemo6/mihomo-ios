@@ -1678,9 +1678,19 @@ extension NCEngineRuleset {
             let phase = t0.contains("response") ? "response" : "request"
             let pattern = toks[1]
             if t0.hasSuffix("-jq") {
-                var r = NCEngineRule(kind: "jq", phase: phase, pattern: pattern)
+                // fix/nc-jq-full: the filter is everything after the pattern token (searched after the first token:
+                // the pattern text can also occur inside "http-response-jq"); a stray repeated phase token
+                // ("http-response-jq http-response ^regex '…'", seen in published modules) is skipped.
+                var pat = pattern
+                var after = line.range(of: toks[0])?.upperBound ?? line.startIndex
+                if ["http-response", "http-request"].contains(pattern.lowercased()), toks.count >= 4,
+                   let stray = line.range(of: pattern, range: after..<line.endIndex) {
+                    after = stray.upperBound
+                    pat = toks[2]
+                }
+                var r = NCEngineRule(kind: "jq", phase: phase, pattern: pat)
                 let rest: String
-                if let idx = line.range(of: pattern) {
+                if let idx = line.range(of: pat, range: after..<line.endIndex) {
                     rest = String(line[idx.upperBound...]).trimmingCharacters(in: .whitespaces)
                 } else {
                     rest = ""
@@ -1760,6 +1770,24 @@ extension NCEngineRuleset {
                 return
             }
             switch t1 {
+            case "response-body-json-jq", "request-body-json-jq":
+                // fix/nc-jq-full: Loon <regex> response-body-json-jq '<filter>' | jq-path="<url>"
+                var r = NCEngineRule(kind: "jq", phase: t1.hasPrefix("response") ? "response" : "request", pattern: pattern)
+                var rest = ""
+                if let range = line.range(of: toks[1]) {
+                    rest = String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                }
+                if rest.isEmpty {
+                    add(nil, .message("\(t1) 缺少 jq 表达式"))
+                    return
+                }
+                if rest.hasPrefix("jq-path=") {
+                    r.data = Self.unquote(String(rest.dropFirst("jq-path=".count)))
+                } else {
+                    r.jq = Self.unquote(rest)
+                }
+                add(r, nil)
+                return
             case "response-body-json-del", "response-body-json-replace", "response-body-json-add",
                  "request-body-json-del", "request-body-json-replace", "request-body-json-add":
                 let (r, e) = Self.parseLoonJSON(pattern: pattern, op: t1, args: Array(toks.dropFirst(2)))
@@ -2488,7 +2516,11 @@ extension NCEngineRuleset {
                 panels.append(p)
             }
         }
-        for key in ["url_rewrites", "header_rewrites", "body_rewrites", "map_locals"] {
+        // fix/nc-jq-full: body_rewrites request_jq / response_jq → jq rules (filter inline, or a URL of a .jq file)
+        if let arr = root["body_rewrites"]?.array {
+            for item in arr { parseEgernBodyRewrite(item) }
+        }
+        for key in ["url_rewrites", "header_rewrites", "map_locals"] {
             if let arr = root[key]?.array {
                 for item in arr { unsupported.append("egern \(key): \(item)") }
             }
@@ -2511,6 +2543,32 @@ extension NCEngineRuleset {
                 }
             }
         }
+    }
+
+    /// Egern `body_rewrites` item: `- response_jq: {match, filter}` / `- request_jq: …`. Other body rewrite kinds stay
+    /// in `unsupported`.
+    func parseEgernBodyRewrite(_ item: NCJSONValue) {
+        guard let o = item.object else {
+            unsupported.append("egern body_rewrites: \(item)")
+            return
+        }
+        var handled = false
+        for (key, phase) in [("response_jq", "response"), ("request_jq", "request")] {
+            guard let spec = o[key]?.object else { continue }
+            handled = true
+            let filter = Self.egernStr(spec["filter"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let pats = Self.egernPatterns(spec["match"] ?? .null)
+            if filter.isEmpty || pats.isEmpty {
+                unsupported.append("egern body_rewrites \(key): match / filter missing")
+                continue
+            }
+            for pat in pats {
+                var r = NCEngineRule(kind: "jq", phase: phase, pattern: pat)
+                if filter.hasPrefix("http://") || filter.hasPrefix("https://") { r.data = filter } else { r.jq = filter }
+                addRule(line: "egern body_rewrites \(key): \(pat)", r, nil)
+            }
+        }
+        if !handled { unsupported.append("egern body_rewrites: \(item)") }
     }
 
     static func egernPatterns(_ v: NCJSONValue) -> [String] {
