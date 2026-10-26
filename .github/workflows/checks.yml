@@ -45,4 +45,8 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
-      - run: bash tools/nc-stack-test/run.sh
+      # nc_stack_test.c (handshake / checksums / multi-flow UDP) + nc_soak_test.c (fix/nc-tcp1: ≥800 TCP flows v4+v6
+      # and a DNS query each over ~12 simulated minutes incl. TIME_WAIT + listener expiry; fails on any SYN not
+      # accepted, any not-ours drop, any listen fail, any leaked PCB — build433's data-plane death).
+      - name: nc-stack host tests + soak
+        run: bash tools/nc-stack-test/run.sh
