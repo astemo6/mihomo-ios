@@ -138,6 +138,23 @@ final class NativeCoreEngine {
         return URL(fileURLWithPath: home).appendingPathComponent("nativecore-selections.json")
     }
 
+    /// fix/nc-diag-439 (A): what the IP rules saw for a flow that fell through to the final rule — the destination IP
+    /// (the flow's own, else the rule-resolve answer cached for the domain), its GeoIP code(s) and ASN. Log-only.
+    func matchNote(domain: String?, ip: NCIP?) -> String {
+        var addr = ip
+        if addr == nil, let d = domain?.lowercased() {
+            resolveLock.lock()
+            addr = resolveCache[d]?.ip
+            resolveLock.unlock()
+        }
+        guard let a = addr else { return "dst IP unknown (domain-only match)" }
+        let (geo, asn) = locked { (geoIPDB, asnDB) }
+        let codes = geo?.countryCodes(for: a) ?? []
+        let asNum = asn?.asn(for: a)
+        return "dst \(a.string) geo \(codes.isEmpty ? (geo == nil ? "no-db" : "-") : codes.joined(separator: "+")) "
+            + (asn == nil ? "asn no-db" : asNum.map { "AS\($0)" } ?? "AS-")
+    }
+
     func lookupCountry(_ ipStr: String) -> String? {
         guard let ip = NCIP(ipStr), let db = locked({ geoIPDB }) else { return nil }
         return db.countryCode(for: ip)
@@ -420,6 +437,7 @@ final class NativeCoreEngine {
         ctx.subRules = config?.subRules ?? [:]
         if let geoIPDB {
             ctx.countryOf = { geoIPDB.countryCode(for: $0) }
+            ctx.countryCodesOf = { geoIPDB.countryCodes(for: $0) }
         }
         if let asnDB {
             ctx.asnOf = { asnDB.asn(for: $0) }

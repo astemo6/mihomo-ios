@@ -410,10 +410,15 @@ final class SelfCheck: ObservableObject {
             let app = appView
             let mods = EngineStore.shared.enabledModuleCounts
             let L = (cfg: String(localized: "配置"), app: String(localized: "App"), rt: String(localized: "运行时"), core: String(localized: "内核"), mod: String(localized: "模块"))
+            // fix/nc-diag-439 (E): name the node sets that never reach the App layer and why — a set the user turned off
+            // or deleted in 节点集设置 is not "lost" (build 439: 配置 3 → App 1 reported as a failure with no names).
+            let appProviderNames = Set((app?.proxyProviders ?? []).map(\.name))
+            let gap = await BlockingWork.run { Self.providerGap(path: path, appNames: appProviderNames) }
+            let cfgProviders = profile.map { $0.proxyProviders - gap.userRemoved.count }
 
             let metrics: [SelfCheckLogic.Metric] = [
                 .init(name: String(localized: "节点"), layers: [(L.cfg, profile?.proxies), (L.app, app?.proxies.count), (L.rt, rt?.proxies), (L.core, core?.proxies ?? ctlProxies)]),
-                .init(name: String(localized: "节点集"), layers: [(L.cfg, profile?.proxyProviders), (L.app, app?.proxyProviders.count), (L.rt, rt?.providers), (L.core, core?.providers ?? providers.count)]),
+                .init(name: String(localized: "节点集"), layers: [(L.cfg, cfgProviders), (L.app, app?.proxyProviders.count), (L.rt, rt?.providers), (L.core, core?.providers ?? providers.count)]),
                 .init(name: String(localized: "节点集里的节点"), layers: [(L.app, app.map { $0.proxyProviders.reduce(0) { $0 + max(0, $1.count) } }), (L.core, nodes)], tolerance: 0.5),
                 .init(name: String(localized: "策略组"), layers: [(L.cfg, profile?.groups), (L.app, app?.groups.count), (L.rt, rt?.groups), (L.core, core?.groups ?? groups.count)]),
                 // The core drops rules it cannot parse (reported as ignored): those are not lost on the way.
@@ -428,6 +433,9 @@ final class SelfCheck: ObservableObject {
             let cmp = SelfCheckLogic.compare(metrics)
             var problems = cmp.lost
             if !empty.isEmpty { problems.append(String(localized: "没有节点的节点集：") + empty.joined(separator: ", ")) }
+            if !gap.unknown.isEmpty {
+                problems.append(String(localized: "节点集在 App 层被移除（不是在节点集设置里停用的）：") + gap.unknown.joined(separator: ", "))
+            }
             if rt == nil { problems.append(String(localized: "运行时文件 nativecore-runtime.json 缺失或无法读取")) }
             if core == nil { problems.append(String(localized: "启动日志里没有内核加载行（native core …），内核可能没有加载配置")) }
             if let rw = rt, rw.rewriteRules > 0, rwCore == nil, rt?.rewriteOn == true {
@@ -448,6 +456,9 @@ final class SelfCheck: ObservableObject {
             lines += cmp.table
             if let c = core, c.ignoredRules > 0 { lines.append(String(localized: "内核忽略的规则：\(c.ignoredRules) 条（不支持的类型）")) }
             if profile == nil { lines.append(String(localized: "配置文件不是可读的 YAML，跳过「配置」层")) }
+            for (name, why) in gap.userRemoved {
+                lines.append(String(localized: "节点集「\(name)」\(why)（不计入「配置」层）"))
+            }
             set("counts", problems.isEmpty ? .pass : .fail, lines.joined(separator: "\n"))
         } catch {
             set("counts", .fail, error.localizedDescription)
@@ -466,6 +477,23 @@ final class SelfCheck: ObservableObject {
         c.rules = root["rules"]?.array?.count ?? 0
         c.ruleProviders = root["rule-providers"]?.object?.count ?? 0
         return c
+    }
+
+    /// fix/nc-diag-439 (E): node sets of the profile file that are not in the App layer, split by reason.
+    nonisolated static func providerGap(path: String, appNames: Set<String>) -> (userRemoved: [(String, String)], unknown: [String]) {
+        guard !path.isEmpty, let text = try? String(contentsOfFile: path, encoding: .utf8),
+              let pp = NCYAML.parse(text)?.object?["proxy-providers"]?.object else { return ([], []) }
+        let missing = pp.keys.filter { !appNames.contains($0) }.sorted()
+        guard !missing.isEmpty else { return ([], []) }
+        let ov = NCRuntimeFiles.readProviderOverrides(home: AppShared.homeURL.path, profileID: NCRuntimeFiles.profileID(fromPath: path)) ?? [:]
+        var removed: [(String, String)] = []
+        var unknown: [String] = []
+        for n in missing {
+            if ov[n]?.deleted == true { removed.append((n, String(localized: "已在节点集设置里删除"))) }
+            else if ov[n]?.disabled == true { removed.append((n, String(localized: "已在节点集设置里停用"))) }
+            else { unknown.append(n) }
+        }
+        return (removed, unknown)
     }
 
     struct RuntimeCounts {
@@ -544,23 +572,37 @@ final class SelfCheck: ObservableObject {
 
         // Scripts: entries the App could not load (local file absent, download failed …).
         var scriptCount = 0
+        // fix/nc-diag-439 (F): a script given as a bare file name (QX `CloudflareIP.js` = a file in the QX iCloud
+        // Scripts folder) never travels with an imported profile — not a broken download, so WARN with what to do.
+        var warn: [String] = []
         if let sc = Self.json("nativecore-scripts.json") as? [String: Any] {
             let all = (sc["scripts"] as? [[String: Any]] ?? []) + (sc["tasks"] as? [[String: Any]] ?? [])
             scriptCount = all.count
             for s in all {
                 guard let e = s["err"] as? String, !e.isEmpty else { continue }
-                let src = (s["path"] as? String).map { " · " + SelfCheckLogic.shortURL($0) } ?? ""
-                bad.append(String(localized: "脚本 \(s["name"] as? String ?? "?")\(src)：\(e)"))
+                let path = s["path"] as? String
+                let name = s["name"] as? String ?? "?"
+                if let path, SelfCheckLogic.isBareLocalScript(path) {
+                    warn.append(String(localized: "脚本 \(name) · \(path)：本地脚本未随配置导入"))
+                    continue
+                }
+                let src = path.map { " · " + SelfCheckLogic.shortURL($0) } ?? ""
+                bad.append(String(localized: "脚本 \(name)\(src)：\(e)"))
             }
         }
         for l in SelfCheckLogic.lines(log, containing: "跳过脚本：").suffix(5) { bad.append(String(l.prefix(200))) }
         info.append(String(localized: "脚本 \(scriptCount) 个"))
 
+        var warnLines: [String] = []
+        if !warn.isEmpty {
+            warnLines = SelfCheckLogic.capped(warn, 10)
+            warnLines.append(String(localized: "这些脚本是 Quantumult X 本地（iCloud Scripts 目录）里的文件，导入配置时不会一起带过来：把脚本加到「模块 / 脚本」里，或把配置里的文件名换成脚本的 URL。"))
+        }
         if bad.isEmpty {
-            set("resources", .pass, info.joined(separator: " · "))
+            set("resources", warn.isEmpty ? .pass : .known, (warnLines + [info.joined(separator: " · ")]).joined(separator: "\n"))
         } else {
             let head = String(localized: "\(bad.count) 项远程资源缺失：") + bad[0]
-            set("resources", .fail, ([head] + SelfCheckLogic.capped(Array(bad.dropFirst()), 20) + [info.joined(separator: " · ")]).joined(separator: "\n"))
+            set("resources", .fail, ([head] + SelfCheckLogic.capped(Array(bad.dropFirst()), 20) + warnLines + [info.joined(separator: " · ")]).joined(separator: "\n"))
         }
     }
 
@@ -736,7 +778,9 @@ final class SelfCheck: ObservableObject {
             let t0 = Date()
             let infoR: IPInfo?? = await Self.deadline(12) { () async -> IPInfo? in await GeoChecker.fetchCustom(timeout: 8) }
             let info: IPInfo? = infoR ?? nil
-            lines.append(String(localized: "自定义接口 + 脚本（首页用这个）：") + (info.map { "\($0.ip) · \(Self.ms(t0)) ms" } ?? String(localized: "没有结果（\(Self.ms(t0)) ms）")))
+            // fix/nc-diag-439 (D): say why (build 439: 13 ms = ATS refused the http:// custom URL).
+            let why = GeoChecker.lastError
+            lines.append(String(localized: "自定义接口 + 脚本（首页用这个）：") + (info.map { "\($0.ip) · \(Self.ms(t0)) ms" } ?? String(localized: "没有结果（\(Self.ms(t0)) ms）") + (why.isEmpty ? "" : "：" + why)))
         }
         let firstOK = results.first { $0.2 }.map { eps[$0.0].name }
         let head: String
@@ -819,8 +863,9 @@ final class SelfCheck: ObservableObject {
             let t0 = Date()
             fetchRequests += 1
             do {
-                let (_, resp) = try await session.data(from: url)
-                lines.append("\(label) \(url.host ?? ""): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0) · \(Self.ms(t0)) ms")
+                let (body, resp) = try await session.data(from: url)
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                lines.append("\(label) \(url.host ?? ""): HTTP \(code) · \(Self.ms(t0)) ms" + SelfCheckLogic.mitmErrorNote(status: code, body: body))
             } catch {
                 // A pinned / untrusted MitM host failing is reported by the MitM step; it is not a tunnel failure.
                 if label != "MitM" { failed += 1 }
@@ -1016,8 +1061,9 @@ final class SelfCheck: ObservableObject {
         let t0 = Date()
         var result: String
         do {
-            let (_, resp) = try await session.data(from: url)
-            result = "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0) · \(Self.ms(t0)) ms"
+            let (body, resp) = try await session.data(from: url)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            result = "HTTP \(code) · \(Self.ms(t0)) ms" + SelfCheckLogic.mitmErrorNote(status: code, body: body)
         } catch {
             result = SelfCheckLogic.describe(error) + " · \(Self.ms(t0)) ms"
         }

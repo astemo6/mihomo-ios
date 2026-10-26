@@ -789,6 +789,51 @@ final class NCProfileYAML {
         return t
     }
 
+    /// A one-line flow-mapping list item (`- {name: G, proxies: [a, b], dialer-proxy: x}`): renames `oldName` in its
+    /// `proxies` flow list (when `members`) and its `dialer-proxy` value, or drops it when `newName` is empty.
+    /// Returns nil when the line is not such an item or nothing in it refers to `oldName` (the line is then kept
+    /// byte for byte); `name` is the item's own `name`.
+    static func renameInFlowMapping(_ line: String, oldName: String, newName: String, members: Bool = true)
+        -> (line: String, name: String, member: Bool, dialer: Bool)? {
+        let split = splitInlineComment(line)
+        let content = split.content
+        let t = content.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("- {") || t.hasPrefix("{"), t.hasSuffix("}"),
+              let open = content.firstIndex(of: "{"), let close = content.lastIndex(of: "}"), open < close else { return nil }
+        let items = splitFlowItems(String(content[content.index(after: open)..<close]))
+        var out: [String] = []
+        var name = "", member = false, dialer = false
+        for item in items {
+            guard let colon = item.range(of: ":") else { out.append(item); continue }
+            let key = unquoteScalar(String(item[..<colon.lowerBound]))
+            let value = String(item[colon.upperBound...]).trimmingCharacters(in: .whitespaces)
+            switch key {
+            case "name":
+                name = unquoteScalar(value)
+                out.append(item)
+            case "proxies" where members && value.hasPrefix("[") && value.hasSuffix("]"):
+                let list = splitFlowItems(String(value.dropFirst().dropLast()))
+                var hit = false
+                var newList: [String] = []
+                for m in list {
+                    if unquoteScalar(m) == oldName {
+                        hit = true
+                        if !newName.isEmpty { newList.append(formatYAMLString(newName, flow: true)) }
+                    } else { newList.append(m) }
+                }
+                if hit { member = true; out.append("proxies: [" + newList.joined(separator: ", ") + "]") } else { out.append(item) }
+            case "dialer-proxy" where unquoteScalar(value) == oldName:
+                dialer = true
+                if !newName.isEmpty { out.append("dialer-proxy: " + formatYAMLString(newName, flow: true)) }
+            default:
+                out.append(item)
+            }
+        }
+        guard member || dialer else { return nil }
+        let rebuilt = String(content[..<open]) + "{" + out.joined(separator: ", ") + "}" + String(content[content.index(after: close)...])
+        return (rebuilt + split.comment, name, member, dialer)
+    }
+
     /// Splits the inside of a flow sequence on top-level commas, honoring quoted scalars
     /// (`''` doubling, `\"` escapes) and nested `[]` / `{}`. A member whose name contains a
     /// comma (`"a,b"`) stays one item; returns the raw item texts (quotes preserved, trimmed) —
@@ -1023,6 +1068,17 @@ final class NCProfileYAML {
                     currentGroup = Self.unquoteScalar(clean)
                 }
 
+                // A one-line flow-mapping group (`- {name: Auto, type: url-test, proxies: [a, b]}`): the block-style
+                // checks below never see its `proxies:` / `dialer-proxy:` (test10: a renamed node stayed in such a
+                // group → "proxy group[0]: Auto: '<old>' not found" and the save was refused).
+                if let r = Self.renameInFlowMapping(line, oldName: oldName, newName: newName) {
+                    if !r.name.isEmpty && r.member && !st.groups.contains(r.name) { st.groups.append(r.name) }
+                    if !r.name.isEmpty && r.dialer && !st.dialers.contains(r.name) { st.dialers.append(r.name) }
+                    lines[i] = r.line
+                    i += 1
+                    continue
+                }
+
                 // Group dialer-proxy
                 if trimmed.hasPrefix("dialer-proxy:") {
                     let rest = Self.unquoteScalar(Self.splitInlineComment(String(trimmed.dropFirst(13))).content)
@@ -1100,6 +1156,14 @@ final class NCProfileYAML {
                 if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:") {
                     let clean = trimmed.hasPrefix("- name:") ? String(trimmed.dropFirst(7)) : String(trimmed.dropFirst(5))
                     currentProxy = Self.unquoteScalar(clean)
+                }
+
+                // One-line flow-mapping proxy (`- {name: a, ..., dialer-proxy: b}`).
+                if let r = Self.renameInFlowMapping(line, oldName: oldName, newName: newName, members: false) {
+                    if !r.name.isEmpty && r.dialer && !st.dialers.contains(r.name) { st.dialers.append(r.name) }
+                    lines[i] = r.line
+                    i += 1
+                    continue
                 }
 
                 if trimmed.hasPrefix("dialer-proxy:") {

@@ -52,41 +52,44 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
                 return
             }
         }
-        let resolution: NCGroupEngine.Resolution? = {
+        // fix/nc-diag-439 (A4): the rule match for an upstream (MitM forward, script $httpClient) used to be a
+        // domain-only, never-resolving match — every IP rule (RULE-SET over IP-ASN / IP-CIDR, GEOIP) was skipped, so a
+        // MitM-decrypted China host went MATCH → proxy while its own TUN flow went DIRECT. Now the same
+        // resolve-then-continue matcher as the data plane (routeAsync: one A lookup through the kernel DNS when an IP
+        // rule without no-resolve is reached), so both sides agree.
+        let decide: (@escaping (NCGroupEngine.Resolution?, String, String) -> Void) -> Void = { next in
             if !explicit.isEmpty {
-                if explicit.uppercased() == "DIRECT" { return .direct }
-                return NativeCoreEngine.active?.resolve(policyName: explicit)
+                if explicit.uppercased() == "DIRECT" { return next(.direct, explicit, "policy=\(explicit)") }
+                return next(NativeCoreEngine.active?.resolve(policyName: explicit), explicit, "policy=\(explicit)")
             }
-            if let engine = NativeCoreEngine.active {
-                let ctx = engine.matchContext(domain: host, ip: NCIP(host), dstPort: port, network: "tcp")
-                return engine.resolve(ctx)
-            }
-            return .direct
-        }()
-        guard let resolution else {
-            completion(.failure(UpstreamError.connectFailed("unknown policy: \(explicit)")))
-            return
+            guard let engine = NativeCoreEngine.active else { return next(.direct, "DIRECT", "") }
+            let ctx = engine.matchContext(domain: NCIP(host) == nil ? host : nil, ip: NCIP(host), dstPort: port, network: "tcp")
+            engine.routeAsync(ctx, queue: queue) { policy, rule, res in next(res, policy, rule ?? "") }
         }
-        if let route {
-            if !explicit.isEmpty {
-                route.policy = explicit
-                route.rule = "policy=\(explicit)"
-            } else if let engine = NativeCoreEngine.active {
-                let pr = engine.policyWithRule(for: engine.matchContext(domain: host, ip: NCIP(host), dstPort: port, network: "tcp"))
-                route.policy = pr.policy
-                route.rule = pr.rule ?? ""
-            } else {
-                route.policy = "DIRECT"
+        decide { resolution, policyName, ruleText in
+            guard let resolution else {
+                completion(.failure(UpstreamError.connectFailed("unknown policy: \(explicit)")))
+                return
             }
-            route.chain = switch resolution {
-            case .direct: "DIRECT"
-            case .reject: "REJECT"
-            case .proxy(let p): p.name
-            case .chain(let ps): ps.map { $0.name }.joined(separator: " -> ")
-            case .unknown(let n): n
+            if let route {
+                route.policy = policyName
+                route.rule = ruleText
+                route.chain = switch resolution {
+                case .direct: "DIRECT"
+                case .reject: "REJECT"
+                case .proxy(let p): p.name
+                case .chain(let ps): ps.map { $0.name }.joined(separator: " -> ")
+                case .unknown(let n): n
+                }
             }
+            Self.dial(host: host, port: port, tls: tls, insecure: insecure, alpn: alpn, target: target,
+                      resolution: resolution, queue: queue, completion: completion)
         }
+    }
 
+    private static func dial(host: String, port: Int, tls: Bool, insecure: Bool, alpn: [String], target: NCTarget,
+                             resolution: NCGroupEngine.Resolution, queue: DispatchQueue,
+                             completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
         if case .reject = resolution {
             completion(.failure(UpstreamError.proxyRefused(status: 403, reason: "rejected by rule")))
             return
