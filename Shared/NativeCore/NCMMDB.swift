@@ -98,17 +98,31 @@ final class NCMMDB {
     /// {"iso_code": …}}), MetaCubeX metadb records ({"country_code": …}) and
     /// bare string records.
     func countryCode(for ip: NCIP) -> String? {
-        guard let record = lookup(ip) else { return nil }
+        countryCodes(for: ip).first
+    }
+
+    /// Every code an IP carries. fix/nc-diag-439 (A): MetaCubeX `Meta-geoip0` stores a network that belongs to several
+    /// lists as an ARRAY of codes (`["google","us"]`, `["cloudflare","cn"]` — 1,030 networks carry `cn` this way);
+    /// mihomo's MetaV0 reader matches GEOIP against any of them. The single-code reader returned nil for those, so
+    /// `GEOIP,cn` silently missed. Order kept as stored; empty when nothing covers the IP.
+    func countryCodes(for ip: NCIP) -> [String] {
+        guard let record = lookup(ip) else { return [] }
+        return Self.codes(in: record)
+    }
+
+    static func codes(in record: NCJSONValue) -> [String] {
         switch record {
         case .string(let s):
-            return s
+            return s.isEmpty ? [] : [s]
+        case .array(let a):
+            return a.compactMap { $0.string }.filter { !$0.isEmpty }
         case .object(let m):
-            if let cc = m["country_code"]?.string { return cc }
-            if let iso = m["country"]?.object?["iso_code"]?.string { return iso }
-            if let iso = m["registered_country"]?.object?["iso_code"]?.string { return iso }
-            return nil
+            if let cc = m["country_code"]?.string { return [cc] }
+            if let iso = m["country"]?.object?["iso_code"]?.string { return [iso] }
+            if let iso = m["registered_country"]?.object?["iso_code"]?.string { return [iso] }
+            return []
         default:
-            return nil
+            return []
         }
     }
 

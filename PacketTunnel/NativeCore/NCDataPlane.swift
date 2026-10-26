@@ -105,7 +105,7 @@ final class NCDataPlane {
     private static func outcomeHead(_ s: TCPSession) -> String {
         let rule = s.ruleText.isEmpty ? "-" : s.ruleText
         let via = s.chainName == s.policyName || s.policyName.isEmpty ? s.chainName : "\(s.policyName) (\(s.chainName))"
-        return "[TCP] \(s.target.host):\(s.target.port) rule \(rule) → \(via)"
+        return "[TCP] \(s.target.host):\(s.target.port) rule \(rule)\(s.matchNote) → \(via)"
     }
 
     /// "v4 tcp 198.18.0.1 → 17.x.x.x" for the first-packet log line (addresses are the device's own flows).
@@ -181,6 +181,7 @@ final class NCDataPlane {
         var downBytes: Int64 = 0
         var chainName = ""
         var ruleText = ""
+        var matchNote = ""          // fix/nc-diag-439: final-rule flows — the IP / geo / ASN the IP rules saw (log only)
         var policyName = ""
         var dialAt: DispatchTime?   // fix/nc-ctrl-bsd: connect latency for the outcome line
         // fix/nc-mitm-live
@@ -753,6 +754,10 @@ final class NCDataPlane {
     private func dial(_ s: TCPSession, policyName: String, ruleText: String?, resolution: NCGroupEngine.Resolution) {
         s.policyName = policyName
         s.ruleText = ruleText ?? ""
+        // fix/nc-diag-439 (A): a flow that reached the final MATCH says which IP / geo / ASN the IP rules saw.
+        // Kept out of ruleText: /app/stats keys rules by that text.
+        s.matchNote = s.ruleText.uppercased().hasPrefix("MATCH")
+            ? " [" + engine.matchNote(domain: s.ruleDomain, ip: s.target.ip ?? s.mappedIP) + "]" : ""
         s.chainName = switch resolution {
         case .direct: "DIRECT"
         case .reject: "REJECT"
