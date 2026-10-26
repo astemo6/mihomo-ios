@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """IPA size report: top 15 files + per component. Fails when build junk ships.
-usage: ipa_size.py <ipa>   (any embedded framework, Go core included, fails the check)"""
+usage: ipa_size.py <ipa>   (any embedded framework, incl. the old core framework, fails the check)"""
 import sys, zipfile, collections
 
 path = sys.argv[1]

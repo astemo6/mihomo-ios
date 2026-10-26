@@ -3,7 +3,6 @@
 # once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test ([unit:<Class>] adds a unit test class),
 # [skip-ui] skips the UI shards.
 # - plan: picks the UI path (smoke or full matrix, see "UI path" below). Ubuntu, ~20 s.
-# - (Go-zero: the former go job — go vet / go test / -race on bridge/ — is gone with bridge/.)
 # - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
 #   zh-Hans and en, light and dark. Screenshots and per-test reports are uploaded as artifacts only.
 # The release workflow (ios.yml) and project.yml are not touched by this file.

@@ -55,13 +55,13 @@
 └────────────────────────────────────────────────────────┘
 ```
 
-- 内核 **NativeCore**（纯 Swift，无 Go / gomobile；`bridge/` 已在 Go-zero 迁移中删除）：共享层 `Shared/NativeCore/` 放配置规范模型、导入器、规则、DNS、协议与控制器协议，App 与隧道共用；`PacketTunnel/NativeCore/` 放数据面（lwIP）、拨号与引擎生命周期。隧道启动时由 `NativeCoreEngine` 加载经导入器归一的配置。
+- 内核 **NativeCore**（纯 Swift）：共享层 `Shared/NativeCore/` 放配置规范模型、导入器、规则、DNS、协议与控制器协议，App 与隧道共用；`PacketTunnel/NativeCore/` 放数据面（lwIP）、拨号与引擎生命周期。隧道启动时由 `NativeCoreEngine` 加载经导入器归一的配置。
 - 设置文件（App Group 容器 `mihomo/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
 
 ### 编程语言分工（现状）
 
-全部 Swift（数据面含 lwIP 的 C 代码），无 Go：
+全部 Swift（数据面含 lwIP 的 C 代码）：
 
 | 部分 | 实现 |
 |---|---|
@@ -72,7 +72,7 @@
 | 脚本调度与执行 | Swift 调度 + JavaScriptCore 执行 |
 | 证书签发、请求日志/抓包、定时任务触发 | Swift |
 
-> 历史：2026-10-24 曾有 Go（mihomo）/ Swift 按主机分工的过渡方案与内存实测，Go-zero 后不再适用；当时的设计与数据见 `docs/native-core-design.md` 及 git 历史。
+> 历史：早期版本的过渡方案与内存实测见 `docs/native-core-design.md` 及 git 历史。
 
 ## 协议支持
 
@@ -97,8 +97,8 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 
 `.github/workflows/ios.yml`（push 到 main 或手动运行）：XcodeGen 生成工程（纯 Swift）→ `xcodebuild archive` → IPA → 上传 Artifact，并发布 GitHub Release（tag `v<版本>-build<N>`）。手动运行时可勾选 `build_only` 只编译不发布。打包后跑 `scripts/ipa_size.py`（IPA 夹带任何内嵌 framework / dSYM / 头文件即判失败）与 `scripts/icon_check.py`。
 
-- **没有签名 secrets**：`CODE_SIGNING_ALLOWED=NO` 构建，然后用 `codesign -s -`（伪签名）把 entitlements 写进 App 和扩展，打包为 `Mihomo-<版本>-build<N>-widget-unsigned.ipa`（v0.19 前另有不含小组件的 `-unsigned.ipa`）。Release 中同时附带 `app.entitlements` / `tunnel.entitlements`，方便重签工具使用。
-- **有签名 secrets**：导入证书和两个描述文件，导出 `Mihomo-<版本>-build<N>-signed.ipa`。
+- **没有签名 secrets**：`CODE_SIGNING_ALLOWED=NO` 构建，然后用 `codesign -s -`（伪签名）把 entitlements 写进 App 和扩展，打包为 `Tern-<版本>-build<N>-widget-unsigned.ipa`（v0.19 前另有不含小组件的 `-unsigned.ipa`）。Release 中同时附带 `app.entitlements` / `tunnel.entitlements`，方便重签工具使用。
+- **有签名 secrets**：导入证书和两个描述文件，导出 `Tern-<版本>-build<N>-signed.ipa`。
 
 `.github/workflows/ui-tests.yml`（Self-test，push 到 `test/**` 或手动运行）：模拟器 UI / 单元测试，不发布。UI 部分先由 `plan` job 选路径：
 
@@ -168,7 +168,7 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 1. 工具 → HTTPS 解密 → 生成 CA 证书（ECDSA P-256，10 年；私钥只保存在本机 App Group 容器的 `mihomo/engine/ca/`，不进钥匙串、不上传、不在仓库里）。
 2. 点「安装证书（通过 Safari）」，在 Safari 弹窗中选「允许」下载描述文件；也可以用「分享 / 存储描述文件」存到“文件”App 后点开。
 3. 设置 → 已下载描述文件（或 通用 → VPN 与设备管理）→ 安装。
-4. 设置 → 通用 → 关于本机 → **证书信任设置** → 打开「Mihomo MitM CA xxxxxx」的完全信任。
+4. 设置 → 通用 → 关于本机 → **证书信任设置** → 打开「Tern MitM CA xxxxxx」的完全信任。
 5. 回到 HTTPS 解密页，状态显示「已安装并完全信任」后打开「HTTPS 解密」，添加主机名（或启用带 hostname 的模块）。
 
 可导出 `.cer`、或带密码的 `.p12`（含私钥，用于备份 / 迁移，也可从 p12 导入）。「重新生成证书」后需要重新安装并信任。
@@ -202,7 +202,7 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 ## 已知限制
 
 - 网络扩展内存上限约 50 MB。大型 `GEOSITE` 规则、超大订阅或大量规则集会增加内存，建议优先使用 `.mrs` 规则集。
-- 二进制体积：内核为 Swift，编译进 App 与隧道扩展，不再链接 Go 静态库；IPA 内容由 CI 的 `scripts/ipa_size.py` 把关（夹带内嵌 framework / dSYM / 头文件即判失败）。
+- 二进制体积：内核为 Swift，编译进 App 与隧道扩展，不链接任何静态内核库；IPA 内容由 CI 的 `scripts/ipa_size.py` 把关（夹带内嵌 framework / dSYM / 头文件即判失败）。
 - 仅代理模式：不遵守系统代理的 App 与所有 UDP / QUIC 会直连；按 IP 的规则与 Fake-IP 不生效。
 - iCloud 备份需要签名里有 iCloud 容器权限；没有时可在「保存到文件」时选 iCloud 云盘。
 - MitM：HTTP/3（QUIC）无法解密，默认对 MitM 主机阻断 UDP 443（可按主机放行，或选择全部阻断）；证书固定的 App 会握手失败并被自动放行。

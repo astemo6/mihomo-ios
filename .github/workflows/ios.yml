@@ -1,4 +1,4 @@
-# XcodeGen 生成工程（纯 Swift：App + NativeCore 隧道，无 Go） → xcodebuild archive → IPA → GitHub Release
+# XcodeGen 生成工程（纯 Swift：App + NativeCore 隧道） → xcodebuild archive → IPA → GitHub Release
 # 有签名 secrets 时导出已签名 IPA；否则输出带 entitlements 的未签名（伪签）IPA，供自签工具重签。
 name: iOS IPA
 
@@ -183,7 +183,7 @@ jobs:
           set -o pipefail
           xcodebuild -exportArchive -archivePath build/Mihomo.xcarchive \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath build/export 2>&1 | tee export.log | tail -n 40
-          IPA="Mihomo-${VER}-build${BUILD_NO}-signed.ipa"
+          IPA="Tern-${VER}-build${BUILD_NO}-signed.ipa"
           mv build/export/*.ipa "$IPA"
           echo "IPA=$IPA" >> "$GITHUB_ENV"
 
@@ -209,7 +209,7 @@ jobs:
           # Review 6 R6A-8: the IPA users install gets a strict codesign check.
           codesign --verify --deep --strict --verbose=2 "$APP"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
-          IPA="Mihomo-${VER}-build${BUILD_NO}-widget-unsigned.ipa"
+          IPA="Tern-${VER}-build${BUILD_NO}-widget-unsigned.ipa"
           zip -qry -9 "$IPA" Payload
           echo "IPA=$IPA" >> "$GITHUB_ENV"
 
@@ -232,7 +232,7 @@ jobs:
             unzip -p "$IPA" Payload/Mihomo.app/PlugIns/MihomoWidget.appex/Info.plist > /tmp/wid.plist && plutil -p /tmp/wid.plist | grep -E "NSExtensionPointIdentifier|CFBundleIdentifier|MinimumOSVersion"
           fi
           unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/Info.plist > /tmp/ext.plist && plutil -p /tmp/ext.plist | grep -E "NSExtension|Mihomo|CFBundleIdentifier"
-          # Go-zero: neither the app nor the extension may contain a Go runtime (NativeCore + Swift App).
+          # Regression guard: neither the app nor the extension may contain a Go runtime or the old core framework.
           for b in Payload/Mihomo.app/Mihomo Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel; do
             if unzip -p "$IPA" "$b" | grep -aq "Go buildinf:"; then
               echo "::error::$b contains a Go runtime"; exit 1
@@ -240,7 +240,7 @@ jobs:
           done
           if unzip -l "$IPA" | grep -q "Libmihomo"; then echo "::error::IPA still ships Libmihomo"; exit 1; fi
           echo "App + PacketTunnel: no Go runtime"
-          # The native script host reads the bundled prelude (no Go engine hands it over).
+          # The native script host reads the bundled prelude.
           unzip -l "$IPA" > /tmp/ipa-list.txt
           if ! grep -q "PacketTunnel.appex/TernPrelude.js" /tmp/ipa-list.txt; then
             echo "::error::PacketTunnel.appex lacks TernPrelude.js (MitM scripts could not run)"; exit 1
@@ -274,9 +274,9 @@ jobs:
           set -euo pipefail
           NOTES="$RUNNER_TEMP/notes.md"
           {
-            echo "Mihomo iOS ${VER}（构建 #${BUILD_NO}，提交 $(git rev-parse --short HEAD)）"
+            echo "Tern ${VER}（构建 #${BUILD_NO}，提交 $(git rev-parse --short HEAD)）"
             echo
-            echo "- 内核：NativeCore（纯 Swift，兼容 mihomo 配置）"
+            echo "- 内核：NativeCore（纯 Swift，兼容 Clash 配置）"
             if [ "$SIGNED" = "1" ]; then
               echo "- 已签名（${EXPORT_METHOD:-development}），可直接安装到描述文件内的设备。"
             else
@@ -287,7 +287,7 @@ jobs:
           FILES=("$IPA")
           [ -f app.entitlements ] && FILES+=(app.entitlements tunnel.entitlements)
           [ -f widget.entitlements ] && FILES+=(widget.entitlements)
-          gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${BUILD_NO}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
+          gh release create "$TAG" "${FILES[@]}" --title "Tern ${VER} build ${BUILD_NO}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
 
       - name: Show build errors (on failure)
         if: failure()

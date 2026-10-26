@@ -1,5 +1,4 @@
 *.xcodeproj
-Frameworks/*.xcframework
 build/
 DerivedData/
 Payload/
@@ -8,7 +7,6 @@ Payload/
 *.mobileprovision
 *.cer
 .DS_Store
-bridge/*.xcframework
 __pycache__/
 FrameworksShared/
 project-shared.yml

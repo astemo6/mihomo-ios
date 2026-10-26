@@ -5,10 +5,10 @@ For each core term (配置 → Profile, 节点 → Node, 订阅 → Subscription
 competing word instead of the canonical one. Keys about the iOS "VPN 配置" or foreign Surge / QX configs
 are a different concept and are skipped. Exit code 1 when anything is inconsistent.
 
-r7 brand check: the app is Tern. A user-visible "Mihomo" (capital M: the old app name) in the string catalog
-(keys and every translation), in an Info.plist display name / usage description, or in a UI string literal of the
-Swift sources fails the audit. Lowercase "mihomo" names the core / config format and is allowed, as are legal and
-core attributions (GPL notices, "mihomo core", MetaCubeX).
+r7 brand check: the app is Tern. A user-visible "mihomo" in any spelling (the old app / core name) in the string
+catalog (keys and every translation), in an Info.plist display name / usage description, or in a UI string literal of
+the Swift sources fails the audit (gate round 1, 10-27: lowercase included — the config format is called Clash in
+UI text). Legal attributions (GPL notices, MetaCubeX) and the kept host name / repo name "mihomo-ios" are allowed.
 
 Usage: scripts/term_audit.py [-q]
 """
@@ -30,13 +30,11 @@ SKIP = re.compile(r"VPN 配置|Surge|Quantumult|QX|运行配置|未配置|proxy-
 
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-# Swift sources under these top-level directories are not brand-audited: the test bundles, and bridge/ —
-# the gomobile Go package deleted in the Go-zero migration. The bridge skip stays explicit so a stale
-# checkout (or the org mirror) never audits sources that no longer ship.
-SKIP_PATH_PREFIXES = ("UITests", "UnitTests", "bridge")
-BRAND = re.compile(r"\bMihomo\b")
+# Swift sources under these top-level directories are not brand-audited: the test bundles.
+SKIP_PATH_PREFIXES = ("UITests", "UnitTests")
+BRAND = re.compile(r"\bmihomo\b", re.I)
 # Attribution and legal text that may keep the upstream name.
-BRAND_OK = re.compile(r"Mihomo[ -]?(core|内核|核心|kernel|カーネル|커널|ядр)|MetaCubeX|General Public License|GPL", re.I)
+BRAND_OK = re.compile(r"MetaCubeX|General Public License|GPL|mihomo-ios", re.I)
 # Swift UI string literals: Text("…"), String(localized: "…"), Label / Button / Section / TextField titles,
 # navigationTitle, prompt: / placeholder: arguments.
 UI_LITERAL = re.compile(r'(?:\bText|\bLabel|\bButton|\bSection|\bTextField|\bSecureField|\bToggle|navigationTitle|'
@@ -97,7 +95,7 @@ def main():
     for where, text in brand:
         if "-q" not in sys.argv:
             print(f"brand\t{where}\t{text[:80]!r}")
-    print("brand leftovers (\"Mihomo\"):", len(brand))
+    print("brand leftovers (\"mihomo\"):", len(brand))
     sys.exit(1 if bad or brand else 0)
 
 

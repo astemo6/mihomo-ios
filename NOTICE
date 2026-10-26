@@ -1,24 +1,24 @@
-Mihomo iOS
+Tern (formerly Mihomo iOS)
 Copyright (C) 2026 astemo6 and contributors
 Licensed under the GNU General Public License v3.0 (see LICENSE).
 
 This product includes or is derived from the following GPL-3.0 projects:
 
-  mihomo (MetaCubeX) — proxy core, linked through the Go bridge in bridge/
+  mihomo (MetaCubeX) — reference for the native core's protocol, rule and
+  config semantics (ported to Swift; no upstream code is linked)
     https://github.com/MetaCubeX/mihomo                          GPL-3.0
 
   TokenPLS/Hako (now ProjectClash/Clash-Legacy)
     https://github.com/ProjectClash/Clash-Legacy                 GPL-3.0
-    Design reference for the NetworkExtension memory handling: Go soft memory
-    limit at ~3/4 of the jetsam budget, footprint / memory-pressure guard.
+    Design reference for the NetworkExtension memory handling: footprint /
+    memory-pressure guard below the jetsam budget.
 
   Hako-Adapter (TokenPLS/Hako-Adapter, now ProjectClash/Clash-Adapter-Legacy;
   successor ProjectClash/Clash-Adapter)
     https://github.com/ProjectClash/Clash-Adapter-Legacy         GPL-3.0
     https://github.com/ProjectClash/Clash-Adapter                GPL-3.0
-    Design reference for PacketTunnel/PacketFlowBridge.swift: an AF_UNIX socket
-    pair between NEPacketTunnelFlow and the core's tun file descriptor, with
-    back-pressure, batching and ENOBUFS back-off.
+    Design reference for the original packet-flow bridge (back-pressure,
+    batching and ENOBUFS back-off); the current data plane is NCDataPlane + lwIP.
 
 The implementations in this repository are written independently for this
 project and are distributed under GPL-3.0 as well.
@@ -27,6 +27,4 @@ Bundled data:
   MetaCubeX/meta-rules-dat (Geo/geoip.metadb, Geo/GeoSite.dat, Geo/ASN.mmdb)
     https://github.com/MetaCubeX/meta-rules-dat
   GeoLite2-ASN contains data created by MaxMind, available from https://www.maxmind.com
-
-Go libraries used by the bridge include goja (MIT), gojq (MIT), regexp2 (MIT),
-go-pkcs12 (BSD-3-Clause) and golang.org/x/* (BSD-3-Clause); see bridge/go.mod.
+  lwIP (BSD-3-Clause), vendored in PacketTunnel/NativeCore/lwip.

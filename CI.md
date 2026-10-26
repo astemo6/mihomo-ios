@@ -7,8 +7,8 @@
 | Self-test | `ui-tests.yml` | 推 `test/**`；手动（`only` / `shard`） | ubuntu（dedupe、plan）+ macOS UI 分片 |
 | iOS IPA | `ios.yml` | 推 `main` = 发版；手动 `build_only` = 只编译 | macOS |
 
-Go 内核已移除（NativeCore 纯 Swift）：原来的 `core-update.yml`（每日内核升级）、`core-release.yml`（候选发布审批）
-和 Self-test 里的 Go 作业（go vet / test / `-race`）都已删除，对应的提交标记 `[skip-go]` 也不再有意义。
+内核为 NativeCore（纯 Swift）：早期的 `core-update.yml`（每日内核升级）、`core-release.yml`（候选发布审批）
+和 Self-test 里的旧内核作业都已删除。
 
 推 `feat/**`、`fix/**`、`draft/**` 等工作分支**不跑任何 workflow**。要测就推到 `test/**`，或开 PR 到 `main`（跑 Checks + Unit tests），
 或手动派发：`gh workflow run unit-tests.yml -R astemo6/mihomo-ios --ref <branch>`。
