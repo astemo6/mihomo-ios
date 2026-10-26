@@ -736,7 +736,9 @@ final class SelfCheck: ObservableObject {
             let t0 = Date()
             let infoR: IPInfo?? = await Self.deadline(12) { () async -> IPInfo? in await GeoChecker.fetchCustom(timeout: 8) }
             let info: IPInfo? = infoR ?? nil
-            lines.append(String(localized: "自定义接口 + 脚本（首页用这个）：") + (info.map { "\($0.ip) · \(Self.ms(t0)) ms" } ?? String(localized: "没有结果（\(Self.ms(t0)) ms）")))
+            // fix/nc-diag-439 (D): say why (build 439: 13 ms = ATS refused the http:// custom URL).
+            let why = GeoChecker.lastError
+            lines.append(String(localized: "自定义接口 + 脚本（首页用这个）：") + (info.map { "\($0.ip) · \(Self.ms(t0)) ms" } ?? String(localized: "没有结果（\(Self.ms(t0)) ms）") + (why.isEmpty ? "" : "：" + why)))
         }
         let firstOK = results.first { $0.2 }.map { eps[$0.0].name }
         let head: String
