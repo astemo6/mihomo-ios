@@ -668,20 +668,34 @@ final class NCUDPTrojanSession: NCUDPSession {
 extension NCDNSForwarder {
     /// Forward via any upstream kind. nc-dns: single upstreams go through the shared
     /// coordinator (identical in-flight queries coalesce, the global in-flight cap
-    /// applies — DoQ included, it just does not reuse connections yet). Groups keep
-    /// their own sequential failover; each attempt is a separate coordinated query.
+    /// applies — DoQ included, it just does not reuse connections yet). Groups race
+    /// their members (fix/nc-open-6-10, NCDNSRace); each attempt is a separate coordinated query.
     func forward(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
+        forward(query, upstream: upstream, trace: nil, completion: completion)
+    }
+
+    /// Same, recording what each tried server did into `trace` (per-query failure log, fix/nc-open-6-10 #7).
+    func forward(_ query: Data, upstream: NCDNSUpstream, trace: NCDNSAttemptTrace?,
+                 completion: @escaping (Data?) -> Void) {
         if case .group(let list) = upstream {
-            forwardGroup(query, list: list, completion: completion)
+            forwardGroup(query, list: list, trace: trace, completion: completion)
             return
         }
+        let t0 = DispatchTime.now()
         NCDNSUpstreamCoordinator.shared.submit(
             key: "\(upstream)|" + Self.mergeKeySuffix(query),
             id: Self.transactionID(query), callerQueue: queue,
             execute: { [weak self] done in
                 guard let self else { done(nil); return }
                 self.dispatchOnce(query, upstream: upstream, completion: done)
-            }, completion: completion)
+            }, completion: { resp in
+                if let trace {
+                    let ms = Int((DispatchTime.now().uptimeNanoseconds &- t0.uptimeNanoseconds) / 1_000_000)
+                    if resp == nil { trace.add("\(upstream.label) no answer \(ms) ms") }
+                    else if let r = resp, !NCDNSRace.isUsable(r) { trace.add("\(upstream.label) rcode \(NCDNSRace.rcode(r)) \(ms) ms") }
+                }
+                completion(resp)
+            })
     }
 
     /// One real upstream exchange (the coordinator's execute step; no coalescing here).
@@ -705,40 +719,31 @@ extension NCDNSForwarder {
     private static let groupLock = NSLock()
     private static var groupLastGood: [String: Int] = [:]
 
-    /// rv2-rules: every configured nameserver, tried sequentially with a
-    /// short per-server timeout (2.5 s); the server that answered last time
-    /// is tried first (mihomo / Surge use all nameservers; sequential
-    /// failover is the leaner of race vs failover). A late answer from a
-    /// server already given up on is ignored.
-    private func forwardGroup(_ query: Data, list: [NCDNSUpstream], completion: @escaping (Data?) -> Void) {
+    /// Every configured nameserver, raced (fix/nc-open-6-10 #7; was rv2-rules' strictly sequential failover with a
+    /// 2.5 s per-server timeout): at most two exchanges in flight, the second 300 ms after the first, a failed or
+    /// timed-out server starts the next one at once, first usable answer wins (NCDNSRace). The server that answered
+    /// last time goes first. A late answer from a server already given up on is ignored.
+    private func forwardGroup(_ query: Data, list: [NCDNSUpstream], trace: NCDNSAttemptTrace?,
+                              completion: @escaping (Data?) -> Void) {
         guard !list.isEmpty else { completion(nil); return }
         let key = "\(list)"
         Self.groupLock.lock()
         let start = (Self.groupLastGood[key] ?? 0) % list.count
         Self.groupLock.unlock()
-        func attempt(_ n: Int) {
-            guard n < list.count else { completion(nil); return }
-            let idx = (start + n) % list.count
-            var settled = false
-            forward(query, upstream: list[idx]) { resp in
-                guard !settled else { return }
-                settled = true
-                guard let resp else { attempt(n + 1); return }
-                if idx != start {
-                    Self.groupLock.lock()
-                    if Self.groupLastGood.count > 64 { Self.groupLastGood.removeAll() }
-                    Self.groupLastGood[key] = idx
-                    Self.groupLock.unlock()
-                }
-                completion(resp)
+        NCDNSRace.run(list: list, start: start, queue: queue, trace: trace, exchange: { [weak self] u, done in
+            guard let self else { done(nil); return }
+            // Members are single upstreams (NCDNSUpstream.of flattens groups); per-member trace lines come
+            // from the race itself, so no trace is passed down here.
+            self.forward(query, upstream: u, trace: nil, completion: done)
+        }, completion: { resp, winner in
+            if let winner, winner != start {
+                Self.groupLock.lock()
+                if Self.groupLastGood.count > 64 { Self.groupLastGood.removeAll() }
+                Self.groupLastGood[key] = winner
+                Self.groupLock.unlock()
             }
-            queue.asyncAfter(deadline: .now() + 2.5) {
-                guard !settled else { return }
-                settled = true
-                attempt(n + 1)
-            }
-        }
-        attempt(0)
+            completion(resp)
+        })
     }
 
     /// DoQ (RFC 9250): one bidirectional QUIC stream per query inside a

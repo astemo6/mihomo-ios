@@ -43,7 +43,7 @@ enum NativeRuntimePrepCache {
         recordFile,
     ]
     /// Relative paths below `<home>` that are not inputs (script persistent store, written by scripts in the tunnel).
-    static let excludedRelative: Set<String> = ["engine/store.json"]
+    static let excludedRelative: Set<String> = ["engine/store.json", NCResources.failureFile]
 
     /// Outputs whose identity a hit requires unchanged (a missing file is part of the identity).
     static let outputs = ["runtime.yaml", "nativecore-runtime.json", "nativecore-rewrite.json",

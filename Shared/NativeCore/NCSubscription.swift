@@ -1099,21 +1099,51 @@ final class NCNodeSubscriptionStore {
     private var vehicleBySub: [String: String] = [:]
     var log: (String) -> Void = { StartupLog.write($0) }
 
-    var fetcher: (String, @escaping (Data?) -> Void) -> Void = { urlString, done in
-        guard let url = URL(string: urlString) else { done(nil); return }
+    /// fix/nc-open-6-10 #10: one GET with the given User-Agent; the callback gets the body (2xx, non-empty) and the
+    /// HTTP status (0 = no response). Overridable in tests.
+    var fetcher: (String, String, @escaping (Data?, Int) -> Void) -> Void = { urlString, ua, done in
+        guard let url = URL(string: urlString) else { done(nil, 0); return }
         var req = URLRequest(url: url)
-        req.setValue("clash-verge/v2.0", forHTTPHeaderField: "User-Agent")
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 30
         URLSession.shared.dataTask(with: req) { data, resp, err in
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard err == nil, (200..<300).contains(code), let data, !data.isEmpty else {
                 StartupLog.write("node subscription: fetch failed \(NCRuleProviderStore.logName(urlString)) — " +
-                                 (err.map { $0.localizedDescription } ?? "HTTP \(code)"))
-                done(nil)
+                                 (err.map { $0.localizedDescription } ?? "HTTP \(code)") + " (UA \(ua))")
+                done(nil, code)
                 return
             }
-            done(data)
+            done(data, code)
         }.resume()
+    }
+
+    /// fix/nc-open-6-10 #10 (E2E fixture subscription 「薯条」: HTTP 403). User-Agent conventions:
+    /// - mihomo proxy-providers `header: {User-Agent: [...]}` wins (mihomo sends it as given);
+    /// - a subscription imported from a Quantumult X profile ([server_remote]; the import writes that header, older
+    ///   imports carry `x-origin: qx`) is fetched like QuanX does (`Quantumult%20X/…`): airport panels pick the
+    ///   output format — and some allow only known clients — by that UA;
+    /// - otherwise the Clash family UA used so far (`clash-verge/v2.0`, which panels answer with a full Clash YAML).
+    /// When the panel refuses the first UA (HTTP 401 / 403 / 406 / 451, or an empty body) the other family is tried
+    /// once, so a provider that only knows one client still loads (not on a network error: that is not the UA).
+    static let qxUserAgent = "Quantumult%20X/1.0.30 (iPhone14,2; iOS 15.6)"
+    static let clashUserAgent = "clash-verge/v2.0"
+
+    static func userAgents(for sub: NCNodeSubscription) -> [String] {
+        var explicit: String? = nil
+        if let h = sub.fields["header"]?.object {
+            for (k, v) in h where k.lowercased() == "user-agent" {
+                explicit = v.array?.compactMap { $0.string }.first { !$0.isEmpty } ?? v.string
+            }
+        }
+        let qx = (sub.fields["x-origin"]?.string ?? "").lowercased() == "qx"
+        let primary = explicit ?? (qx ? qxUserAgent : clashUserAgent)
+        let isQXUA = primary.lowercased().contains("quantumult")
+        return [primary, isQXUA ? clashUserAgent : qxUserAgent]
+    }
+
+    static func shouldRetryUA(status: Int) -> Bool {
+        [401, 403, 406, 451].contains(status) || (200..<300).contains(status)
     }
 
     /// Go-era configs point proxy-providers at the bridge's own converter
@@ -1208,7 +1238,18 @@ final class NCNodeSubscriptionStore {
     func refresh(_ sub: NCNodeSubscription, completion: (() -> Void)? = nil) {
         guard !sub.url.isEmpty else { completion?(); return }
         let url = Self.unwrapLoopbackConvert(sub.url)
-        fetcher(url) { [weak self] data in
+        let uas = Self.userAgents(for: sub)
+        let fetch = fetcher
+        func get(_ i: Int, _ done: @escaping (Data?) -> Void) {
+            fetch(url, uas[i]) { data, status in
+                if data == nil, i + 1 < uas.count, Self.shouldRetryUA(status: status) {
+                    get(i + 1, done)
+                } else {
+                    done(data)
+                }
+            }
+        }
+        get(0) { [weak self] data in
             guard let self else { completion?(); return }
             guard let data, let text = String(data: data, encoding: .utf8) else {
                 let have = self.allNodes()[sub.name]?.count ?? 0

@@ -27,10 +27,24 @@ final class NCDataPlane {
     private final class UDPSessionEntry {
         let session: NCUDPSession
         var lastUsed: Date
+        // fix/nc-open-6-10 #9: /app/stats for UDP flows (bytes since the last report, route, closed record)
+        var up: Int64 = 0
+        var down: Int64 = 0
+        var statsUp: Int64 = 0
+        var statsDown: Int64 = 0
+        var policy = ""
+        var rule = ""
+        var chain = ""
+        var host = ""
+        var dstIP = ""
+        var dstPort = 0
+        var srcPort = 0
+        let openedAt = Date()
         init(session: NCUDPSession, lastUsed: Date) {
             self.session = session
             self.lastUsed = lastUsed
         }
+        var proxied: Bool { chain != "DIRECT" && chain != "REJECT" }
     }
     private var dnsReplies = 0
     private var udpDropped = 0
@@ -266,7 +280,7 @@ final class NCDataPlane {
                 stack.tcpAbort(s.conn)
             }
             sessions.removeAll()
-            for e in udpSessions.values { e.session.cancel() }
+            for (id, e) in udpSessions { recordUDPClosed(id, e); e.session.cancel() }
             udpSessions.removeAll()
             udpPending.removeAll()
             bufferedTotal = 0
@@ -369,6 +383,7 @@ final class NCDataPlane {
         // The C stack expires idle UDP sessions (120 s, both directions) and tells us (onUDPClosed); this sweep is
         // only a safety net, and closes the C side too so both tables stay in step.
         for (id, entry) in udpSessions where now.timeIntervalSince(entry.lastUsed) > 130 {
+            recordUDPClosed(id, entry)
             entry.session.cancel()
             udpSessions.removeValue(forKey: id)
             stack.udpClose(session: id)
@@ -898,6 +913,12 @@ final class NCDataPlane {
             s.statsUp = s.upBytes
             s.statsDown = s.downBytes
         }
+        // fix/nc-open-6-10 #9: UDP sessions too
+        for e in udpSessions.values where e.up != e.statsUp || e.down != e.statsDown {
+            batch.append((e.policy, e.host, e.up - e.statsUp, e.down - e.statsDown))
+            e.statsUp = e.up
+            e.statsDown = e.down
+        }
         let rec = NCStatsRecorder.shared
         rec.bytesBatch(batch)
         let all = stats.snapshot()
@@ -1100,8 +1121,13 @@ final class NCDataPlane {
     /// answers unless it fails or its answer trips fallback-filter, in
     /// which case the fallback is asked (if the fallback also fails, the
     /// primary's answer is delivered rather than failing the query).
+    /// fix/nc-open-6-10 #7: when every upstream failed and a core reload landed while the query was in flight
+    /// (engine.dnsGeneration moved), the query is routed again on the new config and re-sent once before it is
+    /// answered SERVFAIL; a final failure writes one rate-limited [DNS] line (name, type, servers tried, outcome).
     private func forwardDNS(_ query: Data, session: UInt32, primary: NCDNSUpstream,
-                            fallback: NCDNSUpstream?, fallbackFirst: Bool) {
+                            fallback: NCDNSUpstream?, fallbackFirst: Bool, retried: Bool = false,
+                            trace: NCDNSAttemptTrace = NCDNSAttemptTrace()) {
+        let gen = engine.dnsGeneration
         let deliver: (Data) -> Void = { [weak self] resp in
             guard let self else { return }
             self.dnsReplies &+= 1
@@ -1120,29 +1146,81 @@ final class NCDataPlane {
                 self.stack.udpSend(session: session, resp)
             }
         }
+        let fail: () -> Void = { [weak self] in
+            guard let self else { return }
+            if !retried, self.engine.dnsGeneration != gen {
+                let route = self.engine.dnsRoute(for: query)
+                if let p = route.primary {
+                    trace.retriedAfterReload = true
+                    trace.add("core reloaded mid-query → re-sent")
+                    self.forwardDNS(query, session: session, primary: p, fallback: route.fallback,
+                                    fallbackFirst: route.fallbackFirst, retried: true, trace: trace)
+                    return
+                }
+            }
+            self.dnsForwardFailed &+= 1
+            self.logDNSFailure(query, trace: trace)
+            self.sendServfail(query, session: session)
+        }
         if fallbackFirst, let fallback {
-            dnsForwarder.forward(query, upstream: fallback) { [weak self] resp in
+            dnsForwarder.forward(query, upstream: fallback, trace: trace) { [weak self] resp in
                 guard let self else { return }
                 if let resp { deliver(resp); return }
-                self.dnsForwarder.forward(query, upstream: primary) { resp2 in
-                    if let resp2 { deliver(resp2) } else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
+                self.dnsForwarder.forward(query, upstream: primary, trace: trace) { resp2 in
+                    if let resp2 { deliver(resp2) } else { fail() }
                 }
             }
             return
         }
-        dnsForwarder.forward(query, upstream: primary) { [weak self] resp in
+        dnsForwarder.forward(query, upstream: primary, trace: trace) { [weak self] resp in
             guard let self else { return }
             if let resp, !self.engine.dnsAnswerTriggersFallback(resp) { deliver(resp); return }
             guard let fallback else {
-                if let resp { deliver(resp) } else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
+                if let resp { deliver(resp) } else { fail() }
                 return
             }
-            self.dnsForwarder.forward(query, upstream: fallback) { resp2 in
+            self.dnsForwarder.forward(query, upstream: fallback, trace: trace) { resp2 in
                 if let resp2 { deliver(resp2) }
                 else if let resp { deliver(resp) }
-                else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
+                else { fail() }
             }
         }
+    }
+
+    /// fix/nc-open-6-10 #7: at most 6 [DNS] failure lines per 10 s into the core log (the rest counted and
+    /// reported as one "suppressed" line); the first 8 per tunnel session also go to the startup log, which the
+    /// diagnostics export always carries.
+    private let dnsFailLimiter = NCLineLimiter(perWindow: 6, window: 10)
+    private var dnsFailStartupLines = 0
+
+    private func logDNSFailure(_ query: Data, trace: NCDNSAttemptTrace) {
+        let line = Self.dnsFailureLine(query, trace: trace)
+        if dnsFailStartupLines < 8 {
+            dnsFailStartupLines += 1
+            StartupLog.write(line)
+        }
+        let (ok, suppressed) = dnsFailLimiter.admit()
+        guard ok else { return }
+        if suppressed > 0 { connLog("[DNS] \(suppressed) failure line(s) suppressed", level: "warning") }
+        connLog(line, level: "warning")
+    }
+
+    static func dnsFailureLine(_ query: Data, trace: NCDNSAttemptTrace) -> String {
+        let q = NCDNSMessage.parse(query)?.questions.first
+        let name = q?.name ?? "?"
+        let t = q?.type ?? 0
+        let type: String
+        switch t {
+        case 1: type = "A"
+        case 28: type = "AAAA"
+        case 65: type = "HTTPS"
+        case 5: type = "CNAME"
+        case 12: type = "PTR"
+        case 16: type = "TXT"
+        case 33: type = "SRV"
+        default: type = q == nil ? "?" : "type \(t)"
+        }
+        return "[DNS] \(name) \(type) failed (SERVFAIL to client): \(trace.summary)"
     }
 
     /// fix/nc-tcp0: every upstream failed — answer SERVFAIL (mihomo's DNS server does) instead of dropping the query;
@@ -1157,7 +1235,22 @@ final class NCDataPlane {
     private func udpGone(_ id: UInt32) {
         udpPending.removeValue(forKey: id)
         guard let e = udpSessions.removeValue(forKey: id) else { return }
+        recordUDPClosed(id, e)
         e.session.cancel()
+    }
+
+    /// fix/nc-open-6-10 #9: a UDP session ended — its last bytes and a closed-connection record (network udp).
+    private func recordUDPClosed(_ id: UInt32, _ e: UDPSessionEntry) {
+        let rec = NCStatsRecorder.shared
+        rec.bytes(policy: e.policy, host: e.host, up: e.up - e.statsUp, down: e.down - e.statsDown)
+        e.statsUp = e.up
+        e.statsDown = e.down
+        var chains = [e.chain.isEmpty ? "DIRECT" : e.chain]
+        if e.policy != chains[0] { chains.append(e.policy) }
+        rec.closed(NCStatsRecorder.Closed(
+            seq: 0, id: "udp-\(id)", network: "udp", srcPort: e.srcPort, dstIP: e.dstIP, dstPort: e.dstPort,
+            host: e.host, remote: e.host, chains: chains, rule: e.rule, up: e.up, down: e.down,
+            start: Int64(e.openedAt.timeIntervalSince1970 * 1000), closedAt: Int64(Date().timeIntervalSince1970 * 1000)))
     }
     /// rv2-rules: first packets of a UDP flow whose rule match is waiting on
     /// a resolve (bounded per flow).
@@ -1166,6 +1259,7 @@ final class NCDataPlane {
     private func udpForward(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
         if let entry = udpSessions[info.id] {
             entry.lastUsed = Date()
+            countUDP(entry, up: data.count)
             entry.session.send(data, to: engine.derefFakeIP(info.dst))
             return
         }
@@ -1195,7 +1289,8 @@ final class NCDataPlane {
         udpPending[info.id] = [data]
         engine.routeAsync(ctx, queue: queue) { [weak self] policyName, ruleText, resolution in
             guard let self, let queued = self.udpPending.removeValue(forKey: info.id), self.isRunning else { return }
-            self.openUDP(info, target: target, resolution: resolution, packets: queued)
+            self.openUDP(info, target: target, resolution: resolution, packets: queued,
+                         policyName: policyName, ruleText: ruleText ?? "", domain: restored ? target.host : nil)
             let via: String = switch resolution {
             case .direct: "DIRECT"
             case .reject: "REJECT"
@@ -1210,8 +1305,21 @@ final class NCDataPlane {
         }
     }
 
+    /// fix/nc-open-6-10 #9: UDP bytes into the plane's totals (speed series, /traffic) and the session's counters.
+    private func countUDP(_ e: UDPSessionEntry, up: Int = 0, down: Int = 0) {
+        if up > 0 {
+            e.up += Int64(up); totalUp += Int64(up)
+            if e.proxied { totalProxyUp += Int64(up) }
+        }
+        if down > 0 {
+            e.down += Int64(down); totalDown += Int64(down)
+            if e.proxied { totalProxyDown += Int64(down) }
+        }
+    }
+
     private func openUDP(_ info: NCTunStack.UDPSessionInfo, target: NCTarget,
-                         resolution: NCGroupEngine.Resolution, packets: [Data]) {
+                         resolution: NCGroupEngine.Resolution, packets: [Data],
+                         policyName: String = "", ruleText: String = "", domain: String? = nil) {
         // nc-races: aligned with NC_MAX_UDP_SESSIONS — see maxUDPSessions. A dropped first packet is
         // consistent with the other unroutable paths below (udpDropped, no ICMP unreachable anywhere
         // in the UDP path); the flow's next datagram retries once a slot frees.
@@ -1286,15 +1394,30 @@ final class NCDataPlane {
         }
         let sid = info.id
         let entry = UDPSessionEntry(session: session, lastUsed: Date())
+        entry.chain = switch resolution {
+        case .direct: "DIRECT"
+        case .reject: "REJECT"
+        case .proxy(let p): p.name
+        case .chain(let ps): ps.map { $0.name }.joined(separator: " -> ")
+        case .unknown(let n): n
+        }
+        entry.policy = policyName.isEmpty ? entry.chain : policyName
+        entry.rule = ruleText
+        entry.host = domain ?? target.host
+        entry.dstIP = info.dst.host
+        entry.dstPort = info.dst.port
+        entry.srcPort = info.src.port
+        NCStatsRecorder.shared.opened(rule: ruleText, policy: entry.policy)
         session.onReply = { [weak self, weak entry] payload in
             guard let self else { return }
             entry?.lastUsed = Date()
+            if let entry { self.countUDP(entry, down: payload.count) }
             // rv2-life: the C session is gone (evicted / expired before we heard): stop the relay instead of
             // silently dropping every further reply
             if !self.stack.udpSend(session: sid, payload) { self.udpGone(sid) }
         }
         udpSessions[info.id] = entry
-        for p in packets { session.send(p, to: target) }
+        for p in packets { countUDP(entry, up: p.count); session.send(p, to: target) }
     }
 }
 

@@ -1174,6 +1174,9 @@ enum NCConfImportPort {
                     "type": "http",
                     "url": sp.url,
                     "x-convert": "nodes",
+                    // fix/nc-open-6-10 #10: fetched like QuanX fetched it (the panel picks the format / allows the
+                    // client by this UA); mihomo honours `header` the same way.
+                    "header": ["User-Agent": [NCNodeSubscriptionStore.qxUserAgent]] as [String: Any],
                     "path": "./proxies/" + NCRuleValidator.providerNameFor(url: sp.url, kind: "nodes") + ".yaml",
                     "interval": sp.interval,
                     "health-check": ["enable": true, "url": checkURL, "interval": 600, "lazy": true] as [String: Any]

@@ -327,6 +327,13 @@ enum NCProviderPorts {
                                         "updated": mtime(path)]
                 let fmt = ncStr(m["format"])
                 if !fmt.isEmpty { t["format"] = fmt }
+                // fix/nc-open-6-10 #10: the provider's own User-Agent (mihomo `header`), e.g. QuanX for QX imports.
+                if case .object(let h)? = m["header"] {
+                    for (k, v) in h where k.lowercased() == "user-agent" {
+                        if case .array(let a) = v, case .string(let ua)? = a.first, !ua.isEmpty { t["userAgent"] = ua }
+                        else if case .string(let ua) = v, !ua.isEmpty { t["userAgent"] = ua }
+                    }
+                }
                 out.append(t)
             }
         }

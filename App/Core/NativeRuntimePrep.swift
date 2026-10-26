@@ -45,6 +45,22 @@ enum NativeRuntimePrep {
         /// was regenerated.
         var cached = false
         var millis = 0
+        /// fix/nc-open-6-10 #8: per-stage milliseconds of this prepare ("fp 35, cfg 12, modules 140, …"), for the
+        /// connect timing line in the startup log.
+        var breakdown = ""
+    }
+
+    /// fix/nc-open-6-10 #8: stage stopwatch for one prepare (single thread: the prepare body is synchronous).
+    final class PrepTiming {
+        private var parts: [String] = []
+        private var t = DispatchTime.now().uptimeNanoseconds
+        func lap(_ name: String, _ extra: String = "") {
+            let now = DispatchTime.now().uptimeNanoseconds
+            parts.append("\(name) \((now &- t) / 1_000_000)" + (extra.isEmpty ? "" : " (\(extra))"))
+            t = now
+        }
+        func note(_ s: String) { parts.append(s) }
+        var summary: String { parts.joined(separator: ", ") }
     }
 
     /// allowCached (connect): skip the generation when NativeRuntimePrepCache says the outputs on disk were built
@@ -64,8 +80,11 @@ enum NativeRuntimePrep {
             }
             let home = AppShared.homeURL.path
             let index = AppShared.profilesIndexURL.path
-            let r = prepareSync(home: home, profile: profile, profilesIndex: index, allowCached: allowCached)
-            return done(r.error, r.cached)
+            let timing = PrepTiming()
+            let r = prepareSync(home: home, profile: profile, profilesIndex: index, allowCached: allowCached, timing: timing)
+            var o = done(r.error, r.cached)
+            o.breakdown = timing.summary
+            return o
         }.value
     }
 
@@ -82,7 +101,8 @@ enum NativeRuntimePrep {
     /// tunnel could load one prepare's runtime with the other's rewrite snapshot.
     /// The whole build+write runs under one per-home NCPathLock key (a sync
     /// context: the lock is never held across a suspension point).
-    private static func prepareSync(home: String, profile: URL, profilesIndex: String, allowCached: Bool) -> (error: String?, cached: Bool) {
+    private static func prepareSync(home: String, profile: URL, profilesIndex: String, allowCached: Bool,
+                                    timing: PrepTiming? = nil) -> (error: String?, cached: Bool) {
         let key = (home as NSString).appendingPathComponent(".nativecore-prepare.lock")
         return NCPathLock.shared.withLock(for: key) { () -> (error: String?, cached: Bool) in
             // fix/app-toggle-hitch: generation cache (see NativeRuntimePrepCache). Fingerprinted under the prepare
@@ -93,15 +113,21 @@ enum NativeRuntimePrep {
                 NativeRuntimePrepCache.inputsFingerprint(home: home, profilesDir: profilesDir, extraFiles: [profilesIndex],
                                                          profilePath: profile.path, build: build)
             }
-            if allowCached, NativeRuntimePrepCache.hit(home: home, inputs: inputs()) {
-                NSLog("[Mihomo] native runtime unchanged since the last prepare: reusing it")
-                return (nil, true)
+            timing?.lap("lock")
+            if allowCached {
+                let fp = inputs()
+                timing?.lap("fingerprint")
+                if NativeRuntimePrepCache.hit(home: home, inputs: fp) {
+                    NSLog("[Mihomo] native runtime unchanged since the last prepare: reusing it")
+                    return (nil, true)
+                }
             }
             NativeRuntimePrepCache.invalidate(home: home)
-            let err = prepareSyncLocked(home: home, profile: profile)
+            let err = prepareSyncLocked(home: home, profile: profile, timing: timing)
             if err == nil {
                 // Taken after the commit: files the prepare itself wrote are part of the recorded state.
                 NativeRuntimePrepCache.write(home: home, .init(inputs: inputs(), outputs: NativeRuntimePrepCache.outputsFingerprint(home: home)))
+                timing?.lap("cache record")
             }
             return (err, false)
         }
@@ -118,7 +144,22 @@ enum NativeRuntimePrep {
         }
     }
 
-    private static func prepareSyncLocked(home: String, profile: URL) -> String? {
+    /// fix/nc-open-6-10 #8: request timeout for resources the prepare downloads (it blocks the connect).
+    static let prepFetchTimeout: TimeInterval = 12
+
+    /// Every remote resource the script manifest and the rewrite snapshot will read: script code (rules + tasks)
+    /// and rewrite response bodies (data-type file).
+    static func remoteResources(_ rs: NCEngineRuleset) -> [String] {
+        var out: [String] = []
+        for r in rs.rules {
+            if r.kind == "script", let sc = r.script, sc.source == nil { out.append(sc.path) }
+            if !r.data.isEmpty, r.dataType.isEmpty || r.dataType == "file" { out.append(r.data) }
+        }
+        for t in rs.tasks { if let sc = t.script, sc.source == nil { out.append(sc.path) } }
+        return out.filter { NCResources.isRemote($0) }
+    }
+
+    private static func prepareSyncLocked(home: String, profile: URL, timing: PrepTiming? = nil) -> String? {
         PrepTransaction.removeStale(home: home)
         // fix/nc-vpn-start-crash: a marker still here = the previous prepare died inside the app process (a trap
         // cannot be caught). If it died building the rewrite snapshot, quarantine that exact rule set so the next
@@ -158,8 +199,21 @@ enum NativeRuntimePrep {
         // Immutable cfg / rs and a reference box for the state the (escaping) inject
         // closure mutates: Swift 6.2's SIL verifier crashed (OwnershipModelEliminator,
         // build #359) on the previous captured-var / deferred-let shape of this body.
+        timing?.lap("read profile", "\(profileData.count / 1024) KB")
         let cfg: NCEngineConfig? = safeMode ? nil : NCEngineConfig.load(home: home)
+        timing?.lap("engine cfg", cfg.map { "\($0.modules.filter { $0.enabled }.count) modules" } ?? "safe mode")
         let rs: NCEngineRuleset? = cfg.map { NCMitmBuild.build(home: home, cfg: $0) }
+        timing?.lap("modules parse", rs.map { "\($0.rules.count) rules, \($0.hostnames.count) hosts" } ?? "-")
+        // fix/nc-open-6-10 #8: one resource cache shared by the script manifest and the rewrite snapshot, with every
+        // missing remote script / body downloaded in parallel up front (they used to be fetched one by one inside
+        // the sequential builds, with a 30 s timeout each and no memory of a URL that had already failed).
+        let res = NCResources(home: home)
+        res.fetchTimeout = prepFetchTimeout
+        if let cfg, let rs, cfg.anyOn || cfg.mitm {
+            let remote = remoteResources(rs)
+            res.prefetch(remote, maxConcurrent: 6, deadline: prepFetchTimeout + 2)
+            timing?.lap("prefetch", "\(Set(remote).count) remote, fetched \(res.fetchedCount), failed \(res.failedCount), skipped \(res.skippedRecentFailure)")
+        }
         let box = PrepState(rep: rep)
 
         var built: (data: Data, isJSON: Bool, raw: [String: NCJSONValue])? = nil
@@ -193,6 +247,7 @@ enum NativeRuntimePrep {
         } catch {
             return fail(error.localizedDescription)
         }
+        timing?.lap("runtime build")
         guard let buildResult = built else { return fail("native runtime: 构建失败") }
         if let e = box.writeErrors.first { return fail(e) }
         rep = box.rep
@@ -207,13 +262,14 @@ enum NativeRuntimePrep {
             let scriptRS: NCEngineRuleset? = (cfg != nil && cfg!.anyOn) ? rs : nil
             var scriptKeep: Set<String>? = nil
             do {
-                let man = try NCScriptManifest.buildManifest(home: home, cfg: cfg, rs: scriptRS)
+                let man = try NCScriptManifest.buildManifest(home: home, cfg: cfg, rs: scriptRS, res: res)
                 rep.scripts = man.scripts
                 if man.bad > 0 {
                     rep.warnings = (rep.warnings ?? []) + ["\(man.bad) 个脚本加载失败（见 nativecore-scripts.json）"]
                 }
                 try tx.put(man.data, NCScriptManifest.scriptManifestFile)
                 scriptKeep = man.keep
+                timing?.lap("scripts", "\(man.scripts) scripts, \(man.bad) bad")
             } catch {
                 // Restored after #139 (deliberate divergence from bridge nativeprep.go): the manifest indexes the
                 // rule set by position, so an OLD manifest next to the NEW rule set would run scripts on the wrong
@@ -239,7 +295,7 @@ enum NativeRuntimePrep {
                     if NCPrepMarkers.readQuarantine(home: home) != nil { NCPrepMarkers.clearQuarantine(home: home) }
                     NCPrepMarkers.writeInflight(home: home, .init(stage: "rewrite", at: Int64(Date().timeIntervalSince1970), build: build, fp: fp))
                     do {
-                        let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
+                        let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs, res: res)
                         try tx.put(snap, "nativecore-rewrite.json")
                         rep.rewrite = true
                         rep.mitmHosts = hosts
@@ -254,6 +310,7 @@ enum NativeRuntimePrep {
             } else {
                 tx.remove("nativecore-rewrite.json")
             }
+            timing?.lap("rewrite snapshot", "\(rep.mitmHosts) hosts")
 
             // bridge nativeprep.go ignores failures of the group-order
             // and prep-report writes (`_ = writeAtomicFile`); runtime.yaml
@@ -277,6 +334,10 @@ enum NativeRuntimePrep {
             try tx.commit()
             if let keep = scriptKeep {
                 NCScriptManifest.removeObsoleteCode(home: home, keep: keep)
+            }
+            timing?.lap("write+commit")
+            if res.fetchedCount + res.failedCount > 0 {
+                timing?.note("downloads total \(res.fetchedCount) ok / \(res.failedCount) failed")
             }
         } catch {
             return fail(error.localizedDescription)

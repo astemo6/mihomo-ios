@@ -243,8 +243,8 @@ final class NativeCoreRuleSetMemoryTests: XCTestCase {
         c.asnOf = { _ in lookups += 1; return 4538 }
         XCTAssertTrue(idx.contains(c))
         XCTAssertEqual(lookups, 1)
-        c.asnOf = { _ in 4808 } // the commented line never parsed as a number (same as NCRuleMatcher's Int(payload))
-        XCTAssertFalse(idx.contains(c))
+        c.asnOf = { _ in 4808 } // fix/nc-open-6-10: the trailing " // comment" is stripped (QuanX / Surge)
+        XCTAssertTrue(idx.contains(c))
         c.asnOf = { _ in 9999 }
         XCTAssertFalse(idx.contains(c))
     }

@@ -839,6 +839,13 @@ final class NativeCoreEngine {
     /// Bumped on every load and on stop (under resolveLock): finishResolve
     /// only caches answers from the current generation.
     private var resolveGeneration = 0
+    /// fix/nc-open-6-10 #7: the DNS config generation (bumped on every load and on stop). The data plane snapshots
+    /// it when it forwards a TUN query; a query whose upstreams all failed while the generation moved (a reload
+    /// landed mid-flight) is re-sent once on the new config instead of answering SERVFAIL.
+    var dnsGeneration: Int {
+        resolveLock.lock(); defer { resolveLock.unlock() }
+        return resolveGeneration
+    }
 
     /// One A lookup for rule matching (AAAA when the answer has no A and
     /// ipv6 is on is not attempted — mihomo prefers v4 too). Hosts first,

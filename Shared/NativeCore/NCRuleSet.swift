@@ -82,8 +82,12 @@ struct NCRuleSetIndex {
     mutating func addLine(_ rawLine: String, flavor: NCRuleSetFlavor) {
         var line = rawLine.trimmingCharacters(in: .whitespaces)
         if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") || line.hasPrefix("//") { return }
-        // Trailing comments in published lists are separated by " #"/" //".
-        if let r = line.range(of: " #") { line = String(line[..<r.lowerBound]).trimmingCharacters(in: .whitespaces) }
+        // Trailing comments in published lists are separated by whitespace + "#" or "//" (QuanX / Surge strip both:
+        // VirgilClyne ASN.China is `IP-ASN,4134 // 中国电信`). Only a whitespace-preceded marker counts, so URLs
+        // ("https://…" in DOMAIN-SET / URL-REGEX lines) and "#" inside a token are kept.
+        if let cut = Self.trailingCommentStart(line) {
+            line = String(line[..<cut]).trimmingCharacters(in: .whitespaces)
+        }
         if line.isEmpty { return }
 
         switch flavor {
@@ -104,6 +108,26 @@ struct NCRuleSetIndex {
                 addDomainSetEntry(line)
             }
         }
+    }
+
+    /// Index of the first whitespace-preceded "#" or "//" in `line` (a trailing comment), nil when none.
+    static func trailingCommentStart(_ line: String) -> String.Index? {
+        let u = line.utf8
+        var prevSpace = false
+        var i = u.startIndex
+        while i != u.endIndex {
+            let c = u[i]
+            if prevSpace {
+                if c == 0x23 { return line.utf8.index(before: i) } // " #"
+                if c == 0x2F {
+                    let n = u.index(after: i)
+                    if n != u.endIndex, u[n] == 0x2F { return line.utf8.index(before: i) } // " //"
+                }
+            }
+            prevSpace = (c == 0x20 || c == 0x09)
+            i = u.index(after: i)
+        }
+        return nil
     }
 
     mutating func addText(_ text: String, flavor: NCRuleSetFlavor) {
@@ -210,10 +234,11 @@ struct NCRuleSetIndex {
         case "DOMAIN-SUFFIX":
             domains.insert(payload.lowercased(), flags: NCDomainTable.suffix); entryCount += 1
         case "IP-ASN":
-            // Same acceptance as NCRuleMatcher's Int(payload): a payload that is not a bare number (e.g. a
-            // trailing "// comment") never matched; it is counted, and still marks the set as IP-reading, but no
-            // NCRule is kept for it.
-            if let n = UInt32(payload) { asns.insert(n) } else { hasDeadIPEntry = true }
+            // A payload that still is not a number never matches; it is counted, and still marks the set as
+            // IP-reading, but no NCRule is kept for it.
+            // Trailing comments are stripped in addLine; "AS4134" (Surge / QX accept the prefix) is read too.
+            let digits = payload.uppercased().hasPrefix("AS") ? String(payload.dropFirst(2)) : payload
+            if let n = UInt32(digits) { asns.insert(n) } else { hasDeadIPEntry = true }
             entryCount += 1
         default:
             // Everything else (keywords, CIDRs, GEOIP, ports, regex…) reuses

@@ -11,6 +11,8 @@ struct ProviderTask: Decodable, Identifiable, Hashable {
     var path: String
     var interval: Int
     var updated: Double
+    /// fix/nc-open-6-10 #10: provider `header` User-Agent (nil = the default below).
+    var userAgent: String? = nil
     var id: String { kind + ":" + name }
 }
 
@@ -98,7 +100,7 @@ final class ProviderUpdater: ObservableObject {
     nonisolated static func run(_ t: ProviderTask) async -> String? {
         guard let u = URL(string: t.url), u.scheme?.hasPrefix("http") == true else { return String(localized: "链接无效") }
         var req = URLRequest(url: u, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        req.setValue(t.kind == "proxy" ? "clash.meta" : "clash.meta mihomo-ios", forHTTPHeaderField: "User-Agent")
+        req.setValue(t.userAgent ?? (t.kind == "proxy" ? "clash.meta" : "clash.meta mihomo-ios"), forHTTPHeaderField: "User-Agent")
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {

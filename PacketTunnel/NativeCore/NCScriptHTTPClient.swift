@@ -115,9 +115,22 @@ enum NCScriptHTTPClient {
         // connect
         let sem = DispatchSemaphore(value: 0)
         let box = LateLeaseBox()
+        // fix/nc-open-6-10 #9: script traffic in /app/stats (统计 page) — the route this request used and the bytes
+        // it moved are recorded once the exchange ends (NCStatsRecorder.oneShot; nothing kept per request).
+        let route = NCUpstreamRoute()
+        let started = Date()
+        var upBytes: Int64 = 0, downBytes: Int64 = 0
+        var connected = false
+        defer {
+            if connected {
+                NCStatsRecorder.shared.oneShot(idPrefix: "script", rule: route.rule, policy: route.policy, chain: route.chain,
+                                               host: host, dstPort: port, up: upBytes, down: downBytes, start: started)
+            }
+        }
         let start: (@escaping (Result<MitmUpstreamLease, Error>) -> Void) -> Void = { done in
             if let nc = connector as? NCUpstreamConnector {
-                nc.open(host: host, port: port, tls: tls, policy: req.policy, insecure: req.insecure, completion: done)
+                nc.open(host: host, port: port, tls: tls, policy: req.policy, insecure: req.insecure, alpn: ["http/1.1"],
+                        route: route, completion: done)
             } else {
                 connector.open(host: host, port: port, tls: tls, completion: done)
             }
@@ -130,6 +143,7 @@ enum NCScriptHTTPClient {
         case .failure(let e)?: return .failure(.connect("\(e)"))
         case .success(let l)?: lease = l
         }
+        connected = true
         defer { lease.release(reusable: false) }
         let stream = lease.stream
 
@@ -137,6 +151,7 @@ enum NCScriptHTTPClient {
         let head = requestHead(req, host: host, port: port, tls: tls)
         var out = Data(head.utf8)
         out.append(req.body)
+        upBytes = Int64(out.count)
         let wrote: Error?? = wait(deadline) { done in stream.write(out) { done($0) } }
         switch wrote {
         case nil: stream.close(); return .failure(.timeout)
@@ -154,6 +169,7 @@ enum NCScriptHTTPClient {
             let (d, eof, err) = g
             if let err { return .failure(.io("read: \(err)")) }
             if let d, !d.isEmpty {
+                downBytes += Int64(d.count)
                 if let f = parser.feed(d) { return .failure(f) }
             }
             if eof || (d?.isEmpty ?? true) {
