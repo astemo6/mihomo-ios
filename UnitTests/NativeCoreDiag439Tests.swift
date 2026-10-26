@@ -209,4 +209,59 @@ final class NativeCoreDiag439Tests: XCTestCase {
         let capped = RequestsModel.mergeClosed(recent: recent, incoming: incoming, activeIDs: [], cap: 3)
         XCTAssertEqual(capped.map(\.id), ["a", "live", "c"])
     }
+
+    // MARK: G — CloudFront 优选-IP vmess ws+tls node shapes (build 439 "CFT", redacted values)
+
+    private static let cfHost = "d111111abcdef8.cloudfront.net"
+
+    /// config-effective.yaml shape of the local CFT nodes: servername + ws Host, server = an edge IP.
+    func testCloudFrontYAMLNodeSNIALPNAndPath() {
+        let p = proxy(["type": "vmess", "server": "13.32.0.1", "port": 443, "cipher": "aes-128-gcm",
+                       "uuid": "00000000-0000-0000-0000-000000000001", "alterId": 0, "network": "ws", "tls": true,
+                       "servername": Self.cfHost, "skip-cert-verify": true,
+                       "ws-opts": ["path": "/vm?ed=2048", "headers": ["Host": Self.cfHost]] as [String: Any]])
+        XCTAssertEqual(NCConnector.tlsSNI(p, server: "13.32.0.1"), Self.cfHost)
+        XCTAssertEqual(NCConnector.tlsALPN(p), ["http/1.1"], "ws over TLS offers only http/1.1")
+        XCTAssertEqual(NCConnector.wsOptions(p).path, "/vm")
+        XCTAssertEqual(NCConnector.wsOptions(p).headers["Host"], Self.cfHost)
+        XCTAssertNil(NCConnector.tlsALPN(proxy(["network": "grpc"])))
+    }
+
+    /// The provider nodes that failed (-9824) arrive as Quantumult X lines: `obfs=wss, obfs-host=<distribution>` and
+    /// no tls-host. QX takes obfs-host as the SNI; NativeCore set only the ws Host, so SNI fell back to the IP.
+    func testQXWSSNodeTakesObfsHostAsSNI() throws {
+        let line = "vmess=13.32.0.1:443, method=aes-128-gcm, password=00000000-0000-0000-0000-000000000001, obfs=wss, "
+            + "obfs-host=\(Self.cfHost), obfs-uri=/vm?ed=2048, tls-verification=false, fast-open=false, udp-relay=false, aead=true, tag=JP CFT"
+        var report = NCImportReport()
+        let n = try XCTUnwrap(NCQXImport.buildQXNode(line: line, report: &report))
+        XCTAssertEqual(n.fields["tls"]?.bool, true)
+        XCTAssertEqual(n.fields["servername"]?.string, Self.cfHost)
+        XCTAssertEqual(NCConnector.tlsSNI(n, server: "13.32.0.1"), Self.cfHost)
+        XCTAssertEqual(NCConnector.wsOptions(n).headers["Host"], Self.cfHost)
+        XCTAssertEqual(NCConnector.wsOptions(n).path, "/vm")
+        // Same line through the proxy-provider parser (the tunnel's refresh path).
+        let viaSub = try XCTUnwrap(NCSubscriptionParser.parse(line).first)
+        XCTAssertEqual(NCConnector.tlsSNI(viaSub, server: "13.32.0.1"), Self.cfHost)
+        // An explicit tls-host still wins over obfs-host.
+        let withTLSHost = line.replacingOccurrences(of: "tag=JP CFT", with: "tls-host=alt.example.com, tag=JP CFT")
+        let m = try XCTUnwrap(NCQXImport.buildQXNode(line: withTLSHost, report: &report))
+        XCTAssertEqual(m.fields["servername"]?.string, "alt.example.com")
+        XCTAssertEqual(NCConnector.wsOptions(m).headers["Host"], Self.cfHost)
+    }
+
+    /// vmess:// share link: `sni` → servername; without it the ws `host` is the SNI.
+    func testVMessLinkSNI() throws {
+        func link(_ o: [String: Any]) throws -> String {
+            "vmess://" + (try JSONSerialization.data(withJSONObject: o)).base64EncodedString()
+        }
+        let base: [String: Any] = ["v": "2", "ps": "CFT", "add": "13.32.0.1", "port": "443", "id": "00000000-0000-0000-0000-000000000001",
+                                   "aid": "0", "scy": "aes-128-gcm", "net": "ws", "host": Self.cfHost, "path": "/vm", "tls": "tls"]
+        var withSNI = base; withSNI["sni"] = Self.cfHost
+        let a = try XCTUnwrap(NCSubscriptionParser.parse(try link(withSNI)).first)
+        XCTAssertEqual(a.fields["servername"]?.string, Self.cfHost)
+        let b = try XCTUnwrap(NCSubscriptionParser.parse(try link(base)).first)
+        XCTAssertNil(b.fields["servername"])
+        XCTAssertEqual(NCConnector.tlsSNI(b, server: "13.32.0.1"), Self.cfHost)
+    }
+
 }

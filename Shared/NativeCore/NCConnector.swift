@@ -635,6 +635,7 @@ enum NCConnector {
                 raw = NCStream(to: server, port: port,
                                tlsServerName: tlsSNI(proxy, server: server),
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                               alpn: tlsALPN(proxy),
                                queue: queue)
             } else {
                 // Vision needs the hand-rolled TLS client over a raw socket
@@ -808,6 +809,15 @@ enum NCConnector {
             }
         let kept = base.isEmpty ? "/" : base
         return items.isEmpty ? kept : kept + "?" + items.joined(separator: "&")
+    }
+
+    /// fix/nc-diag-439 (G): ALPN for vmess / vless over NWConnection TLS — ws / httpupgrade offer only http/1.1
+    /// (mihomo); other transports keep the previous behaviour (no ALPN extension).
+    static func tlsALPN(_ proxy: NCProxy) -> [String]? {
+        switch proxy.fields["network"]?.string ?? "tcp" {
+        case "ws", "httpupgrade": return ["http/1.1"]
+        default: return nil
+        }
     }
 
     /// fix/nc-diag-439 (G): TLS SNI for vmess / vless. `servername` (vmess) / `sni` first; without one mihomo takes
@@ -1182,6 +1192,7 @@ enum NCConnector {
             raw = NCStream(to: server, port: port,
                            tlsServerName: tlsSNI(proxy, server: server),
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           alpn: tlsALPN(proxy),
                            queue: queue)
         } else {
             raw = NCStream(to: server, port: port, queue: queue)
