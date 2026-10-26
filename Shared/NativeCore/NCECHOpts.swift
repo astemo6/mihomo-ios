@@ -23,16 +23,18 @@ public struct NCECHOpts: Equatable, Hashable, Codable {
     }
 
     /// Decode from an NCJSONValue object map (e.g. from `proxy.fields["ech-opts"]`).
-    public init?(object: [String: NCJSONValue]) {
+    init?(object: [String: NCJSONValue]) {
         guard !object.isEmpty else { return nil }
         let enableVal: Bool
         if let b = object["enable"]?.bool {
             enableVal = b
         } else if let s = object["enable"]?.string {
             enableVal = s.lowercased() == "true" || s == "1"
+        } else if let n = object["enable"]?.int {
+            enableVal = (n == 1)
         } else {
-            // If enable key is omitted but config or query-server-name is present, default enable to true.
-            enableVal = object["config"] != nil || object["query-server-name"] != nil || object["query_server_name"] != nil
+            // Enable defaults to false when omitted; only explicit true enables ECH.
+            enableVal = false
         }
 
         let cfg = object["config"]?.string
@@ -53,9 +55,14 @@ public struct NCECHOpts: Equatable, Hashable, Codable {
         } else if let s = dictionary["enable"] as? String {
             enableVal = s.lowercased() == "true" || s == "1"
         } else if let n = dictionary["enable"] as? NSNumber {
-            enableVal = n.boolValue
+            if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                enableVal = n.boolValue
+            } else {
+                enableVal = (n.intValue == 1)
+            }
         } else {
-            enableVal = dictionary["config"] != nil || dictionary["query-server-name"] != nil || dictionary["query_server_name"] != nil
+            // Enable defaults to false when omitted; only explicit true enables ECH.
+            enableVal = false
         }
 
         let cfg = dictionary["config"] as? String
@@ -68,7 +75,7 @@ public struct NCECHOpts: Equatable, Hashable, Codable {
     }
 
     /// Convert to NCJSONValue map for storage in `NCProxy.fields["ech-opts"]`.
-    public func toObject() -> [String: NCJSONValue] {
+    func toObject() -> [String: NCJSONValue] {
         var obj: [String: NCJSONValue] = ["enable": .bool(enable)]
         if let config, !config.isEmpty {
             obj["config"] = .string(config)
@@ -139,7 +146,8 @@ public struct NCECHOpts: Equatable, Hashable, Codable {
         guard let echVal = query["ech"] ?? query["ech-opts"] ?? query["ech_opts"] else {
             if let cfg = query["ech-config"] ?? query["ech_config"] {
                 let qsn = query["ech-qsn"] ?? query["ech-query-server-name"] ?? query["query-server-name"]
-                return NCECHOpts(enable: true, config: fromBase64URL(cfg), queryServerName: qsn)
+                let explicitEnable = query["enable"].map { $0.lowercased() == "true" || $0 == "1" } ?? false
+                return NCECHOpts(enable: explicitEnable, config: fromBase64URL(cfg), queryServerName: qsn)
             }
             return nil
         }
