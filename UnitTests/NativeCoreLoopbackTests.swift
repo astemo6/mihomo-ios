@@ -43,7 +43,6 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let hy2Password = "nc-loop-hy2-pw"
     private static let tuicPassword = "nc-loop-tuic-pw"
 
-    private static let echOuterSni = "outer.localhost"
     private static let echInnerSni = "localhost"
     /// Base64 of ECHConfigList matching tools/loopback/ech_config.pem
     /// Generated via: sing-box generate ech-keypair outer.localhost
@@ -170,7 +169,6 @@ final class NativeCoreLoopbackTests: XCTestCase {
             "ech-opts": .object([
                 "enable": .bool(true),
                 "config": .string(Self.echConfigBase64),
-                "outer-sni": .string(Self.echOuterSni),
             ]),
         ])
     }
@@ -183,7 +181,6 @@ final class NativeCoreLoopbackTests: XCTestCase {
             "ech-opts": .object([
                 "enable": .bool(true),
                 "config": .string(Self.staleEchConfigBase64),
-                "outer-sni": .string("stale.outer.localhost"),
             ]),
         ])
     }
@@ -198,7 +195,6 @@ final class NativeCoreLoopbackTests: XCTestCase {
             "ech-opts": .object([
                 "enable": .bool(true),
                 "config": .string(Self.echConfigBase64),
-                "outer-sni": .string(Self.echOuterSni),
             ]),
         ])
     }
