@@ -98,6 +98,12 @@ targets:
       - path: PacketTunnel/NativeCore/NativeCoreEngine.swift
       - path: PacketTunnel/NativeCore/NCHealthCheck.swift
       - path: PacketTunnel/NativeCore/NCMemorySampler.swift
+      # fix/nc-script-stats: the $httpClient backend (+ its upstream connector, whose dependencies are
+      # all Shared / already app-included), in the app only so UnitTests/NativeCoreScriptStatsTests.swift
+      # can drive a script fetch against a fake upstream and assert the traffic ledger. The app never
+      # runs it (NativeScriptHost.fetch stays TERN_TUNNEL-only).
+      - path: PacketTunnel/NativeCore/NCScriptHTTPClient.swift
+      - path: PacketTunnel/NativeCore/NCUpstreamConnector.swift
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig
