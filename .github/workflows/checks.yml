@@ -35,3 +35,14 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
       - run: python3 scripts/term_audit.py
+
+  # fix/nc-tcp0: the TUN bridge (nc_stack.c + vendored lwIP) on the host — v4/v6 TCP handshakes to real destinations,
+  # v6 UDP, UDP reply checksums (the build419 "tcp accepted 0" root causes). Seconds on ubuntu, no macOS runner.
+  nc-stack-c:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || !(startsWith(github.event.pull_request.head.ref, 'test/') || startsWith(github.event.pull_request.head.ref, 'core/')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - run: bash tools/nc-stack-test/run.sh

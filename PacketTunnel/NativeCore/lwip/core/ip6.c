@@ -487,6 +487,16 @@ ip6_input_accept(struct netif *netif)
         return 1;
       }
     }
+    /* NC PATCH (fix/nc-tcp0, see lwip/nc_stack.c): the IPv6 twin of the ip4_input_accept patch. Every destination
+       the shim installed a listener / UDP session / connection for is "ours" on the TUN netif ("tn") — without it
+       every IPv6 SYN / datagram to a real (redir-host) or fake-ip v6 address was dropped here as "not for us",
+       silently: no RST, the app just waited. WireGuard netifs ("wg") keep accepting their own address only. */
+    {
+      extern int nc_lwip_dest_ours6(const ip6_addr_t *dest);
+      if (netif->name[0] == 't' && netif->name[1] == 'n') {
+        if (nc_lwip_dest_ours6(ip6_current_dest_addr())) return 1;
+      }
+    }
   }
   return 0;
 }
@@ -683,6 +693,11 @@ netif_found:
   if (netif == NULL) {
     /* packet not for us, route or discard */
     LWIP_DEBUGF(IP6_DEBUG | LWIP_DBG_TRACE, ("ip6_input: packet not for us.\n"));
+    {
+      /* fix/nc-tcp0: drop-reason counter (nc_get_stats). */
+      extern void nc_lwip_count_not_ours(int is6);
+      if (inp->name[0] == 't' && inp->name[1] == 'n') nc_lwip_count_not_ours(1);
+    }
 #if LWIP_IPV6_FORWARD
     /* non-multicast packet? */
     if (!ip6_addr_ismulticast(ip6_current_dest_addr())) {

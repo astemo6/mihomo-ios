@@ -322,24 +322,45 @@ final class IPInfoModel: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.cacheKey)
             return
         }
+        // fix/nc-tcp0: Home sat on 「正在查询…」 for good on build419. Two holes: (1) withDeadline used a task group,
+        // which waits for its children — a body that does not react to cancellation (a geo_location_checker script in
+        // JSC, a hung provider message) kept the "15 s cap" open forever; (2) overlapping refreshes (the egress
+        // notification, onAppear, taps) shared one `loading` flag, so a superseded run could end and leave the newer
+        // state wrong. Now: every run has a generation and only the newest one writes; the exit lookup and the direct
+        // lookup each return at their deadline whatever the body does; and a hard deadline turns a still-loading
+        // header into 查询失败 with a log line.
+        refreshGen &+= 1
+        let gen = refreshGen
         loading = true
         failed = false
-        defer { loading = false; updatedAt = Date() }
+        let hard = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.hardDeadline * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.refreshGen == gen, self.loading else { return }
+            self.loading = false
+            self.failed = self.exit == nil
+            self.updatedAt = Date()
+            StartupLog.write("exit-ip lookup: hard timeout \(Int(Self.hardDeadline)) s — header shows 查询失败", tag: "app")
+        }
+        defer { hard.cancel() }
         let connected = VPNManager.shared.isConnected
+        let script = GeoChecker.usesScript
         // v0.12: a custom API with a QX geo_location_checker script goes through GeoChecker; everything
         // else (auto / preferred API / custom JSON API) is IPInfoFetcher's ordered endpoints (shared with qx/rebuild).
-        // fix/nc-delay-2: the whole lookup is capped (each endpoint has its own 6 s timeout, but several endpoints
-        // through a stalled tunnel kept 「正在查询…」 up for most of a minute); a miss shows 查询失败 and is logged.
-        async let exitInfo = Self.withDeadline(15) {
-            await (GeoChecker.usesScript ? GeoChecker.fetchWithScript() : IPInfoFetcher.fetch())
+        async let exitInfo = Self.withDeadline(Self.lookupDeadline) {
+            await (script ? GeoChecker.fetchWithScript() : IPInfoFetcher.fetch())
         }
-        async let directInfo = fetchDirectFromTunnel(enabled: connected)
+        async let directInfo = Self.withDeadline(Self.lookupDeadline) { [weak self] in
+            await self?.fetchDirectFromTunnel(enabled: connected)
+        }
         let (e, d) = await (exitInfo, directInfo)
+        guard refreshGen == gen else { return } // a newer refresh owns the header now
+        loading = false
+        updatedAt = Date()
         exit = e
         direct = connected ? d : nil
         failed = (e == nil)
         if e == nil, !Task.isCancelled {
-            StartupLog.write("exit-ip lookup failed (\(connected ? "VPN on" : "VPN off"), \(GeoChecker.usesScript ? "script" : "endpoints"))", tag: "app")
+            StartupLog.write("exit-ip lookup failed (\(connected ? "VPN on" : "VPN off"), \(script ? "script" : "endpoints")) — header shows 查询失败", tag: "app")
         }
         if let e {
             let c = Cached(exit: e, direct: direct, at: Date())
@@ -347,17 +368,29 @@ final class IPInfoModel: ObservableObject {
         }
     }
 
-    /// nil when `body` does not finish within `seconds` (the body is cancelled).
+    /// fix/nc-tcp0: per-lookup cap (each endpoint has its own 6 s timeout; several through a stalled tunnel add up).
+    static let lookupDeadline: Double = 15
+    /// fix/nc-tcp0: nothing keeps 「正在查询…」 up longer than this.
+    static let hardDeadline: Double = 18
+    private var refreshGen: UInt64 = 0
+
+    /// nil when `body` does not finish within `seconds`. fix/nc-tcp0: returns AT the deadline even when the body
+    /// ignores cancellation (the old task-group version waited for the body: no cap at all for a stuck script).
+    /// The body is cancelled and left to finish on its own; its late result is dropped.
     nonisolated static func withDeadline(_ seconds: Double, _ body: @escaping @Sendable () async -> IPInfo?) async -> IPInfo? {
-        await withTaskGroup(of: IPInfo?.self) { tg in
-            tg.addTask { await body() }
-            tg.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return nil
+        let gate = DeadlineGate()
+        return await withCheckedContinuation { (cont: CheckedContinuation<IPInfo?, Never>) in
+            let work = Task {
+                let r = await body()
+                if gate.claim() { cont.resume(returning: r) }
             }
-            let first = await tg.next() ?? nil
-            tg.cancelAll()
-            return first
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+                if gate.claim() {
+                    work.cancel()
+                    cont.resume(returning: nil)
+                }
+            }
         }
     }
 
@@ -374,5 +407,17 @@ final class IPInfoModel: ObservableObject {
         guard !lines.isEmpty else { return }
         UIPasteboard.general.string = lines.joined(separator: "\n")
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
+/// fix/nc-tcp0: first caller wins (IPInfoModel.withDeadline's result vs its timer).
+final class DeadlineGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
     }
 }
