@@ -513,12 +513,12 @@ final class NCController {
     static func dnsRData(_ r: NCDNSRecord, raw: Data) -> String {
         switch r.type {
         case 1 where r.rdata.count == 4, 28 where r.rdata.count == 16:
-            let ip: NCIP = r.type == 1
-                ? .v4(UInt32(r.rdata[0]) << 24 | UInt32(r.rdata[1]) << 16 | UInt32(r.rdata[2]) << 8 | UInt32(r.rdata[3]))
-                : .v6([UInt8](r.rdata))
-            return ip.string
+            let b = [UInt8](r.rdata)
+            if b.count == 16 { return NCIP.v6(b).string }
+            let v4: UInt32 = (UInt32(b[0]) << 24) | (UInt32(b[1]) << 16) | (UInt32(b[2]) << 8) | UInt32(b[3])
+            return NCIP.v4(v4).string
         case 2, 5, 12:
-            if let at = raw.range(of: r.rdata)?.lowerBound, let (n, _) = NCDNSMessage.decodeName(raw, at) { return n + "." }
+            if let at = raw.range(of: r.rdata)?.lowerBound, let decoded = NCDNSMessage.decodeName(raw, at) { return decoded.0 + "." }
             return (NCDNSMessage.decodeName(r.rdata, 0)?.0).map { $0 + "." } ?? ""
         case 16:
             var parts: [String] = []
