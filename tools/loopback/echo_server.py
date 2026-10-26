@@ -13,6 +13,16 @@ One process, four sockets (all 127.0.0.1):
                                               connection and on future ones.
                            datagram "pause" : future blackhole connections are
                                               held unread again.
+                           datagram "stats" : replies to the sender with a JSON
+                                              snapshot of the UDP echo counters
+                                              (datagrams/bytes received and echoed,
+                                              in total and per source address) —
+                                              the Hy2 fragmentation experiment
+                                              (feat/nc-hy2-frag) uses it to tell
+                                              whether a lost datagram died before
+                                              or after the relay.
+                           datagram "resetstats" : zeroes those counters,
+                                              replies "ok".
 
 The sing-box inbounds route to whatever target the client names, so the
 tests pick echo vs blackhole purely by the target port they ask for.
@@ -20,6 +30,7 @@ tests pick echo vs blackhole purely by the target port they ask for.
 Stdlib only, so this runs on any macOS/Linux python3. SIGTERM/SIGINT stops it.
 """
 
+import json
 import socket
 import sys
 import threading
@@ -33,6 +44,34 @@ CONTROL_PORT = 18083
 _state_lock = threading.Lock()
 _discarding = False          # blackhole mode: False = hold unread, True = read & drop
 _held = []                   # blackhole connections waiting for "go"
+
+# UDP echo counters, per source address ("ip:port" of whoever relayed to us —
+# for proxied tests that is the proxy server's relay socket, one per session).
+_stats_lock = threading.Lock()
+_udp_sources = {}            # "ip:port" -> {"rx": int, "rx_bytes": int, "tx": int}
+
+
+def _udp_note(addr, field, amount=1):
+    key = f"{addr[0]}:{addr[1]}"
+    with _stats_lock:
+        entry = _udp_sources.setdefault(key, {"rx": 0, "rx_bytes": 0, "tx": 0})
+        entry[field] += amount
+
+
+def _udp_stats_snapshot():
+    with _stats_lock:
+        sources = {k: dict(v) for k, v in _udp_sources.items()}
+    return {
+        "total_rx": sum(v["rx"] for v in sources.values()),
+        "total_rx_bytes": sum(v["rx_bytes"] for v in sources.values()),
+        "total_tx": sum(v["tx"] for v in sources.values()),
+        "sources": sources,
+    }
+
+
+def _udp_stats_reset():
+    with _stats_lock:
+        _udp_sources.clear()
 
 
 def _discard_loop(conn: socket.socket) -> None:
@@ -106,19 +145,28 @@ def udp_echo_server() -> None:
     sock.bind((HOST, UDP_ECHO_PORT))
     while True:
         data, addr = sock.recvfrom(65535)
+        _udp_note(addr, "rx")
+        _udp_note(addr, "rx_bytes", len(data))
         sock.sendto(data, addr)
+        _udp_note(addr, "tx")
 
 
 def control_server() -> None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((HOST, CONTROL_PORT))
     while True:
-        data, _ = sock.recvfrom(1024)
+        data, addr = sock.recvfrom(1024)
         cmd = data.strip().lower()
         if cmd == b"go":
             _set_discarding(True)
         elif cmd == b"pause":
             _set_discarding(False)
+        elif cmd == b"stats":
+            payload = json.dumps({"udp_echo": _udp_stats_snapshot()}).encode()
+            sock.sendto(payload, addr)
+        elif cmd == b"resetstats":
+            _udp_stats_reset()
+            sock.sendto(b"ok", addr)
 
 
 def main() -> int:
