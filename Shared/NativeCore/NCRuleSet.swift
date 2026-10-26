@@ -80,13 +80,15 @@ struct NCRuleSetIndex {
     // MARK: building
 
     mutating func addLine(_ rawLine: String, flavor: NCRuleSetFlavor) {
-        var line = rawLine.trimmingCharacters(in: .whitespaces)
+        // fix/nc-mem-3: native trim (same set as CharacterSet.whitespaces) — the Foundation call bridges every line
+        // through NSString and leaves autoreleased objects behind, ~36k of them for one big list.
+        var line = Self.trimSpaces(rawLine)
         if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") || line.hasPrefix("//") { return }
         // Trailing comments in published lists are separated by whitespace + "#" or "//" (QuanX / Surge strip both:
         // VirgilClyne ASN.China is `IP-ASN,4134 // 中国电信`). Only a whitespace-preceded marker counts, so URLs
         // ("https://…" in DOMAIN-SET / URL-REGEX lines) and "#" inside a token are kept.
         if let cut = Self.trailingCommentStart(line) {
-            line = String(line[..<cut]).trimmingCharacters(in: .whitespaces)
+            line = String(Self.trimSpacesSub(line[..<cut]))
         }
         if line.isEmpty { return }
 
@@ -108,6 +110,31 @@ struct NCRuleSetIndex {
                 addDomainSetEntry(line)
             }
         }
+    }
+
+    /// CharacterSet.whitespaces membership, per scalar — the exact CoreFoundation set (__CFCSetIsWhitespace):
+    /// TAB, SPACE, NBSP, U+1680, U+2000…U+200B (incl. ZERO WIDTH SPACE, which is not Zs), U+202F, U+205F, U+3000.
+    @inline(__always)
+    static func isSpace(_ u: Unicode.Scalar) -> Bool {
+        let c = u.value
+        if c < 0x80 { return c == 0x20 || c == 0x09 }
+        return c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200B) || c == 0x202F || c == 0x205F || c == 0x3000
+    }
+
+    /// `trimmingCharacters(in: .whitespaces)` without Foundation: trims whole Unicode scalars at both ends, exactly
+    /// like NSString does on UTF-16 units for that (BMP-only) set. Returns the input itself when nothing is trimmed.
+    static func trimSpaces(_ s: String) -> String {
+        let t = trimSpacesSub(s[...])
+        return (t.startIndex == s.startIndex && t.endIndex == s.endIndex) ? s : String(t)
+    }
+
+    /// Substring flavour for split fields (no String per field until one is kept).
+    static func trimSpacesSub(_ s: Substring) -> Substring {
+        let u = s.unicodeScalars
+        var a = u.startIndex, b = u.endIndex
+        while a != b, isSpace(u[a]) { a = u.index(after: a) }
+        while a != b { let p = u.index(before: b); if isSpace(u[p]) { b = p } else { break } }
+        return Substring(u[a..<b])
     }
 
     /// Index of the first whitespace-preceded "#" or "//" in `line` (a trailing comment), nil when none.
@@ -161,28 +188,40 @@ struct NCRuleSetIndex {
             var start = 0
             // UTF-8 BOM
             if n >= 3, b[0] == 0xEF, b[1] == 0xBB, b[2] == 0xBF { start = 3 }
-            var lineNo = 0
+            // fix/nc-mem-3: one autorelease pool per block of 256 lines. The fix/nc-mem-providers loop wrapped only
+            // every 256th line in a pool, so the other 255 lines' leftovers piled up in the caller's pool (the
+            // URLSession delegate queue drains once per callback, i.e. after the whole list).
             while start < n, ok {
-                var end = start
-                while end < n, b[end] != 0x0A, b[end] != 0x0D { end += 1 }
-                if end > start {
-                    let slice = UnsafeBufferPointer(rebasing: b[start..<end])
-                    // validate like String(data:encoding:.utf8) did for the whole body
-                    if let line = String(validatingUTF8Bytes: slice) {
-                        lineNo += 1
-                        #if canImport(ObjectiveC)
-                        if lineNo % 256 == 0 { autoreleasepool { addLine(line, flavor: flavor) } } else { addLine(line, flavor: flavor) }
-                        #else
-                        addLine(line, flavor: flavor)
-                        #endif
-                    } else {
-                        ok = false
+                Self.withPool {
+                    var lines = 0
+                    while start < n, ok, lines < 256 {
+                        var end = start
+                        while end < n, b[end] != 0x0A, b[end] != 0x0D { end += 1 }
+                        if end > start {
+                            let slice = UnsafeBufferPointer(rebasing: b[start..<end])
+                            // validate like String(data:encoding:.utf8) did for the whole body
+                            if let line = String(validatingUTF8Bytes: slice) {
+                                addLine(line, flavor: flavor)
+                                lines += 1
+                            } else {
+                                ok = false
+                            }
+                        }
+                        start = end + 1
                     }
                 }
-                start = end + 1
             }
         }
         return ok
+    }
+
+    @inline(__always)
+    private static func withPool(_ body: () -> Void) {
+        #if canImport(ObjectiveC)
+        autoreleasepool { body() }
+        #else
+        body()
+        #endif
     }
 
     /// Whether some line of `data` starts (after spaces) with `key`.
@@ -217,8 +256,8 @@ struct NCRuleSetIndex {
     ]
 
     private mutating func addClassicalLine(_ line: String, dialect: Dialect) {
-        let fields = line.split(separator: ",", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+        // fix/nc-mem-3: fields stay Substrings (no per-field String / NSString bridge); only kept values are copied.
+        let fields = line.split(separator: ",", omittingEmptySubsequences: false).map(Self.trimSpacesSub)
         guard fields.count >= 2 else { return }
         var kind = fields[0].uppercased()
         let payload = fields[1]
@@ -237,7 +276,7 @@ struct NCRuleSetIndex {
             // A payload that still is not a number never matches; it is counted, and still marks the set as
             // IP-reading, but no NCRule is kept for it.
             // Trailing comments are stripped in addLine; "AS4134" (Surge / QX accept the prefix) is read too.
-            let digits = payload.uppercased().hasPrefix("AS") ? String(payload.dropFirst(2)) : payload
+            let digits = payload.uppercased().hasPrefix("AS") ? payload.dropFirst(2) : payload
             if let n = UInt32(digits) { asns.insert(n) } else { hasDeadIPEntry = true }
             entryCount += 1
         default:
@@ -250,14 +289,14 @@ struct NCRuleSetIndex {
 
     /// One non-domain entry, matched by NCRuleMatcher. `raw` and `policy` are never read for a rule-set entry
     /// (the referencing RULE-SET line owns the policy), so they are not kept.
-    private mutating func appendOther(kind: String, payload: String, fields: [String]) {
+    private mutating func appendOther(kind: String, payload: Substring, fields: [Substring]) {
         // A type NCRuleMatcher has no case for (or a logic / nested RULE-SET line, which never match inside a set:
         // no sub-rules are parsed here and nested sets are disabled) can never match: count it, keep nothing.
         // (Before the QX-name mapping above, UPPERCASE HOST-SUFFIX lines landed here: ~37k unmatchable NCRules,
         // ~7 MB, for the real fixture's blackmatrix7 QuantumultX lists.)
         guard Self.matchableKinds.contains(kind) else { entryCount += 1; return }
         let opts = fields.dropFirst(3)
-        others.append(NCRule(raw: "", kind: kind, payload: payload, policy: "",
+        others.append(NCRule(raw: "", kind: kind, payload: String(payload), policy: "",
                              noResolve: opts.contains { $0.lowercased() == "no-resolve" }, subRules: []))
         entryCount += 1
     }
@@ -270,12 +309,29 @@ struct NCRuleSetIndex {
         else if line.hasPrefix("*.") { subOnly = true; line = String(line.dropFirst(2)) }
         else if line.hasPrefix(".") { suffix = true; line = String(line.dropFirst()) } // Surge: self + subdomains
         // DOMAIN-SET files sometimes carry full URLs; keep just the host.
-        if let scheme = line.range(of: "://") { line = String(line[scheme.upperBound...]) }
+        if let after = Self.indexAfterScheme(line) { line = String(line[after...]) } // native, no NSString bridge
         if let slash = line.firstIndex(of: "/") { line = String(line[..<slash]) }
         let host = line.lowercased()
         guard !host.isEmpty, host.contains(".") || suffix || subOnly else { return }
         domains.insert(host, flags: suffix ? NCDomainTable.suffix : (subOnly ? NCDomainTable.subOnly : NCDomainTable.exact))
         entryCount += 1
+    }
+
+    /// Index just past the first "://" in `s`, nil when none (String.range(of:) without Foundation).
+    static func indexAfterScheme(_ s: String) -> String.Index? {
+        let u = s.utf8
+        var i = u.startIndex
+        while i != u.endIndex {
+            if u[i] == 0x3A {
+                let j = u.index(after: i)
+                if j != u.endIndex, u[j] == 0x2F {
+                    let k = u.index(after: j)
+                    if k != u.endIndex, u[k] == 0x2F { return u.index(after: k) }
+                }
+            }
+            i = u.index(after: i)
+        }
+        return nil
     }
 
     mutating func addMRSDomain(_ domainSet: NCMRSDomainSet) {
@@ -335,12 +391,13 @@ struct NCDomainTable {
     var count: Int { ends.count }
 
     mutating func insert(_ host: String, flags f: UInt8) {
-        var u = Array(host.utf8)
-        while u.last == 0x2E { u.removeLast() }           // trailing dots
-        var lead = 0
-        while lead < u.count, u[lead] == 0x2E { lead += 1 } // leading dots
-        guard lead < u.count else { return }
-        bytes.append(contentsOf: u[lead...].reversed())
+        // fix/nc-mem-3: straight from the UTF-8 view (no temporary [UInt8] per entry)
+        let u = host.utf8
+        var a = u.startIndex, e = u.endIndex
+        while a != e, u[u.index(before: e)] == 0x2E { e = u.index(before: e) } // trailing dots
+        while a != e, u[a] == 0x2E { a = u.index(after: a) }                    // leading dots
+        guard a != e else { return }
+        bytes.append(contentsOf: u[a..<e].reversed())
         ends.append(UInt32(bytes.count))
         flags.append(f)
         isSorted = false
