@@ -44,7 +44,7 @@ struct RuntimeMemoryInfo: Decodable, Equatable {
     var limit: Int64 = 0
     var configured: Int64 = 0
     var numGC: Int64 = 0
-    var goroutines: Int = 0
+    var tasks: Int = 0
     var loan: Bool = false
 }
 

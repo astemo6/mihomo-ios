@@ -3,7 +3,7 @@ import XCTest
 
 /// Lane s3-script helpers. native-only (nc-integrate): the old-core-vs-native differential runs over the old core script engine
 /// (MitmScriptTestStart / MitmFlowDriverAdapter, testNativeScriptDispatchMatchesGo /
-/// testNativeRequestScriptsMatchGo) are removed with bridge/; the native dispatch is covered by the device runs and
+/// testNativeRequestScriptsMatchGo) were removed with the old core; the native dispatch is covered by the device runs and
 /// NativeCorePersistentStoreTests. What stays are the ported helpers.
 final class NativeMitmScriptTests: XCTestCase {
     /// The pieces ported from the old core, checked on their own.

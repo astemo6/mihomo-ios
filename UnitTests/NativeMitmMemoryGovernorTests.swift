@@ -33,7 +33,7 @@ final class NativeMitmMemoryGovernorTests: XCTestCase {
         func setActive(_ on: Bool) { active = on }
         func info() -> RuntimeMemoryInfo? {
             RuntimeMemoryInfo(heap: 10 << 20, nonGarbage: nonGarbage, floor: max(16 << 20, nonGarbage + 2 << 20), limit: limit,
-                         configured: configured, numGC: 1, goroutines: 100, loan: loan)
+                         configured: configured, numGC: 1, tasks: 100, loan: loan)
         }
         func setLimit(_ bytes: Int64) -> Int64 {
             limitCalls.append(bytes)
