@@ -22,7 +22,7 @@ final class NativeCoreMem3Tests: XCTestCase {
     func testNativeTrimMatchesFoundation() {
         let samples = [
             "", " ", "\t", "  a  ", "\ta\t", "a", "a b", " a b ", "\u{00A0}x\u{00A0}", "\u{3000}全角\u{3000}",
-            "\u{2003}em\u{2002}", " \u{0301}a", "a \u{0301}", "\u{FEFF}bom", "x\n", "\ny", " \r ", "\u{200B}zw",
+            "\u{2003}em\u{2002}", " \u{0301}a", "a \u{0301}", "\u{FEFF}bom", "x\n", "\ny", " \r ", "\u{200B}zw", "zw\u{200B}", "\u{202F}nnbsp\u{205F}", "\u{2028}ls", "\u{180E}mvs",
             "DOMAIN-SUFFIX , google.com ", "  # comment", "\u{1680}ogham\u{205F}", "😀 ", " 😀",
         ]
         for s in samples {

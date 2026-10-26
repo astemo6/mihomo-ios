@@ -112,11 +112,13 @@ struct NCRuleSetIndex {
         }
     }
 
-    /// CharacterSet.whitespaces membership (Unicode general category Zs + U+0009 TAB), per scalar.
+    /// CharacterSet.whitespaces membership, per scalar — the exact CoreFoundation set (__CFCSetIsWhitespace):
+    /// TAB, SPACE, NBSP, U+1680, U+2000…U+200B (incl. ZERO WIDTH SPACE, which is not Zs), U+202F, U+205F, U+3000.
     @inline(__always)
     static func isSpace(_ u: Unicode.Scalar) -> Bool {
-        if u.value < 0x80 { return u.value == 0x20 || u.value == 0x09 }
-        return u.properties.generalCategory == .spaceSeparator
+        let c = u.value
+        if c < 0x80 { return c == 0x20 || c == 0x09 }
+        return c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200B) || c == 0x202F || c == 0x205F || c == 0x3000
     }
 
     /// `trimmingCharacters(in: .whitespaces)` without Foundation: trims whole Unicode scalars at both ends, exactly
