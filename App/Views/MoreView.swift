@@ -731,7 +731,7 @@ struct DiagnosticsView: View {
                     ForEach(nodes) { n in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(verbatim: n.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                            Text(verbatim: n.reason).font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: NCNodeSupportCheck.localizedReason(n.reason)).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }

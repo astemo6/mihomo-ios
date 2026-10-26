@@ -1249,8 +1249,11 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(scrollTo(ts), "Tailscale in 新协议")
         ts.tap()
         XCTAssertTrue(app.navigationBars[L("添加节点")].waitForExistence(timeout: 6), "editor")
-        XCTAssertTrue(app.element(id: "node.experimentalWarning").waitForExistence(timeout: 4), "实验性 warning")
-        XCTAssertTrue(app.element(id: "node.experimentalWarning").label.contains("50 MB"), "warning mentions the 50 MB limit")
+        // nc-app-ui2 (032b115): Tailscale left NodeProtocols.experimental — the editor shows the 「原生内核尚未接入」
+        // note instead of the 实验性 memory warning (the saved node's detail still carries the warning, checked below).
+        XCTAssertFalse(app.element(id: "node.experimentalWarning").exists, "no 实验性 warning in the editor")
+        let tsNote = String(L("Tailscale：原生内核尚未接入，节点会保留在配置中，但不会被连接。").prefix(16))
+        XCTAssertTrue(app.element(labelContains: tsNote).waitForExistence(timeout: 4), "unsupported note in the editor")
         XCTAssertFalse(app.textFields[L("服务器")].exists, "no server field for Tailscale")
         XCTAssertFalse(app.textFields[L("端口")].exists, "no port field for Tailscale")
         XCTAssertTrue(app.staticTexts[L("设备名")].exists || app.textFields["mihomo-ios"].exists, "hostname field")
