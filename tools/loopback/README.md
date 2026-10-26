@@ -72,6 +72,9 @@ self-signed cert the start script generates into the runtime dir
   (`NCSSEncoder`/`NCSSDecoder`, `NCSS2022UDPCrypto`) — the `NCUDPSession`
   classes themselves live in the PacketTunnel target, which the app-hosted
   test bundle cannot link.
+- Hysteria2 UDP echo: the shared `NCHysteria2Connection` (Shared) over its
+  RFC 9221 QUIC datagram flow — spec UDPMessages to the hy2 inbound → UDP echo
+  backend; a 3000-byte packet exercises fragmentation and reassembly both ways.
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.

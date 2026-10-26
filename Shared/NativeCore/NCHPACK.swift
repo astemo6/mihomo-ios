@@ -190,8 +190,6 @@ final class NCHPACKDecoder {
     }
 }
 
-private var huffmanLookupCache: [UInt64: UInt8] = [:]
-
 extension NCHPACK {
     static let huffmanCodes: [UInt32] = [
         0x1ff8, 0x7fffd8, 0xfffffe2, 0xfffffe3, 0xfffffe4, 0xfffffe5, 0xfffffe6, 0xfffffe7,
@@ -262,15 +260,23 @@ extension NCHPACK {
         27, 28, 27, 27, 27, 27, 27, 26,
     ]
 
+    /// (code length << 32 | code) → symbol. A `static let` is initialised lazily and exactly once
+    /// (swift_once / dispatch_once), so concurrent first decodes — the HTTP/2 and Hysteria2/QPACK
+    /// paths run on different session queues — cannot race. It replaces an unsynchronised global
+    /// `var` that every first caller filled in place (a data race on the dictionary storage).
+    static let huffmanLookup: [UInt64: UInt8] = {
+        var table: [UInt64: UInt8] = [:]
+        table.reserveCapacity(huffmanCodes.count)
+        for (sym, code) in huffmanCodes.enumerated() {
+            table[(UInt64(huffmanCodeLens[sym]) << 32) | UInt64(code)] = UInt8(sym)
+        }
+        return table
+    }()
+
     /// Bit-by-bit Huffman decode (blocks are small; clarity over speed).
     /// Trailing EOS padding (all-ones prefix) is tolerated.
     static func huffmanDecode(_ data: Data) -> Data? {
-        if huffmanLookupCache.isEmpty {
-            for (sym, code) in huffmanCodes.enumerated() {
-                huffmanLookupCache[(UInt64(huffmanCodeLens[sym]) << 32) | UInt64(code)] = UInt8(sym)
-            }
-        }
-        let lookup = huffmanLookupCache
+        let lookup = huffmanLookup
         var out = Data()
         var cur: UInt32 = 0
         var curLen: UInt8 = 0
