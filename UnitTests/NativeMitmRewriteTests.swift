@@ -246,6 +246,137 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertGreaterThan(ok, fx.cases.count * 9 / 10)
     }
 
+    /// lane regexp2 (Go-zero): RX2ICU translates the same 1600 regexp2 / RE2 patterns from their source text alone
+    /// (Unicode-faithful pieces instead of Go's ASCII sets) — match, first replacement, replace-all and the parsed
+    /// replacement program must equal what regexp2 (RE2 for URL matchers) produced.
+    func testRX2ICUMatchesRegexp2Fixtures() throws {
+        guard let fx = try regexFixtures() else { return }
+        var ok = 0, refused = 0, icuRefused = 0, bad = 0, checks = 0, tpSame = 0
+        var why: [String: Int] = [:]
+        for c in fx.cases {
+            var dialect = RX2ICU.Dialect.regexp2
+            var tr = RX2ICU.translate(c.re.p)
+            if c.re2 == true, let t = RX2ICU.translate(c.re.p, dialect: .re2).0 { tr = (t, ""); dialect = .re2 }
+            guard let t = tr.0 else { refused += 1; why[tr.1, default: 0] += 1; continue }
+            let r = RWRegex(RWSnapRegex(p: c.re.p, ok: true, icu: t.icu, slots: t.identity ? nil : t.slots, lit: nil, fold: nil,
+                                        groups: t.groups, named: nil, empty: nil))
+            guard r.compiles else { icuRefused += 1; continue }
+            var tp: RWSnapTemplate?
+            if dialect == .regexp2, c.repl == true, let text = c.t {
+                let (mine, tperr) = RX2ICU.template(text, t)
+                if let g = c.tp, let m = mine, !tperr {
+                    if m.r == g.r && (m.s ?? []) == (g.s ?? []) { tpSame += 1 } else if bad < 20 {
+                        XCTFail("template \(c.re.p) / \(text): regexp2 \(g.r) \(g.s ?? []), RX2ICU \(m.r) \(m.s ?? [])")
+                    }
+                }
+                tp = tperr ? nil : mine
+            }
+            var caseBad = false
+            for i in c.in {
+                checks += 1
+                let m = r.match(i.s)
+                if m == .unknown || (m == .yes) != i.m {
+                    caseBad = true
+                    if bad < 20 { XCTFail("match \(c.re.p) → \(t.icu) on \(i.s.debugDescription): Go \(i.m), RX2ICU \(m)") }
+                }
+                if let tp = tp {
+                    let f = r.replaceFirst(i.s, tp), a = r.replaceAll(i.s, tp)
+                    if f != i.f || a != i.a {
+                        caseBad = true
+                        if bad < 20 { XCTFail("replace \(c.re.p) → \(t.icu) / \(c.t ?? "") on \(i.s.debugDescription): regexp2 \(i.f.debugDescription) \(i.a.debugDescription), RX2ICU \(f.debugDescription) \(a.debugDescription)") }
+                    }
+                }
+            }
+            if caseBad { bad += 1 } else { ok += 1 }
+        }
+        let top = why.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
+        print("NativeMitmRegex RX2ICU (passed filter): \(fx.cases.count) patterns, \(checks) inputs; identical \(ok), refused \(refused) (\(top)), ICU refused \(icuRefused), different \(bad), templates identical \(tpSame)")
+        XCTAssertEqual(bad, 0)
+        XCTAssertGreaterThan(ok, fx.cases.count * 9 / 10)
+    }
+
+    /// regexp2 forms the ASCII-set translation refused, run natively by RX2ICU with regexp2's meaning.
+    func testRX2ICUFeatures() {
+        func rx(_ p: String) -> RWRegex? {
+            guard let s = RX2ICU.snapRegex(p) else { return nil }
+            let r = RWRegex(s)
+            return r.compiles ? r : nil
+        }
+        func all(_ p: String, _ repl: String, _ s: String) -> String? {
+            guard let t = RX2ICU.translate(p).0, let r = rx(p), let tp = RX2ICU.template(repl, t).0 else { return nil }
+            return r.replaceAll(s, tp)
+        }
+        // named groups: regexp2 numbers unnamed groups first, then named ones
+        XCTAssertEqual(all(#"(?<y>\d{4})-(\d\d)"#, "$1|${y}|$2", "2026-10"), "10|2026|2026")
+        XCTAssertEqual(RX2ICU.translate(#"(?<y>\d{4})-(\d\d)"#).0?.slots, [0, 2, 1])
+        // \k<name> and multi-digit back-references
+        XCTAssertEqual(rx(#"(?<q>["'])x\k<q>"#)?.match("'x'"), .yes)
+        XCTAssertEqual(rx(#"(?<q>["'])x\k<q>"#)?.match("'x\""), .no)
+        XCTAssertEqual(rx(#"(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)\10"#)?.match("abcdefghijj"), .yes)
+        // x mode, comments
+        XCTAssertEqual(rx("(?x) a  b # comment\n c (?#more)")?.match("abc"), .yes)
+        // Unicode classes: \w and \b see CJK as word characters, . matches any non-\n scalar
+        XCTAssertEqual(all(#"\w+"#, "X", "中文abc-1"), "X-X")
+        XCTAssertEqual(rx(#"\bad\b"#)?.match("中ad"), .no)
+        XCTAssertEqual(rx(#"\bad\b"#)?.match("中 ad"), .yes)
+        XCTAssertEqual(rx("a.b")?.match("a中b"), .yes)
+        XCTAssertEqual(rx("a.b")?.match("a\nb"), .no)
+        XCTAssertEqual(rx("(?s)a.b")?.match("a\nb"), .yes)
+        XCTAssertEqual(all(#"[\p{L}\d]+"#, "X", "中1-"), "X-")
+        // $ is the end or before a final \n; (?m) every line end
+        XCTAssertEqual(all("ad$", "X", "ad\nad\n"), "ad\nX\n")
+        XCTAssertEqual(all("(?m)^ad$", "X", "ad\nad\n"), "X\nX\n")
+        // look-behind, look-ahead, atomic group, lazy
+        XCTAssertEqual(all(#"(?<=\$)\d+"#, "N", "$12 34"), "$N 34")
+        XCTAssertEqual(all("foo(?=bar)", "X", "foobar foobaz"), "Xbar foobaz")
+        XCTAssertEqual(rx("(?>a+)ab")?.match("aaab"), .no)
+        XCTAssertEqual(all("<.+?>", "T", "<a><b>"), "TT")
+        // case-insensitive ASCII sets
+        XCTAssertEqual(all("(?i)abc", "x", "ABC aBc"), "x x")
+        XCTAssertEqual(all("(?i)[a-c]+", "x", "ABCd"), "xd")
+        // class subtraction (.NET)
+        XCTAssertEqual(all("[a-z-[aeiou]]+", "_", "hello"), "_e_o")
+        // replacement forms: $0, ${1}0, $10 without group 10 is literal, $$, $&
+        XCTAssertEqual(all("(a)", "[$0|${1}0|$10|$$|$&]", "a"), "[a|a0|$10|$|a]")
+        // empty matches are walked like regexp2
+        XCTAssertEqual(all("x*", "-", "ab"), "-a-b-")
+        // \_ is a literal _ (Go compiled such patterns with the escape dropped)
+        XCTAssertEqual(rx(#"a\_b"#)?.match("a_b"), .yes)
+        // what stays refused
+        for p in ["(?(x)y|z)", #"\G"#, "(?<a-b>x)", "(?<n>a)(?<n>b)", "(?<1>a)", "[[:alpha:]]", #"\p{IsGreek}"#, "(?<=(a))b", "(a*)*b"] {
+            XCTAssertNil(RX2ICU.translate(p).0, p)
+        }
+        // an untranslatable-by-snapshot pattern (ok false) now runs through RX2ICU in the tunnel
+        let fb = RWRegex(RWSnapRegex(p: "(?x) ^https://a\\.com/ (\\d+)", ok: false, lit: nil, fold: nil, groups: 0, named: nil, empty: nil))
+        XCTAssertEqual(fb.match("https://a.com/12"), .yes)
+        XCTAssertEqual(fb.match("https://a.com/x"), .no)
+        // and the app's snapshot exports it portable, with a template in RX2ICU's numbering
+        let sr = NCRewriteICU.snapRegex(pattern: "(?x) ^https://a\\.com/ (?<id>\\d+) / (\\w+)", re2: false, replace: true)
+        XCTAssertTrue(sr.ok)
+        let (tp, tperr) = NCRewriteICU.snapTemplate(pattern: "(?x) ^https://a\\.com/ (?<id>\\d+) / (\\w+)", repl: "https://b.com/${id}/$1")
+        XCTAssertFalse(tperr)
+        XCTAssertEqual(tp?.r, [0, -7, 1, -6])
+    }
+
+    /// lane regexp2: body ops on regexp2's path / Go's RE2 path exported as source run natively.
+    func testBodySourceOps() {
+        func rule(_ ops: String) -> NativeBodyRule? {
+            let json = #"{"i":0,"kind":"body","phase":"response","re":{"p":"x","ok":true,"icu":"x","groups":0},"body":["# + ops + #"],"bodyOK":true}"#
+            guard let r = try? JSONDecoder().decode(RWSnapRule.self, from: Data(json.utf8)) else { return nil }
+            return NativeBodyRule(r)
+        }
+        func run(_ r: NativeBodyRule?, _ s: String) -> String? {
+            guard let r = r, case .body(let d) = r.apply(Data(s.utf8)) else { return nil }
+            return String(decoding: d, as: UTF8.self)
+        }
+        XCTAssertEqual(run(rule(#"{"p":"(?<=id=)\\d+","repl":"0"}"#), "id=12&x=3 中文"), "id=0&x=3 中文")
+        XCTAssertEqual(run(rule(#"{"p":"\\bad\\b","repl":"X"}"#), "中ad ad,"), "中ad X,")
+        XCTAssertEqual(run(rule(#"{"p":"x*","repl":"-"}"#), "ab"), "-a-b-")
+        XCTAssertEqual(run(rule(#"{"p":"(?<k>\\w+)=(\\d)","repl":"$1:${k}"}"#), "a=1"), "1:a")
+        XCTAssertEqual(run(rule(#"{"p":"(a+)+b","re2":true,"parts":[{"l":"X","g":-1}]}"#), "aaab ab"), "X X")
+        XCTAssertNil(rule(#"{"p":"(?(x)y)","repl":"X"}"#), "untranslatable: the rule stays skipped")
+    }
+
     /// net/url, net, net/http pieces (NetSemantics.swift) against Go's own answers.
     func testNetSemantics() throws {
         guard let fx = try regexFixtures() else { return }

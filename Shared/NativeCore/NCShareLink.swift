@@ -42,6 +42,36 @@ enum NCShareLink {
                 let o = sMap(m, "plugin-opts")
                 var p = "v2ray-plugin;mode=\(sStr(o, "mode"));host=\(sStr(o, "host"));path=\(sStr(o, "path"))"
                 if sBool(o, "tls") { p += ";tls" }
+                let eo = sMap(o, "ech-opts")
+                if !eo.isEmpty, let opts = NCECHOpts(dictionary: eo), opts.enable {
+                    p += ";ech=\(opts.configBase64URL ?? "1")"
+                    if let qsn = opts.queryServerName, !qsn.isEmpty { p += ";ech-qsn=\(qsn)" }
+                }
+                q.add("plugin", p)
+            case "cloak", "ck-client":
+                let o = sMap(m, "plugin-opts")
+                var p = "cloak"
+                let sn = !sStr(o, "ServerName").isEmpty ? sStr(o, "ServerName") : sStr(o, "server-name")
+                if !sn.isEmpty { p += ";ServerName=\(sn)" }
+                let pk = !sStr(o, "PublicKey").isEmpty ? sStr(o, "PublicKey") : sStr(o, "public-key")
+                if !pk.isEmpty { p += ";PublicKey=\(pk)" }
+                let uid = !sStr(o, "UID").isEmpty ? sStr(o, "UID") : sStr(o, "uid")
+                if !uid.isEmpty { p += ";UID=\(uid)" }
+                let bs = !sStr(o, "BrowserSig").isEmpty ? sStr(o, "BrowserSig") : sStr(o, "browser-signature")
+                if !bs.isEmpty { p += ";BrowserSig=\(bs)" }
+                let em = !sStr(o, "EncryptionMethod").isEmpty ? sStr(o, "EncryptionMethod") : sStr(o, "encryption-method")
+                if !em.isEmpty { p += ";EncryptionMethod=\(em)" }
+                q.add("plugin", p)
+            case "kcptun":
+                let o = sMap(m, "plugin-opts")
+                var p = "kcptun"
+                let k = !sStr(o, "key").isEmpty ? sStr(o, "key") : "it's a secrect"
+                p += ";key=\(k)"
+                let crypt = !sStr(o, "crypt").isEmpty ? sStr(o, "crypt") : "aes"
+                p += ";crypt=\(crypt)"
+                let mode = !sStr(o, "mode").isEmpty ? sStr(o, "mode") : "fast"
+                p += ";mode=\(mode)"
+                if !sStr(o, "mtu").isEmpty { p += ";mtu=\(sStr(o, "mtu"))" }
                 q.add("plugin", p)
             case "":
                 break
@@ -97,6 +127,14 @@ enum NCShareLink {
                 v["path"] = sStr(o, "path")
                 let h = sList(o, "host")
                 if let first = h.first { v["host"] = first }
+            case "xhttp":
+                // feat/nc-xhttp: v2rayN vmess JSON carries the xhttp mode in "type" (NCSubscription reads it back).
+                let o = sMap(m, "xhttp-opts")
+                v["net"] = "xhttp"
+                v["path"] = sStr(o, "path")
+                v["host"] = sStr(o, "host")
+                let mode = sStr(o, "mode")
+                if !mode.isEmpty { v["type"] = mode }
             case "http":
                 let o = sMap(m, "http-opts")
                 v["type"] = "http"
@@ -107,13 +145,19 @@ enum NCShareLink {
             default:
                 break
             }
-            if sBool(m, "tls") {
+            let echMap = sMap(m, "ech-opts")
+            let hasECH = !echMap.isEmpty && (NCECHOpts(dictionary: echMap)?.enable == true)
+            if sBool(m, "tls") || hasECH {
                 v["tls"] = "tls"
                 v["sni"] = sStr(m, "servername")
                 let a = sList(m, "alpn")
                 if !a.isEmpty { v["alpn"] = a.joined(separator: ",") }
                 let fp = sStr(m, "client-fingerprint")
                 if !fp.isEmpty { v["fp"] = fp }
+                if hasECH, let opts = NCECHOpts(dictionary: echMap) {
+                    v["ech"] = opts.configBase64URL ?? "1"
+                    if let qsn = opts.queryServerName, !qsn.isEmpty { v["ech-qsn"] = qsn }
+                }
             }
             let data = try JSONSerialization.data(withJSONObject: v, options: [])
             return "vmess://\(data.base64EncodedString())"
@@ -138,6 +182,7 @@ enum NCShareLink {
             if sBool(m, "skip-cert-verify") {
                 q.add("allowInsecure", "1")
             }
+            appendECHQuery(m, &q)
             return "vless://\(escapePath(sStr(m, "uuid")))@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "trojan":
@@ -153,6 +198,7 @@ enum NCShareLink {
             if sBool(m, "skip-cert-verify") {
                 q.add("allowInsecure", "1")
             }
+            appendECHQuery(m, &q)
             return "trojan://\(escapePath(sStr(m, "password")))@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "hysteria2", "hy2":
@@ -166,6 +212,7 @@ enum NCShareLink {
             q.add("pinSHA256", sStr(m, "fingerprint"))
             q.add("up", sStr(m, "up"))
             q.add("down", sStr(m, "down"))
+            appendECHQuery(m, &q)
             var hp = hostPort(m)
             let ports = sStr(m, "ports")
             if !ports.isEmpty {
@@ -187,6 +234,7 @@ enum NCShareLink {
             let a = sList(m, "alpn")
             if !a.isEmpty { q.add("alpn", a.joined(separator: ",")) }
             if sBool(m, "skip-cert-verify") { q.add("insecure", "1") }
+            appendECHQuery(m, &q)
             return "hysteria://\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "tuic":
@@ -197,6 +245,7 @@ enum NCShareLink {
             q.add("sni", sStr(m, "sni"))
             if sBool(m, "disable-sni") { q.add("disable_sni", "1") }
             q.add("udp_relay_mode", sStr(m, "udp-relay-mode"))
+            appendECHQuery(m, &q)
             var user = escapePath(sStr(m, "token"))
             let u = sStr(m, "uuid")
             if !u.isEmpty {
@@ -204,12 +253,57 @@ enum NCShareLink {
             }
             return "tuic://\(user)@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
+        case "juicity":
+            var q = KVList()
+            let cc = sStr(m, "congestion-controller", "congestion_control", "congestion-control")
+            q.add("congestion_control", cc.isEmpty ? "bbr" : cc)
+            let a = sList(m, "alpn")
+            if !a.isEmpty { q.add("alpn", a.joined(separator: ",")) }
+            let sni = sStr(m, "sni", "peer")
+            if !sni.isEmpty { q.add("sni", sni) }
+            if sBool(m, "disable-sni") { q.add("disable_sni", "1") }
+            if sBool(m, "skip-cert-verify") || sBool(m, "allow-insecure") || sBool(m, "allowInsecure") {
+                q.add("allow_insecure", "1")
+            }
+            let pin = sStr(m, "pinned-certchain-sha256", "pinned_certchain_sha256", "pinned-peer-cert-sha256")
+            if !pin.isEmpty { q.add("pinned_certchain_sha256", pin) }
+            let urm = sStr(m, "udp-relay-mode", "udp_relay_mode")
+            if !urm.isEmpty { q.add("udp_relay_mode", urm) }
+            let u = sStr(m, "uuid", "user")
+            let pw = sStr(m, "password")
+            let user = escapePath(u) + ":" + escapePath(pw)
+            return "juicity://\(user)@\(hostPort(m))\(q.queryString)#\(frag(name))"
+
         case "anytls":
             var q = KVList()
             q.add("sni", sStr(m, "sni"))
             if sBool(m, "skip-cert-verify") { q.add("insecure", "1") }
             q.add("hpkp", sStr(m, "fingerprint"))
+            appendECHQuery(m, &q)
             return "anytls://\(escapePath(sStr(m, "password")))@\(hostPort(m))/\(q.queryString)#\(frag(name))"
+
+        case "naive", "http2", "h2", "http3", "h3":
+            // feat/nc-naive-h2h3. naive: DuckSoft's naive+https:// / naive+quic:// (NekoBox, v2rayN, Hiddify);
+            // HTTP/2 / HTTP/3 proxies: http2:// / http3:// with the same userinfo@host:port shape.
+            let quic = typ == "http3" || typ == "h3" || sBool(m, "quic")
+            let scheme: String
+            switch typ {
+            case "naive": scheme = quic ? "naive+quic" : "naive+https"
+            case "http3", "h3": scheme = "http3"
+            default: scheme = "http2"
+            }
+            var user = ""
+            let u = sStr(m, "username"), pw = sStr(m, "password")
+            if !u.isEmpty || !pw.isEmpty { user = userPassword(u, pw) + "@" }
+            var q = KVList()
+            q.add("sni", sStr(m, "sni", "servername"))
+            if sBool(m, "skip-cert-verify") { q.add("insecure", "1") }
+            if typ == "naive" {
+                let headers = NCH2H3ProxyOptions.parseHeaders((m["extra-headers"] ?? m["headers"]).map { NCJSONValue($0) })
+                q.add("extra-headers", headers.map { "\($0.0):\($0.1)" }.joined(separator: "\r\n")) // no space: QueryEscape turns it into "+"
+                if sBool(m, "udp-over-tcp") { q.add("uot", "1") }
+            }
+            return "\(scheme)://\(user)\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "socks5", "http":
             var scheme = "socks5"
@@ -280,6 +374,13 @@ enum NCShareLink {
             q.add("handshake-mode", sStr(m, "handshake-mode"))
             return "mierus://\(user)@\(sStr(m, "server"))\(q.queryString)#\(frag(name))"
 
+        case "brook":
+            // feat/nc-brook: brook's own link format (brook link / Shadowrocket import).
+            guard let link = NCBrookLink.encode(name: name, fields: m) else {
+                throw ShareLinkError.message("Brook 节点缺少 server / port 或 transport 无效")
+            }
+            return link
+
         case "ssh":
             // Go: url.User(u) when no password (no colon), else UserPassword.
             let u = sStr(m, "username")
@@ -291,6 +392,30 @@ enum NCShareLink {
             let hk = sList(m, "host-key")
             if !hk.isEmpty { q.add("host-key", hk.joined(separator: "|")) }
             return "ssh://\(user)@\(hostPort(m))\(q.queryString)#\(frag(name))"
+
+        case "gost-relay":
+            // feat/nc-gost-relay: Shadowrocket-flavoured Relay link (tls=1 / peer / obfs=websocket + obfsParam /
+            // allowInsecure); NCSubscriptionParser.parseGostRelay reads it back, and gost-style relay+wss:// too.
+            let u = sStr(m, "username")
+            let pw = sStr(m, "password")
+            let user = (u.isEmpty && pw.isEmpty) ? "" : userPassword(u, pw) + "@"
+            var q = KVList()
+            if sBool(m, "tls") { q.add("tls", "1") }
+            q.add("peer", sStr(m, "sni"))
+            if sBool(m, "skip-cert-verify") { q.add("allowInsecure", "1") }
+            if sStr(m, "network").lowercased() == "ws" {
+                q.add("obfs", "websocket")
+                let o = sMap(m, "ws-opts")
+                q.add("path", sStr(o, "path"))
+                let h = sMap(o, "headers")
+                q.add("obfsParam", sStr(h, "Host").isEmpty ? sStr(h, "host") : sStr(h, "Host"))
+            }
+            if sBool(m, "mux") { q.add("mux", "1") }
+            if sBool(m, "udp") { q.add("udp", "1") }
+            if sBool(m, "forward") { q.add("forward", "1") }
+            q.add("client-fingerprint", sStr(m, "client-fingerprint"))
+            q.add("fingerprint", sStr(m, "fingerprint"))
+            return "relay://\(user)\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         default:
             throw ShareLinkError.message("\(typ) 类型没有通用的分享链接格式")
@@ -559,6 +684,19 @@ enum NCShareLink {
         if !fp.isEmpty { q.add("fp", fp) }
         let a = sList(m, "alpn")
         if !a.isEmpty { q.add("alpn", a.joined(separator: ",")) }
+    }
+
+    private static func appendECHQuery(_ m: [String: Any], _ q: inout KVList) {
+        let echMap = sMap(m, "ech-opts")
+        guard !echMap.isEmpty, let opts = NCECHOpts(dictionary: echMap), opts.enable else { return }
+        if let cfg = opts.configBase64URL, !cfg.isEmpty {
+            q.add("ech", cfg)
+        } else {
+            q.add("ech", "1")
+        }
+        if let qsn = opts.queryServerName, !qsn.isEmpty {
+            q.add("ech-qsn", qsn)
+        }
     }
 
     private static func sStr(_ m: [String: Any], _ keys: String...) -> String {

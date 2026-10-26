@@ -129,6 +129,7 @@ struct RewriteView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("重写")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             if rawMode {
                 ToolbarItem(placement: .navigationBarLeading) { Button("放弃修改") { rawMode = false; rawIssues = [] } }

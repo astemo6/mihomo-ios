@@ -387,6 +387,7 @@ struct DNSView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("DNS")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         // selftest B17: the NavigationLink builds DNSView when 更多 renders, so the @State initial values above
         // are read then — reopening the page after a change showed (and would re-apply) the old settings.
         // Read the files again whenever the page appears.

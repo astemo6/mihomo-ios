@@ -48,7 +48,7 @@ struct AddNodeView: View {
         Proto(title: "TrustTunnel", subtitle: "HTTP/2 · HTTP/3", type: "trusttunnel"),
         Proto(title: "ShadowQUIC", subtitle: "QUIC · TLS 1.3", type: "shadowquic"),
         Proto(title: "OpenVPN", subtitle: String(localized: "用户态 · PEM"), type: "openvpn"),
-        Proto(title: "GOST Relay", subtitle: "GOST v3 · TLS · Mux", type: "gost-relay"),
+        Proto(title: "GOST Relay", subtitle: "GOST v3 · TLS · WS · Mux", type: "gost-relay"),
         Proto(title: "Tailscale", subtitle: String(localized: "不支持 · 原生内核尚未接入"), type: "tailscale"),
     ]
 
@@ -58,11 +58,13 @@ struct AddNodeView: View {
               preset: ["flow": "xtls-rprx-vision", "client-fingerprint": "chrome", "tls": "true"]),
         Proto(title: "Hysteria2", subtitle: "QUIC · Brutal", type: "hysteria2"),
         Proto(title: "TUIC v5", subtitle: "QUIC · BBR", type: "tuic"),
+        Proto(title: "Juicity", subtitle: "QUIC · BBR", type: "juicity"),
         Proto(title: "AnyTLS", subtitle: "TLS", type: "anytls"),
         Proto(title: "ShadowTLS", subtitle: "Shadowsocks + ShadowTLS v3", type: "ss",
               preset: ["plugin": "shadow-tls", "plugin-opts.version": "3", "cipher": "2022-blake3-aes-128-gcm"]),
         Proto(title: "WireGuard", subtitle: "UDP", type: "wireguard"),
         Proto(title: "Mieru", subtitle: "TCP / UDP", type: "mieru"),
+        Proto(title: "Brook", subtitle: "server · ws · wss · quic", type: "brook"),
         Proto(title: "Snell", subtitle: "v4 / v5", type: "snell"),
         Proto(title: "SSH", subtitle: String(localized: "密码 / 私钥"), type: "ssh"),
         Proto(title: "Shadowsocks", subtitle: "AEAD · 2022", type: "ss"),
@@ -222,7 +224,7 @@ struct AddNodeView: View {
         case "sudoku": return "square.grid.3x3.fill"
         case "masque": return "theatermasks.fill"
         case "trusttunnel": return "arrow.left.arrow.right.circle.fill"
-        case "shadowquic", "hysteria", "hysteria2", "tuic": return "hare.fill"
+        case "shadowquic", "hysteria", "hysteria2", "tuic", "juicity": return "hare.fill"
         case "openvpn", "ssh": return "key.fill"
         case "gost-relay": return "point.3.connected.trianglepath.dotted"
         case "socks5", "http": return "network"

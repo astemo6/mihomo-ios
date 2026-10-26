@@ -131,6 +131,7 @@ struct NodeListView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(Text(verbatim: scope.title))
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("名称、服务器或协议"))
         .refreshable { await model.reload() }
         .toolbar {

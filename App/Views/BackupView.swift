@@ -264,6 +264,7 @@ struct BackupView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("备份与恢复")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear { loadCloud() }
         .sheet(item: $share, onDismiss: { BackupManager.purgeTempExports() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         .fileExporter(isPresented: $exporting, document: exportDoc, contentType: .json, defaultFilename: exportName) { r in

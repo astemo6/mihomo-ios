@@ -161,6 +161,16 @@ enum NCRewriteICU {
             if !identity {
                 sr.slots = t.slots
             }
+        } else if let rt = RX2ICU.translate(pattern).0 {
+            // Go-zero (lane regexp2): what the ASCII-exact translation refuses (x mode, \p in a union, capture in a
+            // look-ahead, multi-digit back-references …) gets the Unicode-faithful regexp2 → ICU translation; the
+            // tunnel compiles `icu` the same way (PacketTunnel/NativeMitM/Rewrite/RX2ICU.swift).
+            sr.ok = true
+            sr.icu = rt.icu
+            sr.groups = rt.groups
+            if !rt.identity {
+                sr.slots = rt.slots
+            }
         } else {
             let scan = scanGroupCountAndNamed(pattern)
             sr.groups = scan.groups
@@ -558,6 +568,11 @@ enum NCRewriteICU {
         }
         let ps = rx2Parser(p: Array(pattern.unicodeScalars), re2: false, replace: true)
         ps.alternation(rx2Flags(), 0)
+        if !ps.why.isEmpty, let rt = RX2ICU.translate(pattern).0 {
+            // lane regexp2: the group list of a pattern only RX2ICU translates comes from RX2ICU (same numbering)
+            let (tp, tperr) = RX2ICU.template(repl, rt)
+            return (tp.map { NCSnapTemplate(s: $0.s, r: $0.r) }, tperr)
+        }
         var unnamedCount = 0
         var capnames: [String: Int] = [:]
         var seen: Set<String> = []

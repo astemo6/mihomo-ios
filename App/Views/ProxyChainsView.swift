@@ -28,6 +28,7 @@ struct ProxyChainsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("代理链")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if store.chains.count > 1 { EditButton() }

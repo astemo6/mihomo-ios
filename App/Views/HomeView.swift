@@ -85,16 +85,17 @@ struct HomeView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
                 .background(alignment: .top) { TabRootScrollProbe() }
-                .padding(.bottom, 80) // room for the floating + (feat/home-analysis)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                HomeQuickAddButton().padding(.trailing, 20).padding(.bottom, 16)
+                .padding(.bottom, 16)
             }
             .background(Theme.bg.ignoresSafeArea())
-            // fix/tab-top-spacing: no page title (the tab bar names it). The Quantumult X-style exit header (flag +
-            // place, VPN switch; 运营商 · ASN · IP) is pinned where the other tabs have their slim bar row and never
-            // scrolls away; scrolled cards pass under its bar material (replaces the r7 B07 status-bar strip).
+            // fix/tab-top-spacing: the Quantumult X-style exit header (flag + place, VPN switch; 运营商 · ASN · IP) is
+            // pinned right under the bar row and never scrolls away; scrolled cards pass under its bar material.
             .tabRootChrome("首页") { ExitHeader() }
+            // fix/app-policy-ui #5b (user 2026-10-26 21:28): the floating + moved to the bar, top-right like the other
+            // tabs' buttons; the title shares that row.
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) { HomeQuickAddButton(inBar: true) }
+            }
             // fix/nav-jank: speed / memory / connection fields publish only while Home is showing.
             .onAppear { DashboardModel.shared.setHomeVisible(true) }
             .onDisappear { DashboardModel.shared.setHomeVisible(false) }
@@ -647,11 +648,16 @@ struct GroupQuickPicker: View {
         defer { testing = false }
         let live = (try? await ControllerClient.shared.proxies()) ?? all
         let members = (live[group]?.all ?? item?.all ?? []).filter { !["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"].contains($0) }
+        // fix/app-policy-ui #2: the same streaming as 策略 — each result on screen as it lands.
+        let buffer = DelayStreamBuffer { got in tested.merge(got) { _, new in new } }
         do {
-            let got = try await ControllerClient.shared.membersDelay(members)
+            let got = try await ControllerClient.shared.membersDelay(members, limit: DelayStream.groupWidth,
+                                                                     onResult: { n, ms in await buffer.add(n, ms) })
+            buffer.drain()
             for m in members { tested[m] = got[m] ?? 0 }
             error = nil
         } catch {
+            buffer.drain()
             self.error = String(localized: "测速失败：\(error.localizedDescription)")
         }
         await load()

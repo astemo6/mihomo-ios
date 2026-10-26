@@ -275,6 +275,21 @@ enum NCResourcesPort {
         }
     }
 
+    /// fix/nc-ruleset-fast: the cache file `store` writes for key (the file the conditional-GET validators describe);
+    /// nil for an unknown key shape.
+    static func cachePath(home: String, key: String) -> String? {
+        guard let colon = key.firstIndex(of: ":") else { return nil }
+        let kind = String(key[..<colon]), rest = String(key[key.index(after: colon)...])
+        switch kind {
+        case "module": return rest.isEmpty ? nil : NCEngineConfig.modulePath(home: home, id: rest)
+        case "ruleset":
+            guard let bar = rest.firstIndex(of: "|") else { return nil }
+            return ruleSetPath(home: home, url: String(rest[rest.index(after: bar)...]), kind: String(rest[..<bar]))
+        case "script": return rest.isEmpty ? nil : NCScriptSource.cachePath(home: home, url: rest)
+        default: return nil
+        }
+    }
+
     /// bridge ResourceSetError.
     static func resourceSetError(home: String, key: String, message: String) {
         setState(home: home, key: key, error: message)

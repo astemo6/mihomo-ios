@@ -133,6 +133,7 @@ struct StatsView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("流量统计")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .task { await reload() }
         .refreshable { await reload() }
         .confirmationDialog("清除全部流量统计？", isPresented: $confirmClear, titleVisibility: .visible) {

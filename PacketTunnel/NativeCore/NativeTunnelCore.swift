@@ -23,6 +23,10 @@ final class NativeTunnelCore {
     var localProxy: NCLocalProxy? { lock.lock(); defer { lock.unlock() }; return _localProxy }
     private var home = ""
     private var watchdog: NCQueueWatchdog?
+    // feat/nc-lan-share: what the local mixed port needs, kept for reload (局域网共享 applies on reload, like Go).
+    private var mixedPortSetting = 0
+    private var localProxyNeeded = false
+    private var lanFallback = NCLanShare()
 
     // reload status (bridge/reloadstatus.go shape: running, seq, done, kind, lastError, lastMs, lastDoneAgoMs, runningMs)
     private var reloadRunning = 0
@@ -54,12 +58,17 @@ final class NativeTunnelCore {
     private func isCurrent(_ g: UInt64) -> Bool { genLock.lock(); defer { genLock.unlock() }; return generation == g }
 
     /// Loads the config and brings the data plane (and controller) up. Throws a user-facing error.
-    /// `mixedPort` > 0 also starts the local mixed proxy (gap D1: 仅代理 / VPN 混合) on 127.0.0.1:mixedPort;
+    /// The local mixed proxy (gap D1: 仅代理 / VPN 混合; feat/nc-lan-share: 局域网共享) listens on `mixedPort` when
+    /// `localProxyNeeded` (loopback, for the system proxy) or when the runtime config has allow-lan (bind per
+    /// NCLanShare; `lanFallback` is used when the config does not say, e.g. a runtime.conf). Without allow-lan it
+    /// stays on 127.0.0.1. `localProxyNeeded` nil = the old contract (mixedPort > 0 means needed).
     /// `requireMixedPort` (仅代理, where it is the only way in) turns a listener failure into a start failure.
+    /// 需同步 feat/nc-kernel.
     /// rv2-life #9: idempotent — a core that is already up is stopped completely first (lwIP timers, listeners,
     /// health check, task runner), so two data planes / controllers never coexist.
     func start(home: String, flow: NEPacketTunnelFlow, mtu: Int, controllerPort: Int, secret: String,
-               mixedPort: Int = 0, requireMixedPort: Bool = false) throws {
+               mixedPort: Int = 0, localProxyNeeded: Bool? = nil, requireMixedPort: Bool = false,
+               lanFallback: NCLanShare = NCLanShare()) throws {
         _ = bumpGeneration() // an in-flight reload of the old core aborts
         lifecycle.lock()
         defer { lifecycle.unlock() }
@@ -83,18 +92,22 @@ final class NativeTunnelCore {
             engine.stop()
             throw PacketTunnelProvider.error("内核数据面启动失败：\(error.localizedDescription)")
         }
+        let needed = localProxyNeeded ?? (mixedPort > 0)
+        let lanSetup = Self.localProxySetup(raw: engine.config?.raw ?? [:], mixedPort: mixedPort, needed: needed,
+                                            fallback: lanFallback)
         var localProxy: NCLocalProxy?
-        if mixedPort > 0 {
-            let lp = NCLocalProxy(engine: engine, port: mixedPort, stats: plane.stats)
+        if let plan = lanSetup.plan {
+            let lp = NCLocalProxy(engine: engine, port: plan.port, stats: plane.stats, lan: lanSetup.lan)
+            let addr = NCLocalProxy.describe(plan.bind, UInt16(clamping: plan.port))
             if let why = lp.start() {
-                StartupLog.write("local proxy: 127.0.0.1:\(mixedPort) not listening: \(why)")
+                StartupLog.write("local proxy: \(addr) not listening: \(why)")
                 if requireMixedPort {
                     plane.stop()
                     engine.stop()
-                    throw PacketTunnelProvider.error("本地代理端口 \(mixedPort) 无法监听：\(why)。请在 更多 → 连接方式 换一个端口")
+                    throw PacketTunnelProvider.error("本地代理端口 \(plan.port) 无法监听：\(why)。请在 更多 → 连接方式 换一个端口")
                 }
             } else {
-                StartupLog.write("local proxy: HTTP / HTTPS CONNECT / SOCKS5 on 127.0.0.1:\(mixedPort)")
+                StartupLog.write("local proxy: HTTP / HTTPS CONNECT / SOCKS5 on \(addr)\(Self.lanSummary(lanSetup.lan))")
                 plane.localProxy = lp
                 localProxy = lp
             }
@@ -112,6 +125,9 @@ final class NativeTunnelCore {
         }
         lock.lock()
         self.home = home
+        mixedPortSetting = mixedPort
+        self.localProxyNeeded = needed
+        self.lanFallback = lanFallback
         _engine = engine
         _plane = plane
         _controller = controller
@@ -158,6 +174,55 @@ final class NativeTunnelCore {
         lock.unlock()
     }
 
+    /// feat/nc-lan-share: allow-lan / bind-address / mixed-port / authentication / lan-allowed-ips from the runtime
+    /// config (fallback: the app settings), and the listener that follows from them. Pure; unit-tested via
+    /// NCLanShare.
+    static func localProxySetup(raw: [String: NCJSONValue], mixedPort: Int, needed: Bool, fallback: NCLanShare)
+        -> (lan: NCLanShare, plan: (port: Int, bind: NCLanShare.Bind)?) {
+        let lan = NCLanShare.from(raw: raw) ?? fallback
+        let port = NCLanShare.mixedPort(raw: raw, fallback: mixedPort)
+        return (lan, NCLanShare.plan(needLocal: needed, port: port, lan: lan))
+    }
+
+    private static func lanSummary(_ lan: NCLanShare) -> String {
+        guard lan.allowLan else { return "" }
+        return " (局域网共享\(lan.requiresAuth ? ", \(lan.users.count) user(s)" : ", no auth")\(lan.allowed.isEmpty ? "" : ", \(lan.allowed.count) allowed prefixes"))"
+    }
+
+    /// Reload: re-applies 局域网共享 (the app reloads after the switch, the users or 仅允许局域网设备 change).
+    /// Caller holds `lifecycle`.
+    private func applyLocalProxy(engine: NativeCoreEngine, plane: NCDataPlane) {
+        lock.lock()
+        let (port, needed, fallback, current) = (mixedPortSetting, localProxyNeeded, lanFallback, _localProxy)
+        lock.unlock()
+        let setup = Self.localProxySetup(raw: engine.config?.raw ?? [:], mixedPort: port, needed: needed, fallback: fallback)
+        guard let plan = setup.plan else {
+            guard let current else { return }
+            current.stop()
+            lock.lock(); _localProxy = nil; lock.unlock()
+            plane.localProxy = nil
+            StartupLog.write("local proxy: stopped (局域网共享 off)")
+            return
+        }
+        let addr = NCLocalProxy.describe(plan.bind, UInt16(clamping: plan.port))
+        if let current {
+            if let why = current.reconfigure(port: plan.port, lan: setup.lan) {
+                StartupLog.write("local proxy: \(addr) not listening after reload: \(why)")
+            } else {
+                StartupLog.write("local proxy: \(addr)\(Self.lanSummary(setup.lan))")
+            }
+            return
+        }
+        let lp = NCLocalProxy(engine: engine, port: plan.port, stats: plane.stats, lan: setup.lan)
+        if let why = lp.start() {
+            StartupLog.write("local proxy: \(addr) not listening after reload: \(why)")
+            return
+        }
+        StartupLog.write("local proxy: HTTP / HTTPS CONNECT / SOCKS5 on \(addr)\(Self.lanSummary(setup.lan))")
+        plane.localProxy = lp
+        lock.lock(); _localProxy = lp; lock.unlock()
+    }
+
     func stop() {
         _ = bumpGeneration() // cancels an in-flight reload (it re-checks before committing anything)
         lifecycle.lock()
@@ -202,7 +267,7 @@ final class NativeTunnelCore {
         let sc = NCConnector.sharedSessionCounts()
         let dc = NCDNSUpstreamCoordinator.shared.inFlightCounts()
         let closedText = closedSessions.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
-        NSLog("[nc-lifecycle] after stop: closed sessions \(closedText); registries mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot pooled=\(NCDNSDoTPool.shared.pooledConnectionCount()) doh pooled=\(NCDNSDoHPool.shared.pooledConnectionCount())")
+        NSLog("[nc-lifecycle] after stop: closed sessions \(closedText); registries mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) juicity=\(sc["juicity"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot pooled=\(NCDNSDoTPool.shared.pooledConnectionCount()) doh pooled=\(NCDNSDoHPool.shared.pooledConnectionCount())")
     }
 
     /// Re-reads the config the app just prepared (TunnelMessage.reload / .reloadHot). nil = applied.
@@ -229,6 +294,7 @@ final class NativeTunnelCore {
                 lifecycle.lock()
                 lock.lock(); let live = _engine === engine; lock.unlock()
                 if live && isCurrent(gen) {
+                    if let plane { applyLocalProxy(engine: engine, plane: plane) }
                     loadRewriteSnapshot(home: home, engine: engine)
                     lock.lock(); let taken = [Int(_localProxy?.port ?? 0)]; lock.unlock()
                     syncProbeListeners(engine, taken: taken)
@@ -294,7 +360,7 @@ final class NativeTunnelCore {
         let doh = NCDNSDoHPool.shared.pooledConnectionCount()
         let closedText = closed.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
         lines.append("teardown: closed sessions \(closedText)")
-        lines.append("registries after teardown: mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot=\(dot) doh=\(doh)")
+        lines.append("registries after teardown: mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) juicity=\(sc["juicity"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot=\(dot) doh=\(doh)")
         var failures: [String] = []
         if sc.values.contains(where: { $0 != 0 }) { failures.append("session registries not empty") }
         if dc.entries != 0 || dc.active != 0 || dc.pending != 0 { failures.append("dns coordinator not drained") }

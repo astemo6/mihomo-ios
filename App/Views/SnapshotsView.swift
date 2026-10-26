@@ -69,6 +69,7 @@ struct SnapshotsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("配置快照")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .navigationBarBackButtonHidden(selecting)
         .deleteConfirmation({ _ in Text("删除已固定的快照？") }, item: $pendingPinned,
                             message: { m in Text(verbatim: m.reason) }) { m in snaps.delete(m) }
@@ -207,6 +208,7 @@ struct SnapshotDetailView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("快照详情")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .task {
             diff = await SnapshotStore.shared.diffAsync(meta)
             loaded = true
@@ -442,6 +444,7 @@ struct StorageView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("存储空间")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .refreshable { await model.reload() }
         .task { await model.reload() }
         .confirmationDialog(pending.map { String(localized: "\($0.actionTitle)？") } ?? "", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), titleVisibility: .visible) {

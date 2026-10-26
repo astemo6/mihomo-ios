@@ -284,6 +284,7 @@ struct AdvancedSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("高级设置")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear { refreshLabels() }
     }
 }
@@ -324,6 +325,7 @@ struct TrafficScopeView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("首页流量统计")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
     }
 }
 
@@ -365,6 +367,7 @@ struct LaunchTabView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("开始标签页")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
     }
 }
 
@@ -485,6 +488,7 @@ struct LogsView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("运行日志") // ui-audit: same name as the 工具 card
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 PauseToggleButton(paused: $model.paused, id: "logs.pause")
@@ -614,6 +618,7 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("内核设置")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear {
             debounce.flush()
             o = CoreOverrides.load()
@@ -793,6 +798,7 @@ struct DiagnosticsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("诊断与反馈") // ui-audit: same name as the 更多 row
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear { if provisioned == nil { provisioned = AppShared.provisionedAppGroups().sorted() } }
         // fix/nav-jank: init already read it for the first frame; the re-read (two files) runs off main.
         .task {
@@ -896,6 +902,7 @@ struct AboutView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("关于")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
     }
 }
 
@@ -943,6 +950,7 @@ struct AppIconView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("App 图标")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
     }
 
     func set(_ name: String?) {
@@ -1081,6 +1089,7 @@ struct SpeedTestSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("测速设置") // ui-audit: same name as the 高级设置 row / search
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear {
             // Review 6: an invalid custom URL is not saved; re-reading on every appearance replaced it with the preset.
             debounce.flush()

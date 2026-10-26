@@ -11,6 +11,17 @@ final class ControllerClient {
         return URLSession(configuration: c)
     }()
 
+    /// fix/app-policy-ui #2: group 测速 gets its own connection pool. The shared session allows iOS's default 4
+    /// connections per host, so 10 「parallel」 delay requests really ran 4 at a time, and the page's 1 s polls queued
+    /// behind them. Requests carry their own timeouts (delayWindow).
+    private let delaySession: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 8
+        c.connectionProxyDictionary = [:]
+        c.httpMaximumConnectionsPerHost = DelayStream.groupWidth + 2
+        return URLSession(configuration: c)
+    }()
+
     /// v0.19.2: port + secret, re-read at most every 3 s. Every request used to call CoreOverrides.load() twice
     /// (two Keychain reads and a file read, sometimes a write) — dozens of times a second with the 1 s polls of
     /// 请求 / 日志 / 首页 open.
@@ -95,10 +106,15 @@ final class ControllerClient {
 
     @discardableResult
     func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Any? = nil, timeout: TimeInterval = 8) async throws -> Data {
+        try await send(path, method: method, query: query, body: body, timeout: timeout, on: session)
+    }
+
+    private func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Any? = nil, timeout: TimeInterval = 8,
+                      on urlSession: URLSession) async throws -> Data {
         let req = try request(path, method: method, query: query, body: body, timeout: timeout)
         let data: Data, resp: URLResponse
         do {
-            (data, resp) = try await session.data(for: req)
+            (data, resp) = try await urlSession.data(for: req)
         } catch let e as URLError {
             switch e.code {
             case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet, .cannotFindHost: throw APIError.unreachable
@@ -284,16 +300,18 @@ final class ControllerClient {
     /// 测速设置 → TCP 握手延迟: TCP nodes report the TCP connect time to their server (bridge netextras.go).
     static var tcpHandshake: Bool { CoreOverrides.load().tcpHandshakeDelay }
 
-    /// v0.15.2: tests the given members with at most `limit` (10) running at once (GET /proxies/{name}/delay
+    /// v0.15.2: tests the given members with at most `limit` running at once (GET /proxies/{name}/delay
     /// each) instead of GET /group/{name}/delay, which starts every member at the same moment inside the
     /// memory-limited extension (CPU / GC contention inflates the measured round trip) and also clears
     /// the 固定 node of a url-test / fallback group. Returns name → ms, 0 = timeout / failure.
-    func membersDelay(_ members: [String], limit: Int = 10, url: String? = nil, timeoutMs: Int? = nil) async throws -> [String: Int] {
+    /// fix/app-policy-ui #2: `onResult` gets every member's result the moment it lands (the page shows it then,
+    /// instead of waiting for the slowest member); group 测速 passes `DelayStream.groupWidth`.
+    func membersDelay(_ members: [String], limit: Int = 10, url: String? = nil, timeoutMs: Int? = nil,
+                      onResult: ((String, Int) async -> Void)? = nil) async throws -> [String: Int] {
         var out: [String: Int] = [:]
         var firstError: Error?
         var errors = 0
         var notFound: [String] = []
-        let width = max(1, limit)
         // v0.19.8: nodes of proxy-providers (node subscriptions, 配置里的订阅) are not in GET /proxies/{name}
         // (mihomo's route only looks at the config's own proxies and groups) — every one of them answered 404 and
         // the whole test failed. They are tested through /providers/proxies/{provider}/{name}/healthcheck.
@@ -302,30 +320,20 @@ final class ControllerClient {
             // v0.17: a node's own test URL (按节点设置) wins unless the caller fixed one.
             do {
                 let u = url ?? NodeSettingsStore.testURL(for: name)
-                return (name, try await self.proxyDelay(name, url: u, timeoutMs: timeoutMs, provider: providerOf[name], resolved: true), nil)
+                return (name, try await self.proxyDelay(name, url: u, timeoutMs: timeoutMs, provider: providerOf[name], resolved: true,
+                                                         pooled: true), nil)
             } catch { return (name, 0, error) }
         }
-        // Sliding window: a new member starts as soon as one finishes, never more than `width` at once.
-        await withTaskGroup(of: (String, Int, Error?).self) { tg in
-            var next = 0
-            while next < min(width, members.count) {
-                let name = members[next]
-                next += 1
-                tg.addTask { await run(name) }
-            }
-            while let r = await tg.next() {
-                let (name, ms, err) = r
-                out[name] = ms
-                if let err {
-                    errors += 1
-                    if case APIError.http(404, let body) = err, APIError.isResourceNotFound(body) { notFound.append(name) }
-                    if firstError == nil { firstError = err }
-                }
-                if next < members.count {
-                    let n2 = members[next]
-                    next += 1
-                    tg.addTask { await run(n2) }
-                }
+        // Sliding window: a new member starts as soon as one finishes, never more than `limit` at once.
+        await DelayStream.run(members, width: limit, run: run) { r in
+            let (name, ms, err) = r
+            out[name] = ms
+            if let err {
+                errors += 1
+                if case APIError.http(404, let body) = err, APIError.isResourceNotFound(body) { notFound.append(name) }
+                if firstError == nil { firstError = err }
+            } else if let onResult {
+                await onResult(name, ms)
             }
         }
         // Every request failed at the HTTP level (not a node timeout): the controller is unreachable.
@@ -366,7 +374,8 @@ final class ControllerClient {
 
     /// GET /proxies/{name}/delay for one node; 0 = timeout / failure.
     /// `resolved`: the caller already looked the provider up (nil provider = a config proxy / group).
-    func proxyDelay(_ name: String, url: String? = nil, timeoutMs: Int? = nil, provider: String? = nil, resolved: Bool = false) async throws -> Int {
+    func proxyDelay(_ name: String, url: String? = nil, timeoutMs: Int? = nil, provider: String? = nil, resolved: Bool = false,
+                    pooled: Bool = false) async throws -> Int {
         let st = Self.testSettings
         let ms = timeoutMs ?? st.timeoutMs
         // v0.19.8: a provider node is only reachable under its provider (see membersDelay). Without a known provider,
@@ -383,7 +392,7 @@ final class ControllerClient {
             if let prov { query.append(URLQueryItem(name: "provider", value: prov)) }
         }
         do {
-            let data = try await send(path, query: query, timeout: Self.delayWindow(ms) + 3)
+            let data = try await send(path, query: query, timeout: Self.delayWindow(ms) + 3, on: pooled ? delaySession : session)
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             return (obj?["delay"] as? NSNumber)?.intValue ?? 0
         } catch APIError.http(let code, _) where code == 504 || code == 503 || code == 408 {

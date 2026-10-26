@@ -8,9 +8,10 @@ import SwiftUI
 // and the lists the user added (custom RULE-SET / DOMAIN-SET / filter_remote). + adds a 订阅.
 //
 // 2026-10-23 (「这个规则要能手动调顺序」「三个路径…逻辑要保持一致」): rows are SubscriptionKit rows (switch on the
-// right, the same swipes and menu as 重写 / 任务); ⋯ → 调整顺序 drags 订阅 into the order that is the matching
-// priority — the profile's rule sets via provider-overrides.json `#rule-order` (bridge applyRuleSetOrder), the
-// user's own lists via rules.json order.
+// right, the same swipes and menu as 重写 / 任务). fix/app-policy-ui #3 (2026-10-26): ⋯ → 编辑排序 opens the same
+// reorder list as 策略 → 编辑排序 (RuleSetReorderList); the order is the matching priority — the profile's rule sets
+// via provider-overrides.json `#rule-order` (NCRuntimeSteps.applyRuleSetOrder on every runtime build), the user's
+// own lists via rules.json order.
 
 struct RulesView: View {
     @EnvironmentObject var vpn: VPNManager
@@ -34,8 +35,14 @@ struct RulesView: View {
     @State private var updatingLive: Set<String> = []
     @State private var liveErrors: [String: String] = [:]
     @State private var updatingAll = false
-    /// 调整顺序 (user 2026-10-23 「这个规则要能手动调顺序」): the ⋯ menu puts 订阅 in edit mode; drag the handles.
-    @State private var editMode: EditMode = .inactive
+    /// fix/app-policy-ui #3: ⋯ → 编辑排序 swaps the page for RuleSetReorderList (as 策略 → 编辑排序), 取消 / 完成.
+    @State private var ordering = false
+    @State private var orderMine: [RuleOrderRow] = []
+    @State private var orderSets: [RuleOrderRow] = []
+    @State private var orderMineOriginal: [String] = []
+    @State private var orderSetsOriginal: [String] = []
+    @State private var orderSaving = false
+    @State private var orderMessage: String?
 
     /// One RULE-SET rule of the running / saved profile.
     struct SetRule: Hashable, Identifiable { var name: String; var policy: String; var id: String { name } }
@@ -106,9 +113,6 @@ struct RulesView: View {
 
     var deletedSetCount: Int { setOverrides.values.filter { $0.deleted == true }.count }
 
-    /// Moving is off while searching: a filtered list cannot say where the hidden rows go.
-    var canReorder: Bool { search.isEmpty }
-
     func changeSet(_ s: SetRule, _ change: @escaping (inout ProviderOverride) -> Void) {
         guard let id = profiles.activeID else { return }
         let url = providersByName[s.name]?.url
@@ -120,17 +124,44 @@ struct RulesView: View {
         Task { await applySetChange() }
     }
 
-    func moveSets(_ from: IndexSet, _ to: Int) {
-        guard let id = profiles.activeID, canReorder else { return }
-        let all = profileSets
-        let names = ManualOrder.moved(all, visible: all, from: from, to: to) { $0.name }.map(\.name)
-        providerOV.update(id, ProviderOverride.ruleOrderKey) { $0.order = names }
-        Task { await applySetChange() }
+    /// 编辑排序: the 订阅 as they are listed now (no search filter).
+    func enterOrder() {
+        guard profiles.activeID != nil || !custom.remoteRules.isEmpty else { return }
+        orderMine = custom.remoteRules.map { r in
+            let url = CustomRulesStore.remoteURL(r.line) ?? r.line
+            let name = offline.result.ruleProviders.first { $0.url == url }?.name ?? Self.displayName(url)
+            return RuleOrderRow(id: r.id, name: name, policy: RuleFormFields.parse(r.line)?.policy ?? "", disabled: !r.enabled)
+        }
+        orderSets = profileSets.map { RuleOrderRow(id: $0.name, name: $0.name, policy: $0.policy, disabled: setOverride($0.name).disabled == true) }
+        orderMineOriginal = orderMine.map(\.id)
+        orderSetsOriginal = orderSets.map(\.id)
+        orderMessage = nil
+        search = ""
+        withAnimation { ordering = true }
     }
 
-    func moveMine(_ from: IndexSet, _ to: Int) {
-        guard canReorder else { return }
-        custom.moveSubset(custom.remoteRules, from: from, to: to)
+    /// 完成: the rule-set order goes to `#rule-order` (applied to the runtime's rules on every build), the user's
+    /// lists to rules.json; one core reload.
+    func finishOrder() async {
+        let sets = RuleSetOrderPlan.setOrder(orderSets, original: orderSetsOriginal)
+        let mine = RuleSetOrderPlan.mineOrder(orderMine, original: orderMineOriginal)
+        guard sets != nil || mine != nil else { withAnimation { ordering = false }; return }
+        orderSaving = true
+        defer { orderSaving = false }
+        if let sets, let id = profiles.activeID {
+            providerOV.update(id, ProviderOverride.ruleOrderKey) { $0.order = sets }
+        }
+        var err: String?
+        if let mine {
+            err = await custom.setRemoteOrder(mine) // saves + reloads (the rule-set order rides along)
+            await load()
+        } else {
+            if vpn.isConnected, let e = await VPNManager.shared.reload(hot: true) { err = e }
+            await load()
+        }
+        UINotificationFeedbackGenerator().notificationOccurred(err == nil ? .success : .error)
+        if let err { custom.message = err }
+        withAnimation { ordering = false }
     }
 
     func applySetChange() async {
@@ -147,8 +178,97 @@ struct RulesView: View {
     var body: some View {
         let sets = profileSets.filter { matches($0.name, $0.policy, providersByName[$0.name]?.url ?? "") }
         let mine = custom.remoteRules.filter { matches($0.line) }
-        let moving = editMode.isEditing && canReorder
-        return List {
+        return Group {
+          if ordering {
+            RuleSetReorderList(mine: $orderMine, sets: $orderSets, message: orderMessage)
+          } else {
+            mainList(sets: sets, mine: mine)
+          }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("分流规则")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索")
+        .navigationBarBackButtonHidden(ordering)
+        .onChange(of: search) { q in if !q.isEmpty && ordering { withAnimation { ordering = false } } }
+        .toolbar {
+            if ordering {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { withAnimation { ordering = false } }
+                        .accessibilityIdentifier("rules.orderCancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if orderSaving {
+                        ProgressView()
+                    } else {
+                        Button("完成") { Task { await finishOrder() } }
+                            .fontWeight(.semibold)
+                            .accessibilityIdentifier("rules.orderDone")
+                    }
+                }
+            } else {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    UpdateAllButton(busy: updatingAll || updater.running || !updatingLive.isEmpty, id: "rules.updateAll") {
+                        Task { await updateAll() }
+                    }
+                    Menu {
+                        Button { enterOrder() } label: { Label("编辑排序", systemImage: "line.3.horizontal") }
+                            .accessibilityIdentifier("rules.reorder")
+                    } label: { Image(systemName: "ellipsis.circle") }
+                        .accessibilityIdentifier("rules.more")
+                    Button { adding = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel(Text("添加规则订阅"))
+                        .accessibilityIdentifier("rules.addSet")
+                }
+            }
+        }
+        .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
+            if let p = detail { OfflineProviderDetail(p: p) }
+        }
+        .task(id: vpn.isConnected) { await load() }
+        .sheet(isPresented: $adding) {
+            CustomRuleEditor(rule: CustomRule(line: "RULE-SET,,")) { r in custom.rules.insert(r, at: 0); custom.save() }
+        }
+        .sheet(isPresented: $editingFinal) {
+            PolicyPickerSheet(title: Text(verbatim: "Final"), current: finalPolicy ?? profileRules.finalInfo.policy,
+                              original: profileRules.finalInfo.original,
+                              footer: "修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。") { saveFinal($0) }
+        }
+        .sheet(item: $editingSet) { s in
+            RuleSetOverrideEditor(name: s.name,
+                                  url: setOverride(s.name).url ?? providersByName[s.name]?.url ?? setOverride(s.name).shownURL ?? "",
+                                  policy: s.policy) { url, policy in
+                changeSet(s) { o in
+                    let original = providersByName[s.name]?.url ?? o.shownURL ?? ""
+                    o.url = url.isEmpty || url == original ? nil : url
+                    o.policy = policy.isEmpty || policy == (o.shownPolicy ?? s.policy) ? nil : policy
+                }
+            }
+            .environmentObject(vpn)
+        }
+        .deleteConfirmation({ _ in Text("删除这个规则集？") }, item: $confirmDeleteSet,
+                            message: { _ in Text("只从当前配置里移除：它和用到它的规则不再加载，配置文件不会改动。可以在列表底部「恢复已删除的规则集」找回。") },
+                            id: "rules.confirmDeleteSet") { s in
+            changeSet(s) { $0.deleted = true }
+        }
+        .deleteConfirmation({ r in Text("删除「\(Self.displayName(CustomRulesStore.remoteURL(r.line) ?? r.line))」？") }, item: $confirmDeleteCustom,
+                            message: { _ in DeleteText.recoverable }, id: "rules.confirmDeleteSub") { r in
+            custom.rules.removeAll { $0.id == r.id }
+            custom.save()
+        }
+        .sheet(item: $editing) { r in
+            CustomRuleEditor(rule: r) { nr in
+                if let i = custom.rules.firstIndex(where: { $0.id == nr.id }) { custom.rules[i] = nr; custom.save() }
+            }
+        }
+        .alert("提示", isPresented: Binding(get: { custom.message != nil }, set: { if !$0 { custom.message = nil } })) {
+            Button("好") { custom.message = nil }
+        } message: { Text(custom.message ?? "") }
+    }
+
+    @ViewBuilder
+    func mainList(sets: [SetRule], mine: [CustomRule]) -> some View {
+        List {
             Section {
                 // User 2026-10-23 「Final 指向无法修改」: tap → policy picker; kept as an override (`#final`).
                 Button { editingFinal = true } label: {
@@ -194,10 +314,8 @@ struct RulesView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 ForEach(mine) { r in customRow(r) }
-                    .onMove(perform: moving ? moveMine : nil)
                 ForEach(sets) { s in profileRow(s) }
-                    .onMove(perform: moving ? moveSets : nil)
-                if deletedSetCount > 0, let id = profiles.activeID, !editMode.isEditing {
+                if deletedSetCount > 0, let id = profiles.activeID {
                     Button {
                         providerOV.restoreDeleted(id, ruleSets: true)
                         Task { await applySetChange() }
@@ -210,7 +328,7 @@ struct RulesView: View {
                 Text("订阅 \(mine.count + sets.count)")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("顺序就是匹配优先级：越靠上越先匹配。在 ⋯ 里选「调整顺序」后拖动排序（搜索时不能排序）。")
+                    Text("顺序就是匹配优先级：越靠上越先匹配。在 ⋯ 里选「编辑排序」调整顺序。")
                     Text("轻点查看内容；右滑更新，左滑删除或编辑；开关启用或关闭；长按查看全部操作。")
                 }
                 .modifier(UITestOrderValue(id: "rules.sets.order", order: sets.map(\.name).joined(separator: " | ")))
@@ -219,76 +337,7 @@ struct RulesView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("分流规则")
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索")
-        .environment(\.editMode, $editMode)
-        .onChange(of: search) { q in if !q.isEmpty && editMode.isEditing { editMode = .inactive } }
-        .toolbar {
-            if editMode.isEditing {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") { withAnimation { editMode = .inactive } }
-                        .accessibilityIdentifier("rules.reorderDone")
-                }
-            } else {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    UpdateAllButton(busy: updatingAll || updater.running || !updatingLive.isEmpty, id: "rules.updateAll") {
-                        Task { await updateAll() }
-                    }
-                    Menu {
-                        Button { withAnimation { editMode = .active } } label: { Label("调整顺序", systemImage: "arrow.up.arrow.down") }
-                            .disabled(!canReorder)
-                    } label: { Image(systemName: "ellipsis.circle") }
-                        .accessibilityIdentifier("rules.more")
-                    Button { adding = true } label: { Image(systemName: "plus") }
-                        .accessibilityLabel(Text("添加规则订阅"))
-                        .accessibilityIdentifier("rules.addSet")
-                }
-            }
-        }
-        .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
-            if let p = detail { OfflineProviderDetail(p: p) }
-        }
-        .task(id: vpn.isConnected) { await load() }
         .refreshable { await load() }
-        .sheet(isPresented: $adding) {
-            CustomRuleEditor(rule: CustomRule(line: "RULE-SET,,")) { r in custom.rules.insert(r, at: 0); custom.save() }
-        }
-        .sheet(isPresented: $editingFinal) {
-            PolicyPickerSheet(title: Text(verbatim: "Final"), current: finalPolicy ?? profileRules.finalInfo.policy,
-                              original: profileRules.finalInfo.original,
-                              footer: "修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。") { saveFinal($0) }
-        }
-        .sheet(item: $editingSet) { s in
-            RuleSetOverrideEditor(name: s.name,
-                                  url: setOverride(s.name).url ?? providersByName[s.name]?.url ?? setOverride(s.name).shownURL ?? "",
-                                  policy: s.policy) { url, policy in
-                changeSet(s) { o in
-                    let original = providersByName[s.name]?.url ?? o.shownURL ?? ""
-                    o.url = url.isEmpty || url == original ? nil : url
-                    o.policy = policy.isEmpty || policy == (o.shownPolicy ?? s.policy) ? nil : policy
-                }
-            }
-            .environmentObject(vpn)
-        }
-        .deleteConfirmation({ _ in Text("删除这个规则集？") }, item: $confirmDeleteSet,
-                            message: { _ in Text("只从当前配置里移除：它和用到它的规则不再加载，配置文件不会改动。可以在列表底部「恢复已删除的规则集」找回。") },
-                            id: "rules.confirmDeleteSet") { s in
-            changeSet(s) { $0.deleted = true }
-        }
-        .deleteConfirmation({ r in Text("删除「\(Self.displayName(CustomRulesStore.remoteURL(r.line) ?? r.line))」？") }, item: $confirmDeleteCustom,
-                            message: { _ in DeleteText.recoverable }, id: "rules.confirmDeleteSub") { r in
-            custom.rules.removeAll { $0.id == r.id }
-            custom.save()
-        }
-        .sheet(item: $editing) { r in
-            CustomRuleEditor(rule: r) { nr in
-                if let i = custom.rules.firstIndex(where: { $0.id == nr.id }) { custom.rules[i] = nr; custom.save() }
-            }
-        }
-        .alert("提示", isPresented: Binding(get: { custom.message != nil }, set: { if !$0 { custom.message = nil } })) {
-            Button("好") { custom.message = nil }
-        } message: { Text(custom.message ?? "") }
     }
 
     // MARK: rows (SubscriptionKit: the same row and actions as 重写 → 订阅 and 任务)

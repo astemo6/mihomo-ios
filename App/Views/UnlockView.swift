@@ -267,6 +267,7 @@ struct UnlockView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("流媒体解锁") // ui-audit: same name as the 工具 card
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .task(id: vpn.isConnected) { await load() }
         .onChange(of: group) { _ in member = "" }
         .onDisappear { batch?.cancel() }

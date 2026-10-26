@@ -76,7 +76,7 @@ enum NCSubscriptionParser {
     /// Go sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
     /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
     static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
-                                           "snell", "tuic", "hysteria2"]
+                                           "snell", "tuic", "juicity", "hysteria2"]
 
     /// A `key=value` subscription line is QX-shaped when the key is a QX type keyword AND the value starts with
     /// `host:port` (or `[v6]:port`) before its first comma. A Surge / Loon line is `Name = type, host, port, …`:
@@ -127,14 +127,69 @@ enum NCSubscriptionParser {
         case "hysteria2", "hy2": return parseHysteria2(rest)
         case "hysteria": return parseHysteria1(rest)
         case "tuic": return parseTUIC(rest)
+        case "juicity": return parseJuicity(rest)
         case "wireguard", "wg": return parseWireGuard(rest, scheme: scheme)
         case "snell": return parseSnell(rest)
         case "ssh": return parseSSH(rest)
         case "socks", "socks5", "socks5h", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
         case "anytls": return parseAnyTLS(rest)
         case "mieru", "mierus": return parseMieru(rest)
-        default: return nil
+        case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
+        case "naive+https", "naive+quic", "naive", "http2", "http3": return parseNaiveH2H3(rest, scheme: scheme)
+        default:
+            // feat/nc-gost-relay: GOST relay (mihomo `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
+            // and Shadowrocket's Relay links (relay://BASE64(user:pass@host:port)?tls=1&peer=…#name).
+            if scheme == "relay" || scheme.hasPrefix("relay+") || scheme == "gost-relay" || scheme == "gostrelay" {
+                return parseGostRelay(rest, scheme: scheme)
+            }
+            return nil
         }
+    }
+
+    private static func parseGostRelay(_ rest: String, scheme: String) -> NCProxy? {
+        let normalized = scheme.hasPrefix("gost") ? "relay" : scheme
+        guard let tr = NCGostRelay.schemeTransport(normalized) else { return nil }
+        var body = rest
+        let cut = body.firstIndex(where: { $0 == "?" || $0 == "#" }) ?? body.endIndex
+        let authority = String(body[..<cut])
+        if !authority.isEmpty, !authority.contains(":") {
+            // Shadowrocket: the whole user:pass@host:port is one base64 blob (a real authority always has ":").
+            let blob = authority.hasSuffix("/") ? String(authority.dropLast()) : authority
+            if let d = base64Decode(blob.removingPercentEncoding ?? blob), let text = String(data: d, encoding: .utf8),
+               text.contains(":") {
+                body = text.trimmingCharacters(in: .whitespacesAndNewlines) + String(body[cut...])
+            }
+        }
+        let p = splitParts(body)
+        guard !p.host.isEmpty, p.port > 0, p.port <= 65535 else { return nil }
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(p.port)),
+            "udp": .bool(true),
+        ]
+        if tr.tls { f["tls"] = .bool(true) }
+        if tr.ws { f["network"] = .string("ws") }
+        if tr.mux { f["mux"] = .bool(true) }
+        if !p.userinfo.isEmpty {
+            var ui = p.userinfo
+            if !ui.contains(":"), let decoded = base64Decode(ui),
+               let s = String(data: decoded, encoding: .utf8), s.contains(":") {
+                ui = s
+            }
+            let creds = ui.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            let user = String(creds[0]).removingPercentEncoding ?? String(creds[0])
+            if !user.isEmpty { f["username"] = .string(user) }
+            if creds.count > 1 {
+                let pass = String(creds[1]).removingPercentEncoding ?? String(creds[1])
+                if !pass.isEmpty { f["password"] = .string(pass) }
+            }
+        }
+        var q: [String: String] = [:]
+        for (k, v) in p.query { q[k.lowercased()] = v }
+        NCGostRelay.applyParams(q, into: &f)
+        let remarks = q["remarks"] ?? ""
+        let name = !p.name.isEmpty ? p.name : (!remarks.isEmpty ? remarks : "relay \(p.host)")
+        return NCProxy(name: name, type: "gost-relay", fields: f)
     }
 
     /// Split `userinfo@host:port?query#name` (query/name optional).
@@ -271,11 +326,25 @@ enum NCSubscriptionParser {
                 // whole plugin value — kept for byte-for-byte parity with
                 // Libmihome on the same link.
                 if plugin.contains("tls") { opts["tls"] = .bool(true) }
+                if let eo = NCECHOpts.parse(query: args) {
+                    opts["ech-opts"] = .object(eo.toObject())
+                }
                 f["plugin-opts"] = .object(opts)
+            } else if binary.contains("cloak") || binary.contains("ck-client") {
+                f["plugin"] = .string("cloak")
+                if !args.isEmpty {
+                    f["plugin-opts"] = .object(args.mapValues { .string($0) })
+                }
+            } else if binary.contains("kcptun") {
+                f["plugin"] = .string("kcptun")
+                if !args.isEmpty {
+                    f["plugin-opts"] = .object(args.mapValues { .string($0) })
+                }
             } else {
                 // Unknown binary: keep it verbatim with its parsed args
                 // instead of dropping the plugin on the floor.
                 f["plugin"] = .string(binary)
+                // Review #149 item 5: an unknown plugin's own `ech` arg is not ECH — kept verbatim, not reinterpreted.
                 if !args.isEmpty {
                     f["plugin-opts"] = .object(args.mapValues { .string($0) })
                 }
@@ -308,8 +377,15 @@ enum NCSubscriptionParser {
             ("cipher", str(s("scy").isEmpty ? "auto" : s("scy"))),
             ("udp", .bool(true)),
         ])
-        let net = s("net")
+        let net = xhttpAlias(s("net"))
         if !net.isEmpty, net != "tcp" { f["network"] = .string(net) }
+        if net == "xhttp" {
+            // v2rayN vmess JSON: the xhttp mode rides in "type" (bridge/share.go writes it there too).
+            let t = s("type")
+            let mode = ["auto", "packet-up", "stream-up", "stream-one"].contains(t) ? t : ""
+            f["xhttp-opts"] = .object(xhttpOpts(path: s("path"), host: s("host"), mode: mode,
+                                                extra: s("extra").isEmpty ? nil : s("extra")))
+        }
         if s("tls") == "tls" {
             f["tls"] = .bool(true)
             if !s("sni").isEmpty { f["servername"] = .string(s("sni")) }
@@ -343,6 +419,18 @@ enum NCSubscriptionParser {
         if net == "grpc", !s("path").isEmpty {
             f["grpc-opts"] = .object(["grpc-service-name": .string(s("path"))])
         }
+        if let echVal = obj["ech"] as? String ?? (obj["ech"] as? NSNumber)?.stringValue ?? (obj["ech-opts"] as? String) {
+            var eq: [String: String] = ["ech": echVal]
+            if let qsn = obj["ech-qsn"] as? String ?? obj["ech_qsn"] as? String ?? obj["query-server-name"] as? String {
+                eq["ech-qsn"] = qsn
+            }
+            if let opts = NCECHOpts.parse(query: eq) {
+                f["ech-opts"] = .object(opts.toObject())
+            }
+        } else if let echMap = obj["ech-opts"] as? [String: Any] ?? obj["ech_opts"] as? [String: Any],
+                  let opts = NCECHOpts(dictionary: echMap) {
+            f["ech-opts"] = .object(opts.toObject())
+        }
         let name = s("ps").isEmpty ? "\(s("add")):\(port)" : s("ps")
         return NCProxy(name: name, type: "vmess", fields: f)
     }
@@ -371,8 +459,9 @@ enum NCSubscriptionParser {
             if let sid = q["sid"] { opts["short-id"] = .string(sid) }
             f["reality-opts"] = .object(opts)
         }
-        let net = q["type"] ?? "tcp"
+        let net = xhttpAlias(q["type"] ?? "tcp")
         if net != "tcp" { f["network"] = .string(net) }
+        if net == "xhttp" { f["xhttp-opts"] = .object(xhttpOpts(path: q["path"], host: q["host"], mode: q["mode"], extra: q["extra"])) }
         if net == "ws" || net == "httpupgrade" {
             var opts: [String: NCJSONValue] = [:]
             if let path = q["path"] { opts["path"] = .string(path) }
@@ -393,6 +482,9 @@ enum NCSubscriptionParser {
         }
         if net == "grpc", let svc = q["serviceName"] {
             f["grpc-opts"] = .object(["grpc-service-name": .string(svc)])
+        }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
         }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "vless", fields: f)
@@ -420,8 +512,9 @@ enum NCSubscriptionParser {
             if let sid = q["sid"] { opts["short-id"] = .string(sid) }
             f["reality-opts"] = .object(opts)
         }
-        let net = q["type"] ?? "tcp"
+        let net = xhttpAlias(q["type"] ?? "tcp")
         if net != "tcp" { f["network"] = .string(net) }
+        if net == "xhttp" { f["xhttp-opts"] = .object(xhttpOpts(path: q["path"], host: q["host"], mode: q["mode"], extra: q["extra"])) }
         if net == "ws" || net == "httpupgrade" {
             var opts: [String: NCJSONValue] = [:]
             if let path = q["path"] { opts["path"] = .string(path) }
@@ -437,8 +530,116 @@ enum NCSubscriptionParser {
         if net == "grpc", let svc = q["serviceName"] {
             f["grpc-opts"] = .object(["grpc-service-name": .string(svc)])
         }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "trojan", fields: f)
+    }
+
+    // MARK: XHTTP share-link options (feat/nc-xhttp; mihomo common/convert/v.go)
+
+    /// Xray's former name for the transport.
+    private static func xhttpAlias(_ net: String) -> String {
+        net.lowercased() == "splithttp" ? "xhttp" : net
+    }
+
+    /// xhttp-opts from a share link: path / host / mode, plus Xray's `extra` JSON mapped like mihomo's
+    /// parseXHTTPExtra (headers, padding, placements, post sizing, xmux → reuse-settings, downloadSettings).
+    static func xhttpOpts(path: String?, host: String?, mode: String?, extra: String?) -> [String: NCJSONValue] {
+        var o: [String: NCJSONValue] = [:]
+        if let path, !path.isEmpty { o["path"] = .string(path) }
+        if let host, !host.isEmpty { o["host"] = .string(host) }
+        if let mode, !mode.isEmpty { o["mode"] = .string(mode) }
+        if let extra, !extra.isEmpty, let data = extra.data(using: .utf8),
+           let m = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            applyXHTTPExtra(m, into: &o)
+        }
+        return o
+    }
+
+    private static func xhttpReuse(_ x: [String: Any]) -> [String: NCJSONValue] {
+        var r: [String: NCJSONValue] = [:]
+        for (src, dst) in [("maxConnections", "max-connections"), ("maxConcurrency", "max-concurrency"),
+                           ("cMaxReuseTimes", "c-max-reuse-times"), ("hMaxRequestTimes", "h-max-request-times"),
+                           ("hMaxReusableSecs", "h-max-reusable-secs")] {
+            if let v = x[src] as? String, !v.isEmpty { r[dst] = .string(v) }
+            else if let n = x[src] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { r[dst] = .string(String(n.int64Value)) }
+        }
+        if let n = x["hKeepAlivePeriod"] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
+            r["h-keep-alive-period"] = .number(Double(n.intValue))
+        }
+        return r
+    }
+
+    private static func applyXHTTPExtra(_ e: [String: Any], into o: inout [String: NCJSONValue]) {
+        func str(_ k: String) -> String? { (e[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        func num(_ k: String) -> Int? {
+            guard let n = e[k] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+            return n.intValue
+        }
+        func flag(_ k: String) -> Bool? {
+            guard let n = e[k] as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+            return n.boolValue
+        }
+        if let h = e["headers"] as? [String: Any], !h.isEmpty { o["headers"] = .object(h.mapValues { NCJSONValue($0) }) }
+        if flag("noGRPCHeader") == true { o["no-grpc-header"] = .bool(true) }
+        if let v = str("xPaddingBytes") { o["x-padding-bytes"] = .string(v) }
+        if let v = flag("xPaddingObfsMode") { o["x-padding-obfs-mode"] = .bool(v) }
+        for (src, dst) in [("xPaddingKey", "x-padding-key"), ("xPaddingHeader", "x-padding-header"),
+                           ("xPaddingPlacement", "x-padding-placement"), ("xPaddingMethod", "x-padding-method"),
+                           ("uplinkHTTPMethod", "uplink-http-method"), ("sessionIDTable", "session-table"),
+                           ("seqPlacement", "seq-placement"), ("seqKey", "seq-key"),
+                           ("uplinkDataPlacement", "uplink-data-placement"), ("uplinkDataKey", "uplink-data-key")] {
+            if let v = str(src) { o[dst] = .string(v) }
+        }
+        if let v = str("sessionIDPlacement") ?? str("sessionPlacement") { o["session-placement"] = .string(v) }
+        if let v = str("sessionIDKey") ?? str("sessionKey") { o["session-key"] = .string(v) }
+        if let v = str("sessionIDLength") { o["session-length"] = .string(v) }
+        else if let n = num("sessionIDLength") { o["session-length"] = .string(String(n)) }
+        if let n = num("uplinkChunkSize") { o["uplink-chunk-size"] = .number(Double(n)) }
+        if let n = num("scMaxEachPostBytes") { o["sc-max-each-post-bytes"] = .number(Double(n)) }
+        if let n = num("scMinPostsIntervalMs") { o["sc-min-posts-interval-ms"] = .number(Double(n)) }
+        if let x = e["xmux"] as? [String: Any], !x.isEmpty {
+            let r = xhttpReuse(x)
+            if !r.isEmpty { o["reuse-settings"] = .object(r) }
+        }
+        if let d = e["downloadSettings"] as? [String: Any] {
+            var ds: [String: NCJSONValue] = [:]
+            if let a = d["address"] as? String, !a.isEmpty { ds["server"] = .string(a) }
+            if let p = d["port"] as? NSNumber, CFGetTypeID(p) != CFBooleanGetTypeID() { ds["port"] = .number(Double(p.intValue)) }
+            let sec = (d["security"] as? String ?? "").lowercased()
+            if sec == "tls" || sec == "reality" {
+                ds["tls"] = .bool(true)
+                if let t = d["tlsSettings"] as? [String: Any] {
+                    if let sn = t["serverName"] as? String, !sn.isEmpty { ds["servername"] = .string(sn) }
+                    if let fp = t["fingerprint"] as? String, !fp.isEmpty { ds["client-fingerprint"] = .string(fp) }
+                    if let a = t["alpn"] as? [Any] {
+                        let l = a.compactMap { $0 as? String }
+                        if !l.isEmpty { ds["alpn"] = .array(l.map { .string($0) }) }
+                    }
+                    if let b = t["allowInsecure"] as? NSNumber, CFGetTypeID(b) == CFBooleanGetTypeID(), b.boolValue {
+                        ds["skip-cert-verify"] = .bool(true)
+                    }
+                }
+                if sec == "reality", let r = d["realitySettings"] as? [String: Any] {
+                    var ro: [String: NCJSONValue] = [:]
+                    if let pk = r["publicKey"] as? String, !pk.isEmpty { ro["public-key"] = .string(pk) }
+                    if let sid = r["shortId"] as? String, !sid.isEmpty { ro["short-id"] = .string(sid) }
+                    if !ro.isEmpty { ds["reality-opts"] = .object(ro) }
+                }
+            }
+            if let x = d["xhttpSettings"] as? [String: Any] {
+                if let p = x["path"] as? String, !p.isEmpty { ds["path"] = .string(p) }
+                if let h = x["host"] as? String, !h.isEmpty { ds["host"] = .string(h) }
+                if let h = x["headers"] as? [String: Any], !h.isEmpty { ds["headers"] = .object(h.mapValues { NCJSONValue($0) }) }
+                if let ex = x["extra"] as? [String: Any], let xm = ex["xmux"] as? [String: Any], !xm.isEmpty {
+                    let r = xhttpReuse(xm)
+                    if !r.isEmpty { ds["reuse-settings"] = .object(r) }
+                }
+            }
+            if !ds.isEmpty { o["download-settings"] = .object(ds) }
+        }
     }
 
     /// The raw port token of a URI authority (splitParts only keeps the Int,
@@ -487,6 +688,9 @@ enum NCSubscriptionParser {
         if let pin = q["pinSHA256"] { f["fingerprint"] = .string(pin) }
         if let up = q["up"] { f["up"] = .string(up) }
         if let down = q["down"] { f["down"] = .string(down) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
         let name = p.name.isEmpty ? "\(p.host):\(port)" : p.name
         return NCProxy(name: name, type: "hysteria2", fields: f)
     }
@@ -513,8 +717,54 @@ enum NCSubscriptionParser {
         if let urm = q["udp_relay_mode"] { f["udp-relay-mode"] = .string(urm) }
         if q["disable_sni"] == "1" || q["disable_sni"] == "true" { f["disable-sni"] = .bool(true) }
         if q["allow_insecure"] == "1" || q["allowInsecure"] == "1" { f["skip-cert-verify"] = .bool(true) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "tuic", fields: f)
+    }
+
+    private static func parseJuicity(_ rest: String) -> NCProxy? {
+        let p = splitParts(rest)
+        let creds = p.userinfo.split(separator: ":", maxSplits: 1)
+        guard !p.host.isEmpty, p.port > 0, !creds.isEmpty else { return nil }
+        let q = p.query
+        var f = fields([
+            ("server", str(p.host)), ("port", .number(Double(p.port))),
+        ])
+        if creds.count == 2 {
+            f["uuid"] = str(String(creds[0]))
+            f["password"] = str(String(creds[1]).removingPercentEncoding ?? String(creds[1]))
+        } else {
+            let u = q["uuid"] ?? q["user"] ?? String(creds[0])
+            let pw = q["password"] ?? ""
+            f["uuid"] = str(u)
+            if !pw.isEmpty { f["password"] = str(pw) }
+        }
+        if let u = q["uuid"] ?? q["user"], f["uuid"] == nil { f["uuid"] = str(u) }
+        if let pw = q["password"], f["password"] == nil { f["password"] = str(pw) }
+
+        let sni = q["sni"] ?? q["peer"]
+        if let sni, !sni.isEmpty { f["sni"] = .string(sni) }
+        let cc = q["congestion_control"] ?? q["congestion-controller"] ?? q["congestion-control"]
+        if let cc, !cc.isEmpty { f["congestion-controller"] = .string(cc) }
+        if let alpn = q["alpn"] {
+            let parts = alpn.replacingOccurrences(of: "|", with: ",").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+            f["alpn"] = .array(parts.map { .string($0) })
+        }
+        if let pin = q["pinned_certchain_sha256"] ?? q["pinned-certchain-sha256"] ?? q["pinned-peer-cert-sha256"] ?? q["pinSHA256"] {
+            f["pinned-certchain-sha256"] = .string(pin)
+        }
+        if let urm = q["udp_relay_mode"] ?? q["udp-relay-mode"] { f["udp-relay-mode"] = .string(urm) }
+        if q["disable_sni"] == "1" || q["disable_sni"] == "true" || q["disable-sni"] == "1" || q["disable-sni"] == "true" {
+            f["disable-sni"] = .bool(true)
+        }
+        if q["allow_insecure"] == "1" || q["allowInsecure"] == "1" || q["insecure"] == "1" || q["skip-cert-verify"] == "true" {
+            f["skip-cert-verify"] = .bool(true)
+        }
+        f["udp"] = .bool(true)
+        let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
+        return NCProxy(name: name, type: "juicity", fields: f)
     }
 
     // bridge nativeformats.go strOf/intOf/boolOf over decoded JSON values.
@@ -580,7 +830,12 @@ enum NCSubscriptionParser {
                 case "path": opts["path"] = .string(v)
                 case "tls": opts["tls"] = .bool(true)
                 case "mode": opts["mode"] = .string(v)
-                default: break
+                case "ech":
+                    if let eo = NCECHOpts.parse(query: ["ech": v]) {
+                        opts["ech-opts"] = .object(eo.toObject())
+                    }
+                default:
+                    if !k.isEmpty { opts[k] = .string(v) }
                 }
             }
             if plugin.contains("obfs") {
@@ -588,10 +843,17 @@ enum NCSubscriptionParser {
             } else if plugin.contains("v2ray") {
                 f["plugin"] = .string("v2ray-plugin")
                 if opts["mode"] == nil { opts["mode"] = .string("websocket") }
+            } else if plugin.contains("cloak") || plugin.contains("ck-client") {
+                f["plugin"] = .string("cloak")
+            } else if plugin.contains("kcptun") {
+                f["plugin"] = .string("kcptun")
             } else {
                 f["plugin"] = .string(plugin)
             }
             f["plugin-opts"] = .object(opts)
+        }
+        if let eo = s["ech-opts"] as? [String: Any], let opts = NCECHOpts(dictionary: eo) {
+            f["ech-opts"] = .object(opts.toObject())
         }
         return NCProxy(name: name, type: "ss", fields: f)
     }
@@ -651,6 +913,13 @@ enum NCSubscriptionParser {
             f["password"] = .string(jStr(o["password"]))
             if !jStr(o["congestion_control"]).isEmpty { f["congestion-controller"] = .string(jStr(o["congestion_control"])) }
             if !jStr(o["udp_relay_mode"]).isEmpty { f["udp-relay-mode"] = .string(jStr(o["udp_relay_mode"])) }
+        case "juicity":
+            typ = "juicity"
+            f["uuid"] = .string(jStr(o["uuid"]))
+            f["password"] = .string(jStr(o["password"]))
+            if !jStr(o["congestion_control"]).isEmpty { f["congestion-controller"] = .string(jStr(o["congestion_control"])) }
+            if !jStr(o["pinned_certchain_sha256"]).isEmpty { f["pinned-certchain-sha256"] = .string(jStr(o["pinned_certchain_sha256"])) }
+            f["udp"] = .bool(true)
         case "anytls":
             typ = "anytls"
             f["password"] = .string(jStr(o["password"]))
@@ -667,6 +936,21 @@ enum NCSubscriptionParser {
             if !jStr(o["username"]).isEmpty {
                 f["username"] = .string(jStr(o["username"]))
                 f["password"] = .string(jStr(o["password"]))
+            }
+        case "naive":
+            // sing-box 1.13 naive outbound (feat/nc-naive-h2h3).
+            typ = "naive"
+            if !jStr(o["username"]).isEmpty { f["username"] = .string(jStr(o["username"])) }
+            if !jStr(o["password"]).isEmpty { f["password"] = .string(jStr(o["password"])) }
+            if jBool(o["quic"]) { f["quic"] = .bool(true) }
+            if jInt(o["insecure_concurrency"]) > 0 { f["insecure-concurrency"] = .number(Double(jInt(o["insecure_concurrency"]))) }
+            if let h = o["extra_headers"] as? [String: Any], !h.isEmpty { f["extra-headers"] = NCJSONValue(h) }
+            if o["udp_over_tcp"] is [String: Any] || jBool(o["udp_over_tcp"]) {
+                f["udp-over-tcp"] = .bool(true)
+                f["udp"] = .bool(true)
+            }
+            if let tls = o["tls"] as? [String: Any], !jStr(tls["server_name"]).isEmpty {
+                f["sni"] = .string(jStr(tls["server_name"]))
             }
         case "ssh":
             typ = "ssh"
@@ -718,6 +1002,60 @@ enum NCSubscriptionParser {
                 "short-id": .string(jStr(reality["short_id"])),
             ])
             if f["client-fingerprint"] == nil { f["client-fingerprint"] = .string("chrome") }
+        }
+        if let ech = tls["ech"] as? [String: Any], jBool(ech["enabled"]) {
+            var echFields: [String: NCJSONValue] = ["enable": .bool(true)]
+            if let cfg = normalizeSingBoxECHConfig(ech["config"]) {
+                echFields["config"] = .string(cfg)
+            }
+            if let qsn = ech["query_server_name"] as? String ?? ech["query-server-name"] as? String, !qsn.isEmpty {
+                echFields["query-server-name"] = .string(qsn)
+            }
+            f["ech-opts"] = .object(echFields)
+        }
+    }
+
+    /// Extract and normalize sing-box ECH config.
+    /// Handles multiline PEM blocks (single string or array of lines) and bare base64.
+    /// When PEM header `-----BEGIN ECH CONFIGS-----` is present, extracts body between BEGIN and END,
+    /// concatenates lines, and validates base64.
+    /// For bare base64, joins and strips whitespace. Stored as base64 string per NCECHOpts convention.
+    static func normalizeSingBoxECHConfig(_ raw: Any?) -> String? {
+        guard let raw else { return nil }
+        let rawText: String
+        if let arr = raw as? [String] {
+            rawText = arr.joined(separator: "\n")
+        } else if let arr = raw as? [Any] {
+            rawText = arr.compactMap { $0 as? String }.joined(separator: "\n")
+        } else if let str = raw as? String {
+            rawText = str
+        } else {
+            return nil
+        }
+
+        let beginMarker = "-----BEGIN ECH CONFIGS-----"
+        let endMarker = "-----END ECH CONFIGS-----"
+
+        if rawText.contains(beginMarker) {
+            guard let beginRange = rawText.range(of: beginMarker) else { return nil }
+            let afterBegin = rawText[beginRange.upperBound...]
+            let bodyText: Substring
+            if let endRange = afterBegin.range(of: endMarker) {
+                bodyText = afterBegin[..<endRange.lowerBound]
+            } else {
+                bodyText = afterBegin
+            }
+            let cleaned = bodyText.components(separatedBy: .whitespacesAndNewlines).joined()
+            guard !cleaned.isEmpty else { return nil }
+            guard let data = Data(base64Encoded: cleaned) ?? Data(base64Encoded: NCECHOpts.fromBase64URL(cleaned)),
+                  !data.isEmpty else {
+                return nil
+            }
+            return cleaned
+        } else {
+            let cleaned = rawText.components(separatedBy: .whitespacesAndNewlines).joined()
+            guard !cleaned.isEmpty else { return nil }
+            return cleaned
         }
     }
 
@@ -968,6 +1306,52 @@ enum NCSubscriptionParser {
         return NCProxy(name: name, type: typ, fields: f)
     }
 
+    /// feat/nc-naive-h2h3: naive+https:// / naive+quic:// (DuckSoft's de-facto spec: userinfo `user:pass`,
+    /// or a bare `pass` as password-only; port 443 by default; `extra-headers` = CRLF-joined
+    /// "Name: value" lines; `padding` is informational — naive padding is negotiated per request), and the
+    /// http2:// / http3:// proxy links (userinfo may be base64 of user:pass, as Shadowrocket exports).
+    private static func parseNaiveH2H3(_ rest: String, scheme: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty else { return nil }
+        let q = p.query
+        let port = p.port > 0 ? p.port : 443
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(port)),
+        ]
+        if !p.userinfo.isEmpty {
+            var ui = p.userinfo
+            if scheme.hasPrefix("http"), !ui.contains(":"), let decoded = base64Decode(ui),
+               let s = String(data: decoded, encoding: .utf8), s.contains(":") {
+                ui = s
+            }
+            if let colon = ui.firstIndex(of: ":") {
+                let u = String(ui[..<colon]), pw = String(ui[ui.index(after: colon)...])
+                if !u.isEmpty { f["username"] = .string(u.removingPercentEncoding ?? u) }
+                if !pw.isEmpty { f["password"] = .string(pw.removingPercentEncoding ?? pw) }
+            } else {
+                f["password"] = .string(ui.removingPercentEncoding ?? ui)
+            }
+        }
+        if let sni = q["sni"] ?? q["peer"], !sni.isEmpty { f["sni"] = .string(sni) }
+        if ["1", "true"].contains(q["insecure"] ?? q["allowInsecure"] ?? "") { f["skip-cert-verify"] = .bool(true) }
+        let typ: String
+        switch scheme {
+        case "http2": typ = "http2"
+        case "http3": typ = "http3"
+        default:
+            typ = "naive"
+            if scheme == "naive+quic" { f["quic"] = .bool(true) }
+            if let h = q["extra-headers"], !h.isEmpty { f["extra-headers"] = .string(h) }
+            if ["1", "true"].contains(q["uot"] ?? q["udp-over-tcp"] ?? "") {
+                f["udp-over-tcp"] = .bool(true)
+                f["udp"] = .bool(true)
+            }
+        }
+        let name = p.name.isEmpty ? "\(typ) \(p.host)" : p.name
+        return NCProxy(name: name, type: typ, fields: f)
+    }
+
     private static func parseAnyTLS(_ rest: String) -> NCProxy? {
         let p = splitParts(rest)
         guard !p.host.isEmpty, p.port > 0 else { return nil }
@@ -980,6 +1364,9 @@ enum NCSubscriptionParser {
         if let sni = q["sni"] { f["sni"] = .string(sni) }
         if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
         if let fp = q["hpkp"] ?? q["fingerprint"] { f["fingerprint"] = .string(fp) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
 
         let name = p.name.isEmpty ? "anytls \(p.host)" : p.name
         return NCProxy(name: name, type: "anytls", fields: f)
@@ -1035,6 +1422,9 @@ enum NCSubscriptionParser {
         if let down = q["downmbps"] { f["down"] = .string(down) }
         if let alpn = q["alpn"] { f["alpn"] = .array(alpn.components(separatedBy: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) }) }
         if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
 
         let name = p.name.isEmpty ? "hysteria \(p.host)" : p.name
         return NCProxy(name: name, type: "hysteria", fields: f)
@@ -1235,25 +1625,37 @@ final class NCNodeSubscriptionStore {
         return stale
     }
 
+    /// fix/nc-diag-439 (E): "HTTP 403" / "no response".
+    static func failureStatusText(_ status: Int) -> String {
+        status > 0 ? "HTTP \(status)" : "no response"
+    }
+
+    /// fix/nc-diag-439 (E): the tunnel extension's URLSession runs outside the tunnel (DIRECT); in the App it goes
+    /// through the VPN when it is on.
+    static let fetchRoute: String = Bundle.main.bundlePath.hasSuffix(".appex")
+        ? "DIRECT (extension URLSession, outside the tunnel)" : "App URLSession (through the tunnel when the VPN is on)"
+
     func refresh(_ sub: NCNodeSubscription, completion: (() -> Void)? = nil) {
         guard !sub.url.isEmpty else { completion?(); return }
         let url = Self.unwrapLoopbackConvert(sub.url)
         let uas = Self.userAgents(for: sub)
         let fetch = fetcher
-        func get(_ i: Int, _ done: @escaping (Data?) -> Void) {
+        func get(_ i: Int, _ done: @escaping (Data?, Int) -> Void) {
             fetch(url, uas[i]) { data, status in
                 if data == nil, i + 1 < uas.count, Self.shouldRetryUA(status: status) {
                     get(i + 1, done)
                 } else {
-                    done(data)
+                    done(data, status)
                 }
             }
         }
-        get(0) { [weak self] data in
+        get(0) { [weak self] data, status in
             guard let self else { completion?(); return }
             guard let data, let text = String(data: data, encoding: .utf8) else {
                 let have = self.allNodes()[sub.name]?.count ?? 0
-                self.log("proxy provider \(sub.name): fetch failed (\(NCRuleProviderStore.logName(url))), keeping \(have) cached nodes")
+                // fix/nc-diag-439 (E): name the HTTP status and the route the fetch took (build 439: 薯条 403 with no status).
+                self.log("proxy provider \(sub.name): fetch failed (\(NCRuleProviderStore.logName(url)), " +
+                         "\(Self.failureStatusText(status)), route \(Self.fetchRoute)), keeping \(have) cached nodes")
                 completion?()
                 return
             }

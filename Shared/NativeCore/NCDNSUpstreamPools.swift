@@ -67,14 +67,25 @@ final class NCDNSUpstreamCoordinator {
 
     private final class Entry {
         let key: String
-        let execute: (@escaping (Data?) -> Void) -> Void
-        var waiters: [(id: UInt16?, queue: DispatchQueue, completion: (Data?) -> Void)] = []
+        let execute: (@escaping (Data?) -> Void) -> (() -> Void)?
+        var waiters: [(ticket: UInt64, id: UInt16?, queue: DispatchQueue, completion: (Data?) -> Void)] = []
         var started = false
-        init(key: String, execute: @escaping (@escaping (Data?) -> Void) -> Void) {
+        /// fix/nc-tails: tears the running exchange down (socket cancelled) when every waiter gave up.
+        var cancel: (() -> Void)?
+        init(key: String, execute: @escaping (@escaping (Data?) -> Void) -> (() -> Void)?) {
             self.key = key
             self.execute = execute
         }
     }
+
+    /// fix/nc-tails: a handle on one waiter, for `abandon`. 0 = nothing to abandon.
+    struct Ticket: Equatable {
+        let key: String
+        let serial: UInt64
+        static let none = Ticket(key: "", serial: 0)
+    }
+    private var ticketSerial: UInt64 = 0
+    private let ticketLock = NSLock()
 
     private let queue = DispatchQueue(label: "nc.dns.coordinator")
     private var entries: [String: Entry] = [:]
@@ -84,9 +95,28 @@ final class NCDNSUpstreamCoordinator {
     func submit(key: String, id: UInt16?, callerQueue: DispatchQueue,
                 execute: @escaping (@escaping (Data?) -> Void) -> Void,
                 completion: @escaping (Data?) -> Void) {
+        submitCancellable(key: key, id: id, callerQueue: callerQueue,
+                          execute: { done in execute(done); return nil }, completion: completion)
+    }
+
+    /// fix/nc-tails: `submit` whose execute step may return a cancel closure (tears its socket down), and which
+    /// hands back a ticket for `abandon`. build433 SERVFAIL burst: an exchange the caller had already given up on
+    /// (NCDNSRace attempt timeout 2.5 s, or the loser of a race) kept its slot for the transport's full 5 s, and a
+    /// queued entry kept waiting 6 s for a slot although its caller had moved on — with a black-holed first
+    /// nameserver every slot filled with dead exchanges and the second, healthy nameserver's queries queued behind
+    /// them until they timed out too.
+    @discardableResult
+    func submitCancellable(key: String, id: UInt16?, callerQueue: DispatchQueue,
+                           execute: @escaping (@escaping (Data?) -> Void) -> (() -> Void)?,
+                           completion: @escaping (Data?) -> Void) -> Ticket {
+        ticketLock.lock()
+        ticketSerial &+= 1
+        let serial = ticketSerial
+        ticketLock.unlock()
+        let ticket = Ticket(key: key, serial: serial)
         queue.async {
             if let e = self.entries[key] {
-                e.waiters.append((id, callerQueue, completion))
+                e.waiters.append((serial, id, callerQueue, completion))
                 return
             }
             if self.active >= self.limitInFlight, self.pending.count >= self.limitPendingEntries {
@@ -94,7 +124,7 @@ final class NCDNSUpstreamCoordinator {
                 return
             }
             let e = Entry(key: key, execute: execute)
-            e.waiters.append((id, callerQueue, completion))
+            e.waiters.append((serial, id, callerQueue, completion))
             self.entries[key] = e
             if self.active < self.limitInFlight {
                 self.start(e)
@@ -106,6 +136,29 @@ final class NCDNSUpstreamCoordinator {
                     self.pending.removeAll { $0 === e }
                     self.deliver(e, nil)
                 }
+            }
+        }
+        return ticket
+    }
+
+    /// fix/nc-tails: the caller no longer wants this answer (its completion will not run). When no waiter is left on
+    /// the entry it is dropped: a queued one leaves the queue, a running one is cancelled and frees its slot at once
+    /// (the next queued entry starts). Waiters coalesced on the same entry keep it alive.
+    func abandon(_ ticket: Ticket) {
+        guard ticket.serial != 0 else { return }
+        queue.async {
+            guard let e = self.entries[ticket.key] else { return }
+            e.waiters.removeAll { $0.ticket == ticket.serial }
+            guard e.waiters.isEmpty else { return }
+            self.entries.removeValue(forKey: e.key)
+            if e.started {
+                self.active -= 1
+                let cancel = e.cancel
+                e.cancel = nil
+                cancel?()
+                self.startQueued()
+            } else {
+                self.pending.removeAll { $0 === e }
             }
         }
     }
@@ -136,18 +189,25 @@ final class NCDNSUpstreamCoordinator {
     private func start(_ e: Entry) {
         e.started = true
         active += 1
-        e.execute { [weak self, weak e] resp in
+        let cancel = e.execute { [weak self, weak e] resp in
             guard let self, let e else { return }
             self.queue.async {
                 guard self.entries[e.key] === e else { return }
                 self.entries.removeValue(forKey: e.key)
                 self.active -= 1
+                e.cancel = nil
                 self.deliver(e, resp)
-                while self.active < self.limitInFlight, let next = self.pending.first {
-                    self.pending.removeFirst()
-                    if self.entries[next.key] === next { self.start(next) }
-                }
+                self.startQueued()
             }
+        }
+        // execute may have answered synchronously-async already; keep the handle only while the entry is live.
+        if entries[e.key] === e { e.cancel = cancel }
+    }
+
+    private func startQueued() {
+        while active < limitInFlight, let next = pending.first {
+            pending.removeFirst()
+            if entries[next.key] === next { start(next) }
         }
     }
 
@@ -249,6 +309,19 @@ final class NCDNSDoTPool {
                 c.pending.removeAll()
                 c.stream?.cancel()
                 c.stream = nil
+            }
+        }
+    }
+
+    /// fix/nc-tails: network change — drop pooled streams with no query on them (they are bound to the old path;
+    /// the first query on one would wait out the full timeout before the pool opened a fresh stream). Busy streams
+    /// finish or time out as before; nothing in flight is failed.
+    func dropIdle() {
+        queue.async {
+            for (k, c) in self.conns where c.current == nil && c.pending.isEmpty && !c.connecting {
+                c.stream?.cancel()
+                c.stream = nil
+                self.conns.removeValue(forKey: k)
             }
         }
     }
@@ -399,6 +472,19 @@ final class NCDNSDoHPool {
                 c.pending.removeAll()
                 c.stream?.cancel()
                 c.stream = nil
+            }
+        }
+    }
+
+    /// fix/nc-tails: network change — drop pooled streams with no query on them (they are bound to the old path;
+    /// the first query on one would wait out the full timeout before the pool opened a fresh stream). Busy streams
+    /// finish or time out as before; nothing in flight is failed.
+    func dropIdle() {
+        queue.async {
+            for (k, c) in self.conns where c.current == nil && c.pending.isEmpty && !c.connecting {
+                c.stream?.cancel()
+                c.stream = nil
+                self.conns.removeValue(forKey: k)
             }
         }
     }

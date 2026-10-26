@@ -40,6 +40,10 @@ final class NCStatsRecorder {
         var down: Int64
         var start: Int64   // unix ms
         var closedAt: Int64 // unix ms
+        /// fix/nc-tails: inbound kind / client address (TUN flows keep the defaults; listener flows: "HTTP" /
+        /// "Socks5" / "Probe" from 127.0.0.1 or the LAN client).
+        var type: String = "Native"
+        var srcIP: String = "198.18.0.1"
     }
 
     fileprivate struct UpDown: Touched {
@@ -134,7 +138,7 @@ final class NCStatsRecorder {
         var c = c
         c.seq = seq
         c.id = Self.clip(c.id); c.host = Self.clip(c.host); c.remote = Self.clip(c.remote); c.rule = Self.clip(c.rule)
-        c.dstIP = Self.clip(c.dstIP)
+        c.dstIP = Self.clip(c.dstIP); c.srcIP = Self.clip(c.srcIP); c.type = Self.clip(c.type)
         c.chains = c.chains.prefix(Self.chainMax).map(Self.clip)
         if ring.count < Self.closedCap {
             ring.append(c)
@@ -187,6 +191,15 @@ final class NCStatsRecorder {
             closedPos = (closedPos + 1) % Self.closedCap
         }
         version &+= 1
+    }
+
+    /// fix/nc-tails: bytes of a listener whose totals no stats mirror carries (the probe listeners); into the speed
+    /// series like the script flows above. Per-host / policy bytes go through `bytes` separately.
+    func sideBytes(up: Int64, down: Int64, proxied: Bool) {
+        guard up != 0 || down != 0 else { return }
+        lock.lock(); defer { lock.unlock() }
+        sideUp &+= up; sideDown &+= down
+        if proxied { sideProxyUp &+= up; sideProxyDown &+= down }
     }
 
     /// Cumulative totals (all / proxied) at `now`; the recorder turns them into a 1 s rate point and folds it into the
@@ -314,7 +327,7 @@ final class NCStatsRecorder {
         [
             "seq": c.seq, "id": c.id,
             "metadata": [
-                "network": c.network, "type": "Native", "sourceIP": "198.18.0.1", "destinationIP": c.dstIP,
+                "network": c.network, "type": c.type, "sourceIP": c.srcIP, "destinationIP": c.dstIP,
                 "sourcePort": c.srcPort <= 0 ? "" : String(c.srcPort),
                 "destinationPort": c.dstPort <= 0 ? "" : String(c.dstPort),
                 "host": c.host, "sniffHost": "", "process": "", "remoteDestination": c.remote,

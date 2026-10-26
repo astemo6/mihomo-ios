@@ -204,6 +204,7 @@ struct MitMView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("HTTPS 解密") // ui-audit: same name as the 工具 card
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .sheet(item: $share, onDismiss: { EngineStore.purgeP12() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         .confirmationDialog("重新生成证书？", isPresented: $confirmRegen, titleVisibility: .visible) {
             Button("重新生成", role: .destructive) { store.generateCA() }
@@ -642,6 +643,7 @@ struct LocalScriptsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("本地脚本")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear { files = store.localScripts() }
         .deleteConfirmation({ l in l.count == 1 ? Text("删除「\(l[0])」？") : Text("删除 \(l.count) 个脚本？") }, item: $pendingDelete,
                             message: { l in
@@ -697,6 +699,7 @@ struct ScriptLogsView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("脚本日志")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             Toggle(isOn: $showDebug) { Label("显示调试", systemImage: "ladybug") }
                 .toggleStyle(.button)
@@ -800,6 +803,7 @@ struct StoreView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("持久化存储")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Menu {
@@ -1031,6 +1035,7 @@ struct ModuleDetailView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(module?.name ?? String(localized: "模块"))
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear { loadPolicies(); ResourceStore.shared.reload() }
         .onChange(of: args) { _ in debounce.schedule { applyArgs() } }
         .onDisappear { debounce.flush() }

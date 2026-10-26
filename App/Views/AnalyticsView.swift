@@ -263,6 +263,7 @@ struct AnalyticsView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("连接分析")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
@@ -565,6 +566,7 @@ struct RuleHitsList: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("规则")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
     }
 }
 
@@ -590,6 +592,7 @@ struct HostTrafficList: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("主机名")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索主机名")
     }
 }

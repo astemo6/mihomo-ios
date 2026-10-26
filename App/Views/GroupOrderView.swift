@@ -107,30 +107,16 @@ struct GroupReorderList: View {
     @ViewBuilder
     func row(_ r: GroupOrderRow) -> some View {
         let display = PolicyGroupDisplay(name: r.name, kind: r.kind, now: nil, members: [], selectable: false)
-        HStack(spacing: 12) {
+        ReorderRow(name: r.name, note: r.movable ? nil : Text("运行时加入"), movable: r.movable,
+                   isFirst: rows.first?.name == r.name, topID: "grouporder.top." + r.name, onTop: { toTop(r.name) }) {
             GroupIconView(group: r.name, profileIcon: r.icon, fallback: display.icon, size: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: FlagSafe.text(r.name)).font(.subheadline).lineLimit(1)
-                if !r.movable {
-                    Text("运行时加入").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 6)
+        } tag: {
             Text(display.label)
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                 .background(Capsule().fill(Theme.ink(0.1)))
                 .foregroundStyle(.secondary)
-            if r.movable {
-                Button { toTop(r.name) } label: {
-                    Image(systemName: "arrow.up.to.line").foregroundStyle(Theme.accent)
-                }
-                .buttonStyle(.borderless)
-                .disabled(rows.first?.name == r.name)
-                .accessibilityLabel(Text("置顶"))
-                .accessibilityIdentifier("grouporder.top." + r.name)
-            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("grouporder.row." + r.name)
@@ -142,6 +128,63 @@ struct GroupReorderList: View {
         let r = all.remove(at: i)
         all.insert(r, at: 0)
         withAnimation { rows = GroupOrderRow.pinFixed(original: rows, moved: all) }
+    }
+}
+
+/// fix/app-policy-ui #3: the one 编辑排序 row — 策略组 (GroupReorderList) and 分流规则 → 订阅 (RuleSetReorderList) share
+/// it: icon, name, an optional note, a trailing tag and 置顶. The list around it is in edit mode (drag handles).
+struct ReorderRow<Icon: View, Tag: View>: View {
+    let name: String
+    let note: Text?
+    let movable: Bool
+    let isFirst: Bool
+    let topID: String
+    let onTop: () -> Void
+    let icon: Icon
+    let tag: Tag
+
+    init(name: String, note: Text? = nil, movable: Bool = true, isFirst: Bool, topID: String, onTop: @escaping () -> Void,
+         @ViewBuilder icon: () -> Icon, @ViewBuilder tag: () -> Tag) {
+        self.name = name
+        self.note = note
+        self.movable = movable
+        self.isFirst = isFirst
+        self.topID = topID
+        self.onTop = onTop
+        self.icon = icon()
+        self.tag = tag()
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            icon
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: FlagSafe.text(name)).font(.subheadline).lineLimit(1)
+                if let note { note.font(.caption2).foregroundStyle(.secondary) }
+            }
+            Spacer(minLength: 6)
+            tag
+            if movable {
+                Button(action: onTop) {
+                    Image(systemName: "arrow.up.to.line").foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.borderless)
+                .disabled(isFirst)
+                .accessibilityLabel(Text("置顶"))
+                .accessibilityIdentifier(topID)
+            }
+        }
+    }
+}
+
+/// Moves `id` to the top of `rows` (编辑排序 置顶).
+enum ReorderOps {
+    static func toTop<T>(_ rows: [T], _ id: String, key: (T) -> String) -> [T] {
+        guard let i = rows.firstIndex(where: { key($0) == id }), i > 0 else { return rows }
+        var all = rows
+        let r = all.remove(at: i)
+        all.insert(r, at: 0)
+        return all
     }
 }
 

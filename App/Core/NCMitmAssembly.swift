@@ -229,7 +229,16 @@ enum NCMitmBuild {
             for it in cfg.scripts where it.enabled {
                 rs.parseLine(it.line, section: "script", source: "用户")
             }
+            // fix/nc-diag-439 (H): the same module (same URL + arguments) enabled twice ran every script twice on the
+            // same response (build 439: 油管去广告 ×2 — double CPU and body copies on big protobuf bodies). Load it once.
+            var loadedModules = Set<String>()
             for m in cfg.modules where m.enabled {
+                if let key = moduleDedupeKey(url: m.url, args: m.args) {
+                    guard loadedModules.insert(key).inserted else {
+                        rs.errors.append("模块 \(m.name) 与已启用的同一模块重复（同一 URL 与参数），只加载一次")
+                        continue
+                    }
+                }
                 let path = NCEngineConfig.modulePath(home: home, id: m.id)
                 guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
                     rs.errors.append("模块 \(m.name) 未下载")
@@ -257,6 +266,15 @@ enum NCMitmBuild {
         filterSwitches(cfg, rs)
         rs.hostnames = dedupe(rs.hostnames)
         return rs
+    }
+
+    /// fix/nc-diag-439 (H): identity of a remote module for load-once — trimmed URL + sorted arguments; nil for a
+    /// module without a URL (local text: two of them are different modules).
+    static func moduleDedupeKey(url: String, args: [String: String]?) -> String? {
+        let u = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !u.isEmpty else { return nil }
+        let a = (args ?? [:]).sorted { $0.key < $1.key }.map { $0.key + "=" + $0.value }.joined(separator: "&")
+        return u + "#" + a
     }
 
     static func dedupe(_ input: [String]) -> [String] {

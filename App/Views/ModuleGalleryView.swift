@@ -109,6 +109,7 @@ struct ModuleGalleryView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("模块库")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("搜索模块"))
         .refreshable { await gallery.refreshAll(force: true) }
         .toolbar {
