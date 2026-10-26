@@ -1,0 +1,218 @@
+import XCTest
+@testable import Mihomo
+
+/// fix/nc-open-6-10: #6 rule-list trailing comments, #7 upstream DNS race (NCDNSRace), #9 script / UDP traffic in
+/// NCStatsRecorder.
+final class NativeCoreOpen610Tests: XCTestCase {
+
+    // MARK: - #6 trailing comments in rule lists
+
+    func testTrailingCommentStart() {
+        func strip(_ s: String) -> String {
+            guard let i = NCRuleSetIndex.trailingCommentStart(s) else { return s }
+            return String(s[..<i]).trimmingCharacters(in: .whitespaces)
+        }
+        XCTAssertEqual(strip("IP-ASN,4134 // China Telecom"), "IP-ASN,4134")
+        XCTAssertEqual(strip("IP-ASN,4134 // 中国电信"), "IP-ASN,4134")
+        XCTAssertEqual(strip("DOMAIN-SUFFIX,example.com # note"), "DOMAIN-SUFFIX,example.com")
+        XCTAssertEqual(strip("DOMAIN,a.example.com\t// tab"), "DOMAIN,a.example.com")
+        XCTAssertEqual(strip("IP-CIDR,1.2.3.0/24,no-resolve  #x"), "IP-CIDR,1.2.3.0/24,no-resolve")
+        // not comments: URLs and markers inside a token
+        XCTAssertNil(NCRuleSetIndex.trailingCommentStart("https://example.com/path"))
+        XCTAssertNil(NCRuleSetIndex.trailingCommentStart("URL-REGEX,^https?://a\\.com/x#y"))
+        XCTAssertNil(NCRuleSetIndex.trailingCommentStart("DOMAIN-KEYWORD,c#sharp"))
+        XCTAssertNil(NCRuleSetIndex.trailingCommentStart("IP-ASN,4134 / x"))
+    }
+
+    func testASNListWithInlineCommentsMatches() {
+        // VirgilClyne ASN.China shape
+        let body = """
+        # ASN.China
+        IP-ASN,4134 // China Telecom
+        IP-ASN,4837 // 中国联通
+        IP-ASN,9808 # China Mobile
+        IP-ASN,AS56040
+        DOMAIN-SUFFIX,example.cn // trailing
+        """
+        var idx = NCRuleSetIndex()
+        XCTAssertTrue(idx.addData(Data(body.utf8), flavor: .classical))
+        idx.finalize()
+        XCTAssertEqual(idx.entryCount, 5)
+        XCTAssertEqual(idx.asns, [4134, 4837, 9808, 56040])
+        XCTAssertTrue(idx.needsIP)
+        var c = NCMatchContext(); c.ip = NCIP("36.110.1.1")
+        for asn in [4134, 4837, 9808, 56040] {
+            c.asnOf = { _ in asn }
+            XCTAssertTrue(idx.contains(c), "AS\(asn)")
+        }
+        c.asnOf = { _ in 13335 }
+        XCTAssertFalse(idx.contains(c))
+        var d = NCMatchContext(); d.domain = "www.example.cn"
+        XCTAssertTrue(idx.contains(d))
+    }
+
+    func testDomainSetURLLineKeepsHost() {
+        var idx = NCRuleSetIndex()
+        idx.addText("https://ads.example.com/banner\n.tracker.example # c\n", flavor: .domainSet)
+        idx.finalize()
+        var c = NCMatchContext(); c.domain = "ads.example.com"
+        XCTAssertTrue(idx.contains(c))
+        c.domain = "x.tracker.example"
+        XCTAssertTrue(idx.contains(c))
+    }
+
+    // MARK: - #7 NCDNSRace
+
+    private static func answer(rcode: UInt8 = 0, tag: UInt8 = 0) -> Data {
+        var d = Data(count: 12)
+        d[0] = tag
+        d[2] = 0x81
+        d[3] = 0x80 | rcode
+        return d
+    }
+
+    private let servers: [NCDNSUpstream] = [.udp(host: "13.78.100.57", port: 53), .udp(host: "119.29.29.29", port: 53),
+                                            .doh(url: "https://doh.pub/dns-query")]
+
+    /// Fake upstreams: per server index an optional (delay, response); nil delay = never answers.
+    private final class Fake {
+        let lock = NSLock()
+        var calls: [Int] = []
+        let behaviour: [Int: (TimeInterval?, Data?)]
+        let servers: [NCDNSUpstream]
+        init(_ servers: [NCDNSUpstream], _ b: [Int: (TimeInterval?, Data?)]) { self.servers = servers; behaviour = b }
+        func exchange(_ u: NCDNSUpstream, _ done: @escaping (Data?) -> Void) {
+            let i = servers.firstIndex(of: u)!
+            lock.lock(); calls.append(i); lock.unlock()
+            guard let b = behaviour[i], let delay = b.0 else { return }
+            let resp = b.1
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay) { done(resp) }
+        }
+        var callList: [Int] { lock.lock(); defer { lock.unlock() }; return calls }
+    }
+
+    private func race(_ fake: Fake, start: Int = 0, list: [NCDNSUpstream]? = nil, attemptTimeout: TimeInterval = 2.5,
+                      overall: TimeInterval = 5, trace: NCDNSAttemptTrace? = nil) -> (Data?, Int?, TimeInterval) {
+        let q = DispatchQueue(label: "race.test")
+        let exp = expectation(description: "race")
+        var out: (Data?, Int?) = (nil, nil)
+        var fired = 0
+        let t0 = Date()
+        NCDNSRace.run(list: list ?? servers, start: start, queue: q, trace: trace, stagger: 0.3,
+                      attemptTimeout: attemptTimeout, overallTimeout: overall,
+                      exchange: { u, done in fake.exchange(u, done) },
+                      completion: { r, w in out = (r, w); fired += 1; exp.fulfill() })
+        wait(for: [exp], timeout: overall + 2)
+        let dt = Date().timeIntervalSince(t0)
+        // completion fires exactly once, even when late answers arrive afterwards
+        Thread.sleep(forTimeInterval: 0.1)
+        XCTAssertEqual(fired, 1)
+        return (out.0, out.1, dt)
+    }
+
+    func testFastFirstServerSendsOnePacket() {
+        let fake = Fake(servers, [0: (0.05, Self.answer(tag: 1)), 1: (0.01, Self.answer(tag: 2))])
+        let (r, w, dt) = race(fake)
+        XCTAssertEqual(r?.first, 1)
+        XCTAssertEqual(w, 0)
+        XCTAssertLessThan(dt, 0.3)
+        Thread.sleep(forTimeInterval: 0.35)
+        XCTAssertEqual(fake.callList, [0], "an answer inside the stagger window never asks the second server")
+    }
+
+    func testSlowFirstServerLosesToSecondAfterStagger() {
+        // build433: 13.78.100.57 never answered in time; the old sequential failover waited 2.5 s per query.
+        let fake = Fake(servers, [0: (nil, nil), 1: (0.05, Self.answer(tag: 2))])
+        let (r, w, dt) = race(fake)
+        XCTAssertEqual(r?.first, 2)
+        XCTAssertEqual(w, 1)
+        XCTAssertGreaterThanOrEqual(dt, 0.3)
+        XCTAssertLessThan(dt, 1.0, "answered ~350 ms, not after the 2.5 s per-server timeout")
+        XCTAssertEqual(Array(fake.callList.prefix(2)), [0, 1])
+    }
+
+    func testFailedFirstServerStartsNextImmediately() {
+        let fake = Fake(servers, [0: (0.01, nil), 1: (0.02, Self.answer(tag: 2))])
+        let (r, w, dt) = race(fake)
+        XCTAssertEqual(r?.first, 2)
+        XCTAssertEqual(w, 1)
+        XCTAssertLessThan(dt, 0.25, "no stagger wait after a hard failure")
+    }
+
+    func testServfailIsLastResortNotWinner() {
+        let fake = Fake(servers, [0: (0.01, Self.answer(rcode: 2, tag: 1)), 1: (0.05, Self.answer(tag: 2))])
+        let (r, w, _) = race(fake)
+        XCTAssertEqual(r?.first, 2, "SERVFAIL from one server must not beat a real answer")
+        XCTAssertEqual(w, 1)
+        // NXDOMAIN is a real answer and wins
+        let nx = Fake(servers, [0: (0.01, Self.answer(rcode: 3, tag: 1)), 1: (0.05, Self.answer(tag: 2))])
+        let (r2, w2, _) = race(nx)
+        XCTAssertEqual(r2?.first, 1)
+        XCTAssertEqual(w2, 0)
+    }
+
+    func testAllServfailDeliversLastResort() {
+        let list = Array(servers.prefix(2))
+        let fake = Fake(servers, [0: (0.01, Self.answer(rcode: 2, tag: 1)), 1: (0.02, Self.answer(rcode: 5, tag: 2))])
+        let trace = NCDNSAttemptTrace()
+        let (r, w, _) = race(fake, list: list, trace: trace)
+        XCTAssertEqual(r?.first, 1)
+        XCTAssertNil(w)
+        XCTAssertTrue(trace.summary.contains("SERVFAIL"))
+        XCTAssertTrue(trace.summary.contains("REFUSED"))
+    }
+
+    func testAllFailedTraceNamesEveryServer() {
+        let fake = Fake(servers, [0: (nil, nil), 1: (0.01, nil), 2: (nil, nil)])
+        let trace = NCDNSAttemptTrace()
+        let (r, w, dt) = race(fake, attemptTimeout: 0.4, overall: 3, trace: trace)
+        XCTAssertNil(r)
+        XCTAssertNil(w)
+        XCTAssertLessThan(dt, 1.5)
+        XCTAssertEqual(Set(fake.callList), [0, 1, 2])
+        let s = trace.summary
+        XCTAssertTrue(s.contains("13.78.100.57 timeout"), s)
+        XCTAssertTrue(s.contains("119.29.29.29 no answer"), s)
+        XCTAssertTrue(s.contains("https://doh.pub/dns-query timeout"), s)
+    }
+
+    func testThirdServerAfterTwoTimeouts() {
+        let fake = Fake(servers, [0: (nil, nil), 1: (nil, nil), 2: (0.02, Self.answer(tag: 3))])
+        let (r, w, dt) = race(fake, attemptTimeout: 0.3, overall: 3)
+        XCTAssertEqual(r?.first, 3)
+        XCTAssertEqual(w, 2)
+        XCTAssertLessThan(dt, 1.2)
+    }
+
+    func testStartIndexGoesFirst() {
+        let fake = Fake(servers, [0: (0.01, Self.answer(tag: 1)), 1: (0.01, Self.answer(tag: 2))])
+        let (r, w, _) = race(fake, start: 1, list: Array(servers.prefix(2)))
+        XCTAssertEqual(r?.first, 2)
+        XCTAssertEqual(w, 1)
+        XCTAssertEqual(fake.callList.first, 1)
+    }
+
+    func testOverallTimeoutFires() {
+        let fake = Fake(servers, [:])
+        let trace = NCDNSAttemptTrace()
+        let (r, _, dt) = race(fake, list: Array(servers.prefix(1)), attemptTimeout: 5, overall: 0.5, trace: trace)
+        XCTAssertNil(r)
+        XCTAssertLessThan(dt, 1.2)
+        XCTAssertTrue(trace.summary.contains("gave up"))
+    }
+
+    func testUpstreamLabels() {
+        XCTAssertEqual(NCDNSUpstream.udp(host: "1.1.1.1", port: 53).label, "1.1.1.1")
+        XCTAssertEqual(NCDNSUpstream.udp(host: "1.1.1.1", port: 5353).label, "1.1.1.1:5353")
+        XCTAssertEqual(NCDNSUpstream.dot(host: "dns.google", port: 853).label, "tls://dns.google")
+        XCTAssertEqual(NCDNSUpstream.tcp(host: "8.8.8.8", port: 53).label, "tcp://8.8.8.8")
+    }
+
+    func testRcodeHelpers() {
+        XCTAssertTrue(NCDNSRace.isUsable(Self.answer()))
+        XCTAssertTrue(NCDNSRace.isUsable(Self.answer(rcode: 3)))
+        XCTAssertFalse(NCDNSRace.isUsable(Self.answer(rcode: 2)))
+        XCTAssertFalse(NCDNSRace.isUsable(Self.answer(rcode: 5)))
+        XCTAssertFalse(NCDNSRace.isUsable(Data([0, 1, 2])))
+    }
+}

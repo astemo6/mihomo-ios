@@ -1100,8 +1100,13 @@ final class NCDataPlane {
     /// answers unless it fails or its answer trips fallback-filter, in
     /// which case the fallback is asked (if the fallback also fails, the
     /// primary's answer is delivered rather than failing the query).
+    /// fix/nc-open-6-10 #7: when every upstream failed and a core reload landed while the query was in flight
+    /// (engine.dnsGeneration moved), the query is routed again on the new config and re-sent once before it is
+    /// answered SERVFAIL; a final failure writes one rate-limited [DNS] line (name, type, servers tried, outcome).
     private func forwardDNS(_ query: Data, session: UInt32, primary: NCDNSUpstream,
-                            fallback: NCDNSUpstream?, fallbackFirst: Bool) {
+                            fallback: NCDNSUpstream?, fallbackFirst: Bool, retried: Bool = false,
+                            trace: NCDNSAttemptTrace = NCDNSAttemptTrace()) {
+        let gen = engine.dnsGeneration
         let deliver: (Data) -> Void = { [weak self] resp in
             guard let self else { return }
             self.dnsReplies &+= 1
@@ -1120,29 +1125,81 @@ final class NCDataPlane {
                 self.stack.udpSend(session: session, resp)
             }
         }
+        let fail: () -> Void = { [weak self] in
+            guard let self else { return }
+            if !retried, self.engine.dnsGeneration != gen {
+                let route = self.engine.dnsRoute(for: query)
+                if let p = route.primary {
+                    trace.retriedAfterReload = true
+                    trace.add("core reloaded mid-query → re-sent")
+                    self.forwardDNS(query, session: session, primary: p, fallback: route.fallback,
+                                    fallbackFirst: route.fallbackFirst, retried: true, trace: trace)
+                    return
+                }
+            }
+            self.dnsForwardFailed &+= 1
+            self.logDNSFailure(query, trace: trace)
+            self.sendServfail(query, session: session)
+        }
         if fallbackFirst, let fallback {
-            dnsForwarder.forward(query, upstream: fallback) { [weak self] resp in
+            dnsForwarder.forward(query, upstream: fallback, trace: trace) { [weak self] resp in
                 guard let self else { return }
                 if let resp { deliver(resp); return }
-                self.dnsForwarder.forward(query, upstream: primary) { resp2 in
-                    if let resp2 { deliver(resp2) } else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
+                self.dnsForwarder.forward(query, upstream: primary, trace: trace) { resp2 in
+                    if let resp2 { deliver(resp2) } else { fail() }
                 }
             }
             return
         }
-        dnsForwarder.forward(query, upstream: primary) { [weak self] resp in
+        dnsForwarder.forward(query, upstream: primary, trace: trace) { [weak self] resp in
             guard let self else { return }
             if let resp, !self.engine.dnsAnswerTriggersFallback(resp) { deliver(resp); return }
             guard let fallback else {
-                if let resp { deliver(resp) } else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
+                if let resp { deliver(resp) } else { fail() }
                 return
             }
-            self.dnsForwarder.forward(query, upstream: fallback) { resp2 in
+            self.dnsForwarder.forward(query, upstream: fallback, trace: trace) { resp2 in
                 if let resp2 { deliver(resp2) }
                 else if let resp { deliver(resp) }
-                else { self.dnsForwardFailed &+= 1; self.sendServfail(query, session: session) }
+                else { fail() }
             }
         }
+    }
+
+    /// fix/nc-open-6-10 #7: at most 6 [DNS] failure lines per 10 s into the core log (the rest counted and
+    /// reported as one "suppressed" line); the first 8 per tunnel session also go to the startup log, which the
+    /// diagnostics export always carries.
+    private let dnsFailLimiter = NCLineLimiter(perWindow: 6, window: 10)
+    private var dnsFailStartupLines = 0
+
+    private func logDNSFailure(_ query: Data, trace: NCDNSAttemptTrace) {
+        let line = Self.dnsFailureLine(query, trace: trace)
+        if dnsFailStartupLines < 8 {
+            dnsFailStartupLines += 1
+            StartupLog.write(line)
+        }
+        let (ok, suppressed) = dnsFailLimiter.admit()
+        guard ok else { return }
+        if suppressed > 0 { connLog("[DNS] \(suppressed) failure line(s) suppressed", level: "warning") }
+        connLog(line, level: "warning")
+    }
+
+    static func dnsFailureLine(_ query: Data, trace: NCDNSAttemptTrace) -> String {
+        let q = NCDNSMessage.parse(query)?.questions.first
+        let name = q?.name ?? "?"
+        let t = q?.type ?? 0
+        let type: String
+        switch t {
+        case 1: type = "A"
+        case 28: type = "AAAA"
+        case 65: type = "HTTPS"
+        case 5: type = "CNAME"
+        case 12: type = "PTR"
+        case 16: type = "TXT"
+        case 33: type = "SRV"
+        default: type = q == nil ? "?" : "type \(t)"
+        }
+        return "[DNS] \(name) \(type) failed (SERVFAIL to client): \(trace.summary)"
     }
 
     /// fix/nc-tcp0: every upstream failed — answer SERVFAIL (mihomo's DNS server does) instead of dropping the query;
