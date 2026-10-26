@@ -8,6 +8,7 @@ enum NCSupport {
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
         "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru", "tailscale",
+        "sudoku",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -38,6 +39,8 @@ enum NCSupport {
             if let why = wireguardUnsupported(p) { return why }
         case "mieru":
             if let why = mieruUnsupported(p) { return why }
+        case "sudoku":
+            if let why = sudokuUnsupported(p) { return why }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
@@ -172,6 +175,11 @@ enum NCSupport {
             return "WireGuard 缺少 server / port / public-key"
         }
         return nil
+    }
+
+    /// Sudoku (NCSudoku, feat/nc-sudoku): validation and unsupported marker checks.
+    static func sudokuUnsupported(_ p: NCProxy) -> String? {
+        NCSudoku.unsupportedReason(p)
     }
 
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.

@@ -714,6 +714,12 @@ enum NCConnector {
                 return
             }
             tuicStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "sudoku":
+            if let why = NCSupport.sudokuUnsupported(proxy) {
+                queue.async { completion(nil, Failure.unsupported(why)) }
+                return
+            }
+            queue.async { completion(nil, Failure.unsupported("sudoku connector dialer (deferred to S2)")) }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
