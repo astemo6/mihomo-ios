@@ -25,20 +25,11 @@ enum NCHy2UDP {
     /// udpMTU (1200 - 3). Proven end to end on Network.framework (proto-loopback 40200309815 and
     /// 40207809715: every single datagram up to 1197 B round-trips). The first cut assumed a 1197-byte
     /// frame cannot fit a 1200-byte QUIC packet and used 1100 — but NW does not stop at 1200, and the
-    /// loss it was chasing was the burst drop below (maxUDPPayloadSize). The connection lowers the
-    /// budget to NWConnection.maximumDatagramSize when the path reports less, and on EMSGSIZE.
+    /// loss it was chasing was server-side (H3_DATAGRAM, see NCHy2.http3SettingsFrame). Note NW
+    /// silently drops a datagram above its real per-packet room (~1424 B on loopback) without a send
+    /// error, while maximumDatagramSize reports 16356 — so this stays the cap. The connection lowers
+    /// the budget to NWConnection.maximumDatagramSize when the path reports less, and on EMSGSIZE.
     static let maxDatagramSize = 1197
-
-    /// The QUIC max_udp_payload_size we hold Network.framework to (NWProtocolQUIC.Options
-    /// .maxUDPPayloadSize). quic-go — the hysteria2 server stack in both apernet/hysteria and sing-box
-    /// (sing-quic) — reads every UDP packet into a 1452-byte buffer (protocol.MaxPacketBufferSize) and
-    /// advertises max_udp_payload_size 1452; a bigger packet is truncated, fails AEAD and is dropped
-    /// without a trace. NW sizes datagram-carrying packets from its own path MTU instead (it reports
-    /// maximumDatagramSize 16356 on loopback) and packs several queued DATAGRAM frames into one
-    /// packet, so back-to-back datagrams — the pieces of one fragmented UDP packet above all — were
-    /// lost together while every lone datagram arrived (hy2-frag lane, proto-loopback 40207809715).
-    /// Capping the payload keeps every QUIC packet inside the server's buffer.
-    static let maxUDPPayloadSize = 1452
 
     /// The per-datagram budget for a flow whose NWConnection.maximumDatagramSize is `flowMax`
     /// (0 = not known yet). A tiny or absent report is ignored rather than trusted.

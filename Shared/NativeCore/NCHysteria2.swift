@@ -290,16 +290,29 @@ enum NCHy2 {
     }
 
     /// The client SETTINGS frame: QPACK max table capacity 0 (keeps server
-    /// responses inside the decodable subset), QPACK blocked streams 0, and
-    /// H3_DATAGRAM enabled (needed for UDP).
-    static func http3SettingsFrame() -> Data {
+    /// responses inside the decodable subset) and QPACK blocked streams 0.
+    ///
+    /// hy2-frag: NO H3_DATAGRAM (0x33). Hysteria2 UDP rides raw QUIC datagrams, not RFC 9297
+    /// HTTP datagrams, and the official / sing-box clients never announce it. When the client does,
+    /// the server's quic-go http3 layer (apernet/hysteria and sing-quic both serve auth through
+    /// http3.Server.ServeQUICConn) starts its own HTTP-datagram reader on the same connection; it
+    /// and the hysteria UDP loop then take turns calling ReceiveDatagram, and every datagram the
+    /// http3 reader wins is parsed as an HTTP datagram and dropped. That is the "burst / fragment
+    /// loss": roughly every other datagram vanished inside the server (quic-go debug log in
+    /// proto-loopback 40333737866 shows every frame received intact; reproduced against sing-box
+    /// 1.12.24 with an aioquic client: identical wire format, 100% delivery without the setting,
+    /// ~40% with it). A fragmented packet needs all pieces, so it almost never survived.
+    /// `advertiseH3Datagram` exists only for the loopback control group.
+    static func http3SettingsFrame(advertiseH3Datagram: Bool = false) -> Data {
         var payload = Data()
         payload.append(varintEncode(0x01)) // QPACK_MAX_TABLE_CAPACITY
         payload.append(varintEncode(0))
         payload.append(varintEncode(0x07)) // QPACK_BLOCKED_STREAMS
         payload.append(varintEncode(0))
-        payload.append(varintEncode(0x33)) // H3_DATAGRAM
-        payload.append(varintEncode(1))
+        if advertiseH3Datagram {
+            payload.append(varintEncode(0x33)) // H3_DATAGRAM — see above, never in production
+            payload.append(varintEncode(1))
+        }
         return http3Frame(type: 0x04, payload: payload)
     }
 
@@ -523,9 +536,9 @@ final class NCHysteria2Connection {
     private var udpTxGapMs = 0
     private var udpTxBatch = true
     private var udpTxGapPending = false
-    /// QUIC max_udp_payload_size held on NW (NCHy2UDP.maxUDPPayloadSize; 0 = leave NW's own choice).
-    /// Read by makeQUICOptions, so only a change before start() takes effect.
-    var quicMaxUDPPayloadSize = NCHy2UDP.maxUDPPayloadSize
+    /// Test seam (loopback control group only): announce H3_DATAGRAM in our SETTINGS like the first
+    /// cut did. Read when the control stream opens, so only a change before start() takes effect.
+    var advertiseH3DatagramForTesting = false
     /// UDP sessions by hysteria session ID (session queue only). Inbound datagrams are demultiplexed on
     /// the 4-byte session ID (NCHy2UDP.peekSessionID) and handed raw to exactly one sink; the sink's
     /// session reassembles. Was a fan-out to every sink (each re-parsing every datagram).
@@ -564,7 +577,7 @@ final class NCHysteria2Connection {
 
     /// Snapshot of the UDP datagram path for diagnostics/tests.
     var udpDiagnostics: String {
-        let read = { "limit=\(self.datagramLimit) flowMax=\(self.flowMaxDatagramSize) cap=\(self.quicMaxUDPPayloadSize) win=\(self.udpTx.window) gap=\(self.udpTxGapMs) batch=\(self.udpTxBatch) flow=\(self.datagramFlow != nil) peerFlow=\(self.peerDatagramFlow != nil) rx=\(self.udpRxCount) rxMax=\(self.udpRxMaxSize) txQmax=\(self.udpTx.maxQueued) txInflMax=\(self.udpTx.maxInFlight) txDrops=\(self.udpTx.droppedPackets) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
+        let read = { "limit=\(self.datagramLimit) flowMax=\(self.flowMaxDatagramSize) h3dg=\(self.advertiseH3DatagramForTesting) win=\(self.udpTx.window) gap=\(self.udpTxGapMs) batch=\(self.udpTxBatch) flow=\(self.datagramFlow != nil) peerFlow=\(self.peerDatagramFlow != nil) rx=\(self.udpRxCount) rxMax=\(self.udpRxMaxSize) txQmax=\(self.udpTx.maxQueued) txInflMax=\(self.udpTx.maxInFlight) txDrops=\(self.udpTx.droppedPackets) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
         if NCSessionQueues.isCurrent(queue) { return read() }
         return queue.sync(execute: read)
     }
@@ -628,15 +641,9 @@ final class NCHysteria2Connection {
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)
         }
-        // RFC 9221 max_datagram_frame_size: our SETTINGS announce H3_DATAGRAM=1, and a
-        // quic-go HTTP/3 peer with datagrams enabled closes the connection
-        // (H3_SETTINGS_ERROR "missing QUIC Datagram support") when the transport did not
-        // negotiate datagrams. hysteria2 UDP rides QUIC datagrams too.
+        // RFC 9221 max_datagram_frame_size: hysteria2 UDP rides QUIC datagrams, which the
+        // transport must negotiate. (Not HTTP/3 datagrams — see http3SettingsFrame.)
         quicOptions.maxDatagramFrameSize = 1400
-        // hy2-frag: keep every QUIC packet inside quic-go's 1452-byte receive buffer (see
-        // NCHy2UDP.maxUDPPayloadSize) — NW otherwise packs queued DATAGRAM frames into packets as big as
-        // its own path MTU allows and the server drops them whole.
-        if quicMaxUDPPayloadSize > 0 { quicOptions.maxUDPPayloadSize = quicMaxUDPPayloadSize }
         return quicOptions
     }
 
@@ -727,7 +734,7 @@ final class NCHysteria2Connection {
             // = control stream), followed by SETTINGS. Sent exactly once, on
             // this stream only — never on the auth stream or a proxy stream.
             var flight = NCHy2.varintEncode(0x00)
-            flight.append(NCHy2.http3SettingsFrame())
+            flight.append(NCHy2.http3SettingsFrame(advertiseH3Datagram: self.advertiseH3DatagramForTesting))
             self.control?.send(flight)
         }
         authChannel.start(queue: queue) { [weak self] error in

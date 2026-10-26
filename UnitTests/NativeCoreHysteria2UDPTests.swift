@@ -241,11 +241,12 @@ final class NativeCoreHysteria2UDPTests: XCTestCase {
         XCTAssertEqual(NCHy2UDP.datagramBudget(flowMax: 100), 1197, "nonsense report ignored")
     }
 
-    func testPayloadCapLeavesRoomForTheBudget() {
-        // 1197-byte DATAGRAM frame + short header (1 + 20-byte CID + 4-byte PN) + frame type/length
-        // (1 + 2) + 16-byte AEAD tag must fit quic-go's 1452-byte receive buffer.
-        XCTAssertEqual(NCHy2UDP.maxUDPPayloadSize, 1452)
-        XCTAssertLessThanOrEqual(NCHy2UDP.maxDatagramSize + 1 + 20 + 4 + 3 + 16, NCHy2UDP.maxUDPPayloadSize)
+    func testSettingsFrameNeverAnnouncesH3Datagram() {
+        // type 0x04, len 4: QPACK_MAX_TABLE_CAPACITY 0, QPACK_BLOCKED_STREAMS 0 — and no 0x33 H3_DATAGRAM,
+        // which makes a quic-go http3 server steal hysteria's QUIC datagrams (hy2-frag root cause).
+        XCTAssertEqual(NCHy2.http3SettingsFrame(), Data([0x04, 0x04, 0x01, 0x00, 0x07, 0x00]))
+        XCTAssertEqual(NCHy2.http3SettingsFrame(advertiseH3Datagram: true),
+                       Data([0x04, 0x06, 0x01, 0x00, 0x07, 0x00, 0x33, 0x01]))
     }
 
     func testSendQueueWindowAndOrder() {

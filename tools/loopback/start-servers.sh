@@ -162,9 +162,9 @@ do_start() {
     echo $! > "$RUN/echo.pid"
 
     log "starting sing-box $("$sb" version | head -n1)"
-    # NC_LOOPBACK_QUIC_DEBUG=1 (default): quic-go per-packet debug log into sing-box.log, summarised by
+    # NC_LOOPBACK_QUIC_DEBUG=1 (off by default): quic-go per-packet debug log into sing-box.log, summarised by
     # `stop` (hy2-frag: which received QUIC packets / DATAGRAM frames the server drops, and why).
-    if [ "${NC_LOOPBACK_QUIC_DEBUG:-1}" = 1 ]; then
+    if [ "${NC_LOOPBACK_QUIC_DEBUG:-0}" = 1 ]; then
         QUIC_GO_LOG_LEVEL=debug nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &
     else
         nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &

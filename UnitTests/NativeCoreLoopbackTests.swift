@@ -491,15 +491,15 @@ final class NativeCoreLoopbackTests: XCTestCase {
         XCTAssertEqual(first, Self.dnsQuery, "no hysteria2 UDP echo over QUIC datagrams (\(conn.udpDiagnostics))")
 
         // hy2-frag ladder, printed as one "HY2LADDER" line whatever the outcome (diagnostics):
-        //  A = the shipped defaults on the shared connection (max_udp_payload_size 1452, windowed queue,
-        //      batched pumps, budget = min(1197, flow maximumDatagramSize));
-        //  B = a second, private connection with the pre-fix transport (no payload cap) — the control
-        //      group that showed the loss — under several send modes.
+        //  A = the shipped defaults on the shared connection (no H3_DATAGRAM in SETTINGS, windowed send
+        //      queue, batched pumps, budget = min(1197, flow maximumDatagramSize));
+        //  B = control group: a private connection that announces H3_DATAGRAM like the first cut did —
+        //      the server's http3 layer then steals QUIC datagrams (hy2-frag root cause), so B is lossy.
         // Rungs: "u<W>" one unfragmented datagram of W wire bytes; "b<n>x<W>[g<ms>]" n separate packets
         // back to back (or <ms> apart); "f<budget><mode>" a 3000-byte packet fragmented at <budget>.
         let probeA = Hy2UDPProbe(conn: conn, sessionID: sessionID, replies: replies, target: target)
         var ladder: [String] = ["A[" + conn.udpDiagnostics + "]"]
-        ladder.append(contentsOf: probeA.sizeRungs([1197, 1300, 1400, 1500, 2000]))
+        ladder.append(contentsOf: probeA.sizeRungs([1197, 1300, 1400]))
         ladder.append(probeA.burst(3, wire: 1000, gapMs: 0))
         ladder.append(probeA.burst(6, wire: 300, gapMs: 0))
         let b8 = probeA.burst(8, wire: 1000, gapMs: 0)
@@ -515,26 +515,16 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
         // B: control connection without the payload cap.
         var bLine = "B[unavailable]"
-        if let b = Self.startPrivateHy2(maxUDPPayloadSize: 0) {
+        if let b = Self.startPrivateHy2(advertiseH3Datagram: true) {
             let bReplies = UDPReplies()
             if let bID = b.registerUDP({ raw in bReplies.feed(raw) }) {
                 bReplies.sessionID = bID
                 let probeB = Hy2UDPProbe(conn: b, sessionID: bID, replies: bReplies, target: target)
                 if probeB.warmUp(Self.dnsQuery) {
                     var r: [String] = []
-                    r.append(contentsOf: probeB.sizeRungs([1197, 1400, 1500, 2000]))
-                    r.append(probeB.burst(3, wire: 1000, gapMs: 0))
-                    r.append(probeB.burst(3, wire: 400, gapMs: 0))
-                    r.append(probeB.burst(6, wire: 300, gapMs: 0))
-                    // Send modes: old = everything handed to NW at once, unbatched (the first cut);
-                    // batch = same, inside NWConnection.batch; g10 / g30 = one datagram in NW at a time
-                    // plus a 10 / 30 ms pause after each completion.
-                    let modes: [(String, Int, Int, Bool)] = [("old", 256, 0, false), ("batch", 256, 0, true),
-                                                            ("g10", 1, 10, false), ("g30", 1, 30, false)]
-                    for (name, window, gap, batch) in modes {
-                        b.setUDPSendModeForTesting(window: window, gapMs: gap, batch: batch)
-                        r.append(probeB.fragRung(budget: 1197, label: name, seed: 300 + gap + window))
-                    }
+                    r.append(contentsOf: probeB.sizeRungs([1197, 1300]))
+                    r.append(probeB.burst(8, wire: 1000, gapMs: 0))
+                    r.append(probeB.fragRung(budget: 1197, label: "", seed: 300))
                     bLine = "B[" + b.udpDiagnostics + "] " + r.joined(separator: " ")
                 } else {
                     bLine = "B[no warm-up echo " + b.udpDiagnostics + "]"
@@ -553,10 +543,10 @@ final class NativeCoreLoopbackTests: XCTestCase {
     }
 
     /// A private (non-registry) hysteria2 connection to the loopback inbound, for control-group rungs.
-    private static func startPrivateHy2(maxUDPPayloadSize: Int) -> NCHysteria2Connection? {
+    private static func startPrivateHy2(advertiseH3Datagram: Bool) -> NCHysteria2Connection? {
         let queue = DispatchQueue(label: "nc.loopback.hy2udp.b")
         guard let conn = NCHysteria2Connection(proxy: Self.hy2Proxy, queue: queue) else { return nil }
-        conn.quicMaxUDPPayloadSize = maxUDPPayloadSize
+        conn.advertiseH3DatagramForTesting = advertiseH3Datagram
         let done = DispatchSemaphore(value: 0)
         let box = LockedBox<Error?>(nil)
         conn.start { err in
