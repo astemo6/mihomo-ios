@@ -522,7 +522,7 @@ final class NCHysteria2Connection {
     private var datagramSinks: [UInt64: (Data) -> Void] = [:]
 
     init(server: String, port: Int, password: String, sni: String? = nil,
-         allowInsecure: Bool = false, echEnabled: Bool = true, queue: DispatchQueue) {
+         allowInsecure: Bool = false, echEnabled: Bool = false, queue: DispatchQueue) {
         self.server = server
         self.port = port
         self.password = password
@@ -536,8 +536,8 @@ final class NCHysteria2Connection {
     convenience init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let server = proxy.server, let port = proxy.port,
               let password = proxy.password else { return nil }
-        let echEnabled = proxy.fields["ech-opts"]?.object?["enable"]?.bool ?? true
-        if NCSupport.hasStaticECHConfig(proxy) {
+        let echEnabled = proxy.fields["ech-opts"]?.object?["enable"]?.bool == true
+        if echEnabled && NCSupport.hasStaticECHConfig(proxy) {
             StartupLog.write("hysteria2「\(proxy.name)」: 节点配置了静态 ech-opts.config，但系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 获取，静态配置不生效）")
         }
         self.init(server: server, port: port, password: password,

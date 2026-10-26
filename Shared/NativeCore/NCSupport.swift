@@ -189,7 +189,7 @@ enum NCSupport {
     /// so static configs cannot be injected into the system QUIC stack.
     static func hasStaticECHConfig(_ p: NCProxy) -> Bool {
         guard let echOpts = p.fields["ech-opts"]?.object,
-              echOpts["enable"]?.bool ?? true else { return false }
+              echOpts["enable"]?.bool == true else { return false }
         if let s = echOpts["config"]?.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return true
         }
