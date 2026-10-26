@@ -425,32 +425,22 @@ enum NCConnector {
                 socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
         case "http", "https":
-            let isHTTPS = proxy.type == "https" || (proxy.fields["tls"]?.bool ?? false)
-            if transport != nil && isHTTPS {
+            if transport != nil && proxy.type == "https" {
                 queue.async { completion(nil, Failure.unsupported("https proxy over a chain transport")) }
                 return
             }
-            if isHTTPS && isECHEnabled(proxy) && realityParams(proxy) != nil {
+            if proxy.type == "https" && isECHEnabled(proxy) && realityParams(proxy) != nil {
                 queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
                 return
             }
-            if isHTTPS && needsNativeTLS(proxy) {
+            if proxy.type == "https" && needsNativeTLS(proxy) {
                 dialNativeTLS(proxy: proxy, server: server, port: port, defaultALPN: ["http/1.1"], queue: queue) { raw, err in
                     guard let raw else { completion(nil, err); return }
                     httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
                 }
                 return
             }
-            obtainStream(transport: transport, make: {
-                if isHTTPS {
-                    return NCStream(to: server, port: port,
-                                    tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
-                                    allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                                    queue: queue)
-                } else {
-                    return NCStream(to: server, port: port, queue: queue)
-                }
-            }) { raw, err in
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, tls: proxy.type == "https", queue: queue) }) { raw, err in
                 guard let raw else { completion(nil, err); return }
                 httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
@@ -575,8 +565,9 @@ enum NCConnector {
                 }
                 return
             }
+            let trojanSNI = proxy.fields["sni"]?.string ?? server
             if needsNativeTLS(proxy) {
-                dialNativeTLS(proxy: proxy, server: server, port: port, queue: queue) { base, err in
+                dialNativeTLS(proxy: proxy, server: server, port: port, serverName: trojanSNI, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
                     base.send(NCTrojan.requestHead(password: password, target: target))
                     completion(base, nil)
@@ -584,7 +575,7 @@ enum NCConnector {
                 return
             }
             let raw = NCStream(to: server, port: port,
-                               tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                               tlsServerName: trojanSNI,
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                                queue: queue)
             raw.start { err in
@@ -872,10 +863,11 @@ enum NCConnector {
     }
 
     /// Extract client fingerprint profile name from proxy fields if present.
+    /// "none" (case-insensitive) and empty strings are treated as having no fingerprint.
     static func parseClientFingerprint(_ proxy: NCProxy) -> String? {
         if let fp = proxy.fields["client-fingerprint"]?.string {
             let trimmed = fp.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty { return trimmed }
+            if !trimmed.isEmpty && trimmed.lowercased() != "none" { return trimmed }
         }
         if let fp = proxy.fields["fingerprint"]?.string {
             let trimmed = fp.trimmingCharacters(in: .whitespaces)
@@ -883,7 +875,7 @@ enum NCConnector {
             if hex.count == 64 && hexBytes(hex) != nil {
                 return nil
             }
-            if !trimmed.isEmpty { return trimmed }
+            if !trimmed.isEmpty && trimmed.lowercased() != "none" { return trimmed }
         }
         return nil
     }
@@ -984,9 +976,10 @@ enum NCConnector {
     }
 
     /// Whether this proxy requires the native TLS stack (NCTLSClient).
+    /// Note: client-fingerprint of "none" or empty string does not trigger native TLS.
     static func needsNativeTLS(_ proxy: NCProxy) -> Bool {
         if isECHEnabled(proxy) { return true }
-        if parseClientFingerprint(proxy) != nil { return true }
+        if let fp = parseClientFingerprint(proxy), !fp.isEmpty, fp.lowercased() != "none" { return true }
         if parsePinnedCertSHA256(proxy) != nil { return true }
         return false
     }
@@ -1242,8 +1235,9 @@ enum NCConnector {
             return
         }
 
+        let anytlsSNI = proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server
         if needsNativeTLS(proxy) {
-            dialNativeTLS(proxy: proxy, server: server, port: port, queue: session.queue) { tls, err in
+            dialNativeTLS(proxy: proxy, server: server, port: port, serverName: anytlsSNI, queue: session.queue) { tls, err in
                 if let tls {
                     session.attach(tls: tls, password: password,
                                    clientMetadata: proxy.fields["client-metadata"]?.string ?? "")
@@ -1261,7 +1255,7 @@ enum NCConnector {
 
         // nc-sessions: the base TLS connection runs on the session's own queue (see muxSession).
         let tls = NCStream(to: server, port: port,
-                           tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                           tlsServerName: anytlsSNI,
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                            queue: session.queue)
         tls.start { err in
