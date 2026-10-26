@@ -279,6 +279,7 @@ enum NCQXImport {
         if fields["skip-cert-verify"] == nil, let v = take("skip-cert-verify"), let b = NCConfImport.boolValue(v) {
             fields["skip-cert-verify"] = .bool(b)
         }
+        NCConfImport.applyECH(kv: kv, consumed: &consumed, fields: &fields)
 
         NCConfImport.finishFields(&fields, kv: kv, order: order, consumed: consumed)
         return NCProxy(name: name, type: type, fields: fields)
