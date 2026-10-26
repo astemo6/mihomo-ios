@@ -759,15 +759,57 @@ enum NCSubscriptionParser {
         }
         if let ech = tls["ech"] as? [String: Any], jBool(ech["enabled"]) {
             var echFields: [String: NCJSONValue] = ["enable": .bool(true)]
-            if let configs = ech["config"] as? [String], let first = configs.first, !first.isEmpty {
-                echFields["config"] = .string(first)
-            } else if let cfgStr = ech["config"] as? String, !cfgStr.isEmpty {
-                echFields["config"] = .string(cfgStr)
+            if let cfg = normalizeSingBoxECHConfig(ech["config"]) {
+                echFields["config"] = .string(cfg)
             }
             if let qsn = ech["query_server_name"] as? String ?? ech["query-server-name"] as? String, !qsn.isEmpty {
                 echFields["query-server-name"] = .string(qsn)
             }
             f["ech-opts"] = .object(echFields)
+        }
+    }
+
+    /// Extract and normalize sing-box ECH config.
+    /// Handles multiline PEM blocks (single string or array of lines) and bare base64.
+    /// When PEM header `-----BEGIN ECH CONFIGS-----` is present, extracts body between BEGIN and END,
+    /// concatenates lines, and validates base64.
+    /// For bare base64, joins and strips whitespace. Stored as base64 string per NCECHOpts convention.
+    static func normalizeSingBoxECHConfig(_ raw: Any?) -> String? {
+        guard let raw else { return nil }
+        let rawText: String
+        if let arr = raw as? [String] {
+            rawText = arr.joined(separator: "\n")
+        } else if let arr = raw as? [Any] {
+            rawText = arr.compactMap { $0 as? String }.joined(separator: "\n")
+        } else if let str = raw as? String {
+            rawText = str
+        } else {
+            return nil
+        }
+
+        let beginMarker = "-----BEGIN ECH CONFIGS-----"
+        let endMarker = "-----END ECH CONFIGS-----"
+
+        if rawText.contains(beginMarker) {
+            guard let beginRange = rawText.range(of: beginMarker) else { return nil }
+            let afterBegin = rawText[beginRange.upperBound...]
+            let bodyText: Substring
+            if let endRange = afterBegin.range(of: endMarker) {
+                bodyText = afterBegin[..<endRange.lowerBound]
+            } else {
+                bodyText = afterBegin
+            }
+            let cleaned = bodyText.components(separatedBy: .whitespacesAndNewlines).joined()
+            guard !cleaned.isEmpty else { return nil }
+            guard let data = Data(base64Encoded: cleaned) ?? Data(base64Encoded: NCECHOpts.fromBase64URL(cleaned)),
+                  !data.isEmpty else {
+                return nil
+            }
+            return cleaned
+        } else {
+            let cleaned = rawText.components(separatedBy: .whitespacesAndNewlines).joined()
+            guard !cleaned.isEmpty else { return nil }
+            return cleaned
         }
     }
 
