@@ -1264,7 +1264,7 @@ final class TernUITests: TernUITestCase {
         XCTAssertTrue(app.element(labelContains: tsNote).waitForExistence(timeout: 4), "unsupported note in the editor")
         XCTAssertFalse(app.textFields[L("服务器")].exists, "no server field for Tailscale")
         XCTAssertFalse(app.textFields[L("端口")].exists, "no port field for Tailscale")
-        XCTAssertTrue(app.staticTexts[L("设备名")].exists || app.textFields["mihomo-ios"].exists, "hostname field")
+        XCTAssertTrue(app.staticTexts[L("设备名")].exists || app.textFields["tern"].exists, "hostname field")
         fill(L("名称"), "UITest Tailscale")
         let sec = app.secureTextFields.firstMatch
         XCTAssertTrue(sec.waitForExistence(timeout: 3), "auth key field")
@@ -1902,19 +1902,19 @@ final class TernUITests: TernUITestCase {
         back()
     }
 
-    // MARK: 34. v0.19.4 URL scheme: mihomo:// links opened from outside never crash; unknown actions are refused
+    // MARK: 34. v0.19.4 URL scheme: tern:// links opened from outside never crash; unknown actions are refused
 
     func test34_URLSchemeLinks() {
         launch()
         guard #available(iOS 16.4, *) else { return }
         // Unknown action → refused (alert or nothing), app stays up.
-        app.open(URL(string: "mihomo://definitely-not-an-action?x=1")!)
+        app.open(URL(string: "tern://definitely-not-an-action?x=1")!)
         usleep(2_500_000)
-        XCTAssertEqual(app.state, .runningForeground, "app alive after an unknown mihomo:// action")
+        XCTAssertEqual(app.state, .runningForeground, "app alive after an unknown tern:// action")
         snap("scheme-unknown")
         for b in [L("好"), "OK", L("取消"), "Cancel"] where app.buttons[b].exists { app.buttons[b].firstMatch.tap(); break }
         // install-config with an unreachable URL → confirmation / error, never a silent import or a crash.
-        app.open(URL(string: "mihomo://install-config?url=https%3A%2F%2Fuitest.invalid%2Fprofile.yaml&name=UITestScheme")!)
+        app.open(URL(string: "tern://install-config?url=https%3A%2F%2Fuitest.invalid%2Fprofile.yaml&name=UITestScheme")!)
         usleep(3_000_000)
         XCTAssertEqual(app.state, .runningForeground, "app alive after install-config")
         snap("scheme-install-config")

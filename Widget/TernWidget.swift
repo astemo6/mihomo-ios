@@ -109,7 +109,7 @@ struct CycleModeIntent: AppIntent {
 
 @available(iOS 18.0, *)
 struct ModeControl: ControlWidget {
-    static let kind = "MihomoModeControl"
+    static let kind = "TernModeControl"
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: Self.kind, provider: Provider()) { mode in
@@ -135,7 +135,7 @@ struct ModeControl: ControlWidget {
 
 @available(iOS 18.0, *)
 struct TunnelToggleControl: ControlWidget {
-    static let kind = "MihomoTunnelToggle"
+    static let kind = "TernTunnelToggle"
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: Self.kind, provider: Provider()) { on in
@@ -204,7 +204,7 @@ struct StatusProvider: TimelineProvider {
 }
 
 struct StatusWidget: Widget {
-    let kind = "MihomoStatus"
+    let kind = "TernStatus"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: StatusProvider()) { entry in

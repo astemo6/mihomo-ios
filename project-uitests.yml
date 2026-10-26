@@ -17,7 +17,7 @@ targets:
       - target: Tern
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.astemo6.mihomo.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.astemo6.tern.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: Tern
         SWIFT_EMIT_LOC_STRINGS: NO
@@ -37,7 +37,7 @@ targets:
       - target: Tern
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.astemo6.mihomo.unittests
+        PRODUCT_BUNDLE_IDENTIFIER: com.astemo6.tern.unittests
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Tern.app/Tern"
         BUNDLE_LOADER: "$(TEST_HOST)"
@@ -64,7 +64,7 @@ targets:
       - sdk: NetworkExtension.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.astemo6.mihomo.e2etests
+        PRODUCT_BUNDLE_IDENTIFIER: com.astemo6.tern.e2etests
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Tern.app/Tern"
         SWIFT_EMIT_LOC_STRINGS: NO

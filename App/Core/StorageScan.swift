@@ -23,7 +23,7 @@ enum StorageScan {
     static let providerDirs = ["rules", "ruleset", "proxies", "providers", "rule-providers", "proxy-providers"]
     static let geoExt: Set<String> = ["metadb", "dat", "mmdb"]
     static let logFiles: Set<String> = ["startup-log.txt", "startup-log.prev.txt", "tunnel-last-error.txt", "tunnel-last-stop.txt"]
-    static let statsFiles: Set<String> = ["traffic-history.json", "analytics-history.json", "mihomo/probe-results.json"]
+    static let statsFiles: Set<String> = ["traffic-history.json", "analytics-history.json", "tern/probe-results.json"]
 
     /// Category of one container-relative path (no leading slash). Mirrors the paths the page always used.
     static func classify(_ rel: String) -> Kind {
@@ -39,7 +39,7 @@ enum StorageScan {
         }
         if logFiles.contains(rel) { return .logs }
         if statsFiles.contains(rel) { return .stats }
-        if first == "mihomo" {
+        if first == "tern" {
             if parts.count > 2 {
                 if parts[1] == "nodesubs" { return .profiles }
                 if parts[1] == "diag" { return .logs }
@@ -56,18 +56,18 @@ enum StorageScan {
     static let orphanAge: TimeInterval = 10 * 60
 
     /// Whether `rel` is a leftover nothing reads, so deleting it changes nothing for the user:
-    /// - staging directories of a crashed / killed runtime prepare (`mihomo/.nativecore-stage-*`, also the
+    /// - staging directories of a crashed / killed runtime prepare (`tern/.nativecore-stage-*`, also the
     ///   hard-link backups inside them), older than `orphanAge`;
     /// - orphaned atomic-write temp files (`.<name>.tmp…` from writeAtomic / Tailscale / the old old bridge,
     ///   Foundation's `.<name>.nosync…`, `<geo>.download`), older than `orphanAge`;
-    /// - files only the removed old core used: `mihomo/cache.db` (bbolt), `mihomo/tunnel-stats.json`, `mihomo/ui/`
+    /// - files only the removed old core used: `tern/cache.db` (bbolt), `tern/tunnel-stats.json`, `tern/ui/`
     ///   (external-ui; NativeCore strips external-ui from the runtime config);
     /// - `Library/Caches/` of the group container (system caches, rebuilt on demand).
     static func isLeftover(_ rel: String, age: TimeInterval) -> Bool {
-        if rel == "mihomo/cache.db" || rel == "mihomo/tunnel-stats.json" || rel.hasPrefix("mihomo/ui/") { return true }
+        if rel == "tern/cache.db" || rel == "tern/tunnel-stats.json" || rel.hasPrefix("tern/ui/") { return true }
         if rel.hasPrefix("Library/Caches/") { return true }
         guard age >= orphanAge else { return false }
-        if rel.hasPrefix("mihomo/" + PrepTransaction.stagePrefix) { return true }
+        if rel.hasPrefix("tern/" + PrepTransaction.stagePrefix) { return true }
         let name = (rel as NSString).lastPathComponent
         if name.hasPrefix("."), name.contains(".tmp") || name.contains(".nosync") { return true }
         if name.hasSuffix(".download") { return true }
@@ -77,7 +77,7 @@ enum StorageScan {
     /// What to remove for a leftover file: its staging directory / ui dir as a whole, else the file itself.
     static func leftoverRoot(_ rel: String) -> String {
         let parts = rel.split(separator: "/").map(String.init)
-        if parts.count > 2, parts[0] == "mihomo", parts[1].hasPrefix(PrepTransaction.stagePrefix) || parts[1] == "ui" {
+        if parts.count > 2, parts[0] == "tern", parts[1].hasPrefix(PrepTransaction.stagePrefix) || parts[1] == "ui" {
             return parts[0] + "/" + parts[1]
         }
         return rel
@@ -254,7 +254,7 @@ enum StorageScan {
     /// old-core files or caches, which go through the page's button.
     static func isAutoSweepable(_ rel: String, age: TimeInterval) -> Bool {
         guard age >= orphanAge, isLeftover(rel, age: age) else { return false }
-        if rel == "mihomo/cache.db" || rel == "mihomo/tunnel-stats.json" || rel.hasPrefix("mihomo/ui/") || rel.hasPrefix("Library/Caches/") {
+        if rel == "tern/cache.db" || rel == "tern/tunnel-stats.json" || rel.hasPrefix("tern/ui/") || rel.hasPrefix("Library/Caches/") {
             return false
         }
         return true

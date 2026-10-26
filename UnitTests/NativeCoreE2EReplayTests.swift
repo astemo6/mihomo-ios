@@ -216,7 +216,7 @@ final class NativeCoreE2EReplayTests: XCTestCase {
     private static func resetAppState() {
         let fm = FileManager.default
         let root = AppShared.containerURL
-        for name in ["profiles", "profiles.json", "mihomo"] {
+        for name in ["profiles", "profiles.json", "tern"] {
             try? fm.removeItem(at: root.appendingPathComponent(name))
         }
         AppShared.activeProfileID = nil

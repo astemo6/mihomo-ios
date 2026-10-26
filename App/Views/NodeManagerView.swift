@@ -894,7 +894,7 @@ struct NodeDetailView: View {
         Section {
             ExperimentalMemoryWarning()
             if let t = info?.tailscale {
-                kv("设备名", t.hostname ?? "mihomo-ios", mono: true)
+                kv("设备名", t.hostname ?? "tern", mono: true)
                 kv("控制服务器", t.controlURL ?? String(localized: "Tailscale 官方"), mono: t.controlURL != nil)
                 kv("状态目录", t.stateDir ?? String(localized: "tailscale/节点名（App Group）"), mono: true)
                 kv("临时设备（Ephemeral）", (t.ephemeral ?? false) ? String(localized: "开启") : String(localized: "关闭"))

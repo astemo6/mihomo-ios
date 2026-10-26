@@ -125,7 +125,7 @@ jobs:
           xcrun simctl bootstatus "$DEV" -b
           APP=$(find build/e2e/Build/Products -maxdepth 2 -name Tern.app -type d | head -n1)
           xcrun simctl install "$DEV" "$APP"
-          C=$(xcrun simctl get_app_container "$DEV" com.astemo6.mihomo data)
+          C=$(xcrun simctl get_app_container "$DEV" com.astemo6.tern data)
           mkdir -p "$C/Documents/tern-e2e"
           cp "$RUNNER_TEMP/fixture.conf" "$C/Documents/tern-e2e/fixture.conf"
           echo "CONTAINER=$C" >> "$GITHUB_ENV"
@@ -157,7 +157,7 @@ jobs:
         run: |
           set +e
           mkdir -p "$OUT"
-          C=$(xcrun simctl get_app_container "$DEV" com.astemo6.mihomo data 2>/dev/null)
+          C=$(xcrun simctl get_app_container "$DEV" com.astemo6.tern data 2>/dev/null)
           if [ -n "$C" ] && [ -d "$C/Documents/tern-e2e/out" ]; then cp -n "$C/Documents/tern-e2e/out/"* "$OUT/" 2>/dev/null; fi
           for f in stage1.log stage2.log; do [ -f "$f" ] && grep -E "E2E-RESULT|E2E-NOTE|error:|Test Case.*failed|Fatal error" "$f" > "$OUT/$f.extract.txt"; done
           INPUTS="$OUT/stage1.log.extract.txt $OUT/stage2.log.extract.txt"

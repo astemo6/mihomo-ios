@@ -27,7 +27,7 @@
 | 更多 | 配置（**配置编辑器**：YAML 高亮、内核实时校验并标出错误行列；订阅配置只读，可「复制为本地配置」；**节点处理**：过滤、重命名、旗帜、去重、排序 + 实时预览；**覆写脚本**；订阅 / 本地 YAML / 剪贴板 / 文件；**Surge / Quantumult X / Loon / Clash `.conf` 导入**先显示转换报告）、流量统计（Swift Charts，按天保存约 120 天）、配置快照、**备份与恢复**（文件 / 分享 / iCloud、WebDAV 多版本可加密、iCloud 云盘同步文件夹）、更新资源、存储空间、深色与浅色、App 图标、开始标签页、首页流量统计范围、新手引导、诊断与反馈（**一键导出诊断包**、App Group 与候选组、扩展 ID、启动日志、隧道内存）、关于 |
 | 更多 → 高级设置 | 连接方式（全局隧道 / 混合 / 仅代理、路由、跳过代理、阻止 QUIC、阻止 WebRTC、IPv6、**局域网共享**与多用户、按需连接：始终 / 仅 Wi-Fi / 仅蜂窝，App 内手动断开会暂停按需连接）、隧道（包含所有网络 / 本地网络 / APNs / 蜂窝网络服务 / 设备通信、兼容性增强模式、FaceTime 走代理）、地理数据库（GeoIP MMDB、GEOIP dat、GEOSITE、GeoLite2-ASN：状态、默认 / 自定义地址、国内镜像、下载进度与错误）、内核设置（内存上限、隧道 MTU、手动节点合并进每个配置、日志、控制器、切换节点时断开连接、网络变化时清空 DNS 缓存）、测速设置、出口信息来源 |
 | 快捷指令 | 连接、断开、切换连接、切换出站模式、切换节点、**查询状态、切换配置、开关模块、更新订阅、运行脚本**（App Intents）；主屏幕长按图标：连接 / 断开、规则 / 全局 / 直连 |
-| 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Tern 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本 |
+| 导入链接 | 只注册自己的 `tern://`（`tern://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Tern 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本 |
 | 小组件 / 实时活动（`-widget` IPA） | 主屏幕 / 锁屏小组件、控制中心开关、灵动岛与锁屏实时活动（速度、节点、累计流量） |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
 
@@ -42,7 +42,7 @@
 │ VPNManager（NETunnelProviderManager + 按需连接）        │
 │ ControllerClient ──HTTP/WebSocket──► 127.0.0.1:9090     │
 │ ProfileStore / ProfileInspector（离线解析配置）         │
-│ ImportRouter（mihomo:// + 外部链接 + 文档）、App Intents │
+│ ImportRouter（tern:// + 外部链接 + 文档）、App Intents │
 │ Shared/NativeCore（校验、转换、离线解析、地理库）       │
 └──────────────────────────────┬─────────────────────────┘
                                │ App Group（运行时从描述文件解析）
@@ -56,7 +56,7 @@
 ```
 
 - 内核 **NativeCore**（纯 Swift）：共享层 `Shared/NativeCore/` 放配置规范模型、导入器、规则、DNS、协议与控制器协议，App 与隧道共用；`PacketTunnel/NativeCore/` 放数据面（lwIP）、拨号与引擎生命周期。隧道启动时由 `NativeCoreEngine` 加载经导入器归一的配置。
-- 设置文件（App Group 容器 `mihomo/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
+- 设置文件（App Group 容器 `tern/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
 
 ### 编程语言分工（现状）
@@ -113,10 +113,10 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 需要付费的 Apple Developer 账号（个人免费账号无法使用 Network Extension 能力）。
 
 1. **注册 App ID**（Certificates, Identifiers & Profiles → Identifiers → +，App IDs）：
-   - `com.astemo6.mihomo`：勾选 **App Groups** 和 **Network Extensions**。
-   - `com.astemo6.mihomo.tunnel`：同样勾选 **App Groups** 和 **Network Extensions**。
+   - `com.astemo6.tern`：勾选 **App Groups** 和 **Network Extensions**。
+   - `com.astemo6.tern.tunnel`：同样勾选 **App Groups** 和 **Network Extensions**。
    - 如果用自己的前缀，改 `project.yml` 顶部的 `APP_BUNDLE_ID` / `TUNNEL_BUNDLE_ID` / `APP_GROUP_ID`。
-2. **注册 App Group**：Identifiers → 右上角切到 App Groups → +，`group.com.astemo6.mihomo`。然后回到两个 App ID，在 App Groups 能力里 Configure，勾选这个组。
+2. **注册 App Group**：Identifiers → 右上角切到 App Groups → +，`group.com.astemo6.tern`。然后回到两个 App ID，在 App Groups 能力里 Configure，勾选这个组。
 3. **证书**：Apple Development（development 方式）或 Apple Distribution（ad-hoc 方式）。在钥匙串里导出为 `.p12`（带密码）。
 4. **注册设备**（Devices → +，填 iPhone 的 UDID）。
 5. **描述文件**（Profiles → +）：类型选 iOS App Development（或 Ad Hoc），分别给两个 App ID 各建一个，选上证书和设备，下载两个 `.mobileprovision`。
@@ -139,7 +139,7 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 下载 `*-unsigned.ipa`，用 Sideloadly / ESign / 爱思等工具，配合**开启了 Network Extension + App Groups 能力**的证书和描述文件重签。注意：
 
 - 两个 target 都必须带 `com.apple.developer.networking.networkextension = [packet-tunnel-provider]` 和 `com.apple.security.application-groups`；
-- App Group 在运行时自动解析：App、扩展和小组件各自读取包内 `embedded.mobileprovision` 中的 `com.apple.security.application-groups`；第一次按字母序取第一个系统认可的组（都不可用时再回退到 Info.plist 中的值和 `group.com.astemo6.mihomo`）并记住，之后优先用记住的组，其次是已有配置的组，描述文件续期后组列表变了也不会换到空容器，所以保持原 Bundle ID、用任意第三方购买的描述文件重签也能共享配置；隧道扩展 ID 从包内 PlugIns 的 packet-tunnel 扩展读取（回退为 `主程序 ID + .tunnel`），已保存的旧 VPN 配置会自动改指向新 ID；
+- App Group 在运行时自动解析：App、扩展和小组件各自读取包内 `embedded.mobileprovision` 中的 `com.apple.security.application-groups`；第一次按字母序取第一个系统认可的组（都不可用时再回退到 Info.plist 中的值和 `group.com.astemo6.tern`）并记住，之后优先用记住的组，其次是已有配置的组，描述文件续期后组列表变了也不会换到空容器，所以保持原 Bundle ID、用任意第三方购买的描述文件重签也能共享配置；隧道扩展 ID 从包内 PlugIns 的 packet-tunnel 扩展读取（回退为 `主程序 ID + .tunnel`），已保存的旧 VPN 配置会自动改指向新 ID；
 - 连接失败时首页会弹窗显示原因；更多 → 诊断与反馈 显示解析出的 App Group、候选组、扩展 ID 和共享容器是否可用，组可能不对时会给出提示；
 - 免费 Apple ID 证书不包含 Network Extension 能力，连接会失败。
 
@@ -165,7 +165,7 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 
 ### 安装并信任证书（手机上操作）
 
-1. 工具 → HTTPS 解密 → 生成 CA 证书（ECDSA P-256，10 年；私钥只保存在本机 App Group 容器的 `mihomo/engine/ca/`，不进钥匙串、不上传、不在仓库里）。
+1. 工具 → HTTPS 解密 → 生成 CA 证书（ECDSA P-256，10 年；私钥只保存在本机 App Group 容器的 `tern/engine/ca/`，不进钥匙串、不上传、不在仓库里）。
 2. 点「安装证书（通过 Safari）」，在 Safari 弹窗中选「允许」下载描述文件；也可以用「分享 / 存储描述文件」存到“文件”App 后点开。
 3. 设置 → 已下载描述文件（或 通用 → VPN 与设备管理）→ 安装。
 4. 设置 → 通用 → 关于本机 → **证书信任设置** → 打开「Tern MitM CA xxxxxx」的完全信任。

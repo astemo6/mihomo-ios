@@ -1097,7 +1097,7 @@ enum NCRuntimeSteps {
             }
             m["state-dir"] = .string(dir)
             if m.str("hostname").trimmingCharacters(in: .whitespaces).isEmpty {
-                m["hostname"] = .string("mihomo-ios")
+                m["hostname"] = .string("tern")
             }
             proxies[i] = .object(m)
         }

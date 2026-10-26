@@ -141,7 +141,7 @@ final class EngineStore: ObservableObject {
     }
 
     func addModule(url: String) async {
-        // v0.19.2: opening the same install link twice (mihomo:// / surge:/// / a pasted URL) added a second copy,
+        // v0.19.2: opening the same install link twice (tern:// / surge:/// / a pasted URL) added a second copy,
         // so every rewrite and script of that module ran twice. The other add paths already refused duplicates.
         let wanted = url.trimmingCharacters(in: .whitespacesAndNewlines)
         if let existing = config.modules.first(where: { $0.url == wanted || $0.url == url }) {

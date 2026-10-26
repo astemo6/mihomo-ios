@@ -235,7 +235,7 @@ public final class NCCAManager {
         \t\t\t<key>PayloadDisplayName</key>
         \t\t\t<string>\(escapedName)</string>
         \t\t\t<key>PayloadIdentifier</key>
-        \t\t\t<string>com.astemo6.mihomo.ca.\(u2_8)</string>
+        \t\t\t<string>com.astemo6.tern.ca.\(u2_8)</string>
         \t\t\t<key>PayloadType</key>
         \t\t\t<string>com.apple.security.root</string>
         \t\t\t<key>PayloadUUID</key>
@@ -249,7 +249,7 @@ public final class NCCAManager {
         \t<key>PayloadDisplayName</key>
         \t<string>\(escapedName)</string>
         \t<key>PayloadIdentifier</key>
-        \t<string>com.astemo6.mihomo.ca-profile.\(u1_8)</string>
+        \t<string>com.astemo6.tern.ca-profile.\(u1_8)</string>
         \t<key>PayloadRemovalDisallowed</key>
         \t<false/>
         \t<key>PayloadType</key>

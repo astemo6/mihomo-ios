@@ -6,7 +6,7 @@ import XCTest
 // tunnel-only / log / output files are ignored, a changed output or a leftover prepare marker misses.
 final class NativeRuntimePrepCacheTests: XCTestCase {
     private var root: URL!
-    private var home: String { root.appendingPathComponent("mihomo").path }
+    private var home: String { root.appendingPathComponent("tern").path }
     private var profiles: String { root.appendingPathComponent("profiles").path }
     private var profile: String { (profiles as NSString).appendingPathComponent("p1.yaml") }
 

@@ -5,7 +5,9 @@ import UniformTypeIdentifiers
 // DNS, custom rules, MitM / rewrite / scripts / modules). Caches and geo databases are left out.
 
 struct BackupFile: Codable {
-    var app = "mihomo-ios"
+    var app = BackupFile.appName
+    /// Envelope name; backups of the pre-rename app are read through LegacyImport.
+    static let appName = "tern"
     var version = 1
     var created: Date = Date()
     var appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
@@ -38,17 +40,17 @@ struct BackupFile: Codable {
 enum BackupManager {
     /// Directories / files (relative to the container) that make up a backup.
     /// Review 5 P2-1: the scripts' key-value store (BoxJS / Sub-Store / check-in cookies and session tokens).
-    static let scriptStore = "mihomo/engine/store.json"
-    static let secretsItem = "mihomo/secrets.json"
+    static let scriptStore = "tern/engine/store.json"
+    static let secretsItem = "tern/secrets.json"
 
     /// `includeStore`: false for every copy that leaves the device unencrypted (Files / share / iCloud exports,
     /// plain WebDAV, the sync folder).
     static func items(includeCA: Bool, includeStore: Bool = true) -> [String] {
-        var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json", "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json", "mihomo/node-subscriptions.json", "mihomo/group-edits.json", "mihomo/provider-overrides.json",
-                   "mihomo/node-settings.json", // r7 R7A-11: per-node 测速地址 / 备注
-                   "mihomo/engine/engine.json", "mihomo/engine/store.json", "mihomo/engine/modules", "mihomo/engine/scripts",
-                   "mihomo/override-scripts"] // v0.19 覆写脚本 (index.json + <id>.js)
-        if includeCA { out.append("mihomo/engine/ca") }
+        var out = ["profiles.json", "profiles", "tern/overrides.json", "tern/dns.json", "tern/localdns.json", "tern/group-icons.json", "tern/rules.json", "tern/subscriptions.json", "tern/groups.json", "tern/netpolicy.json", "tern/node-subscriptions.json", "tern/group-edits.json", "tern/provider-overrides.json",
+                   "tern/node-settings.json", // r7 R7A-11: per-node 测速地址 / 备注
+                   "tern/engine/engine.json", "tern/engine/store.json", "tern/engine/modules", "tern/engine/scripts",
+                   "tern/override-scripts"] // v0.19 覆写脚本 (index.json + <id>.js)
+        if includeCA { out.append("tern/engine/ca") }
         // r7 (backlog B01): the secrets (controller secret, LAN passwords) travel only where the scripts' store does —
         // encrypted copies and local snapshots; plain exports, plain WebDAV and the sync folder keep usernames only.
         out.append(secretsItem)
@@ -104,7 +106,7 @@ enum BackupManager {
     static func purgeTempExports() {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
-        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where (n.hasPrefix("Tern-备份-") || n.hasPrefix("Mihomo-备份-")) && n.hasSuffix(".json") {
+        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where (["Tern-备份-"] + LegacyImport.tempExportPrefixes).contains(where: { n.hasPrefix($0) }) && n.hasSuffix(".json") {
             try? fm.removeItem(at: tmp.appendingPathComponent(n))
         }
     }
@@ -148,12 +150,13 @@ enum BackupManager {
         do { b = try dec.decode(BackupFile.self, from: data) } catch {
             throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")])
         }
-        guard b.app == "mihomo-ios" else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")]) }
+        guard LegacyImport.isOurBackupApp(b.app, current: BackupFile.appName) else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")]) }
         let allowed = items(includeCA: true) + fullBackupOnlyItems
         // v0.19.1: decode every entry first. A damaged entry (bad base64, e.g. a truncated download) stops the
         // restore before anything is written, instead of leaving a half-restored mix of old and new files.
         var decoded: [(String, Data)] = []
-        for (rel, b64) in b.files {
+        for (stored, b64) in b.files {
+            let rel = LegacyImport.mapPath(stored) // backups of the pre-rename app use the old storage dir
             guard !rel.contains(".."), allowed.contains(where: { rel == $0 || rel.hasPrefix($0 + "/") }) else { continue }
             guard let d = Data(base64Encoded: b64) else {
                 throw NSError(domain: "Backup", code: 2, userInfo: [NSLocalizedDescriptionKey: String(localized: "备份文件已损坏：\(rel)")])

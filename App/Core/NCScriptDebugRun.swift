@@ -157,7 +157,7 @@ enum NCScriptDebug {
             "export": true,
             "arg": ["has": inp.argument != nil, "obj": false, "s": inp.argument ?? ""] as [String: Any],
             "env": ["surge-version": "5.20.0", "surge-build": "3000", "language": language, "system": "iOS",
-                    "mihomo-ios": true] as [String: Any],
+                    "tern": true] as [String: Any],
             "egernEnv": [String: String](), "egernCron": "", "hasParams": false,
         ]
         var reqURL = "", reqMethod = "GET"

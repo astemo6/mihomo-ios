@@ -11,11 +11,11 @@ options:
 # ──────────────────────────────────────────────────────────────
 settings:
   base:
-    APP_BUNDLE_ID: com.astemo6.mihomo
-    TUNNEL_BUNDLE_ID: com.astemo6.mihomo.tunnel
+    APP_BUNDLE_ID: com.astemo6.tern
+    TUNNEL_BUNDLE_ID: com.astemo6.tern.tunnel
     # Widget + Control Center toggle (v0.7); only in the "-widget" IPA variant. Same convention as the tunnel.
-    WIDGET_BUNDLE_ID: com.astemo6.mihomo.widget
-    APP_GROUP_ID: group.com.astemo6.mihomo
+    WIDGET_BUNDLE_ID: com.astemo6.tern.widget
+    APP_GROUP_ID: group.com.astemo6.tern
     MARKETING_VERSION: "0.20.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"

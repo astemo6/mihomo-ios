@@ -4,11 +4,13 @@ import CommonCrypto
 import Security
 
 // v0.19 WebDAV 备份: the existing backup file (BackupManager.make, BackupFile JSON) uploaded to a WebDAV
-// folder (坚果云, Nextcloud, Synology, …) as mihomo-backup-<yyyyMMdd-HHmmss>.json, the newest N kept,
+// folder (坚果云, Nextcloud, Synology, …) as tern-backup-<yyyyMMdd-HHmmss>Z.json, the newest N kept,
 // any version listed / restored. Optional password encryption wraps the same JSON in an envelope:
-// {"app":"mihomo-ios","encrypted":"aes-256-gcm","kdf":"pbkdf2-sha256","iterations":…,"salt":…,"data":…}
+// {"app":"tern","encrypted":"aes-256-gcm","kdf":"pbkdf2-sha256","iterations":…,"salt":…,"data":…}
 // (AES-256-GCM, key = PBKDF2-HMAC-SHA256(password, 16-byte salt, 210 000 rounds), data = nonce‖ciphertext‖tag).
 // The server password and the encryption password are kept in the Keychain; URL / user / options in defaults.
+// Copies written by the pre-rename app (other prefix / envelope name, see LegacyImport) are listed and restored,
+// never pruned.
 
 enum BackupCrypto {
     static let iterations: UInt32 = 210_000
@@ -16,7 +18,7 @@ enum BackupCrypto {
     static let iterationRange: ClosedRange<UInt32> = 100_000...5_000_000
 
     struct Envelope: Codable {
-        var app = "mihomo-ios"
+        var app = BackupFile.appName
         var encrypted = "aes-256-gcm"
         var kdf = "pbkdf2-sha256"
         var iterations: UInt32
@@ -69,7 +71,7 @@ enum BackupCrypto {
     static func decrypt(_ data: Data, password: String) throws -> Data {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
-        guard let env = try? dec.decode(Envelope.self, from: data), env.app == "mihomo-ios", env.encrypted == "aes-256-gcm",
+        guard let env = try? dec.decode(Envelope.self, from: data), LegacyImport.isOurBackupApp(env.app, current: BackupFile.appName), env.encrypted == "aes-256-gcm",
               let salt = Data(base64Encoded: env.salt), let blob = Data(base64Encoded: env.data),
               iterationRange.contains(env.iterations) else { throw CryptoError.badFile }
         let k = try key(password, salt: salt, rounds: env.iterations)
@@ -147,10 +149,13 @@ struct WebDAVFile: Identifiable, Hashable {
     var modified: Date?
     var id: String { name }
     var encrypted: Bool { name.hasSuffix(".enc.json") }
-    /// mihomo-backup-20261018-153000Z(.enc).json (UTC, review 5 P2-4) or the older local-time
-    /// mihomo-backup-20261018-153000(.enc).json → that time.
+    /// Written by the pre-rename app (LegacyImport.webDAVPrefixes): listed and restorable, never pruned.
+    var legacy: Bool { !name.hasPrefix(WebDAVClient.prefix) }
+    /// tern-backup-20261018-153000Z(.enc).json (UTC, review 5 P2-4) or the older local-time
+    /// <prefix>20261018-153000(.enc).json → that time.
     var stamp: Date? {
-        let base = name.replacingOccurrences(of: WebDAVClient.prefix, with: "").replacingOccurrences(of: ".enc.json", with: "").replacingOccurrences(of: ".json", with: "")
+        let pre = WebDAVClient.readPrefixes.first { name.hasPrefix($0) } ?? WebDAVClient.prefix
+        let base = String(name.dropFirst(name.hasPrefix(pre) ? pre.count : 0)).replacingOccurrences(of: ".enc.json", with: "").replacingOccurrences(of: ".json", with: "")
         if base.hasSuffix("Z") { return WebDAVClient.stampFormatterUTC.date(from: String(base.dropLast())) }
         return WebDAVClient.stampFormatter.date(from: base)
     }
@@ -229,7 +234,7 @@ final class WebDAVHTTP: WebDAVTransport {
     }
 
     /// MKCOL; a 409 means a parent folder is missing too (RFC 4918 §9.3.1; 坚果云 / Nextcloud with a nested
-    /// path such as …/dav/Mihomo/backup/), so the parents are created first, at most 8 levels up.
+    /// path such as …/dav/Tern/backup/), so the parents are created first, at most 8 levels up.
     func makeCollection(_ url: URL, depth: Int) async throws {
         let (d, c) = try await request(url, "MKCOL")
         if c == 409, depth < 8 {
@@ -256,7 +261,7 @@ final class WebDAVHTTP: WebDAVTransport {
         guard let entries = PropfindParser.parse(d) else { throw WebDAVError.badResponse }
         return entries.compactMap { e -> WebDAVFile? in
             let name = (e.href.removingPercentEncoding ?? e.href).split(separator: "/").last.map(String.init) ?? ""
-            guard !e.isCollection, name.hasPrefix(WebDAVClient.prefix), name.hasSuffix(".json") else { return nil }
+            guard !e.isCollection, WebDAVClient.readPrefixes.contains(where: { name.hasPrefix($0) }), name.hasSuffix(".json") else { return nil }
             return WebDAVFile(name: name, size: e.length, modified: e.modified)
         }
     }
@@ -370,7 +375,9 @@ final class WebDAVMemory: WebDAVTransport {
 }
 
 enum WebDAVClient {
-    static let prefix = "mihomo-backup-"
+    static let prefix = "tern-backup-"
+    /// Names list() accepts: ours and the pre-rename app's.
+    static let readPrefixes = [prefix] + LegacyImport.webDAVPrefixes
     /// Names written before review 5: device-local time (parse only).
     static let stampFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -432,7 +439,7 @@ enum WebDAVClient {
         try await t.put(name, data)
         var removed = 0
         // Pruning is best effort: the backup is on the server already.
-        let all = sorted((try? await t.list()) ?? [])
+        let all = sorted(((try? await t.list()) ?? []).filter { !$0.legacy })
         if all.count > s.keep {
             for f in all.dropFirst(s.keep) where f.name != name {
                 try? await t.delete(f.name)
