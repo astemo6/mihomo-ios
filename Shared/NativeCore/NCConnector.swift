@@ -455,6 +455,10 @@ enum NCConnector {
                 httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
         case "ss":
+            if isECHEnabled(proxy) {
+                queue.async { completion(nil, Failure.unsupported("Shadowsocks 插件不支持 ECH")) }
+                return
+            }
             guard let cipher = proxy.cipher, let password = proxy.password else {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
@@ -591,7 +595,8 @@ enum NCConnector {
         case "vless":
             // feat/nc-proto3: encryption + xtls-rprx-vision — Vision frames ride the encryption conn and splice
             // below it (mihomo vision.NewConn over *encryption.CommonConn), whatever TLS / REALITY sits underneath.
-            let encVision = vlessEncryption(proxy) != nil && visionFlow(proxy)
+            let isVision = visionFlow(proxy)
+            let encVision = vlessEncryption(proxy) != nil && isVision
             guard let uuid = proxy.uuid else {
                 queue.async { completion(nil, Failure.handshake("vless missing uuid")) }
                 return
@@ -602,6 +607,10 @@ enum NCConnector {
             }
             if isECHEnabled(proxy) && realityParams(proxy) != nil {
                 queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                return
+            }
+            if (isVision || encVision) && isECHEnabled(proxy) {
+                queue.async { completion(nil, Failure.unsupported("VLESS Vision 不支持 ECH")) }
                 return
             }
             if realityParams(proxy) != nil {
