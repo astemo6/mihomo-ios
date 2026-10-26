@@ -434,7 +434,7 @@ final class NativeCoreSudokuTests: XCTestCase {
                        "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f")
         let ab = try aliceSk.sharedSecretFromKeyAgreement(with: bobSk.publicKey)
         let ba = try bobSk.sharedSecretFromKeyAgreement(with: aliceSk.publicKey)
-        let want = XCTUnwrap(NCSudoku.hexDecode("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"))
+        let want = try XCTUnwrap(NCSudoku.hexDecode("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"))
         XCTAssertEqual(ab.withUnsafeBytes { Data($0) }, want)
         XCTAssertEqual(ba.withUnsafeBytes { Data($0) }, want)
     }
