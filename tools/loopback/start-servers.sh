@@ -123,7 +123,9 @@ stop_wire_capture() {
         if (dst == 18006) k = "c2s"; else if (src == 18006) k = "s2c"; else if (dst == 18081) k = "toEcho"; else if (src == 18081) k = "fromEcho"; else next
         cnt[k]++; if (len > mx[k]) mx[k] = len; if (len > 1452) over[k]++
         b[k "," bucket(len)]++
-        if ((k == "c2s" && len > 900) || k == "toEcho") { if (seqn[k] < 400) { seq[k] = seq[k] " " len; seqn[k]++ } }
+        if (k == "c2s") ports[src]++
+        if (k == "c2s" && len > 900) { if (seqn[k] < 400) { seq[k] = seq[k] " " len "@" src; seqn[k]++ } }
+        else if (k == "toEcho") { if (seqn[k] < 400) { seq[k] = seq[k] " " len; seqn[k]++ } }
     }
     END {
         split("c2s s2c toEcho fromEcho", ks, " ")
@@ -131,6 +133,8 @@ stop_wire_capture() {
             k = ks[i]
             printf "HY2WIRE %s n=%d max=%d over1452=%d le1200=%d le1300=%d le1452=%d le2000=%d gt2000=%d\n", k, cnt[k], mx[k], over[k], b[k ",le1200"], b[k ",le1300"], b[k ",le1452"], b[k ",le2000"], b[k ",gt2000"]
         }
+        pl = ""; for (q in ports) pl = pl " " q "=" ports[q]
+        printf "HY2WIRE c2s srcports:%s\n", pl
         printf "HY2WIRE c2s>900 seq:%s\n", seq["c2s"]
         printf "HY2WIRE toEcho seq:%s\n", seq["toEcho"]
     }' "$RUN/hy2-wire.txt" >&2
@@ -158,7 +162,13 @@ do_start() {
     echo $! > "$RUN/echo.pid"
 
     log "starting sing-box $("$sb" version | head -n1)"
-    nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &
+    # NC_LOOPBACK_QUIC_DEBUG=1 (default): quic-go per-packet debug log into sing-box.log, summarised by
+    # `stop` (hy2-frag: which received QUIC packets / DATAGRAM frames the server drops, and why).
+    if [ "${NC_LOOPBACK_QUIC_DEBUG:-1}" = 1 ]; then
+        QUIC_GO_LOG_LEVEL=debug nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &
+    else
+        nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &
+    fi
     echo $! > "$RUN/sing-box.pid"
 
     # TCP inbounds + backends can be probed directly. The UDP inbounds
@@ -173,9 +183,35 @@ do_start() {
     log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082"
 }
 
+quic_debug_summary() {
+    [ -s "$RUN/sing-box.log" ] || return 0
+    grep -q "Reading packet" "$RUN/sing-box.log" || return 0
+    awk '
+    /Reading packet [0-9]+ \([0-9]+ bytes\) for connection/ {
+        match($0, /Reading packet [0-9]+ \([0-9]+ bytes\) for connection [0-9a-f]+, [^ ]+/)
+        split(substr($0, RSTART, RLENGTH), w, " ")
+        pn = w[3]; sz = w[4]; gsub(/\(/, "", sz); cid = w[8]; gsub(/,/, "", cid); lvl = w[9]
+        reads++; lastpn = pn; lastsz = sz; lastcid = substr(cid, 1, 8)
+        if (lvl == "1-RTT" && sz + 0 > 900 && nseq < 500) { seq = seq " " lastcid ":" pn ":" sz; nseq++ }
+        next
+    }
+    /<- &wire.DatagramFrame/ { dg++; if (ndg < 400) { m = $0; sub(/.*Length: /, "", m); sub(/}.*/, "", m); dgs = dgs " " lastpn ":" m; ndg++ } next }
+    /Dropping|Discarding|undecryptable|unknown connection|tateless|Queueing|later decryption|Error|error/ {
+        drops++
+        if (nd < 60) { l = $0; sub(/^.*(server|client) /, "", l); dl[++nd] = "after pn " lastpn " (" lastsz " B) " lastcid ": " substr(l, 1, 160) }
+    }
+    END {
+        printf "QUICDBG reads=%d datagramFrames=%d dropLines=%d\n", reads, dg, drops
+        printf "QUICDBG 1rtt>900 cid:pn:size:%s\n", seq
+        printf "QUICDBG datagrams pn:len:%s\n", dgs
+        for (i = 1; i <= nd; i++) printf "QUICDBG drop %s\n", dl[i]
+    }' "$RUN/sing-box.log" >&2
+}
+
 do_stop() {
     local f
     stop_wire_capture
+    quic_debug_summary
     for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
         if alive "$f"; then
             kill "$(cat "$f")" 2>/dev/null || true
