@@ -53,6 +53,8 @@ targets:
       - path: Shared
       # feat/jsc-engine: the JavaScriptCore script engine also runs 脚本调试 in the app (and the unit tests).
       - path: PacketTunnel/JSCScriptEngine.swift
+      # feat/nc-lua: vendored Lua 5.4 C core and Swift bridge for App and UnitTests
+      - path: PacketTunnel/NativeCore/Lua
       # nc-script-runtime-verify: the tunnel's Surge type=dns / type=rule hook runner, in the app only so
       # UnitTests/NativeCoreScriptRuntimeVerifyTests.swift can drive it against the real script host (its
       # NativeCoreEngine glue is behind TERN_TUNNEL, like NativeScriptHost's tunnel-only calls).
