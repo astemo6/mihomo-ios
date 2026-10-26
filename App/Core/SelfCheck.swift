@@ -888,13 +888,39 @@ final class SelfCheck: ObservableObject {
         return type.isEmpty ? "?" : type
     }
 
+    /// selfcheck-2 (after fix/nc-rsa-ca): the active CA's own signature (old Swift-generated EC CAs carry a bad one,
+    /// which iOS rejects even when the profile is trusted) and a freshly issued leaf evaluated with SecTrust and the
+    /// CA as the only anchor. nil = fine; otherwise why.
+    nonisolated private static func caSignatureProblem(home: String) -> String? {
+        guard let der = NCCAManager.caCertDER(home: home) else { return nil }
+        let selfSig = SelfCheckLogic.verifySelfSignature(der)
+        if selfSig.ok == false { return String(localized: "CA 自签名校验失败（\(selfSig.why)）") }
+        guard let chain = NCCAManager.trustChain(home: home),
+              let leaf = SecCertificateCreateWithData(nil, chain.leafDER as CFData),
+              let ca = SecCertificateCreateWithData(nil, chain.caDER as CFData) else {
+            return String(localized: "无法用这个 CA 签发证书")
+        }
+        var trust: SecTrust?
+        guard SecTrustCreateWithCertificates([leaf] as CFArray, SecPolicyCreateSSL(true, chain.hostname as CFString), &trust) == errSecSuccess,
+              let trust else { return String(localized: "无法建立证书链") }
+        SecTrustSetAnchorCertificates(trust, [ca] as CFArray)
+        SecTrustSetAnchorCertificatesOnly(trust, true)
+        var err: CFError?
+        if !SecTrustEvaluateWithError(trust, &err) {
+            let why = err.map { ($0 as Error).localizedDescription } ?? "?"
+            return String(localized: "新签发的证书在只信任此 CA 时验证失败（\(String(why.prefix(160))))")
+        }
+        return nil
+    }
+
     private func stepMitM() async {
         set("mitm", .running)
         let home = AppShared.homeURL.path
         progress("mitm", String(localized: "检查证书"))
-        let (trusted, type, loads) = await BlockingWork.run { () -> (Bool, String?, Bool) in
+        let (trusted, type, loads, sigProblem) = await BlockingWork.run { () -> (Bool, String?, Bool, String?) in
             let t = Self.caType(home: home)
-            return (NCCAManager.checkTrust(home: home), t, t == nil ? false : NCCAManager.loadCA(home: home) != nil)
+            let loads = t == nil ? false : NCCAManager.loadCA(home: home) != nil
+            return (NCCAManager.checkTrust(home: home), t, loads, loads ? Self.caSignatureProblem(home: home) : nil)
         }
         let log = Self.sessionLog()
         let probe = log.split(separator: "\n").last { $0.contains("MITM self-probe") }.map { SelfCheckLogic.stripStamp(String($0)) }
@@ -904,6 +930,11 @@ final class SelfCheck: ObservableObject {
         if let type {
             lines.append(String(localized: "CA：\(type)") + (loads ? "" : String(localized: "（私钥无法加载）")))
             if !loads { problems.append(String(localized: "CA 证书在，但私钥无法加载（\(type)）：MitM 不能签发证书")) }
+            if let sigProblem {
+                problems.insert(String(localized: "CA 证书签名无效，请重新生成 CA") + "（\(sigProblem)）", at: 0)
+            } else if loads {
+                lines.append(String(localized: "CA 自签名与新签发证书校验：通过"))
+            }
         } else {
             problems.append(String(localized: "没有 CA 证书：在「MitM」里生成或导入"))
         }

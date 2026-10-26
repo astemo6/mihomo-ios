@@ -18,7 +18,7 @@ final class SelfCheckLogicTests: XCTestCase {
 
     func testParseCoreStats() {
         let l = "native core up (gen 2): native core (runtime): 9 proxies + 33 from 1 provider(s), 31 groups, 91 rules (2 ignored), unsupported 0, fake-ip 12 entries"
-        XCTAssertEqual(SelfCheckLogic.parseCoreStats(l), .init(proxies: 9, providerNodes: 33, providers: 1, groups: 31, rules: 91, ignoredRules: 2))
+        XCTAssertEqual(SelfCheckLogic.parseCoreStats(l), SelfCheckLogic.CoreCounts(proxies: 9, providerNodes: 33, providers: 1, groups: 31, rules: 91, ignoredRules: 2))
         XCTAssertNil(SelfCheckLogic.parseCoreStats("native core: not loaded"))
     }
 
@@ -189,5 +189,30 @@ final class SelfCheckLogicTests: XCTestCase {
         XCTAssertFalse(text.contains("104.21.33.7"))
         XCTAssertTrue(text.contains("104.21.x.x"))
         XCTAssertFalse(text.contains("abcdef123456"))
+    }
+
+    // MARK: CA signature (after fix/nc-rsa-ca)
+
+    /// openssl req -x509 (P-256 / RSA 2048) self-signed test certificates — no private key in the repo.
+    static let ecCert = "MIIBjTCCATOgAwIBAgIUbK3RlrbGppVTQXB9X+Bce9TzvE8wCgYIKoZIzj0EAwIwHDEaMBgGA1UEAwwRU2VsZkNoZWNrIFRlc3QgRUMwHhcNMjYxMDI2MDYzNzA0WhcNMzYxMDIzMDYzNzA0WjAcMRowGAYDVQQDDBFTZWxmQ2hlY2sgVGVzdCBFQzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJSuBUXZY0ydjDcDcuJ5D0Ud44XLYer1OsY2ECbirwQRfhNcnRXcrDll5r6BJb6k+QV5bHr6RrHmOYAs7+9KPcCjUzBRMB0GA1UdDgQWBBQ3M/g7L5lsOqJp1dggwoiA/PFHvTAfBgNVHSMEGDAWgBQ3M/g7L5lsOqJp1dggwoiA/PFHvTAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCICiYgQa0Ou7gAvBc/+qkP0/Jy6eY7ULVV1dudwsNbdoHAiEArN9Jw4fEZbz33O5jcDHqODOduYyWOBNGPiAo6M1E/6k="
+    static let rsaCert = "MIIDGzCCAgOgAwIBAgIURYzLyn+GnCVoOlnV2Oc8/dwpFC8wDQYJKoZIhvcNAQELBQAwHTEbMBkGA1UEAwwSU2VsZkNoZWNrIFRlc3QgUlNBMB4XDTI2MTAyNjA2MzcwNFoXDTM2MTAyMzA2MzcwNFowHTEbMBkGA1UEAwwSU2VsZkNoZWNrIFRlc3QgUlNBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApujKauTfKWv778Mg2D7+egXq8oUAwQYYH/hX3ihvRrpZKQjriD+WIU2F01vT/UJBo9FY4vln596FVo0noQpK0p/a0A6MxM4/jbg5k2q8LtUju05YDhcsMeFHMD2qa5Uob6hKzMvUTtnEiAXSEGBkHrlHEXpz15sWkLgXJhb+t7Yteq27T2bgUQI89WaXX/Nf3w99S2E2NzD9yUIymCVHyCe4KJyA/jkgr9KNVZx9pL1V/Iyj69DHMlPv3GefX+154YyCJnc4ny0OK3by6/eHSjBK6RtiYZdHi3u2KYN0rHmfiHqzFex/iRcM2OheSNqEpAXfbCmLGnAdxaxZpH4/WQIDAQABo1MwUTAdBgNVHQ4EFgQUzo0WN25MAatB1JKrfmI5K7HBTr8wHwYDVR0jBBgwFoAUzo0WN25MAatB1JKrfmI5K7HBTr8wDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAHgKXnPHhPaL3yWvCToWVQ1I7Wvbd+5ycpgAGKqqi5QMxeVraMjq6Mpoz6pXJoT2QO9X3uU7PutBNnDwZidQRW93Dsn/fdu8GiHyPTyWGUqbdP9VUzDE/PtsKTeZ2jDt699AI87/A3RLfLLuIJ2GlzqY72Qqys6DswyCe9f+qwqjFihrbMPY6CfzCz3I2uUzZrwdaihXhzSrFCV0qMCldyhHHO0B4kxoAXr1kU9oYZTTN4RtpPLtD8ip5iJEGYsOBfcPwKK2tQkTyHb7Gol+Ud/Fqth81rprNqJR07G0WtisWUSGjyy4kCuiiobehrVojAuJu+Fh+Q/Z2ob3FioVq3A=="
+
+    func testSelfSignatureVerifies() {
+        for (name, b64) in [("EC", Self.ecCert), ("RSA", Self.rsaCert)] {
+            let der = Data(base64Encoded: b64)!
+            let r = SelfCheckLogic.verifySelfSignature(der)
+            XCTAssertEqual(r.ok, true, "\(name): \(r.why)")
+        }
+        XCTAssertEqual(SelfCheckLogic.certSignatureParts(Data(base64Encoded: Self.ecCert)!)?.algorithmName, "ecdsa-with-SHA256")
+        XCTAssertEqual(SelfCheckLogic.certSignatureParts(Data(base64Encoded: Self.rsaCert)!)?.algorithmName, "sha256WithRSA")
+    }
+
+    func testBadSelfSignatureIsCaught() {
+        for b64 in [Self.ecCert, Self.rsaCert] {
+            var der = [UInt8](Data(base64Encoded: b64)!)
+            der[der.count - 2] ^= 0x5a // inside the signature value
+            XCTAssertNotEqual(SelfCheckLogic.verifySelfSignature(Data(der)).ok, true)
+        }
+        XCTAssertNil(SelfCheckLogic.verifySelfSignature(Data([0x30, 0x03, 0x02, 0x01, 0x00])).ok)
     }
 }

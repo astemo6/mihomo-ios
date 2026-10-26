@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// feat/nc-selfcheck-2: the pure part of 一键自检 — parsing what the extension writes into the startup log, comparing
 /// config counts across layers, picking nodes to test, turning a rewrite pattern into a probe URL, describing a
@@ -111,7 +112,7 @@ enum SelfCheckLogic {
     static func compare(_ metrics: [Metric]) -> Comparison {
         var out = Comparison()
         for m in metrics {
-            let known = m.layers.enumerated().compactMap { i, l in l.1.map { (i, l.0, $0) } }
+            let known: [(Int, String, Int)] = m.layers.enumerated().compactMap { e -> (Int, String, Int)? in e.element.1.map { (e.offset, e.element.0, $0) } }
             guard !known.isEmpty else { continue }
             let row = known.map { "\($0.1) \($0.2)" }.joined(separator: " → ")
             out.table.append("\(m.name)：\(row)")
@@ -229,6 +230,73 @@ enum SelfCheckLogic {
         if !p.contains("*") && !p.contains("?") { return false }
         let re = "^" + NSRegularExpression.escapedPattern(for: p).replacingOccurrences(of: "\\*", with: ".*").replacingOccurrences(of: "\\?", with: ".") + "$"
         return h.range(of: re, options: .regularExpression) != nil
+    }
+
+
+    // MARK: certificate signature
+
+    /// DER TLV at `i` → (tag, content range, end). Definite lengths only (X.509 DER).
+    private static func tlv(_ b: [UInt8], _ i: Int) -> (tag: UInt8, start: Int, end: Int)? {
+        guard i + 2 <= b.count else { return nil }
+        let tag = b[i]
+        var len = Int(b[i + 1])
+        var p = i + 2
+        if len & 0x80 != 0 {
+            let n = len & 0x7f
+            guard n >= 1, n <= 4, p + n <= b.count else { return nil }
+            len = 0
+            for k in 0..<n { len = (len << 8) | Int(b[p + k]) }
+            p += n
+        }
+        guard p + len <= b.count else { return nil }
+        return (tag, p, p + len)
+    }
+
+    /// The signed part, algorithm and signature of an X.509 certificate.
+    static func certSignatureParts(_ der: Data) -> (tbs: Data, algorithm: SecKeyAlgorithm?, algorithmName: String, signature: Data)? {
+        let b = [UInt8](der)
+        guard let cert = tlv(b, 0), cert.tag == 0x30,
+              let tbs = tlv(b, cert.start), tbs.tag == 0x30,
+              let alg = tlv(b, tbs.end), alg.tag == 0x30,
+              let oid = tlv(b, alg.start), oid.tag == 0x06,
+              let sig = tlv(b, alg.end), sig.tag == 0x03, sig.end > sig.start else { return nil }
+        let o = Array(b[oid.start..<oid.end])
+        let ecPrefix: [UInt8] = [0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03]
+        let rsaPrefix: [UInt8] = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01]
+        var a: SecKeyAlgorithm?
+        var name = o.map { String($0) }.joined(separator: ".")
+        if o.count == 8, Array(o.prefix(7)) == ecPrefix {
+            switch o[7] {
+            case 2: a = .ecdsaSignatureMessageX962SHA256; name = "ecdsa-with-SHA256"
+            case 3: a = .ecdsaSignatureMessageX962SHA384; name = "ecdsa-with-SHA384"
+            case 4: a = .ecdsaSignatureMessageX962SHA512; name = "ecdsa-with-SHA512"
+            default: break
+            }
+        } else if o.count == 9, Array(o.prefix(8)) == rsaPrefix {
+            switch o[8] {
+            case 5: a = .rsaSignatureMessagePKCS1v15SHA1; name = "sha1WithRSA"
+            case 11: a = .rsaSignatureMessagePKCS1v15SHA256; name = "sha256WithRSA"
+            case 12: a = .rsaSignatureMessagePKCS1v15SHA384; name = "sha384WithRSA"
+            case 13: a = .rsaSignatureMessagePKCS1v15SHA512; name = "sha512WithRSA"
+            default: break
+            }
+        }
+        // BIT STRING: first content byte = unused bits (0 for signatures).
+        let sigBytes = Data(b[(sig.start + 1)..<sig.end])
+        // The signed bytes are the whole tbsCertificate TLV (tag + length + content), which starts at cert.start.
+        return (Data(b[cert.start..<tbs.end]), a, name, sigBytes)
+    }
+
+    /// nil = cannot tell (unknown algorithm / not a certificate); true / false = the self-signature verifies or not.
+    static func verifySelfSignature(_ der: Data) -> (ok: Bool?, why: String) {
+        guard let parts = certSignatureParts(der), let cert = SecCertificateCreateWithData(nil, der as CFData),
+              let key = SecCertificateCopyKey(cert) else { return (nil, "not a certificate") }
+        guard let alg = parts.algorithm else { return (nil, "unsupported algorithm \(parts.algorithmName)") }
+        guard SecKeyIsAlgorithmSupported(key, .verify, alg) else { return (nil, "key does not support \(parts.algorithmName)") }
+        var err: Unmanaged<CFError>?
+        let ok = SecKeyVerifySignature(key, alg, parts.tbs as CFData, parts.signature as CFData, &err)
+        if !ok, let e = err?.takeRetainedValue() { return (false, "\(parts.algorithmName): \((e as Error).localizedDescription)") }
+        return (ok, parts.algorithmName)
     }
 
     // MARK: errors / urls
