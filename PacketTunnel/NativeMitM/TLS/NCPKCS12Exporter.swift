@@ -151,6 +151,10 @@ public final class NCPKCS12Exporter: PKCS12Exporting {
         guard let ext = SecKeyCopyExternalRepresentation(key, &err) as Data? else {
             throw LeafCertError.keyGenerationFailed
         }
+        // fix/nc-rsa-ca: an RSA key exports PKCS#1 RSAPrivateKey — the shrouded key bag wants PKCS#8.
+        if DER.isRSAKey(key) {
+            return DER.pkcs8RSA(pkcs1: ext)
+        }
         // If already a DER sequence (starts with 0x30), return directly
         if ext.first == 0x30 {
             return ext
