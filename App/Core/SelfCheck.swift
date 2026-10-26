@@ -819,8 +819,9 @@ final class SelfCheck: ObservableObject {
             let t0 = Date()
             fetchRequests += 1
             do {
-                let (_, resp) = try await session.data(from: url)
-                lines.append("\(label) \(url.host ?? ""): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0) · \(Self.ms(t0)) ms")
+                let (body, resp) = try await session.data(from: url)
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                lines.append("\(label) \(url.host ?? ""): HTTP \(code) · \(Self.ms(t0)) ms" + SelfCheckLogic.mitmErrorNote(status: code, body: body))
             } catch {
                 // A pinned / untrusted MitM host failing is reported by the MitM step; it is not a tunnel failure.
                 if label != "MitM" { failed += 1 }
@@ -1016,8 +1017,9 @@ final class SelfCheck: ObservableObject {
         let t0 = Date()
         var result: String
         do {
-            let (_, resp) = try await session.data(from: url)
-            result = "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0) · \(Self.ms(t0)) ms"
+            let (body, resp) = try await session.data(from: url)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            result = "HTTP \(code) · \(Self.ms(t0)) ms" + SelfCheckLogic.mitmErrorNote(status: code, body: body)
         } catch {
             result = SelfCheckLogic.describe(error) + " · \(Self.ms(t0)) ms"
         }

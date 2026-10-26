@@ -30,6 +30,62 @@
 
 import Foundation
 
+// MARK: - Upstream failure memory (fix/nc-diag-439)
+
+/// build 439: every forwarded request of a MitM host answered 502 when its upstream failed, so the apps whose hosts
+/// were decrypted (小红书 / YouTube / 喜马拉雅 modules) lost the network while every other app worked. QuanX / Surge keep
+/// such an app online: a host that cannot be served through the decrypting path is connected without decryption.
+/// Here: `threshold` upstream failures of one host within `window` seconds, with no successful response in between,
+/// pass the host through (NCPinningMemory, reason stated) for `passFor` seconds — scripts / rewrites do not apply to it
+/// meanwhile, but the app connects. One log line when it trips. Bounded (≤ 128 hosts).
+enum NativeMitmUpstreamHealth {
+    static var threshold = 3
+    static var window: TimeInterval = 60
+    static var passFor: TimeInterval = 600
+    private static let lock = NSLock()
+    private static var fails: [String: [TimeInterval]] = [:]
+
+    /// Records one failure; true when this one tripped the pass-through.
+    @discardableResult
+    static func failure(host: String, why: String, now: TimeInterval = Date().timeIntervalSince1970,
+                        pin: (String, String) -> Void = { h, r in NCPinningMemory.shared.markPinned(h, duration: passFor, reason: r) }) -> Bool {
+        let h = NCPinningMemory.normalize(host)
+        guard !h.isEmpty else { return false }
+        lock.lock()
+        var list = (fails[h] ?? []).filter { now - $0 < window }
+        list.append(now)
+        let trip = list.count >= threshold
+        if trip { fails.removeValue(forKey: h) } else { fails[h] = list }
+        if fails.count > 128 {
+            for k in fails.filter({ ($0.value.last ?? 0) < now - window }).map({ $0.key }) { fails.removeValue(forKey: k) }
+            if fails.count > 128 { fails.removeAll() }
+        }
+        lock.unlock()
+        if trip {
+            let reason = "upstream failing (\(threshold)× in \(Int(window)) s, last: \(why.prefix(120))) — passed through for \(Int(passFor / 60)) min, rewrites / scripts paused for it"
+            pin(h, reason)
+            NCDiagLimiter.shared.line("[MITM] \(h) → \(reason)", level: "warning")
+        }
+        return trip
+    }
+
+    static func success(host: String) {
+        let h = NCPinningMemory.normalize(host)
+        lock.lock(); fails.removeValue(forKey: h); lock.unlock()
+    }
+
+    static func reset() { lock.lock(); fails.removeAll(); lock.unlock() }
+
+    /// Upstream-side failures (connect / TLS / read / closed before the head / head timeout).
+    static func isUpstream(_ error: Error) -> Bool {
+        switch error as? S2Error {
+        case .upstream?: return true
+        case .timeout(let what)?: return what == "upstream head" || what == "upstream connect"
+        default: return false
+        }
+    }
+}
+
 // MARK: - Runtime switch
 
 enum NativeMitmRuntime {
@@ -364,6 +420,7 @@ final class NativeMitmSession {
     private var lease: MitmUpstreamLease?
     private var upBuf = Data()
     private var responseStarted = false   // a response byte went to the client for the current exchange
+    private var curRequest = ""          // fix/nc-diag-439: "METHOD /target" of the current exchange, for the 5xx log line
     private var sentBody: Int64 = 0       // body bytes delivered natively (FlowEnd "sent")
     private var timer: DispatchWorkItem?
     private(set) var requestsServed = 0
@@ -502,6 +559,7 @@ final class NativeMitmSession {
     }
 
     private func handle(_ head: HTTPRequestHead) {
+        curRequest = head.method + " " + String(head.target.prefix(96))
         let d = driver.requestPhase(head: head, conn: connInfo)
         flowID = d.id
         let reqFraming = codec.requestFraming(head)
@@ -786,6 +844,7 @@ final class NativeMitmSession {
             if let h = try codec.parseResponseHead(&upBuf) {
                 if h.isInterim { return readResponseHead(req) } // drop interim 1xx
                 disarm()
+                NativeMitmUpstreamHealth.success(host: conn.host)
                 let framing = codec.responseFraming(h, requestMethod: req.method)
                 let length: Int64
                 switch framing { case .none: length = 0; case .contentLength(let n): length = n; default: length = -1 }
@@ -985,6 +1044,13 @@ final class NativeMitmSession {
     private func fail(_ error: Error, status: Int?) {
         guard !finished else { return }
         NativeMitmRuntime.noteError("\(status.map(String.init) ?? "cut") \(conn.host): \(error)")
+        // fix/nc-diag-439 (B): the reason of a MitM 5xx was only in the response body; now in the core log too.
+        if let status, status >= 500 {
+            NCDiagLimiter.shared.line("[MITM] \(conn.host) \(curRequest) → \(status) (\(error))", level: "warning")
+        }
+        if NativeMitmUpstreamHealth.isUpstream(error) {
+            NativeMitmUpstreamHealth.failure(host: conn.host, why: "\(error)")
+        }
         if let status, !responseStarted {
             let body = Data("Tern native MitM: \(error)\n".utf8)
             let reason = Self.reason(status)

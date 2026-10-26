@@ -606,7 +606,7 @@ final class NCDataPlane {
         guard mitmPort > 0 else {
             mitmPassthrough &+= 1
             let why = NCPinningMemory.shared.isPinned(host)
-                ? "pinned: the client rejected the Tern certificate earlier"
+                ? (NCPinningMemory.shared.reason(host) ?? "pinned: the client rejected the Tern certificate earlier")
                 : (MitmTLSFront.shared.onAccept == nil ? "native front not installed" : "front declined: session cap / no CA leaf / listener")
             connLog("[MITM] \(host):\(s.target.port) → passthrough(\(why))", level: "warning")
             return false

@@ -248,45 +248,209 @@ enum SelfCheckLogic {
     // MARK: rewrite probe
 
     /// A concrete https URL a rewrite rule pattern matches, or nil when the pattern has no literal scheme+host prefix.
-    /// `^https?://ad\.example\.com/api/v1/ad` → https://ad.example.com/api/v1/ad. Stops at the first regex meta
-    /// character after the host; a host with regex in it (wildcards, groups, classes) is not used.
+    /// `^https?://ad\.example\.com/api/v\d/ad` → https://ad.example.com/api/v1/ad. The host must be literal (a host with
+    /// regex in it — wildcards, groups, classes — is not probed); the path is synthesized from the regex (`\d`→1, `\w`→a,
+    /// classes → a member, groups → first branch, `+`/`{n}` honoured, optional parts left out, retried with them in).
+    /// fix/nc-diag-439 (B): the URL is only returned when the rule's own regex matches it — the old literal-prefix cut
+    /// produced `…/kprime/v` for `…\/kprime\/v\d\/popups…`, which the rule never matches, so the self-check fired a
+    /// request at the real server and reported "rule not hit".
     static func probeURL(fromPattern p: String) -> URL? {
         var s = Substring(p)
         if s.hasPrefix("^") { s = s.dropFirst() }
-        for pre in ["https?://", "https?:\\/\\/", "https://", "https:\\/\\/", "http(s)?://", "(https?)://"] where s.hasPrefix(pre) {
-            s = s.dropFirst(pre.count)
-            return literalURL(host: s)
+        var rest: Substring?
+        for pre in ["https?://", "https?:\\/\\/", "https://", "https:\\/\\/", "http(s)?://", "(https?)://", "http(s)?:\\/\\/", "(https?):\\/\\/", "https?+:\\/\\/", "https?+://"] where s.hasPrefix(pre) {
+            rest = s.dropFirst(pre.count); break
         }
-        return nil
-    }
-
-    private static func literalURL(host rest: Substring) -> URL? {
-        var out = ""
+        guard let rest else { return nil }
+        // literal host
+        var host = ""
         var i = rest.startIndex
-        var inHost = true
+        var pathStart: Substring.Index? = nil
         while i < rest.endIndex {
             let c = rest[i]
             if c == "\\" {
                 let n = rest.index(after: i)
-                guard n < rest.endIndex else { break }
+                guard n < rest.endIndex else { return nil }
                 let e = rest[n]
-                if ".-/_~=&:".contains(e) || e == "?" {
-                    if e == "/" { inHost = false }
-                    out.append(e); i = rest.index(after: n); continue
-                }
-                break // \d \w \S … : end of the literal part
+                if e == "/" { pathStart = i; break }
+                if e == "." || e == "-" { host.append(e); i = rest.index(after: n); continue }
+                return nil // \d \w … inside the host
             }
-            if "^$*+?()[]{}|".contains(c) { break }
-            if c == "." && !inHost { break } // unescaped "." in the path = any character
-            if c == "/" { inHost = false }
-            out.append(c)
-            i = rest.index(after: i)
+            if c == "/" { pathStart = i; break }
+            if c == "$" || c == ":" { pathStart = i; break }
+            if c == "." || c == "-" || c.isLetter || c.isNumber { host.append(c); i = rest.index(after: i); continue }
+            return nil // ^$*+?()[]{}| in the host
         }
-        let host = out.split(separator: "/", maxSplits: 1).first.map(String.init) ?? ""
-        guard !host.isEmpty, host.contains("."), host.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" }),
-              !host.hasPrefix("."), !host.hasSuffix(".") else { return nil }
+        guard !host.isEmpty, host.contains("."), !host.hasPrefix("."), !host.hasSuffix("."),
+              host.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }) else { return nil }
         if host.split(separator: ".").allSatisfy({ $0.allSatisfy(\.isNumber) }) { return nil } // bare IPv4
-        return URL(string: "https://" + (out.contains("/") ? out : out + "/"))
+        let pathPattern = pathStart.map { String(rest[$0...]) } ?? ""
+        guard let re = try? NSRegularExpression(pattern: p) else { return nil }
+        func matches(_ u: String) -> Bool { re.firstMatch(in: u, range: NSRange(u.startIndex..., in: u)) != nil }
+        for includeOptional in [false, true] {
+            guard var path = RegexExample.generate(pathPattern, includeOptional: includeOptional) else { continue }
+            if path.hasPrefix(":") { continue } // a port in the pattern: not probed
+            if path.isEmpty { path = "/" }
+            guard path.hasPrefix("/") else { continue }
+            let url = "https://" + host + path
+            if matches(url), let u = URL(string: url) { return u }
+            // `…\.com` with no path in the pattern: also try the bare host
+            if pathPattern.isEmpty, matches("https://" + host), let u = URL(string: "https://" + host + "/") { return u }
+        }
+        return nil
+    }
+
+    /// A small regex → example-string generator (ICU / JS syntax subset used by rewrite rules). nil when it meets a
+    /// construct it cannot produce (backreferences, unbalanced groups).
+    enum RegexExample {
+        static func generate(_ pattern: String, includeOptional: Bool) -> String? {
+            let chars = Array(pattern)
+            var pos = 0
+            return alternation(chars, &pos, includeOptional, depth: 0)
+        }
+
+        /// Reads one alternation up to `)` or the end; returns the first branch's example.
+        private static func alternation(_ c: [Character], _ pos: inout Int, _ opt: Bool, depth: Int) -> String? {
+            guard depth < 16 else { return nil }
+            var first: String? = nil
+            var cur = ""
+            var branchDone = false
+            while pos < c.count {
+                let ch = c[pos]
+                if ch == ")" { break }
+                if ch == "|" {
+                    if first == nil { first = cur }
+                    branchDone = true
+                    cur = ""
+                    pos += 1
+                    continue
+                }
+                guard let (atom, next) = atom(c, pos, opt, depth: depth) else { return nil }
+                pos = next
+                // quantifier
+                var minRep = 1, maxRep = 1
+                if pos < c.count {
+                    switch c[pos] {
+                    case "?": minRep = 0; maxRep = 1; pos += 1
+                    case "*": minRep = 0; maxRep = 2; pos += 1
+                    case "+": minRep = 1; maxRep = 2; pos += 1
+                    case "{":
+                        if let close = c[pos...].firstIndex(of: "}") {
+                            let body = String(c[(pos + 1)..<close]).split(separator: ",", omittingEmptySubsequences: false)
+                            if let n = Int(body.first ?? "") {
+                                minRep = n
+                                maxRep = body.count > 1 ? (Int(body[1]) ?? n + 1) : n
+                                pos = close + 1
+                            }
+                        }
+                    default: break
+                    }
+                    if pos < c.count, c[pos] == "?" || c[pos] == "+" { pos += 1 } // lazy / possessive
+                }
+                let reps = minRep > 0 ? minRep : (opt ? min(1, maxRep) : 0)
+                if !branchDone || first == nil { cur += String(repeating: atom, count: reps) }
+            }
+            return first ?? cur
+        }
+
+        /// One atom at `pos`: its example text and the index after it.
+        private static func atom(_ c: [Character], _ pos: Int, _ opt: Bool, depth: Int) -> (String, Int)? {
+            let ch = c[pos]
+            switch ch {
+            case "^", "$": return ("", pos + 1)
+            case ".": return ("a", pos + 1)
+            case "\\":
+                guard pos + 1 < c.count else { return nil }
+                let e = c[pos + 1]
+                switch e {
+                case "d": return ("1", pos + 2)
+                case "w": return ("a", pos + 2)
+                case "s": return ("%20", pos + 2)
+                case "S", "D": return ("a", pos + 2)
+                case "W": return ("-", pos + 2)
+                case "b", "B", "A", "z", "Z", "G": return ("", pos + 2)
+                case "1", "2", "3", "4", "5", "6", "7", "8", "9": return nil
+                default: return (String(e), pos + 2)
+                }
+            case "[":
+                var i = pos + 1
+                var negated = false
+                if i < c.count, c[i] == "^" { negated = true; i += 1 }
+                var members: [Character] = []
+                var first = true
+                while i < c.count, c[i] != "]" || first {
+                    first = false
+                    if c[i] == "\\", i + 1 < c.count {
+                        switch c[i + 1] {
+                        case "d": members.append("1")
+                        case "w": members.append("a")
+                        default: members.append(c[i + 1])
+                        }
+                        i += 2
+                        continue
+                    }
+                    members.append(c[i])
+                    i += 1
+                }
+                guard i < c.count else { return nil }
+                let pick: Character
+                if negated {
+                    pick = ["a", "1", "x", "z"].first { !members.contains($0) } ?? "-"
+                } else {
+                    pick = members.first { $0 != "-" } ?? "a"
+                }
+                return (String(pick), i + 1)
+            case "(":
+                var i = pos + 1
+                if i < c.count, c[i] == "?" {
+                    // (?: … ) (?<name> … ) keep; look-arounds produce nothing
+                    if i + 1 < c.count, c[i + 1] == "=" || c[i + 1] == "!" {
+                        guard let close = matchingParen(c, pos) else { return nil }
+                        return ("", close + 1)
+                    }
+                    if i + 2 < c.count, c[i + 1] == "<", c[i + 2] == "=" || c[i + 2] == "!" {
+                        guard let close = matchingParen(c, pos) else { return nil }
+                        return ("", close + 1)
+                    }
+                    if i + 1 < c.count, c[i + 1] == ":" || c[i + 1] == ">" { i += 2 }
+                    else if i + 1 < c.count, c[i + 1] == "<" || c[i + 1] == "P" {
+                        guard let gt = c[i...].firstIndex(of: ">") else { return nil }
+                        i = gt + 1
+                    } else { i += 1 }
+                }
+                var p = i
+                guard let inner = alternation(c, &p, opt, depth: depth + 1), p < c.count, c[p] == ")" else { return nil }
+                return (inner, p + 1)
+            case ")", "|": return nil
+            default:
+                return (String(ch), pos + 1)
+            }
+        }
+
+        private static func matchingParen(_ c: [Character], _ open: Int) -> Int? {
+            var depth = 0
+            var i = open
+            var inClass = false
+            while i < c.count {
+                let ch = c[i]
+                if ch == "\\" { i += 2; continue }
+                if inClass { if ch == "]" { inClass = false }; i += 1; continue }
+                if ch == "[" { inClass = true }
+                else if ch == "(" { depth += 1 }
+                else if ch == ")" { depth -= 1; if depth == 0 { return i } }
+                i += 1
+            }
+            return nil
+        }
+    }
+
+    /// fix/nc-diag-439 (B): a 5xx the native MitM produced itself carries its reason in the body
+    /// ("Tern native MitM: <error>") — shown instead of a bare 502.
+    static func mitmErrorNote(status: Int, body: Data) -> String {
+        guard status >= 500, body.count < 4096, let t = String(data: body, encoding: .utf8),
+              let r = t.range(of: "Tern native MitM: ") else { return "" }
+        let why = t[r.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return why.isEmpty ? "" : String(localized: "（MitM 返回：") + String(why.prefix(160)) + "）"
     }
 
     /// Patterns that only match plain http:// (port 80) — the TUN path does not run them through the rewrite engine.
