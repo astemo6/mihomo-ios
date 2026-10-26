@@ -412,3 +412,155 @@ final class E2EMemory {
         return (b, pk, pk - b, k)
     }
 }
+
+/// fix/nc-mem-4 (diagnostic): run 40419441795 showed the +55 MB transient in a 2 s window where the test's main thread
+/// did not come back from a 21 ms controller call and no core work was counted (no probes, no controller request,
+/// no new NCStream); the footprint fell back the moment the main thread resumed. This watches the main thread from a
+/// background thread and logs what it is doing:
+///   * main-thread stall ≥ 300 ms → `[nc-mem] scene=e2e:main-stall` + the main thread's frame-pointer backtrace,
+///   * footprint up ≥ 8 MB since the last dump → `[nc-mem] scene=e2e:jump` + every thread's top frames (≤ 4 dumps).
+/// Threads are suspended only while their registers / frame chain are read (no locks, no allocation in that window);
+/// symbols are resolved with dladdr after resuming.
+final class E2EStackWatch {
+    private var mainPort: thread_act_t = 0
+    private var beat: UInt64 = 0          // bumped by a main run-loop observer
+    private let lock = NSLock()
+    private var observer: CFRunLoopObserver?
+    private var timer: DispatchSourceTimer?
+    private var lastBeat: UInt64 = 0
+    private var lastBeatAt = DispatchTime.now()
+    private var stallsLogged = 0
+    private var stallDumpedFor: UInt64 = .max
+    private var lastDumpFootprint: UInt64 = 0
+    private var jumpsLogged = 0
+    private let frames = UnsafeMutablePointer<UInt>.allocate(capacity: 64)
+
+    /// Call on the main thread.
+    func start() {
+        mainPort = mach_thread_self()
+        lastDumpFootprint = ProcessMemory.footprintBytes()
+        let obs = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.allActivities.rawValue, true, 0) { [weak self] _, _ in
+            guard let self else { return }
+            self.lock.lock(); self.beat &+= 1; self.lock.unlock()
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), obs, .commonModes)
+        observer = obs
+        let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "e2e.stackwatch", qos: .userInteractive))
+        t.schedule(deadline: .now() + 0.05, repeating: 0.05)
+        t.setEventHandler { [weak self] in self?.tick() }
+        t.resume()
+        timer = t
+    }
+
+    func stop() {
+        timer?.cancel(); timer = nil
+        if let o = observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes) }
+        observer = nil
+    }
+
+    private func tick() {
+        lock.lock(); let b = beat; lock.unlock()
+        let now = DispatchTime.now()
+        if b != lastBeat { lastBeat = b; lastBeatAt = now }
+        let stalledMs = Int((now.uptimeNanoseconds - lastBeatAt.uptimeNanoseconds) / 1_000_000)
+        let fp = ProcessMemory.footprintBytes()
+        // Main thread inside one callout for ≥ 300 ms: dump it (at most twice per stall, 12 stalls in all).
+        if stalledMs >= 300, stallsLogged < 24, stallDumpedFor != b || stalledMs % 1000 < 50 {
+            stallDumpedFor = b
+            stallsLogged += 1
+            let st = backtrace(mainPort)
+            NSLog("[nc-mem] scene=e2e:main-stall ms=%d footprint=%.1fMB peak=%.1fMB main: %@", stalledMs,
+                  Double(fp) / 1_048_576, Double(ProcessMemory.peakBytes()) / 1_048_576, st)
+        }
+        if fp > lastDumpFootprint &+ (8 << 20), jumpsLogged < 4 {
+            jumpsLogged += 1
+            lastDumpFootprint = fp
+            dumpAll(reason: String(format: "footprint %.1fMB", Double(fp) / 1_048_576))
+        } else if fp < lastDumpFootprint {
+            lastDumpFootprint = max(fp, lastDumpFootprint &- (8 << 20))
+        }
+    }
+
+    private func dumpAll(reason: String) {
+        var list: thread_act_array_t?
+        var n: mach_msg_type_number_t = 0
+        guard task_threads(mach_task_self_, &list, &n) == KERN_SUCCESS, let list else { return }
+        let me = mach_thread_self()
+        var out: [String] = []
+        for i in 0..<Int(n) {
+            let t = list[i]
+            if t == me { continue }
+            let s = backtrace(t, max: 14)
+            if !s.isEmpty { out.append("T\(i)\(t == mainPort ? "(main)" : ""): \(s)") }
+        }
+        for i in 0..<Int(n) { mach_port_deallocate(mach_task_self_, list[i]) }
+        mach_port_deallocate(mach_task_self_, me)
+        vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: list)), vm_size_t(Int(n) * MemoryLayout<thread_act_t>.stride))
+        NSLog("[nc-mem] scene=e2e:jump %@ peak=%.1fMB threads=%d", reason, Double(ProcessMemory.peakBytes()) / 1_048_576, Int(n))
+        for l in out { NSLog("[nc-mem] scene=e2e:jump-thread %@", l) }
+    }
+
+    /// Frame-pointer walk of a suspended thread; symbolized after resume.
+    private func backtrace(_ t: thread_act_t, max limit: Int = 28) -> String {
+        guard t != 0 else { return "" }
+        var lo: UInt = 0, hi: UInt = 0
+        if let pt = pthread_from_mach_thread_np(t) {
+            hi = UInt(bitPattern: pthread_get_stackaddr_np(pt))
+            lo = hi &- UInt(pthread_get_stacksize_np(pt))
+        }
+        guard thread_suspend(t) == KERN_SUCCESS else { return "" }
+        var count = 0
+        #if arch(arm64)
+        var st = arm_thread_state64_t()
+        var c = mach_msg_type_number_t(MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &st) {
+            $0.withMemoryRebound(to: natural_t.self, capacity: Int(c)) { thread_get_state(t, thread_state_flavor_t(6), $0, &c) }
+        }
+        if kr == KERN_SUCCESS {
+            frames[0] = UInt(st.__pc); frames[1] = UInt(st.__lr); count = 2
+            var fp = UInt(st.__fp)
+            while count < limit, fp != 0, fp & 7 == 0, lo == 0 || (fp >= lo && fp + 16 <= hi) {
+                let p = UnsafePointer<UInt>(bitPattern: fp)!
+                let ret = p[1], next = p[0]
+                if ret == 0 { break }
+                frames[count] = ret; count += 1
+                if next <= fp { break }
+                fp = next
+            }
+        }
+        #elseif arch(x86_64)
+        var st = x86_thread_state64_t()
+        var c = mach_msg_type_number_t(MemoryLayout<x86_thread_state64_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &st) {
+            $0.withMemoryRebound(to: natural_t.self, capacity: Int(c)) { thread_get_state(t, thread_state_flavor_t(4), $0, &c) }
+        }
+        if kr == KERN_SUCCESS {
+            frames[0] = UInt(st.__rip); count = 1
+            var fp = UInt(st.__rbp)
+            while count < limit, fp != 0, fp & 7 == 0, lo == 0 || (fp >= lo && fp + 16 <= hi) {
+                let p = UnsafePointer<UInt>(bitPattern: fp)!
+                let ret = p[1], next = p[0]
+                if ret == 0 { break }
+                frames[count] = ret; count += 1
+                if next <= fp { break }
+                fp = next
+            }
+        }
+        #endif
+        thread_resume(t)
+        var parts: [String] = []
+        for i in 0..<count {
+            var info = Dl_info()
+            let pc = frames[i]
+            if dladdr(UnsafeRawPointer(bitPattern: pc), &info) != 0 {
+                let img = info.dli_fname.map { (String(cString: $0) as NSString).lastPathComponent } ?? "?"
+                let sym = info.dli_sname.map { String(cString: $0) } ?? "?"
+                let off = pc &- UInt(bitPattern: info.dli_saddr)
+                parts.append("\(img)`\(sym.prefix(110))+\(off)")
+            } else {
+                parts.append(String(format: "0x%lx", pc))
+            }
+        }
+        return parts.joined(separator: " < ")
+    }
+}

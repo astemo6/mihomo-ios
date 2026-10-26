@@ -44,6 +44,9 @@ final class TernE2ETunnelTests: XCTestCase {
         r.addSecrets(runtimeSecrets())
         let mem = E2EMemory()
         mem.start()
+        let stacks = E2EStackWatch() // fix/nc-mem-4 diagnostic
+        stacks.start()
+        defer { stacks.stop() }
         if !sample { injectRules() }
 
         // ---- start (what the provider does, then NativeTunnelCore.start)
