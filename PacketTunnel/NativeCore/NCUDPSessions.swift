@@ -698,13 +698,16 @@ extension NCDNSForwarder {
             })
     }
 
-    /// One real upstream exchange (the coordinator's execute step; no coalescing here).
-    private func dispatchOnce(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
+    /// One real upstream exchange (the coordinator's execute step; no coalescing here). Returns a cancel handle for
+    /// the transports that own their socket (UDP / TCP; fix/nc-tails) — pooled DoT / DoH streams are shared and
+    /// keep their own timeout, DoQ its 5 s one.
+    @discardableResult
+    private func dispatchOnce(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) -> (() -> Void)? {
         switch upstream {
         case .udp(let host, let port):
-            forwardUDPOnce(query, server: host, port: port, completion: completion)
+            return forwardUDPOnce(query, server: host, port: port, completion: completion)
         case .tcp(let host, let port):
-            Self.forwardTCP(query, server: host, port: port, queue: queue, completion: completion)
+            return Self.forwardTCP(query, server: host, port: port, queue: queue, completion: completion)
         case .dot(let host, let port):
             Self.forwardDoT(query, host: host, port: port, queue: queue, completion: completion)
         case .doh(let url):
@@ -714,6 +717,7 @@ extension NCDNSForwarder {
         case .group:
             completion(nil) // unreachable: groups are handled in forward()
         }
+        return nil
     }
 
     private static let groupLock = NSLock()
@@ -730,11 +734,12 @@ extension NCDNSForwarder {
         Self.groupLock.lock()
         let start = (Self.groupLastGood[key] ?? 0) % list.count
         Self.groupLock.unlock()
-        NCDNSRace.run(list: list, start: start, queue: queue, trace: trace, exchange: { [weak self] u, done in
-            guard let self else { done(nil); return }
-            // Members are single upstreams (NCDNSUpstream.of flattens groups); per-member trace lines come
-            // from the race itself, so no trace is passed down here.
-            self.forward(query, upstream: u, trace: nil, completion: done)
+        // fix/nc-tails: each member attempt is a coordinated exchange the race can abandon (slot + socket freed when
+        // it times out or loses), see NCDNSRace.runCoordinated. Members are single upstreams (NCDNSUpstream.of
+        // flattens groups); per-member trace lines come from the race itself.
+        NCDNSRace.runCoordinated(query: query, list: list, start: start, queue: queue, trace: trace, execute: { [weak self] u, done in
+            guard let self else { done(nil); return nil }
+            return self.dispatchOnce(query, upstream: u, completion: done)
         }, completion: { resp, winner in
             if let winner, winner != start {
                 Self.groupLock.lock()

@@ -57,6 +57,8 @@ final class NCLocalProxy {
         var down: Int64 = 0
         let start = Date()
         var sourcePort = ""
+        /// fix/nc-tails: /app/stats (host / policy / rule / bytes / closed record), like a TUN connection.
+        var flow = NCListenerFlowStats()
         init(id: Int, client: NWConnection) { self.id = id; self.client = client }
     }
 
@@ -366,22 +368,17 @@ final class NCLocalProxy {
     private func open(_ c: Conn, done: @escaping (Bool, UInt8) -> Void) {
         let ctx = engine.matchContext(domain: c.ruleDomain, ip: c.target.ip, dstPort: c.target.port, network: "tcp")
         // rv2-rules: IP rules on a domain target resolve it first (no-resolve skips), same as the TUN data plane.
-        engine.routeAsync(ctx, queue: queue) { [weak self, weak c] _, rule, resolution in
+        engine.routeAsync(ctx, queue: queue) { [weak self, weak c] policy, rule, resolution in
             guard let self, let c, !c.closed else { return }
-            self.dial(c, rule: rule, resolution: resolution, done: done)
+            self.dial(c, policy: policy, rule: rule, resolution: resolution, done: done)
         }
     }
 
-    private func dial(_ c: Conn, rule: String?, resolution: NCGroupEngine.Resolution,
+    private func dial(_ c: Conn, policy: String, rule: String?, resolution: NCGroupEngine.Resolution,
                       done: @escaping (Bool, UInt8) -> Void) {
         c.rule = rule ?? ""
-        c.chain = switch resolution {
-        case .direct: "DIRECT"
-        case .reject: "REJECT"
-        case .proxy(let p): p.name
-        case .chain(let ps): ps.map { $0.name }.joined(separator: " -> ")
-        case .unknown(let n): n
-        }
+        c.chain = NCListenerFlowStats.chainName(resolution)
+        c.flow.open(rule: c.rule, policy: policy, chain: c.chain, host: Self.statsHost(c))
         if case .reject = resolution { return done(false, 0x02) }
         NCConnector.connect(target: c.target, resolution: resolution, queue: queue) { [weak self, weak c] relay, _ in
             guard let self, let c, !c.closed else {
@@ -437,6 +434,7 @@ final class NCLocalProxy {
         }
         c.chain = "MITM"
         c.rule = "MITM"
+        c.flow.open(rule: "MITM", policy: NCStatsRecorder.engineOutbound, chain: "MITM", host: host)
         let stream = NCStream(to: "127.0.0.1", port: Int(mitmPort), queue: queue)
         stream.start { [weak self, weak c] err in
             guard let self, let c, !c.closed else {
@@ -506,6 +504,7 @@ final class NCLocalProxy {
     private func count(_ c: Conn, up: Int = 0, down: Int = 0) {
         c.up += Int64(up)
         c.down += Int64(down)
+        c.flow.count(up: up, down: down)
         totalUp += Int64(up)
         totalDown += Int64(down)
         if c.chain != "DIRECT" {
@@ -519,6 +518,9 @@ final class NCLocalProxy {
         c.closed = true
         conns.removeValue(forKey: c.id)
         socksStage.removeValue(forKey: c.id)
+        c.flow.close(id: Self.idPrefix + String(c.id), type: c.kind, srcIP: "127.0.0.1", srcPort: Int(c.sourcePort) ?? 0,
+                     dstIP: c.target.ip != nil ? c.target.host : "", dstPort: c.target.port, remote: c.target.host,
+                     start: c.start)
         c.relay?.cancel()
         c.relay = nil
         c.client.stateUpdateHandler = nil
@@ -527,7 +529,18 @@ final class NCLocalProxy {
 
     // MARK: stats
 
+    /// The App's ConnectionAnalytics.hostName: the requested domain, else the destination IP.
+    private static func statsHost(_ c: Conn) -> String {
+        if let d = c.ruleDomain, !d.isEmpty { return d }
+        return c.target.host
+    }
+
     private func refreshStats() {
+        // fix/nc-tails: per-host / per-policy growth since the last tick (totals already reach the speed series
+        // through stats.updateLocal → NCDataPlaneStats.snapshot).
+        var batch: [(policy: String, host: String, up: Int64, down: Int64)] = []
+        for c in conns.values { if let p = c.flow.takePending() { batch.append(p) } }
+        NCStatsRecorder.shared.bytesBatch(batch)
         let fmt = Self.isoFormatter
         let list: [[String: Any]] = conns.values.filter { !$0.chain.isEmpty }.map { c in
             [

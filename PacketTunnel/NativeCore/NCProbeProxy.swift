@@ -21,13 +21,22 @@ final class NCProbeProxy {
     private var conns: [ObjectIdentifier: Conn] = [:]
     private static let maxConnections = 32
     private static let maxHead = 16 * 1024
+    private var nextID: UInt64 = 1
 
     private final class Conn {
         let client: NCLoopbackConn
         var head = Data()
         var relay: NCRelayStream?
         var closed = false
-        init(_ c: NCLoopbackConn) { client = c }
+        /// fix/nc-tails: /app/stats accounting (these flows never touch the TUN, so nothing else counts them).
+        var flow = NCListenerFlowStats()
+        var target = NCTarget(host: "", port: 0)
+        var connect = false
+        let start = Date()
+        var lastFlush = Date()
+        var flushedUp: Int64 = 0, flushedDown: Int64 = 0
+        let id: UInt64
+        init(_ c: NCLoopbackConn, id: UInt64) { client = c; self.id = id }
     }
 
     init(engine: NativeCoreEngine, spec: Spec) {
@@ -61,7 +70,8 @@ final class NCProbeProxy {
 
     private func accept(_ client: NCLoopbackConn) {
         guard listener != nil, conns.count < Self.maxConnections else { client.cancel(); return }
-        let c = Conn(client)
+        let c = Conn(client, id: nextID)
+        nextID &+= 1
         conns[ObjectIdentifier(c)] = c
         client.onClose = { [weak self, weak c] in
             guard let self, let c else { return }
@@ -93,6 +103,10 @@ final class NCProbeProxy {
         guard let resolution = engine.resolve(policyName: spec.policy) else {
             return reply(c, 502, "Bad Gateway", close: true)
         }
+        c.target = target
+        c.connect = req.connect
+        let chain = NCListenerFlowStats.chainName(resolution)
+        c.flow.open(rule: "", policy: spec.policy, chain: chain, host: target.host)
         if case .reject = resolution { return reply(c, 403, "Forbidden", close: true) }
         NCConnector.connect(target: target, resolution: resolution, queue: queue) { [weak self, weak c] relay, error in
             guard let self, let c, !c.closed else { relay?.cancel(); return }
@@ -104,7 +118,10 @@ final class NCProbeProxy {
             if req.connect {
                 c.client.send(content: Data("HTTP/1.1 200 Connection established\r\n\r\n".utf8), completion: .idempotent)
             }
-            if !req.upstream.isEmpty { relay.send(req.upstream) }
+            if !req.upstream.isEmpty {
+                self.count(c, up: req.upstream.count)
+                relay.send(req.upstream)
+            }
             self.pumpUp(c)
             self.pumpDown(c)
         }
@@ -114,6 +131,7 @@ final class NCProbeProxy {
         c.client.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self, weak c] data, _, done, err in
             guard let self, let c, !c.closed, let relay = c.relay else { return }
             if let data, !data.isEmpty {
+                self.count(c, up: data.count)
                 NCRelayFlow.send(relay, data, queue: self.queue) { [weak self, weak c] in
                     guard let self, let c, !c.closed else { return }
                     if done || err != nil { self.close(c) } else { self.pumpUp(c) }
@@ -136,6 +154,7 @@ final class NCProbeProxy {
                     c.client.send(content: Data(), completion: .contentProcessed { [weak self] _ in self?.queue.async { self?.close(c) } })
                     return
                 }
+                self.count(c, down: data.count)
                 c.client.send(content: data, completion: .contentProcessed { [weak self, weak c] err in
                     guard let self else { return }
                     self.queue.async {
@@ -155,10 +174,32 @@ final class NCProbeProxy {
         })
     }
 
+    // MARK: stats (fix/nc-tails)
+
+    private func count(_ c: Conn, up: Int = 0, down: Int = 0) {
+        c.flow.count(up: up, down: down)
+        if Date().timeIntervalSince(c.lastFlush) >= 1 { flush(c) }
+    }
+
+    /// Per-host / policy bytes and the speed-series totals, at most once a second per connection and at close.
+    private func flush(_ c: Conn) {
+        c.lastFlush = Date()
+        let rec = NCStatsRecorder.shared
+        rec.sideBytes(up: c.flow.up - c.flushedUp, down: c.flow.down - c.flushedDown,
+                      proxied: NCListenerFlowStats.isProxied(c.flow.chain))
+        c.flushedUp = c.flow.up
+        c.flushedDown = c.flow.down
+        if let p = c.flow.takePending() { rec.bytes(policy: p.policy, host: p.host, up: p.up, down: p.down) }
+    }
+
     private func close(_ c: Conn) {
         guard !c.closed else { return }
         c.closed = true
         conns.removeValue(forKey: ObjectIdentifier(c))
+        flush(c)
+        c.flow.close(id: "probe\(c.id)", type: c.connect ? "HTTPS" : "HTTP", srcIP: "127.0.0.1", srcPort: 0,
+                     dstIP: c.target.ip != nil ? c.target.host : "", dstPort: c.target.port, remote: c.target.host,
+                     start: c.start)
         c.relay?.cancel()
         c.relay = nil
         c.client.onClose = nil
