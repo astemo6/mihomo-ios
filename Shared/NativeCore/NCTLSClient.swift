@@ -596,14 +596,16 @@ final class NCTLSClientStream: NCRelayStream {
         let extLen = Int(body[idx]) << 8 | Int(body[idx + 1]); idx += 2
         let extEnd = min(body.count, idx + extLen)
 
-        // RFC 8446 §4.1.3: Check if ServerHello is actually a HelloRetryRequest
-        if serverRandom == NCTLS13.helloRetryRequestRandom {
+        // RFC 9849 §6.1.5 / RFC 8446 §4.1.3:
+        // ECH-specific HRR is only intercepted when ECH was active and offered.
+        // For non-ECH connections, fallback to baseline RFC 8446 handling (unchanged byte-for-byte).
+        if echSelected != nil, serverRandom == NCTLS13.helloRetryRequestRandom {
             guard !hrrReceived else {
                 fail(TLSError.handshake("multiple HelloRetryRequest messages received"))
                 return
             }
             hrrReceived = true
-            handleHelloRetryRequest(message: message, body: body, extStart: idx, extEnd: extEnd)
+            handleECHHelloRetryRequest(message: message, body: body, extStart: idx, extEnd: extEnd)
             return
         }
 
@@ -738,6 +740,16 @@ final class NCTLSClientStream: NCRelayStream {
     /// when set (name-cert-verify), else the SNI name. A pin overrides allowInsecure (mihomo
     /// semantics); without a pin, allowInsecure waives the SecTrust result.
     private func certificatePolicyValid() -> Bool {
+        // RFC 9849 §6.1.6: When server rejects ECH, the certificate presented in the
+        // outer handshake authenticates the outer publicName, not the inner destination.
+        // pinnedCertSHA256 pins the inner service certificate and must only be evaluated
+        // on the final accepted connection (echAccepted != false).
+        // For outer verification during ECH rejection, validate the outer certificate
+        // against system roots for publicName.
+        if echAccepted == false {
+            return config.allowInsecure || secTrustValid(anchoredAt: nil)
+        }
+
         if let pin = config.pinnedCertSHA256 {
             for (i, der) in certsDER.enumerated() where Data(SHA256.hash(data: der)) == pin {
                 // Leaf match: accepted as-is (mihomo's verifier does no hostname check here).
@@ -819,6 +831,7 @@ final class NCTLSClientStream: NCRelayStream {
                     config.echConfigList = retryConfigs
                 } catch {
                     handshakeHandler = savedHandler
+                    sendAlert(description: NCTLS13.alertECHRequired)
                     fail(TLSError.echRetryFailed("Failed to parse server retry_configs: \(error)"))
                     return
                 }
@@ -845,9 +858,11 @@ final class NCTLSClientStream: NCRelayStream {
                 }
                 return
             } else if echRetried {
+                sendAlert(description: NCTLS13.alertECHRequired)
                 fail(TLSError.echRetryFailed("Server rejected ECH after retry"))
                 return
             } else {
+                sendAlert(description: NCTLS13.alertECHRequired)
                 fail(TLSError.echRejected(retryConfigs: echRetryConfigs))
                 return
             }
@@ -872,100 +887,98 @@ final class NCTLSClientStream: NCRelayStream {
         }
     }
 
-    private func handleHelloRetryRequest(message: Data, body: Data, extStart: Int, extEnd: Int) {
+    private func handleECHHelloRetryRequest(message: Data, body: Data, extStart: Int, extEnd: Int) {
         let extsData = body.subdata(in: extStart..<extEnd)
+
+        // RFC 8446 §4.1.4: Verify selected_version (supported_versions extension must be 0x0304)
+        guard let versionData = NCTLS13.parseExtension(type: 43, fromExtensionsData: extsData),
+              versionData.count >= 2, (UInt16(versionData[0]) << 8 | UInt16(versionData[1])) == 0x0304 else {
+            fail(TLSError.handshake("HRR missing or invalid supported_versions"))
+            return
+        }
+
+        // RFC 8446 §4.1.4 & §4.2.8: Key share selected group
+        var hrrKeyShareGroup: UInt16? = nil
+        if let ksData = NCTLS13.parseExtension(type: 51, fromExtensionsData: extsData) {
+            guard ksData.count >= 2 else {
+                fail(TLSError.handshake("HRR malformed key_share extension"))
+                return
+            }
+            let group = UInt16(ksData[0]) << 8 | UInt16(ksData[1])
+            guard group == 0x001d else {
+                fail(TLSError.handshake("HRR requested unsupported key share group \(group)"))
+                return
+            }
+            hrrKeyShareGroup = group
+        }
+
         let cookie = NCTLS13.parseExtension(type: NCTLS13.extensionCookie, fromExtensionsData: extsData)
 
-        if echSelected != nil {
-            if let hrrECHExt = NCTLS13.parseExtension(type: NCTLS13.extensionECH, fromExtensionsData: extsData) {
-                guard hrrECHExt.count == 8 else {
-                    fail(TLSError.handshake("HRR ECH extension length must be 8"))
-                    return
-                }
-                if let expectedHRRConf = NCTLS13.computeHRRAcceptConfirmation(
-                    kind: kind,
-                    innerTranscript: innerTranscript,
-                    hrrMessage: message,
-                    hrrECHPayload: hrrECHExt,
-                    innerRandom: clientHelloInnerRandom
-                ), expectedHRRConf == hrrECHExt {
-                    echAccepted = true
-                } else {
-                    echAccepted = false
-                }
+        // RFC 9849 §6.1.5 & §7.2.1: Verify HRR accept confirmation
+        if let hrrECHExt = NCTLS13.parseExtension(type: NCTLS13.extensionECH, fromExtensionsData: extsData) {
+            guard hrrECHExt.count == 8 else {
+                fail(TLSError.handshake("HRR ECH extension length must be 8"))
+                return
+            }
+            if let expectedHRRConf = NCTLS13.computeHRRAcceptConfirmation(
+                kind: kind,
+                innerTranscript: innerTranscript,
+                hrrMessage: message,
+                hrrECHPayload: hrrECHExt,
+                innerRandom: clientHelloInnerRandom
+            ), expectedHRRConf == hrrECHExt {
+                echAccepted = true
             } else {
                 echAccepted = false
             }
-
-            // RFC 8446 §4.4.1: synthetic message_hash replacement
-            innerTranscript = NCTLS13.syntheticMessageHash(for: clientHelloInner1, kind: kind)
-            innerTranscript.append(message)
-            outerTranscript = NCTLS13.syntheticMessageHash(for: clientHelloOuter1, kind: kind)
-            outerTranscript.append(message)
-
-            guard let priv = clientPrivate else { fail(TLSError.handshake("missing client key share")); return }
-            let clientShare = Data(priv.publicKey.rawRepresentation)
-            let sessionID = Data(repeating: 0, count: 32)
-
-            let innerHello2 = NCTLS13.buildClientHelloInner(
-                random: clientHelloInnerRandom,
-                sessionID: sessionID,
-                serverName: config.serverName,
-                alpn: config.alpn,
-                keyShare: clientShare,
-                profile: config.profile,
-                cookie: cookie
-            )
-            innerTranscript.append(innerHello2)
-
-            let encodedInner2 = NCTLS13.encodeInnerClientHello(
-                innerHello: innerHello2,
-                serverName: config.serverName,
-                maximumNameLength: echSelected!.config.maximumNameLength
-            )
-
-            let publicName = config.outerServerName ?? echSelected!.config.publicName
-            do {
-                let outerHello2 = try NCTLS13.buildClientHelloOuter(
-                    outerRandom: clientRandom,
-                    sessionID: sessionID,
-                    publicName: publicName,
-                    alpn: config.alpn,
-                    keyShare: clientShare,
-                    profile: config.profile,
-                    cookie: cookie,
-                    selectedConfig: echSelected!,
-                    enc: Data(), // RFC 9849 §6.1.5: empty enc on HRR
-                    hpkeContext: echSenderContext!, // Reuses HPKE context with next sequence number
-                    encodedInner: encodedInner2
-                )
-                outerTranscript.append(outerHello2)
-                transcript = outerTranscript
-                sendRecord(type: 22, payload: outerHello2)
-            } catch {
-                fail(TLSError.handshake("HRR build ClientHelloOuter failed: \(error)"))
-            }
         } else {
-            let ch1Hash = kind.hash(transcript)
-            var msg = Data([0xfe, 0x00, 0x00, UInt8(ch1Hash.count)])
-            msg.append(ch1Hash)
-            transcript = msg
-            transcript.append(message)
+            echAccepted = false
+        }
 
-            guard let priv = clientPrivate else { fail(TLSError.handshake("missing key share")); return }
-            let clientShare = Data(priv.publicKey.rawRepresentation)
-            let hello2 = NCTLS13.buildClientHello(
-                random: clientRandom,
-                sessionID: Data(repeating: 0, count: 32),
-                serverName: config.serverName,
-                alpn: config.alpn,
-                keyShare: clientShare,
-                profile: config.profile,
-                tls13Only: false,
-                cookie: cookie
+        // RFC 8446 §4.4.1 & RFC 9849 §6.1.5: Synthetic message_hash replacement in transcripts
+        innerTranscript = NCTLS13.syntheticMessageHash(for: clientHelloInner1, kind: kind)
+        innerTranscript.append(message)
+        outerTranscript = NCTLS13.syntheticMessageHash(for: clientHelloOuter1, kind: kind)
+        outerTranscript.append(message)
+
+        guard let priv = clientPrivate else {
+            fail(TLSError.handshake("missing client key share"))
+            return
+        }
+        let clientShare = Data(priv.publicKey.rawRepresentation)
+
+        // Derive ClientHelloInner2 from ClientHelloInner1
+        guard let innerHello2 = NCTLS13.deriveClientHelloInner2(
+            from: clientHelloInner1,
+            cookie: cookie,
+            keyShare: hrrKeyShareGroup != nil ? clientShare : nil
+        ) else {
+            fail(TLSError.handshake("failed to derive ClientHelloInner2"))
+            return
+        }
+        innerTranscript.append(innerHello2)
+
+        let encodedInner2 = NCTLS13.encodeInnerClientHello(
+            innerHello: innerHello2,
+            serverName: config.serverName,
+            maximumNameLength: echSelected!.config.maximumNameLength
+        )
+
+        // Derive ClientHelloOuter2 from ClientHelloOuter1
+        do {
+            let outerHello2 = try NCTLS13.deriveClientHelloOuter2(
+                from: clientHelloOuter1,
+                cookie: cookie,
+                keyShare: hrrKeyShareGroup != nil ? clientShare : nil,
+                selectedConfig: echSelected!,
+                hpkeContext: echSenderContext!,
+                encodedInner2: encodedInner2
             )
-            transcript.append(hello2)
-            sendRecord(type: 22, payload: hello2)
+            outerTranscript.append(outerHello2)
+            transcript = outerTranscript
+            sendRecord(type: 22, payload: outerHello2)
+        } catch {
+            fail(TLSError.handshake("HRR derive ClientHelloOuter2 failed: \(error)"))
         }
     }
 
@@ -1025,6 +1038,30 @@ final class NCTLSClientStream: NCRelayStream {
     }
 
     // MARK: Record writing
+
+    /// RFC 8446 §6 & RFC 9849 §10.5: Sends TLS alert.
+    /// In TLS 1.3, if handshake keys are active, the alert is sent as an encrypted record
+    /// (content type 23, inner content type 21); otherwise sent as plaintext record (content type 21).
+    private func sendAlert(description: UInt8, fatal: Bool = true) {
+        let level: UInt8 = fatal ? 2 : 1
+        let alertPayload = Data([level, description])
+        if let writeKey, let writeIV {
+            var plain = alertPayload
+            plain.append(0x15) // inner content type: alert (21)
+            var header = Data()
+            header.append(0x17) // application_data (23) for encrypted record in TLS 1.3
+            header.appendBE16(0x0303)
+            header.appendBE16(UInt16(plain.count + 16))
+            if let sealed = NCTLS13.sealRecord(suite: suite, key: writeKey, iv: writeIV, seq: writeSeq,
+                                               header: header, plaintext: plain) {
+                writeSeq += 1
+                header.append(sealed)
+                raw.send(header)
+            }
+        } else {
+            sendRecord(type: 21, payload: alertPayload)
+        }
+    }
 
     private func sendRecord(type: UInt8, payload: Data) {
         var record = Data()
