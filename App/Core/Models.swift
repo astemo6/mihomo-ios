@@ -63,6 +63,7 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
         case "hysteria2": return "Hy2"
         case "hysteria": return "Hysteria"
         case "tuic": return "TUIC"
+        case "juicity": return "Juicity"
         case "wireguard": return "WireGuard"
         case "snell": return "Snell"
         case "anytls": return "AnyTLS"

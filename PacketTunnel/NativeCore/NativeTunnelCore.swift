@@ -267,7 +267,7 @@ final class NativeTunnelCore {
         let sc = NCConnector.sharedSessionCounts()
         let dc = NCDNSUpstreamCoordinator.shared.inFlightCounts()
         let closedText = closedSessions.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
-        NSLog("[nc-lifecycle] after stop: closed sessions \(closedText); registries mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot pooled=\(NCDNSDoTPool.shared.pooledConnectionCount()) doh pooled=\(NCDNSDoHPool.shared.pooledConnectionCount())")
+        NSLog("[nc-lifecycle] after stop: closed sessions \(closedText); registries mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) juicity=\(sc["juicity"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot pooled=\(NCDNSDoTPool.shared.pooledConnectionCount()) doh pooled=\(NCDNSDoHPool.shared.pooledConnectionCount())")
     }
 
     /// Re-reads the config the app just prepared (TunnelMessage.reload / .reloadHot). nil = applied.
@@ -360,7 +360,7 @@ final class NativeTunnelCore {
         let doh = NCDNSDoHPool.shared.pooledConnectionCount()
         let closedText = closed.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
         lines.append("teardown: closed sessions \(closedText)")
-        lines.append("registries after teardown: mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot=\(dot) doh=\(doh)")
+        lines.append("registries after teardown: mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) juicity=\(sc["juicity"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot=\(dot) doh=\(doh)")
         var failures: [String] = []
         if sc.values.contains(where: { $0 != 0 }) { failures.append("session registries not empty") }
         if dc.entries != 0 || dc.active != 0 || dc.pending != 0 { failures.append("dns coordinator not drained") }

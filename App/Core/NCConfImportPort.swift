@@ -390,7 +390,21 @@ enum NCConfImportPort {
                 p["alpn"] = ["h3"]
             }
             p["congestion-controller"] = "bbr"
-            p["udp-relay-mode"] = "native"
+        case "juicity":
+            p["type"] = "juicity"
+            p["uuid"] = firstNonEmpty(kv["uuid"], kv["user"], at(3))
+            p["password"] = firstNonEmpty(kv["password"], at(4))
+            if !sni.isEmpty { p["sni"] = sni }
+            if skip { p["skip-cert-verify"] = true }
+            if let v = kv["alpn"], !v.isEmpty {
+                p["alpn"] = csv(v.replacingOccurrences(of: "|", with: ","))
+            } else {
+                p["alpn"] = ["h3"]
+            }
+            let cc = firstNonEmpty(kv["congestion-controller"], kv["congestion-control"], kv["congestion_control"])
+            p["congestion-controller"] = cc.isEmpty ? "bbr" : cc
+            let pin = firstNonEmpty(kv["pinned-certchain-sha256"], kv["pinned_certchain_sha256"], kv["pinned-peer-cert-sha256"])
+            if !pin.isEmpty { p["pinned-certchain-sha256"] = pin }
         case "anytls":
             p["type"] = "anytls"
             p["password"] = kv["password"] ?? ""

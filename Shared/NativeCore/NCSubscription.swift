@@ -76,7 +76,7 @@ enum NCSubscriptionParser {
     /// Go sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
     /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
     static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
-                                           "snell", "tuic", "hysteria2"]
+                                           "snell", "tuic", "juicity", "hysteria2"]
 
     /// A `key=value` subscription line is QX-shaped when the key is a QX type keyword AND the value starts with
     /// `host:port` (or `[v6]:port`) before its first comma. A Surge / Loon line is `Name = type, host, port, …`:
@@ -127,6 +127,7 @@ enum NCSubscriptionParser {
         case "hysteria2", "hy2": return parseHysteria2(rest)
         case "hysteria": return parseHysteria1(rest)
         case "tuic": return parseTUIC(rest)
+        case "juicity": return parseJuicity(rest)
         case "wireguard", "wg": return parseWireGuard(rest, scheme: scheme)
         case "snell": return parseSnell(rest)
         case "ssh": return parseSSH(rest)
@@ -684,6 +685,49 @@ enum NCSubscriptionParser {
         return NCProxy(name: name, type: "tuic", fields: f)
     }
 
+    private static func parseJuicity(_ rest: String) -> NCProxy? {
+        let p = splitParts(rest)
+        let creds = p.userinfo.split(separator: ":", maxSplits: 1)
+        guard !p.host.isEmpty, p.port > 0, !creds.isEmpty else { return nil }
+        let q = p.query
+        var f = fields([
+            ("server", str(p.host)), ("port", .number(Double(p.port))),
+        ])
+        if creds.count == 2 {
+            f["uuid"] = str(String(creds[0]))
+            f["password"] = str(String(creds[1]).removingPercentEncoding ?? String(creds[1]))
+        } else {
+            let u = q["uuid"] ?? q["user"] ?? String(creds[0])
+            let pw = q["password"] ?? ""
+            f["uuid"] = str(u)
+            if !pw.isEmpty { f["password"] = str(pw) }
+        }
+        if let u = q["uuid"] ?? q["user"], f["uuid"] == nil { f["uuid"] = str(u) }
+        if let pw = q["password"], f["password"] == nil { f["password"] = str(pw) }
+
+        let sni = q["sni"] ?? q["peer"]
+        if let sni, !sni.isEmpty { f["sni"] = .string(sni) }
+        let cc = q["congestion_control"] ?? q["congestion-controller"] ?? q["congestion-control"]
+        if let cc, !cc.isEmpty { f["congestion-controller"] = .string(cc) }
+        if let alpn = q["alpn"] {
+            let parts = alpn.replacingOccurrences(of: "|", with: ",").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+            f["alpn"] = .array(parts.map { .string($0) })
+        }
+        if let pin = q["pinned_certchain_sha256"] ?? q["pinned-certchain-sha256"] ?? q["pinned-peer-cert-sha256"] ?? q["pinSHA256"] {
+            f["pinned-certchain-sha256"] = .string(pin)
+        }
+        if let urm = q["udp_relay_mode"] ?? q["udp-relay-mode"] { f["udp-relay-mode"] = .string(urm) }
+        if q["disable_sni"] == "1" || q["disable_sni"] == "true" || q["disable-sni"] == "1" || q["disable-sni"] == "true" {
+            f["disable-sni"] = .bool(true)
+        }
+        if q["allow_insecure"] == "1" || q["allowInsecure"] == "1" || q["insecure"] == "1" || q["skip-cert-verify"] == "true" {
+            f["skip-cert-verify"] = .bool(true)
+        }
+        f["udp"] = .bool(true)
+        let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
+        return NCProxy(name: name, type: "juicity", fields: f)
+    }
+
     // bridge nativeformats.go strOf/intOf/boolOf over decoded JSON values.
     private static func jStr(_ v: Any?) -> String { v as? String ?? "" }
     private static func jInt(_ v: Any?) -> Int {
@@ -818,6 +862,13 @@ enum NCSubscriptionParser {
             f["password"] = .string(jStr(o["password"]))
             if !jStr(o["congestion_control"]).isEmpty { f["congestion-controller"] = .string(jStr(o["congestion_control"])) }
             if !jStr(o["udp_relay_mode"]).isEmpty { f["udp-relay-mode"] = .string(jStr(o["udp_relay_mode"])) }
+        case "juicity":
+            typ = "juicity"
+            f["uuid"] = .string(jStr(o["uuid"]))
+            f["password"] = .string(jStr(o["password"]))
+            if !jStr(o["congestion_control"]).isEmpty { f["congestion-controller"] = .string(jStr(o["congestion_control"])) }
+            if !jStr(o["pinned_certchain_sha256"]).isEmpty { f["pinned-certchain-sha256"] = .string(jStr(o["pinned_certchain_sha256"])) }
+            f["udp"] = .bool(true)
         case "anytls":
             typ = "anytls"
             f["password"] = .string(jStr(o["password"]))

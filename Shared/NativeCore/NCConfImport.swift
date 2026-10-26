@@ -259,6 +259,7 @@ enum NCConfImport {
         case "https": type = "https"
         case "snell": type = "snell"
         case "tuic": type = "tuic"
+        case "juicity": type = "juicity"
         case "hysteria2", "hy2": type = "hysteria2"
         case "hysteria":
             type = "hysteria2"
@@ -287,7 +288,7 @@ enum NCConfImport {
         // Common parameters.
         if let v = take("udp-relay") ?? take("udp"), let b = boolValue(v) { fields["udp"] = .bool(b) }
         if let v = take("tfo") ?? take("fast-open"), let b = boolValue(v) { fields["tfo"] = .bool(b) }
-        if let v = take("skip-cert-verify"), let b = boolValue(v) { fields["skip-cert-verify"] = .bool(b) }
+        if let v = take("skip-cert-verify") ?? take("allow-insecure") ?? take("allowInsecure"), let b = boolValue(v) { fields["skip-cert-verify"] = .bool(b) }
 
         switch type {
         case "ss":
@@ -323,6 +324,20 @@ enum NCConfImport {
             // it identically, but tuic auth is either password or token).
             if let t = take("token") { fields["token"] = .string(t) }
             if let s = take("sni") { fields["sni"] = .string(s) }
+        case "juicity":
+            if let u = take("uuid") ?? take("user") ?? take("username") { fields["uuid"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            if let s = take("sni") ?? take("peer") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+            if let cc = take("congestion-controller") ?? take("congestion-control") ?? take("congestion_control") {
+                fields["congestion-controller"] = .string(cc)
+            }
+            if let pin = take("pinned-certchain-sha256") ?? take("pinned_certchain_sha256") ?? take("pinned-peer-cert-sha256") ?? take("cert-sha256") {
+                fields["pinned-certchain-sha256"] = .string(pin)
+            }
+            if let alpn = take("alpn") {
+                let parts = alpn.replacingOccurrences(of: "|", with: ",").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+                fields["alpn"] = .array(parts.map { .string($0) })
+            }
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") { fields["sni"] = .string(s) }
