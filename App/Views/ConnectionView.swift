@@ -35,6 +35,7 @@ struct ConnectionView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("连接方式")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear {
             // Coming back from a sub page (其他用户): save its edits before re-reading the file.
             debounce.flush()
@@ -507,6 +508,7 @@ struct CIDRListEditor: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(LocalizedStringKey(title))
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onAppear { text = lines.joined(separator: "\n") }
     }
 }

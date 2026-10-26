@@ -19,6 +19,14 @@ import SwiftUI
 /// 2026-10-22 evening (user: 「Tern 每页最上方加上标题吧，现在这样太空了，不协调」): the title is drawn again, Egern style —
 /// a large title on standard roots (collapsing to the centred inline title on scroll, like Egern's 「分析」), and a
 /// bold left-aligned title row above 首页's pinned header.
+///
+/// fix/app-policy-ui #5 / #5b (user 2026-10-26 21:25 / 21:28, IMG_3622 / IMG_3623): 首页's title sat higher than
+/// 策略 / 工具's (those had an empty-looking button row above a large title), and the large title cost a whole row. Now
+/// every tab root shows its title IN the bar row, leading, bold, on the same line as its trailing buttons
+/// (`.toolbarTitleDisplayMode(.inlineLarge)`, iOS 17+; the system's own layout, no spacer views), so the five titles
+/// sit on one baseline and the page gains ~52 pt. 首页 joins in with a real bar (its floating + moved there).
+/// Pushed sub-pages are unchanged: they set `.large` themselves (UIKit's `.automatic` would inherit the root's
+/// inline-large mode).
 struct TabRootChrome: ViewModifier {
     let title: LocalizedStringKey
     var showsTitle: Bool = true
@@ -26,8 +34,19 @@ struct TabRootChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(showsTitle ? .large : .inline)
+            .modifier(TabRootTitleMode())
             .toolbar(.visible, for: .navigationBar)
+    }
+}
+
+/// Title in the bar row, leading (iOS 17+ inline-large); iOS 16: the standard centred inline title.
+struct TabRootTitleMode: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.toolbarTitleDisplayMode(.inlineLarge)
+        } else {
+            content.navigationBarTitleDisplayMode(.inline)
+        }
     }
 }
 
@@ -53,22 +72,17 @@ struct TabRootPinnedChrome<Header: View>: ViewModifier {
         let tracker = tracker
         return content
             .navigationTitle(title)
-            .toolbar(.hidden, for: .navigationBar)
+            // fix/app-policy-ui #5b: the real bar (title + Home's trailing buttons in one row, like the other tabs);
+            // its own background stays hidden — the pinned header's background below reaches up behind it.
+            .modifier(TabRootTitleMode())
+            .toolbar(.visible, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .onPreferenceChange(TabRootScrollKey.self) { tracker.probeMoved(to: $0) }
             .safeAreaInset(edge: .top, spacing: 0) {
                 // The offset wrapper is the only view that re-renders per pull frame; the header inside it is
                 // built once here and compares equal, so its body (exit IP, switch) is not re-evaluated.
                 PinnedOverscrollOffset(overscroll: tracker.overscroll) {
                     VStack(spacing: 0) {
-                        // Egern-style page title, same height as the other tabs' inline bar row.
-                        Text(title)
-                            .font(.title.weight(.bold))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16)
-                            .frame(height: 44)
-                            .accessibilityAddTraits(.isHeader)
-                            .accessibilityIdentifier("tabroot.title")
                         header()
                             .padding(.horizontal, 16)
                             .padding(.top, 0)

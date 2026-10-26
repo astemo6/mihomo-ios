@@ -265,6 +265,7 @@ struct NodeManagerView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("节点与订阅")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .refreshable { await updateAll() }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {

@@ -149,6 +149,7 @@ struct NotificationsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("通知")
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .task {
             allowed = await NotificationAuth.allowed()
             var list: [SubAlertItem] = []

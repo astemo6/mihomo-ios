@@ -507,6 +507,7 @@ struct IconSetGrid: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(source.name)
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索图标")
         .task { await load() }
     }

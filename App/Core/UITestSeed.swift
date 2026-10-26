@@ -103,6 +103,17 @@ enum UITestSeed {
                 let p = try await store.addLocal(name: "UITest Chain", text: policyChainYAML)
                 _ = await store.setActive(p)
             }
+            // fix/app-policy-ui #3 / #4: a profile with three rule sets (file providers, already on disk) for 分流规则 →
+            // 编辑排序 and the 策略 / 分流规则 row-height comparison.
+            if args.contains("-UITestRuleSets"), !store.profiles.contains(where: { $0.name == "UITest RuleSets" }) {
+                try FileManager.default.createDirectory(at: home.appendingPathComponent("ruleset"), withIntermediateDirectories: true)
+                for n in ["china", "ai", "facebook"] {
+                    try "payload:\n  - DOMAIN-SUFFIX,\(n).example\n".write(to: home.appendingPathComponent("ruleset/uitest-\(n).yaml"),
+                                                                     atomically: true, encoding: .utf8)
+                }
+                let p = try await store.addLocal(name: "UITest RuleSets", text: ruleSetsYAML)
+                _ = await store.setActive(p)
+            }
             // v0.19.6 stress test: a large profile (3000 nodes in one select group, 10000 rules) becomes the active
             // profile, plus 1500 more manual nodes.
             if args.contains("-UITestBigProfile"), !store.profiles.contains(where: { $0.name == "UITest Big" }) {
@@ -368,6 +379,22 @@ enum UITestSeed {
       - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
       - MATCH,Final
     """
+
+    /// fix/app-policy-ui: the demo profile plus three rule sets between its own rules.
+    static var ruleSetsYAML: String {
+        profileYAML.replacingOccurrences(of: "\nrules:\n", with: """
+
+        rule-providers:
+          China: {type: file, behavior: domain, path: ./ruleset/uitest-china.yaml}
+          AI: {type: file, behavior: domain, path: ./ruleset/uitest-ai.yaml}
+          Facebook: {type: file, behavior: domain, path: ./ruleset/uitest-facebook.yaml}
+        rules:
+          - RULE-SET,China,DIRECT
+          - RULE-SET,AI,Proxy
+          - RULE-SET,Facebook,Streaming
+
+        """)
+    }
 
     /// v0.19 覆写脚本 demo: Bettbox-compatible switches (2 policy-group switches + 2 others).
     static let demoScript = """

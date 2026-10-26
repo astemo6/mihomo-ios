@@ -11,8 +11,21 @@ struct PanelOverride: Codable, Hashable {
     var icon: String?
     /// Seconds (≥ 60). nil = the module's own interval.
     var interval: Int?
+    /// fix/app-policy-ui #6 (user 2026-10-26 21:30): width on Home — "half" (two share a row) or "full";
+    /// nil = the default (small built-in tiles half, the rest full). App-only, the engine ignores it.
+    var width: String?
 
-    var isEmpty: Bool { (title ?? "").isEmpty && (icon ?? "").isEmpty && interval == nil }
+    var isEmpty: Bool { (title ?? "").isEmpty && (icon ?? "").isEmpty && interval == nil && width == nil }
+
+    static let half = "half"
+    static let full = "full"
+
+    /// Half width on Home: the user's choice, else small built-in tiles (运行时长, 出口 IP …) are half.
+    static func isHalf(id: String, override o: PanelOverride?) -> Bool {
+        if let w = o?.width { return w == half }
+        if let t = BuiltinTile.from(id) { return !t.wide }
+        return false
+    }
 }
 
 @MainActor
@@ -24,6 +37,17 @@ final class PanelOverrideStore: ObservableObject {
 
     private init() {
         if let d = try? Data(contentsOf: Self.url), let m = try? JSONDecoder().decode([String: PanelOverride].self, from: d) { map = m }
+    }
+
+    /// fix/app-policy-ui #6: whether the panel / tile is drawn half width on Home.
+    func isHalf(_ id: String) -> Bool { PanelOverride.isHalf(id: id, override: map[id]) }
+
+    /// Sets the Home width (kept with the panel's other overrides; back to nil when it equals the default).
+    func setHalf(_ half: Bool, for id: String) {
+        var o = map[id] ?? PanelOverride()
+        let def = PanelOverride.isHalf(id: id, override: nil)
+        o.width = half == def ? nil : (half ? PanelOverride.half : PanelOverride.full)
+        set(o, for: id)
     }
 
     /// Interval overrides for the engine (script panels only; static tiles have nothing to refresh).
@@ -183,7 +207,8 @@ struct PanelEditSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        store.set(PanelOverride(title: title, icon: icon, interval: p.script != nil ? interval : nil), for: p.id)
+                        store.set(PanelOverride(title: title, icon: icon, interval: p.script != nil ? interval : nil,
+                                                width: store.map[p.id]?.width), for: p.id)
                         dismiss()
                     }
                     .disabled(!iconValid)

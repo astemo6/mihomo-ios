@@ -56,44 +56,60 @@ enum BuiltinTile: String, CaseIterable, Identifiable {
     var wide: Bool { self == .speed || self == .traffic || self == .unlock }
 }
 
-/// One row on Home: a script panel, a wide built-in tile, or up to two small built-in tiles.
-enum HomeRow: Identifiable {
+/// One card on Home: a script panel or a built-in tile.
+enum HomeCell: Identifiable {
     case panel(HomePanelEntry)
-    case wide(BuiltinTile)
-    case pair(BuiltinTile, BuiltinTile?)
+    case tile(BuiltinTile)
 
     var id: String {
         switch self {
         case .panel(let e): return e.id
-        case .wide(let t): return t.id
+        case .tile(let t): return t.id
+        }
+    }
+}
+
+/// One row on Home: a full-width card, or up to two half-width cards side by side.
+/// fix/app-policy-ui #6: any panel or tile can be half width (PanelOverride.width); consecutive half-width cards pair
+/// up two per row, a full-width card breaks the row (a lone half card keeps its half with an empty slot beside it).
+enum HomeRow: Identifiable {
+    case single(HomeCell)
+    case pair(HomeCell, HomeCell?)
+
+    var id: String {
+        switch self {
+        case .single(let c): return c.id
         case .pair(let a, let b): return a.id + "|" + (b?.id ?? "")
         }
     }
 
-    static func rows(_ ids: [String], panel: (String) -> HomePanelEntry?) -> [HomeRow] {
-        var out: [HomeRow] = []
-        var pendingSmall: BuiltinTile?
-        func flush() {
-            if let s = pendingSmall { out.append(.pair(s, nil)); pendingSmall = nil }
-        }
+    /// The row grouping of `ids` (pure; unit-tested): each inner array is one row, two ids = a half-width pair.
+    static func layout(_ ids: [String], half: (String) -> Bool) -> [[String]] {
+        var out: [[String]] = []
+        var pending: String?
         for id in ids {
-            if let t = BuiltinTile.from(id) {
-                if t.wide {
-                    flush()
-                    out.append(.wide(t))
-                } else if let s = pendingSmall {
-                    out.append(.pair(s, t))
-                    pendingSmall = nil
-                } else {
-                    pendingSmall = t
-                }
-            } else if let e = panel(id) {
-                flush()
-                out.append(.panel(e))
+            if half(id) {
+                if let p = pending { out.append([p, id]); pending = nil } else { pending = id }
+            } else {
+                if let p = pending { out.append([p]); pending = nil }
+                out.append([id])
             }
         }
-        flush()
+        if let p = pending { out.append([p]) }
         return out
+    }
+
+    static func rows(_ ids: [String], panel: (String) -> HomePanelEntry?, half: (String) -> Bool) -> [HomeRow] {
+        func cell(_ id: String) -> HomeCell? {
+            if let t = BuiltinTile.from(id) { return .tile(t) }
+            return panel(id).map { .panel($0) }
+        }
+        let shown = ids.filter { cell($0) != nil } // a panel without data yet takes no slot
+        return layout(shown, half: half).compactMap { r -> HomeRow? in
+            guard let a = r.first.flatMap(cell) else { return nil }
+            if r.count == 2 { return .pair(a, cell(r[1])) }
+            return half(a.id) ? .pair(a, nil) : .single(a)
+        }
     }
 }
 

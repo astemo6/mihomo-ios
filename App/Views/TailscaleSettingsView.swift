@@ -48,6 +48,7 @@ struct TailscaleSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(Text(verbatim: "Tailscale"))
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .task { if model.nodes.isEmpty { await model.reload() } }
         .onAppear { status.start(vpn: vpn) }
         .onDisappear { status.stop() }

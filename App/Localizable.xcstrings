@@ -105625,6 +105625,380 @@
           }
         }
       }
+    },
+    "%lld 个成员": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld members"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のメンバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "멤버 %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участников: %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個成員"
+          }
+        }
+      }
+    },
+    "我添加的订阅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Subscriptions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加したサブスクリプション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내가 추가한 구독"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои подписки"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我新增的訂閱"
+          }
+        }
+      }
+    },
+    "自己添加的订阅排在配置里的规则集之前匹配。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscriptions you added are matched before the profile's rule sets."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加したサブスクリプションはプロファイルのルールセットより先に照合されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 추가한 구독은 프로필의 규칙 세트보다 먼저 일치합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавленные вами подписки проверяются раньше наборов правил профиля."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自己新增的訂閱排在設定檔的規則集之前比對。"
+          }
+        }
+      }
+    },
+    "配置里没有规则集": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No rule sets in the profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルにルールセットがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필에 규칙 세트가 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В профиле нет наборов правил"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定檔中沒有規則集"
+          }
+        }
+      }
+    },
+    "顺序就是匹配优先级：越靠上越先匹配。拖动或置顶来调整顺序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Order is matching priority: higher rows match first. Drag or use Move to Top to reorder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序がマッチ優先度です。上にあるほど先に照合されます。ドラッグまたは「先頭へ」で並べ替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "순서가 일치 우선순위입니다. 위에 있을수록 먼저 일치합니다. 드래그하거나 맨 위로 이동해 순서를 바꾸세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок — это приоритет совпадения: верхние строки проверяются первыми. Перетащите или поднимите наверх."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序就是比對優先順序：越靠上越先比對。拖曳或置頂來調整順序。"
+          }
+        }
+      }
+    },
+    "本地规则和 Final 的位置不变；配置文件不会改动，更新订阅后仍保持此顺序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local rules and Final keep their place; the profile file is not changed and the order survives subscription updates."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルルールと Final の位置は変わりません。プロファイルファイルは変更されず、サブスクリプション更新後もこの順序が保たれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 규칙과 Final의 위치는 그대로입니다. 프로필 파일은 변경되지 않으며 구독을 업데이트해도 이 순서가 유지됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные правила и Final остаются на месте; файл профиля не меняется, порядок сохраняется после обновления подписки."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機規則和 Final 的位置不變；設定檔不會改動，更新訂閱後仍保持此順序。"
+          }
+        }
+      }
+    },
+    "顺序就是匹配优先级：越靠上越先匹配。在 ⋯ 里选「编辑排序」调整顺序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Order is matching priority: higher rows match first. Choose Edit Order in ⋯ to reorder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序がマッチ優先度です。上にあるほど先に照合されます。⋯ の「並べ替えを編集」で並べ替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "순서가 일치 우선순위입니다. 위에 있을수록 먼저 일치합니다. ⋯에서 「순서 편집」을 선택해 순서를 바꾸세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок — это приоритет совпадения: верхние строки проверяются первыми. Выберите «Изменить порядок» в ⋯."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序就是比對優先順序：越靠上越先比對。在 ⋯ 裡選「編輯排序」調整順序。"
+          }
+        }
+      }
+    },
+    "全宽显示": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全幅で表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 너비로 표시"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Во всю ширину"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全寬顯示"
+          }
+        }
+      }
+    },
+    "半宽显示": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Half Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半幅で表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "절반 너비로 표시"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В половину ширины"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半寬顯示"
+          }
+        }
+      }
+    },
+    "半宽": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Half width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半幅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "절반 너비"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Половина ширины"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半寬"
+          }
+        }
+      }
+    },
+    "拖动或用右侧菜单调整顺序、切换半宽（两张半宽卡片并排）。关闭开关的面板保留固定，但不在首页显示，也不会在后台刷新。在首页长按卡片也可以编辑排序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag or use the menu on the right to reorder and to switch half width (two half-width cards share a row). Panels switched off stay pinned but are not shown on Home or refreshed in the background. You can also long-press a card on Home to edit the order."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグまたは右側のメニューで並べ替えや半幅の切り替えができます（半幅のカード 2 枚が横に並びます）。スイッチをオフにしたパネルは固定されたままですが、ホームには表示されず、バックグラウンドでも更新されません。ホームでカードを長押ししても並べ替えを編集できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그하거나 오른쪽 메뉴로 순서를 바꾸고 절반 너비를 전환하세요(절반 너비 카드 두 장이 한 줄에 표시). 스위치를 끈 패널은 고정은 유지되지만 홈에 표시되지 않고 백그라운드에서 새로 고쳐지지 않습니다. 홈에서 카드를 길게 눌러도 순서를 편집할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите или используйте меню справа, чтобы менять порядок и половинную ширину (две карточки в половину ширины стоят в одном ряду). Выключенные панели остаются закреплёнными, но не показываются на главной и не обновляются в фоне. Порядок можно изменить и долгим нажатием на карточку на главной."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖曳或用右側選單調整順序、切換半寬（兩張半寬卡片並排）。關閉開關的面板保留固定，但不在首頁顯示，也不會在背景重新整理。在首頁長按卡片也可以編輯排序。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

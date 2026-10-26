@@ -133,6 +133,7 @@ struct ProfilesView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("配置")
+            .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button { updateAll() } label: { Label("全部更新", systemImage: "arrow.triangle.2.circlepath") }

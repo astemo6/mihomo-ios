@@ -209,6 +209,7 @@ struct NetTestView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("网速测试") // ui-audit: same name as the 工具 card
+        .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .onDisappear { model.stopSpeed() }
     }
 
