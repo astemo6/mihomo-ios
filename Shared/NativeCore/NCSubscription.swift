@@ -326,6 +326,9 @@ enum NCSubscriptionParser {
                 // whole plugin value — kept for byte-for-byte parity with
                 // Libmihome on the same link.
                 if plugin.contains("tls") { opts["tls"] = .bool(true) }
+                if let eo = NCECHOpts.parse(query: args) {
+                    opts["ech-opts"] = .object(eo.toObject())
+                }
                 f["plugin-opts"] = .object(opts)
             } else if binary.contains("cloak") || binary.contains("ck-client") {
                 f["plugin"] = .string("cloak")
@@ -341,6 +344,7 @@ enum NCSubscriptionParser {
                 // Unknown binary: keep it verbatim with its parsed args
                 // instead of dropping the plugin on the floor.
                 f["plugin"] = .string(binary)
+                // Review #149 item 5: an unknown plugin's own `ech` arg is not ECH — kept verbatim, not reinterpreted.
                 if !args.isEmpty {
                     f["plugin-opts"] = .object(args.mapValues { .string($0) })
                 }
@@ -415,6 +419,18 @@ enum NCSubscriptionParser {
         if net == "grpc", !s("path").isEmpty {
             f["grpc-opts"] = .object(["grpc-service-name": .string(s("path"))])
         }
+        if let echVal = obj["ech"] as? String ?? (obj["ech"] as? NSNumber)?.stringValue ?? (obj["ech-opts"] as? String) {
+            var eq: [String: String] = ["ech": echVal]
+            if let qsn = obj["ech-qsn"] as? String ?? obj["ech_qsn"] as? String ?? obj["query-server-name"] as? String {
+                eq["ech-qsn"] = qsn
+            }
+            if let opts = NCECHOpts.parse(query: eq) {
+                f["ech-opts"] = .object(opts.toObject())
+            }
+        } else if let echMap = obj["ech-opts"] as? [String: Any] ?? obj["ech_opts"] as? [String: Any],
+                  let opts = NCECHOpts(dictionary: echMap) {
+            f["ech-opts"] = .object(opts.toObject())
+        }
         let name = s("ps").isEmpty ? "\(s("add")):\(port)" : s("ps")
         return NCProxy(name: name, type: "vmess", fields: f)
     }
@@ -467,6 +483,9 @@ enum NCSubscriptionParser {
         if net == "grpc", let svc = q["serviceName"] {
             f["grpc-opts"] = .object(["grpc-service-name": .string(svc)])
         }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "vless", fields: f)
     }
@@ -510,6 +529,9 @@ enum NCSubscriptionParser {
         }
         if net == "grpc", let svc = q["serviceName"] {
             f["grpc-opts"] = .object(["grpc-service-name": .string(svc)])
+        }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
         }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "trojan", fields: f)
@@ -666,6 +688,9 @@ enum NCSubscriptionParser {
         if let pin = q["pinSHA256"] { f["fingerprint"] = .string(pin) }
         if let up = q["up"] { f["up"] = .string(up) }
         if let down = q["down"] { f["down"] = .string(down) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
         let name = p.name.isEmpty ? "\(p.host):\(port)" : p.name
         return NCProxy(name: name, type: "hysteria2", fields: f)
     }
@@ -692,6 +717,9 @@ enum NCSubscriptionParser {
         if let urm = q["udp_relay_mode"] { f["udp-relay-mode"] = .string(urm) }
         if q["disable_sni"] == "1" || q["disable_sni"] == "true" { f["disable-sni"] = .bool(true) }
         if q["allow_insecure"] == "1" || q["allowInsecure"] == "1" { f["skip-cert-verify"] = .bool(true) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "tuic", fields: f)
     }
@@ -802,6 +830,10 @@ enum NCSubscriptionParser {
                 case "path": opts["path"] = .string(v)
                 case "tls": opts["tls"] = .bool(true)
                 case "mode": opts["mode"] = .string(v)
+                case "ech":
+                    if let eo = NCECHOpts.parse(query: ["ech": v]) {
+                        opts["ech-opts"] = .object(eo.toObject())
+                    }
                 default:
                     if !k.isEmpty { opts[k] = .string(v) }
                 }
@@ -819,6 +851,9 @@ enum NCSubscriptionParser {
                 f["plugin"] = .string(plugin)
             }
             f["plugin-opts"] = .object(opts)
+        }
+        if let eo = s["ech-opts"] as? [String: Any], let opts = NCECHOpts(dictionary: eo) {
+            f["ech-opts"] = .object(opts.toObject())
         }
         return NCProxy(name: name, type: "ss", fields: f)
     }
@@ -967,6 +1002,60 @@ enum NCSubscriptionParser {
                 "short-id": .string(jStr(reality["short_id"])),
             ])
             if f["client-fingerprint"] == nil { f["client-fingerprint"] = .string("chrome") }
+        }
+        if let ech = tls["ech"] as? [String: Any], jBool(ech["enabled"]) {
+            var echFields: [String: NCJSONValue] = ["enable": .bool(true)]
+            if let cfg = normalizeSingBoxECHConfig(ech["config"]) {
+                echFields["config"] = .string(cfg)
+            }
+            if let qsn = ech["query_server_name"] as? String ?? ech["query-server-name"] as? String, !qsn.isEmpty {
+                echFields["query-server-name"] = .string(qsn)
+            }
+            f["ech-opts"] = .object(echFields)
+        }
+    }
+
+    /// Extract and normalize sing-box ECH config.
+    /// Handles multiline PEM blocks (single string or array of lines) and bare base64.
+    /// When PEM header `-----BEGIN ECH CONFIGS-----` is present, extracts body between BEGIN and END,
+    /// concatenates lines, and validates base64.
+    /// For bare base64, joins and strips whitespace. Stored as base64 string per NCECHOpts convention.
+    static func normalizeSingBoxECHConfig(_ raw: Any?) -> String? {
+        guard let raw else { return nil }
+        let rawText: String
+        if let arr = raw as? [String] {
+            rawText = arr.joined(separator: "\n")
+        } else if let arr = raw as? [Any] {
+            rawText = arr.compactMap { $0 as? String }.joined(separator: "\n")
+        } else if let str = raw as? String {
+            rawText = str
+        } else {
+            return nil
+        }
+
+        let beginMarker = "-----BEGIN ECH CONFIGS-----"
+        let endMarker = "-----END ECH CONFIGS-----"
+
+        if rawText.contains(beginMarker) {
+            guard let beginRange = rawText.range(of: beginMarker) else { return nil }
+            let afterBegin = rawText[beginRange.upperBound...]
+            let bodyText: Substring
+            if let endRange = afterBegin.range(of: endMarker) {
+                bodyText = afterBegin[..<endRange.lowerBound]
+            } else {
+                bodyText = afterBegin
+            }
+            let cleaned = bodyText.components(separatedBy: .whitespacesAndNewlines).joined()
+            guard !cleaned.isEmpty else { return nil }
+            guard let data = Data(base64Encoded: cleaned) ?? Data(base64Encoded: NCECHOpts.fromBase64URL(cleaned)),
+                  !data.isEmpty else {
+                return nil
+            }
+            return cleaned
+        } else {
+            let cleaned = rawText.components(separatedBy: .whitespacesAndNewlines).joined()
+            guard !cleaned.isEmpty else { return nil }
+            return cleaned
         }
     }
 
@@ -1275,6 +1364,9 @@ enum NCSubscriptionParser {
         if let sni = q["sni"] { f["sni"] = .string(sni) }
         if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
         if let fp = q["hpkp"] ?? q["fingerprint"] { f["fingerprint"] = .string(fp) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
 
         let name = p.name.isEmpty ? "anytls \(p.host)" : p.name
         return NCProxy(name: name, type: "anytls", fields: f)
@@ -1330,6 +1422,9 @@ enum NCSubscriptionParser {
         if let down = q["downmbps"] { f["down"] = .string(down) }
         if let alpn = q["alpn"] { f["alpn"] = .array(alpn.components(separatedBy: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) }) }
         if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
 
         let name = p.name.isEmpty ? "hysteria \(p.host)" : p.name
         return NCProxy(name: name, type: "hysteria", fields: f)

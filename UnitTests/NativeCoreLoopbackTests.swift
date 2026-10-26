@@ -393,12 +393,10 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
     // MARK: - ECH (Encrypted Client Hello) loopback
 
-    /// ECH client-side TLS 1.3 handshake and retry_configs handling land in E4 (feat/nc-ech-tls).
-    /// Until E4 lands on this branch, the tests below specify the exact wire assertion contract
-    /// and are skipped with a clear reason pointing to E4.
+    /// ECH client-side TLS 1.3 handshake and retry_configs handling (E4 #152 + E5 #153, fix/nc-ech-rest).
     /// The sing-box reference inbounds (:18014 and :18015) and test keypair materials are live.
     private static var isClientECHImplemented: Bool {
-        false
+        true
     }
 
     /// Trojan + TLS ECH accept: client connects with valid ECH config matching the server's
@@ -423,15 +421,82 @@ final class NativeCoreLoopbackTests: XCTestCase {
         try self.assertEcho(stream, payload: Self.payload)
     }
 
-    /// Trojan + TLS ECH retry: client connects with a stale/mismatched ECH config.
-    /// Server cannot decrypt ClientHelloInner, continues outer handshake, and replies with
-    /// retry_configs in outer EncryptedExtensions. Client updates its ECHConfigList and
-    /// retries, establishing connection and passing echo payload.
-    func testTrojanECHRetry() throws {
+    /// Trojan + TLS ECH with a stale config: the server cannot decrypt the inner hello and finishes the outer
+    /// handshake for public_name. sing-box 1.12.24 never sets Go's EncryptedClientHelloKey.SendAsRetry, so no
+    /// retry_configs come back: the client must verify the outer certificate and fail with echRejected (never
+    /// fall through to a connection under the outer name). The retry-once path itself is covered offline by
+    /// NativeCoreECHTLSTests.testEncryptedExtensionsRetryConfigsParsing.
+    func testTrojanECHRejectedWithoutRetryConfigs() throws {
         guard Self.isClientECHImplemented else {
-            throw XCTSkip("client-side ECH retry_configs handling pending E4 (feat/nc-ech-tls)")
+            throw XCTSkip("client-side ECH pending")
         }
-        let stream = try self.connect(proxy: Self.trojanECHStaleProxy, target: Self.echoTarget)
+        XCTAssertThrowsError(try self.connect(proxy: Self.trojanECHStaleProxy, target: Self.echoTarget)) { err in
+            guard let tlsErr = err as? NCTLSClientStream.TLSError, case .echRejected = tlsErr else {
+                return XCTFail("expected echRejected, got \(err)")
+            }
+        }
+    }
+
+    /// Dynamic ECH (ech-rest): `ech-opts: {enable: true}` without `config` — the ECHConfigList comes from the
+    /// DNS lookup hook (NativeCoreEngine installs NCECHResolver there in the tunnel; injected here), queried
+    /// for the TLS server name, then the handshake is accepted by the sing-box ECH inbound.
+    func testTrojanECHDynamicConfig() throws {
+        let list = try XCTUnwrap(Data(base64Encoded: Self.echConfigBase64))
+        let asked = NSMutableArray()
+        NCConnector.echConfigLookup = { name, done in
+            asked.add(name)
+            done(list, nil)
+        }
+        defer { NCConnector.echConfigLookup = nil }
+        let p = Self.proxy(name: "loop-trojan-ech-dns", type: "trojan", port: Self.trojanEchPort, extra: [
+            "password": .string(Self.trojanPassword),
+            "sni": .string(Self.echInnerSni),
+            "skip-cert-verify": .bool(true),
+            "ech-opts": .object(["enable": .bool(true)]),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        XCTAssertEqual(asked.compactMap { $0 as? String }, [Self.echInnerSni])
+    }
+
+    /// Dynamic ECH with no record: the dial fails — never a silent plaintext-SNI handshake.
+    func testTrojanECHDynamicNoRecordFails() throws {
+        NCConnector.echConfigLookup = { _, done in done(nil, nil) }
+        defer { NCConnector.echConfigLookup = nil }
+        let p = Self.proxy(name: "loop-trojan-ech-none", type: "trojan", port: Self.trojanEchPort, extra: [
+            "password": .string(Self.trojanPassword),
+            "sni": .string(Self.echInnerSni),
+            "skip-cert-verify": .bool(true),
+            "ech-opts": .object(["enable": .bool(true)]),
+        ])
+        XCTAssertThrowsError(try self.connect(proxy: p, target: Self.echoTarget))
+    }
+
+    // MARK: - Native TLS parity (E5 #153): client-fingerprint moves trojan / vless+TLS to the native TLS stack
+
+    func testTrojanFingerprintNativeTLS() throws {
+        let p = Self.proxy(name: "loop-trojan-fp", type: "trojan", port: Self.trojanPort, extra: [
+            "password": .string(Self.trojanPassword), "sni": .string("localhost"),
+            "skip-cert-verify": .bool(true), "client-fingerprint": .string("chrome"),
+        ])
+        XCTAssertTrue(NCConnector.needsNativeTLS(p))
+        let stream = try self.connect(proxy: p, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// VLESS + TLS (tcp) with a fingerprint and no ECH against the ECH-capable inbound (which also serves plain
+    /// TLS 1.3): native stack, no ALPN offered (mihomo default for vless tcp).
+    func testVLESSTLSFingerprintNativeTLS() throws {
+        let p = Self.proxy(name: "loop-vless-tls-fp", type: "vless", port: Self.vlessEchPort, extra: [
+            "uuid": .string(Self.uuid), "network": .string("tcp"), "tls": .bool(true),
+            "sni": .string(Self.echInnerSni), "skip-cert-verify": .bool(true),
+            "client-fingerprint": .string("safari"),
+        ])
+        XCTAssertTrue(NCConnector.needsNativeTLS(p))
+        XCTAssertEqual(NCConnector.defaultALPN(for: p), [])
+        let stream = try self.connect(proxy: p, target: Self.echoTarget)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
     }

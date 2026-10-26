@@ -443,11 +443,26 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("https proxy over a chain transport")) }
                 return
             }
+            if proxy.type == "https" && isECHEnabled(proxy) && realityParams(proxy) != nil {
+                queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                return
+            }
+            if proxy.type == "https" && needsNativeTLS(proxy) {
+                dialNativeTLS(proxy: proxy, server: server, port: port, defaultALPN: ["http/1.1"], queue: queue) { raw, err in
+                    guard let raw else { completion(nil, err); return }
+                    httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
+                }
+                return
+            }
             obtainStream(transport: transport, make: { NCStream(to: server, port: port, tls: proxy.type == "https", queue: queue) }) { raw, err in
                 guard let raw else { completion(nil, err); return }
                 httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
         case "ss":
+            if isECHEnabled(proxy) {
+                queue.async { completion(nil, Failure.unsupported("Shadowsocks 插件不支持 ECH")) }
+                return
+            }
             guard let cipher = proxy.cipher, let password = proxy.password else {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
@@ -561,6 +576,10 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("trojan over a chain transport (TLS termination needs its own socket)")) }
                 return
             }
+            if isECHEnabled(proxy) && realityParams(proxy) != nil {
+                queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                return
+            }
             if isXHTTP(proxy) {
                 // feat/nc-xhttp: Trojan over XHTTP — TLS (ALPN h2) or REALITY, then the XHTTP stream carries
                 // the Trojan request (Xray-style; mihomo itself only wires xhttp for VLESS).
@@ -576,8 +595,15 @@ enum NCConnector {
                     dialReality(proxy: proxy, server: server, port: port, queue: queue, alpn: ["h2"], completion: finish)
                     return
                 }
+                let xhttpSNI = proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server
+                if needsNativeTLS(proxy) {
+                    // fix/nc-ech-rest parity: ECH / client-fingerprint / cert pin need the native TLS stack.
+                    dialNativeTLS(proxy: proxy, server: server, port: port, serverName: xhttpSNI, defaultALPN: ["h2"],
+                                  queue: queue, completion: finish)
+                    return
+                }
                 let raw = NCStream(to: server, port: port,
-                                   tlsServerName: proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server,
+                                   tlsServerName: xhttpSNI,
                                    allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                                    alpn: ["h2"], queue: queue)
                 raw.start { err in finish(err == nil ? raw : nil, err) }
@@ -600,8 +626,17 @@ enum NCConnector {
                 }
                 return
             }
+            let trojanSNI = proxy.fields["sni"]?.string ?? server
+            if needsNativeTLS(proxy) {
+                dialNativeTLS(proxy: proxy, server: server, port: port, serverName: trojanSNI, queue: queue) { base, err in
+                    guard let base else { completion(nil, err); return }
+                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    completion(base, nil)
+                }
+                return
+            }
             let raw = NCStream(to: server, port: port,
-                               tlsServerName: proxy.fields["sni"]?.string ?? server,
+                               tlsServerName: trojanSNI,
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                                queue: queue)
             raw.start { err in
@@ -612,13 +647,22 @@ enum NCConnector {
         case "vless":
             // feat/nc-proto3: encryption + xtls-rprx-vision — Vision frames ride the encryption conn and splice
             // below it (mihomo vision.NewConn over *encryption.CommonConn), whatever TLS / REALITY sits underneath.
-            let encVision = vlessEncryption(proxy) != nil && visionFlow(proxy)
+            let isVision = visionFlow(proxy)
+            let encVision = vlessEncryption(proxy) != nil && isVision
             guard let uuid = proxy.uuid else {
                 queue.async { completion(nil, Failure.handshake("vless missing uuid")) }
                 return
             }
             if transport != nil && realityParams(proxy) != nil {
                 queue.async { completion(nil, Failure.unsupported("vless reality over a chain transport")) }
+                return
+            }
+            if isECHEnabled(proxy) && realityParams(proxy) != nil {
+                queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                return
+            }
+            if (isVision || encVision) && isECHEnabled(proxy) {
+                queue.async { completion(nil, Failure.unsupported("VLESS Vision 不支持 ECH")) }
                 return
             }
             if realityParams(proxy) != nil {
@@ -653,7 +697,6 @@ enum NCConnector {
                 return
             }
             let useTLS = proxy.fields["tls"]?.bool ?? false
-            let isVision = visionFlow(proxy)
             if let transport {
                 // Over a chain pipe only the plaintext transports work:
                 // TLS termination and Vision need their own socket.
@@ -669,6 +712,25 @@ enum NCConnector {
                         guard let base else { completion(nil, eerr); return }
                         base.send(head)
                         completion(NCVLESSRelayStream(raw: base), nil)
+                    }
+                }
+                return
+            }
+            if useTLS, !isVision, !encVision, needsNativeTLS(proxy) {
+                guard let head = NCVLESS.requestHead(uuid: uuid, target: target,
+                                                     flow: proxy.fields["flow"]?.string ?? "") else {
+                    queue.async { completion(nil, Failure.handshake("vless bad uuid")) }
+                    return
+                }
+                dialNativeTLS(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
+                    guard let base0 else { completion(nil, err); return }
+                    transportStream(raw: base0, proxy: proxy, server: server, queue: queue) { base, terr in
+                        guard let tbase = base else { completion(nil, terr); return }
+                        vlessEncrypt(tbase, proxy: proxy, queue: queue) { base, eerr in
+                            guard let base else { completion(nil, eerr); return }
+                            base.send(head)
+                            completion(NCVLESSRelayStream(raw: base), nil)
+                        }
                     }
                 }
                 return
@@ -847,6 +909,211 @@ enum NCConnector {
                 completion(herr == nil ? tls : nil, herr)
             }
         }
+    }
+
+    // MARK: Native TLS Parity (NCTLSClient) Helpers
+
+    /// Extract ALPN list from proxy fields (array or comma-separated string).
+    static func parseALPN(_ proxy: NCProxy) -> [String]? {
+        if let arr = proxy.fields["alpn"]?.array?.compactMap({ $0.string }), !arr.isEmpty {
+            return arr
+        }
+        if let str = proxy.fields["alpn"]?.string, !str.trimmingCharacters(in: .whitespaces).isEmpty {
+            let list = str.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return list.isEmpty ? nil : list
+        }
+        return nil
+    }
+
+    /// Extract SHA-256 certificate pinning hash (32 bytes) from proxy fields if present.
+    static func parsePinnedCertSHA256(_ proxy: NCProxy) -> Data? {
+        let candidateKeys = [
+            "pinned-peer-cert-sha256",
+            "pinned-peer-certificate-sha256",
+            "certificate-sha256",
+            "pin-sha256",
+            "pinSHA256",
+            "hpkp",
+            "fingerprint"
+        ]
+        for key in candidateKeys {
+            guard let raw = proxy.fields[key]?.string else { continue }
+            let hex = raw.replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespaces)
+            if hex.count == 64, let bytes = hexBytes(hex) {
+                return bytes
+            }
+        }
+        return nil
+    }
+
+    /// Extract client fingerprint profile name from proxy fields if present.
+    /// "none" (case-insensitive) and empty strings are treated as having no fingerprint.
+    static func parseClientFingerprint(_ proxy: NCProxy) -> String? {
+        if let fp = proxy.fields["client-fingerprint"]?.string {
+            let trimmed = fp.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty && trimmed.lowercased() != "none" { return trimmed }
+        }
+        if let fp = proxy.fields["fingerprint"]?.string {
+            let trimmed = fp.trimmingCharacters(in: .whitespaces)
+            let hex = trimmed.replacingOccurrences(of: ":", with: "")
+            if hex.count == 64 && hexBytes(hex) != nil {
+                return nil
+            }
+            if !trimmed.isEmpty && trimmed.lowercased() != "none" { return trimmed }
+        }
+        return nil
+    }
+
+    /// The node's ECH options — one reading for every layer (E3 NCProxy.echOpts: mihomo semantics, `enable`
+    /// must be explicitly true). SS plugin ECH sits under plugin-opts and is refused by NCSupport/the ss dial.
+    static func isECHEnabled(_ proxy: NCProxy) -> Bool {
+        proxy.echOpts?.enable == true
+    }
+
+    /// Static ECHConfigList from `ech-opts.config` (base64 / base64url of one ECHConfigList, as mihomo), validated.
+    /// nil = no static config (dynamic lookup applies). Throws on a config that is present but unusable.
+    static func staticECHConfigList(_ proxy: NCProxy) throws -> Data? {
+        guard let opts = proxy.echOpts, opts.enable, opts.config != nil else { return nil }
+        guard let bytes = opts.configBytes, !bytes.isEmpty else {
+            throw Failure.handshake("ech-opts.config 不是有效的 base64")
+        }
+        do {
+            _ = try NCECHConfigParser.select(fromECHConfigList: bytes)
+        } catch {
+            throw Failure.handshake("ech-opts.config 无可用的 ECHConfig：\(error)")
+        }
+        return bytes
+    }
+
+    /// Dynamic ECH source (E2 NCECHResolver: DNS HTTPS RR through the kernel's own upstreams, TTL cache).
+    /// Installed by NativeCoreEngine when a config loads; nil outside the tunnel (app-hosted tests inject one).
+    /// Arguments: query name, callback(ECHConfigList or nil = the name publishes no ECH, error = lookup failed).
+    typealias ECHConfigLookup = (_ queryName: String, _ completion: @escaping (Data?, Error?) -> Void) -> Void
+    private static let echLookupLock = NSLock()
+    private static var echLookupStorage: ECHConfigLookup?
+    static var echConfigLookup: ECHConfigLookup? {
+        get { echLookupLock.lock(); defer { echLookupLock.unlock() }; return echLookupStorage }
+        set { echLookupLock.lock(); echLookupStorage = newValue; echLookupLock.unlock() }
+    }
+
+    /// ECHConfigList for a node with ECH on: static `config`, else the HTTPS RR of `query-server-name` (else the
+    /// TLS server name), as mihomo's ech-opts. No list (no record, no ech SvcParam, lookup failed) is an error —
+    /// never a silent plaintext-SNI handshake. completion(nil, nil) only when ECH is off. Called back on `queue`.
+    static func resolveECHConfigList(_ proxy: NCProxy, serverName: String, queue: DispatchQueue,
+                                     completion: @escaping (Data?, Error?) -> Void) {
+        guard let opts = proxy.echOpts, opts.enable else { queue.async { completion(nil, nil) }; return }
+        do {
+            if let list = try staticECHConfigList(proxy) { queue.async { completion(list, nil) }; return }
+        } catch {
+            queue.async { completion(nil, error) }
+            return
+        }
+        let name = opts.queryServerName ?? serverName
+        guard let lookup = echConfigLookup else {
+            queue.async { completion(nil, Failure.handshake("ECH：无 ech-opts.config，且 DNS 解析器不可用")) }
+            return
+        }
+        lookup(name) { list, err in
+            queue.async {
+                if let err { completion(nil, Failure.handshake("ECH：查询 \(name) 的 HTTPS 记录失败：\(err.localizedDescription)")); return }
+                guard let list, !list.isEmpty else {
+                    completion(nil, Failure.handshake("ECH：\(name) 未发布 ECH 配置（HTTPS 记录无 ech）"))
+                    return
+                }
+                if (try? NCECHConfigParser.select(fromECHConfigList: list)) == nil {
+                    completion(nil, Failure.handshake("ECH：\(name) 的 ECH 配置无可用套件"))
+                    return
+                }
+                completion(list, nil)
+            }
+        }
+    }
+
+    /// Default ALPN when the node sets no `alpn` (mihomo defaults; the system-TLS path sent none):
+    /// - ws / httpupgrade / http transports: ["http/1.1"] (offering h2 lets a CDN pick h2 and the Upgrade breaks)
+    /// - grpc / h2 transports: ["h2"]; xhttp: ["h2"]
+    /// - trojan over tcp: ["h2", "http/1.1"] (mihomo trojan default)
+    /// - https proxy: ["http/1.1"]
+    /// - vmess / vless over tcp, anytls: none (mihomo sends no ALPN unless configured)
+    static func defaultALPN(for proxy: NCProxy) -> [String] {
+        let type = proxy.type.lowercased()
+        if type == "https" || type == "http" { return ["http/1.1"] }
+        if type == "anytls" { return [] }
+        switch proxy.fields["network"]?.string?.lowercased() ?? "tcp" {
+        case "ws", "httpupgrade", "http":
+            return ["http/1.1"]
+        case "grpc", "h2":
+            return ["h2"]
+        case "xhttp":
+            return ["h2"] // feat/nc-xhttp: the XHTTP stream is HTTP/2 only
+        default:
+            return type == "trojan" ? ["h2", "http/1.1"] : []
+        }
+    }
+
+    /// Whether this proxy requires the native TLS stack (NCTLSClient).
+    /// Note: client-fingerprint of "none" or empty string does not trigger native TLS.
+    static func needsNativeTLS(_ proxy: NCProxy) -> Bool {
+        if isECHEnabled(proxy) { return true }
+        if let fp = parseClientFingerprint(proxy), !fp.isEmpty, fp.lowercased() != "none" { return true }
+        if parsePinnedCertSHA256(proxy) != nil { return true }
+        return false
+    }
+
+    /// Dial TCP and run the hand-rolled TLS 1.3 / 1.2 handshake over it with parity parameters
+    /// (ECH config resolved first: static or DNS, see resolveECHConfigList).
+    static func dialNativeTLS(proxy: NCProxy, server: String, port: Int,
+                              serverName: String? = nil,
+                              defaultALPN: [String]? = nil,
+                              queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        // fix/nc-diag-439 (G): without servername / sni the transport's Host (ws / h2 / http-opts) is the SNI.
+        let serverName = serverName ?? tlsSNI(proxy, server: server)
+        resolveECHConfigList(proxy, serverName: serverName, queue: queue) { echConfig, echErr in
+            if let echErr { completion(nil, echErr); return }
+            var cfg = NCTLSClientStream.Config(serverName: serverName)
+            cfg.alpn = parseALPN(proxy) ?? defaultALPN ?? self.defaultALPN(for: proxy)
+            cfg.allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
+            cfg.pinnedCertSHA256 = parsePinnedCertSHA256(proxy)
+            cfg.profile = NCClientHelloProfile.named(parseClientFingerprint(proxy))
+            cfg.echConfigList = echConfig
+            if let ncv = proxy.fields["name-cert-verify"]?.string, !ncv.isEmpty {
+                cfg.certVerifyName = ncv
+            }
+            if echConfig != nil {
+                // Single retry with the server's retry_configs (RFC 9849 §6.1.6) needs a fresh socket.
+                cfg.rawDialer = { retryCompletion in
+                    let retryRaw = NCStream(to: server, port: port, queue: queue)
+                    retryRaw.start { err in
+                        if let err { retryRaw.cancel(); retryCompletion(nil, err) } else { retryCompletion(retryRaw, nil) }
+                    }
+                }
+            }
+            let raw = NCStream(to: server, port: port, queue: queue)
+            raw.start { err in
+                if let err { raw.cancel(); completion(nil, err); return }
+                let tls = NCTLSClientStream(raw: raw, config: cfg, queue: queue)
+                tls.startHandshake { herr in
+                    if let herr {
+                        tls.cancel()
+                        completion(nil, herr)
+                    } else {
+                        completion(tls, nil)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func hexBytes(_ hex: String) -> Data? {
+        var out = Data(capacity: hex.count / 2)
+        var i = hex.startIndex
+        while i < hex.endIndex {
+            let j = hex.index(i, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
+            guard j <= hex.endIndex, let b = UInt8(hex[i..<j], radix: 16) else { return nil }
+            out.append(b)
+            i = j
+        }
+        return out
     }
 
     // MARK: WebSocket transport (VMess/VLESS "ws" network)
@@ -1122,9 +1389,37 @@ enum NCConnector {
         let session = NCAnyTLSSession(key: key)
         anytlsRegistry[key] = session
         anytlsLock.unlock()
+
+        if isECHEnabled(proxy) && realityParams(proxy) != nil {
+            anytlsLock.lock()
+            if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
+            anytlsLock.unlock()
+            session.attachFailed()
+            queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+            return
+        }
+
+        let anytlsSNI = proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server
+        if needsNativeTLS(proxy) {
+            dialNativeTLS(proxy: proxy, server: server, port: port, serverName: anytlsSNI, queue: session.queue) { tls, err in
+                if let tls {
+                    session.attach(tls: tls, password: password,
+                                   clientMetadata: proxy.fields["client-metadata"]?.string ?? "")
+                    queue.async { completion(session, nil) }
+                } else {
+                    anytlsLock.lock()
+                    if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
+                    anytlsLock.unlock()
+                    session.attachFailed()
+                    queue.async { completion(nil, err) }
+                }
+            }
+            return
+        }
+
         // nc-sessions: the base TLS connection runs on the session's own queue (see muxSession).
         let tls = NCStream(to: server, port: port,
-                           tlsServerName: proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server,
+                           tlsServerName: anytlsSNI,
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                            queue: session.queue)
         tls.start { err in
@@ -1134,7 +1429,7 @@ enum NCConnector {
                 queue.async { completion(session, nil) }
             } else {
                 anytlsLock.lock()
-                anytlsRegistry.removeValue(forKey: key)
+                if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
                 anytlsLock.unlock()
                 session.attachFailed()
                 queue.async { completion(nil, err) }
@@ -1271,6 +1566,10 @@ enum NCConnector {
             queue.async { completion(nil, Failure.unsupported("vmess cipher \(proxy.fields["cipher"]?.string ?? "?")")) }
             return
         }
+        if isECHEnabled(proxy) && realityParams(proxy) != nil {
+            queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+            return
+        }
         if realityParams(proxy) != nil {
             guard transport == nil else {
                 queue.async { completion(nil, Failure.unsupported("vmess reality over a chain transport")) }
@@ -1297,8 +1596,19 @@ enum NCConnector {
             }
             return
         }
+        let useTLS = proxy.fields["tls"]?.bool ?? false
+        if useTLS && needsNativeTLS(proxy) {
+            dialNativeTLS(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
+                guard let base0 else { completion(nil, err); return }
+                transportStream(raw: base0, proxy: proxy, server: server, queue: queue) { base, terr in
+                    guard let base else { completion(nil, terr); return }
+                    finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
+                }
+            }
+            return
+        }
         let raw: NCStream
-        if proxy.fields["tls"]?.bool ?? false {
+        if useTLS {
             raw = NCStream(to: server, port: port,
                            tlsServerName: tlsSNI(proxy, server: server),
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,

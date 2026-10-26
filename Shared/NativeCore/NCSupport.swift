@@ -3,6 +3,13 @@ import Foundation
 /// What the native core can dial today (feat/native-core-eval). Nodes it cannot are kept in the config — the App
 /// still lists them — but marked unsupported: groups skip them, the controller reports them dead, and the startup
 /// log / 诊断 say why. There is no fallback to another core; later kernel iterations add the missing protocols.
+///
+/// ECH 说明（lane E6）：
+/// Hysteria2 与 TUIC 基于系统 Network.framework QUIC（NWProtocolQUIC），已开启系统实验性 ECH 开关
+/// （sec_protocol_options_set_enable_encrypted_client_hello）。其 ECH 能力定位为「系统 ECH（尽力而为）」：
+/// 生效前提为系统 DNS 解析可自动获取 HTTPS/SVCB 记录中的 ECHConfig；系统 QUIC 无法注入外部或静态配置。
+/// 因此 NCSupport 不将其标为「完全支持 ECH」，节点若显式配置静态 ech-opts.config，在 report/StartupLog 中给出
+/// 可区分提示（静态配置无法生效，仅依赖系统 DNS 尽力而为），避免静默假装生效。
 enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
@@ -31,10 +38,27 @@ enum NCSupport {
         if p.fields["network"]?.string?.lowercased() == "xhttp", let why = NCXHTTPConfig.unsupportedReason(p) {
             return why
         }
-        // fix/nc-silent-fail: ECH is not implemented on any path yet; dialing without it would send the real SNI
-        // in the clear (or fail against an ECH-only front), so the node is marked instead of silently degraded.
-        if p.fields["ech-opts"]?.object?["enable"]?.bool == true {
-            return "ECH（ech-opts）尚未接入"
+        // ECH (RFC 9849), one judgement for every layer, read from p.echOpts (mihomo semantics: enable must be true).
+        // TCP/TLS nodes (trojan / vless / vmess / anytls / https) do ECH in the native TLS stack (static
+        // ech-opts.config, else the HTTPS RR via the kernel DNS); hy2 / tuic use the system QUIC ECH switch
+        // (best effort, DNS only — see report()). REALITY is exclusive; Vision and SS plugins are not wired.
+        if let ech = p.echOpts, ech.enable {
+            let sec = p.fields["security"]?.string?.lowercased()
+            if p.fields["reality-opts"] != nil || sec == "reality" {
+                return "REALITY 与 ECH 互斥，不能同时启用"
+            }
+            if t == "ss" {
+                return "Shadowsocks 插件不支持 ECH"
+            }
+            if t == "vless" {
+                let flow = (p.fields["flow"]?.string ?? "").lowercased()
+                if flow.hasPrefix("xtls-rprx-vision") {
+                    return "VLESS Vision 不支持 ECH"
+                }
+            }
+            if !Self.echTypes.contains(t) {
+                return "\(t) 不支持 ECH（ech-opts）"
+            }
         }
         switch t {
         case "snell":
@@ -238,11 +262,33 @@ enum NCSupport {
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.
     static let groupTypes: Set<String> = ["select", "url-test", "fallback", "load-balance", "relay"]
 
+    /// Proxy types whose dial honours ech-opts (native TLS stack, or the system QUIC switch for hy2 / tuic).
+    static let echTypes: Set<String> = ["trojan", "vless", "vmess", "anytls", "https", "hysteria2", "hy2", "tuic"]
+
+    /// hy2 / tuic: whether the system QUIC ECH switch is turned on — only for an explicit `ech-opts.enable: true`
+    /// (nodes without ech-opts stay byte-for-byte unchanged; review #150 item 1).
+    static func systemQUICECHEnabled(_ p: NCProxy) -> Bool {
+        p.echOpts?.enable == true
+    }
+
+    /// Whether the proxy explicitly configures `ech-opts` with a non-empty static `config`.
+    /// System QUIC (NWProtocolQUIC) ECH can only discover ECHConfig dynamically via system DNS (HTTPS/SVCB records),
+    /// so static configs cannot be injected into the system QUIC stack.
+    static func hasStaticECHConfig(_ p: NCProxy) -> Bool {
+        guard let opts = p.echOpts, opts.enable else { return false }
+        return opts.config != nil
+    }
+
     /// One line per unsupported node / group type / rule, for the startup log and 诊断.
     static func report(config: NCConfig, unparsedRules: [String]) -> [String] {
         var out: [String] = []
         for p in config.proxies {
-            if let why = unsupportedReason(p) { out.append("节点「\(p.name)」不可用：\(why)") }
+            if let why = unsupportedReason(p) {
+                out.append("节点「\(p.name)」不可用：\(why)")
+            } else if ["hysteria2", "hy2", "tuic"].contains(p.type.lowercased()),
+                      hasStaticECHConfig(p) {
+                out.append("节点「\(p.name)」带静态 ech-opts.config：系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 自动解析 HTTPS 记录尽力而为，静态配置将被忽略）")
+            }
         }
         for g in config.groups where !groupTypes.contains(g.type.lowercased()) {
             out.append("策略组「\(g.name)」类型 \(g.type) 暂按手动选择处理")

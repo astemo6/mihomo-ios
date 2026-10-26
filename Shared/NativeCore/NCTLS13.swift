@@ -485,6 +485,15 @@ extension NCTLS13 {
 
     static func buildClientHello(random: Data, sessionID: Data, serverName: String, alpn: [String],
                                  keyShare: Data, profile: NCClientHelloProfile) -> Data {
+        buildClientHello(random: random, sessionID: sessionID, serverName: serverName,
+                         alpn: alpn, keyShare: keyShare, profile: profile,
+                         tls13Only: false, cookie: nil, extraExtensions: [])
+    }
+
+    static func buildClientHello(random: Data, sessionID: Data, serverName: String, alpn: [String],
+                                 keyShare: Data, profile: NCClientHelloProfile,
+                                 tls13Only: Bool = false, cookie: Data? = nil,
+                                 extraExtensions: [(type: UInt16, data: Data)] = []) -> Data {
         var body = Data()
         body.appendBE16(0x0303) // legacy version
         body.append(random)
@@ -534,17 +543,28 @@ extension NCTLS13 {
             protocols.append(UInt8(name.count))
             protocols.append(contentsOf: name)
         }
-        alpnData.appendBE16(UInt16(protocols.count))
-        alpnData.append(protocols)
-        ext(16, alpnData)
+        // An empty ALPN list is illegal on the wire (RFC 7301 §3.1): no protocols → no extension
+        // (nc-tls-parity: vmess/vless over plain tcp offer none, like mihomo / the system TLS path).
+        if !protocols.isEmpty {
+            alpnData.appendBE16(UInt16(protocols.count))
+            alpnData.append(protocols)
+            ext(16, alpnData)
+        }
+        if let cookie, !cookie.isEmpty {
+            ext(extensionCookie, cookie)
+        }
         ext(5, Data([0x01, 0x00, 0x00, 0x00, 0x00]))
         if profile.sct { ext(18, Data()) }
         ext(23, Data())
         if profile.sessionTicket { ext(35, Data()) }
-        // supported_versions: u8 list length 4, then TLS 1.3 and TLS 1.2. (feat/nc-naive-h2h3: was length 3 —
-        // an odd-length list Go's crypto/tls (sing-box / Xray / REALITY servers) rejects with decode_error,
-        // alert 50; verified against the sing-box 1.12.24 loopback inbounds.)
-        ext(43, Data([0x04, 0x03, 0x04, 0x03, 0x03]))
+        if tls13Only {
+            ext(43, Data([0x02, 0x03, 0x04]))
+        } else {
+            // supported_versions: u8 list length 4 = TLS 1.3, TLS 1.2. Was 0x03 (odd length) since 6bcf716: Go
+            // crypto/tls answers decode_error (alert 50) — every non-ECH native-TLS hello was malformed. Fixed twice
+            // independently (feat/nc-naive-h2h3 15a5f62, fix/nc-ech-rest b805b96); this is the single implementation.
+            ext(43, Data([0x04, 0x03, 0x04, 0x03, 0x03]))
+        }
         ext(45, Data([0x01, 0x01]))
         var share = Data()
         share.appendBE16(UInt16(keyShare.count + 4))
@@ -552,6 +572,9 @@ extension NCTLS13 {
         share.appendBE16(UInt16(keyShare.count))
         share.append(keyShare)
         ext(51, share)
+        for (extType, extPayload) in extraExtensions {
+            ext(extType, extPayload)
+        }
 
         body.appendBE16(UInt16(exts.count))
         body.append(exts)
@@ -584,5 +607,488 @@ extension NCTLS13 {
             }
         }
         return message
+    }
+
+    // MARK: - RFC 9849 Encrypted Client Hello (ECH)
+
+    /// RFC 8446 §4.1.3: Special HelloRetryRequest random value.
+    static let helloRetryRequestRandom = Data([
+        0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
+        0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+        0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
+        0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
+    ])
+
+    /// RFC 9849 §5: Extension type for encrypted_client_hello (0xfe0d).
+    static let extensionECH: UInt16 = 0xfe0d
+    /// RFC 8446 §4.2.2: Extension type for cookie (44).
+    static let extensionCookie: UInt16 = 44
+    /// RFC 9849 §10.5: Alert description for ech_required (121).
+    static let alertECHRequired: UInt8 = 121
+
+    /// RFC 9849 §6.1: Build ClientHelloInner handshake message.
+    /// - Real serverName (SNI) and real ALPN.
+    /// - TLS 1.3 only (MUST NOT offer TLS 1.2 or below, RFC 9849 §6.1 rule 1).
+    /// - Inner encrypted_client_hello extension (type 0xfe0d, payload 0x01, RFC 9849 §5).
+    static func buildClientHelloInner(
+        random: Data,
+        sessionID: Data,
+        serverName: String,
+        alpn: [String],
+        keyShare: Data,
+        profile: NCClientHelloProfile = .chrome,
+        cookie: Data? = nil
+    ) -> Data {
+        let innerECHPayload = Data([0x01])
+        return buildClientHello(
+            random: random,
+            sessionID: sessionID,
+            serverName: serverName,
+            alpn: alpn,
+            keyShare: keyShare,
+            profile: profile,
+            tls13Only: true,
+            cookie: cookie,
+            extraExtensions: [(extensionECH, innerECHPayload)]
+        )
+    }
+
+    /// RFC 9849 §5.1 & §6.1.3: Constructs EncodedClientHelloInner from ClientHelloInner.
+    ///
+    /// Steps:
+    /// 1. Strip the 4-byte Handshake header (RFC 9849 §5.1).
+    /// 2. Set legacy_session_id to empty (length 0, RFC 9849 §5.1).
+    /// 3. Add deterministic padding based on maximum_name_length and SNI (RFC 9849 §6.1.3):
+    ///    - If SNI present: padSNI = max(0, M - len(SNI))
+    ///    - If SNI absent: padSNI = M + 9
+    ///    - Total length L = len(client_hello) + padSNI
+    ///    - N = 31 - ((L - 1) % 32)
+    ///    - Total zeros = padSNI + N (rounds EncodedClientHelloInner up to a multiple of 32 bytes).
+    static func encodeInnerClientHello(
+        innerHello: Data,
+        serverName: String,
+        maximumNameLength: UInt8
+    ) -> Data {
+        guard innerHello.count >= 4 else { return innerHello }
+        let body = innerHello.dropFirst(4) // Strip Handshake header
+        guard body.count >= 35 else { return Data(body) }
+
+        // Body starts with: legacy_version (2) + random (32) + legacy_session_id (1 + sidLen)
+        let sidLen = Int(body[body.startIndex + 34])
+        guard body.count >= 35 + sidLen else { return Data(body) }
+
+        var unpaddedInner = Data()
+        unpaddedInner.append(body[body.startIndex..<body.startIndex + 34])
+        unpaddedInner.append(0x00) // Empty legacy_session_id (1 byte of length = 0)
+        unpaddedInner.append(body[(body.startIndex + 35 + sidLen)...])
+
+        // RFC 9849 §6.1.3 Recommended Padding Scheme:
+        let m = Int(maximumNameLength)
+        let padSNI: Int
+        if !serverName.isEmpty {
+            padSNI = max(0, m - serverName.utf8.count)
+        } else {
+            padSNI = m + 9
+        }
+        let l = unpaddedInner.count + padSNI
+        let n = l > 0 ? (31 - ((l - 1) % 32)) : 0
+        let totalPadding = padSNI + n
+
+        var encoded = unpaddedInner
+        encoded.append(Data(repeating: 0, count: totalPadding))
+        return encoded
+    }
+
+    /// RFC 9849 §5: Builds outer encrypted_client_hello extension payload.
+    ///
+    /// Layout:
+    /// - type: uint8 = 0 (outer)
+    /// - cipher_suite: uint16 kdf_id, uint16 aead_id
+    /// - config_id: uint8
+    /// - enc: opaque<0..2^16-1> (uint16 length + bytes; empty on HRR)
+    /// - payload: opaque<1..2^16-1> (uint16 length + bytes)
+    static func buildOuterECHExtensionData(
+        configID: UInt8,
+        kdfID: UInt16,
+        aeadID: UInt16,
+        enc: Data,
+        payload: Data
+    ) -> Data {
+        var d = Data()
+        d.append(0x00) // outer(0)
+        d.appendBE16(kdfID)
+        d.appendBE16(aeadID)
+        d.append(configID)
+        d.appendBE16(UInt16(enc.count))
+        d.append(enc)
+        d.appendBE16(UInt16(payload.count))
+        d.append(payload)
+        return d
+    }
+
+    /// RFC 9849 §6.1.1: Constructs ClientHelloOuter encrypting EncodedClientHelloInner.
+    ///
+    /// 1. Determines ciphertext length L = encodedInner.count + 16 (tag length).
+    /// 2. Assembles ClientHelloOuter with placeholder outer ECH extension (payload of L zeros).
+    /// 3. Extracts ClientHelloOuterAAD = outerHello[4:] (without 4-byte Handshake header, RFC 9849 §5.2).
+    /// 4. Computes final_payload = context.seal(aad: outerAAD, plaintext: encodedInner).
+    /// 5. Substitutes placeholder ECH extension with final ECH extension.
+    static func buildClientHelloOuter(
+        outerRandom: Data,
+        sessionID: Data,
+        publicName: String,
+        alpn: [String],
+        keyShare: Data,
+        profile: NCClientHelloProfile = .chrome,
+        cookie: Data? = nil,
+        selectedConfig: NCECHSelectedConfig,
+        enc: Data,
+        hpkeContext: NCHPKEContextS,
+        encodedInner: Data
+    ) throws -> Data {
+        let ciphertextLen = encodedInner.count + 16 // AEAD tag length is 16 bytes for AES-GCM / ChaChaPoly
+        let placeholderExtData = buildOuterECHExtensionData(
+            configID: selectedConfig.config.configID,
+            kdfID: selectedConfig.cipherSuite.kdfID,
+            aeadID: selectedConfig.cipherSuite.aeadID,
+            enc: enc,
+            payload: Data(repeating: 0, count: ciphertextLen)
+        )
+
+        let outerWithPlaceholder = buildClientHello(
+            random: outerRandom,
+            sessionID: sessionID,
+            serverName: publicName,
+            alpn: alpn,
+            keyShare: keyShare,
+            profile: profile,
+            tls13Only: true,
+            cookie: cookie,
+            extraExtensions: [(extensionECH, placeholderExtData)]
+        )
+
+        guard outerWithPlaceholder.count >= 4 else {
+            throw NCHPKEError.validationError("Malformed outer ClientHello")
+        }
+        // RFC 9849 §5.2: ClientHelloOuterAAD is the serialized ClientHello without the 4-byte Handshake header
+        let outerAAD = Data(outerWithPlaceholder.dropFirst(4))
+        let ciphertext = try hpkeContext.seal(aad: outerAAD, plaintext: encodedInner)
+
+        let finalExtData = buildOuterECHExtensionData(
+            configID: selectedConfig.config.configID,
+            kdfID: selectedConfig.cipherSuite.kdfID,
+            aeadID: selectedConfig.cipherSuite.aeadID,
+            enc: enc,
+            payload: ciphertext
+        )
+
+        guard let range = outerWithPlaceholder.range(of: placeholderExtData) else {
+            throw NCHPKEError.validationError("Failed to locate ECH placeholder in ClientHelloOuter")
+        }
+
+        var finalOuter = outerWithPlaceholder
+        finalOuter.replaceSubrange(range, with: finalExtData)
+        return finalOuter
+    }
+
+    /// RFC 9849 §7.2: Computes accept_confirmation for ServerHello.
+    ///
+    /// 1. Replace last 8 bytes of ServerHello.random with 8 zeros.
+    /// 2. Compute transcript hash of innerTranscript + modifiedServerHello.
+    /// 3. prk = HKDF-Extract(0, ClientHelloInner.random)
+    /// 4. accept_confirmation = HKDF-Expand-Label(prk, "ech accept confirmation", transcriptHash, 8)
+    static func computeAcceptConfirmation(
+        kind: HashKind,
+        innerTranscript: Data,
+        serverHello: Data,
+        innerRandom: Data
+    ) -> Data? {
+        guard serverHello.count >= 38 else { return nil }
+        var modified = serverHello
+        // In ServerHello handshake message: 4 header + 2 version + 24 random prefix = offset 30
+        modified.replaceSubrange(30..<38, with: [UInt8](repeating: 0, count: 8))
+
+        var confTranscript = innerTranscript
+        confTranscript.append(modified)
+        let transcriptConf = kind.hash(confTranscript)
+
+        let zeroSalt = Data(repeating: 0, count: kind.length)
+        let prk = hkdfExtract(kind, salt: zeroSalt, ikm: innerRandom)
+        return expandLabel(kind, secret: prk, label: "ech accept confirmation", context: transcriptConf, length: 8)
+    }
+
+    /// RFC 9849 §7.2.1: Computes hrr_accept_confirmation for HelloRetryRequest.
+    ///
+    /// 1. Replace 8-byte payload of encrypted_client_hello extension in HRR with 8 zeros.
+    /// 2. Compute transcript hash of innerTranscript + modifiedHRR.
+    /// 3. prk = HKDF-Extract(0, ClientHelloInner1.random)
+    /// 4. hrr_accept_confirmation = HKDF-Expand-Label(prk, "hrr ech accept confirmation", transcriptHash, 8)
+    static func computeHRRAcceptConfirmation(
+        kind: HashKind,
+        innerTranscript: Data,
+        hrrMessage: Data,
+        hrrECHPayload: Data,
+        innerRandom: Data
+    ) -> Data? {
+        guard hrrECHPayload.count == 8 else { return nil }
+        let range: Range<Data.Index>
+        // Review #152 item 6: only the parsed extension offset — a byte search could hit random/cookie first.
+        if let found = locateECHExtensionPayload(inHRR: hrrMessage) {
+            range = found
+        } else {
+            return nil
+        }
+        var modified = hrrMessage
+        modified.replaceSubrange(range, with: [UInt8](repeating: 0, count: 8))
+
+        var confTranscript = innerTranscript
+        confTranscript.append(modified)
+        let transcriptConf = kind.hash(confTranscript)
+
+        let zeroSalt = Data(repeating: 0, count: kind.length)
+        let prk = hkdfExtract(kind, salt: zeroSalt, ikm: innerRandom)
+        return expandLabel(kind, secret: prk, label: "hrr ech accept confirmation", context: transcriptConf, length: 8)
+    }
+
+    /// Locates the 8-byte payload range of the ECH extension (0xfe0d) in a HelloRetryRequest message.
+    static func locateECHExtensionPayload(inHRR message: Data) -> Range<Data.Index>? {
+        guard message.count >= 4 else { return nil }
+        let body = message.dropFirst(4)
+        guard body.count >= 34 else { return nil }
+        var idx = body.startIndex + 34
+        guard body.count > (idx - body.startIndex) else { return nil }
+        let sidLen = Int(body[idx]); idx += 1 + sidLen
+        guard body.count >= (idx - body.startIndex) + 3 else { return nil }
+        idx += 2 // cipher suite
+        idx += 1 // compression
+        guard body.count >= (idx - body.startIndex) + 2 else { return nil }
+        let extLen = Int(body[idx]) << 8 | Int(body[idx + 1]); idx += 2
+        let extEnd = min(body.endIndex, idx + extLen)
+        while idx + 4 <= extEnd {
+            let extType = UInt16(body[idx]) << 8 | UInt16(body[idx + 1])
+            let extSize = Int(body[idx + 2]) << 8 | Int(body[idx + 3])
+            idx += 4
+            guard idx + extSize <= extEnd else { return nil }
+            if extType == extensionECH, extSize == 8 {
+                return idx..<(idx + 8)
+            }
+            idx += extSize
+        }
+        return nil
+    }
+
+    /// RFC 8446 §4.3.1 & RFC 9849 §5: Parses retry_configs (extension 0xfe0d) from an EncryptedExtensions message.
+    static func parseRetryConfigs(fromEncryptedExtensions message: Data) -> Data? {
+        guard message.count >= 6 else { return nil }
+        guard message[message.startIndex] == 8 else { return nil } // Handshake type 8 = EncryptedExtensions
+        // 4 header bytes + 2 extensions length bytes
+        let extsLen = Int(message[message.startIndex + 4]) << 8 | Int(message[message.startIndex + 5])
+        guard message.count >= 6 + extsLen else { return nil }
+        let extsData = message.subdata(in: (message.startIndex + 6)..<(message.startIndex + 6 + extsLen))
+        return parseExtension(type: extensionECH, fromExtensionsData: extsData)
+    }
+
+    /// RFC 8446 §4.4.1: Synthetic message_hash handshake message for HelloRetryRequest transcript.
+    /// Type: 254 (0xfe), length: uint24 = kind.length, payload: Hash(ClientHello1).
+    static func syntheticMessageHash(for clientHello: Data, kind: HashKind) -> Data {
+        let h = kind.hash(clientHello)
+        var msg = Data([0xfe, 0x00, 0x00, UInt8(h.count)])
+        msg.append(h)
+        return msg
+    }
+
+    /// Locates an extension by type in a handshake message body or extension block.
+    static func parseExtension(type: UInt16, fromExtensionsData exts: Data) -> Data? {
+        var idx = 0
+        while idx + 4 <= exts.count {
+            let extType = UInt16(exts[idx]) << 8 | UInt16(exts[idx + 1])
+            let extLen = Int(exts[idx + 2]) << 8 | Int(exts[idx + 3])
+            idx += 4
+            guard idx + extLen <= exts.count else { return nil }
+            if extType == type {
+                return exts.subdata(in: idx..<idx + extLen)
+            }
+            idx += extLen
+        }
+        return nil
+    }
+
+    // MARK: - ClientHello Parsing and Derivation (RFC 8446 §4.1.4 & RFC 9849 §6.1.5)
+
+    struct ParsedClientHello {
+        var prefix: Data // bytes from legacy_version up to before extensions length
+        var extensions: [(type: UInt16, data: Data)]
+    }
+
+    /// Parses a complete ClientHello handshake message into prefix and extensions list.
+    static func parseClientHello(_ hello: Data) -> ParsedClientHello? {
+        guard hello.count >= 4 else { return nil }
+        let body = Data(hello.dropFirst(4))
+        // legacy_version (2) + random (32) = 34 bytes
+        guard body.count >= 34 else { return nil }
+        var idx = 34
+        guard body.count > idx else { return nil }
+        let sidLen = Int(body[idx]); idx += 1 + sidLen
+        guard body.count >= idx + 2 else { return nil }
+        let csLen = Int(body[idx]) << 8 | Int(body[idx + 1]); idx += 2 + csLen
+        guard body.count >= idx + 1 else { return nil }
+        let compLen = Int(body[idx]); idx += 1 + compLen
+        guard body.count >= idx + 2 else { return nil }
+        let prefix = body.subdata(in: 0..<idx)
+        let extsLen = Int(body[idx]) << 8 | Int(body[idx + 1]); idx += 2
+        let extsEnd = idx + extsLen
+        guard body.count >= extsEnd else { return nil }
+
+        var exts: [(type: UInt16, data: Data)] = []
+        while idx + 4 <= extsEnd {
+            let extType = UInt16(body[idx]) << 8 | UInt16(body[idx + 1])
+            let extSize = Int(body[idx + 2]) << 8 | Int(body[idx + 3])
+            idx += 4
+            guard idx + extSize <= extsEnd else { return nil }
+            let extData = body.subdata(in: idx..<idx + extSize)
+            exts.append((type: extType, data: extData))
+            idx += extSize
+        }
+        return ParsedClientHello(prefix: prefix, extensions: exts)
+    }
+
+    /// Assembles a complete ClientHello handshake message from prefix and extensions list.
+    static func assembleClientHello(prefix: Data, extensions: [(type: UInt16, data: Data)]) -> Data {
+        var extsData = Data()
+        for ext in extensions {
+            extsData.appendBE16(ext.type)
+            extsData.appendBE16(UInt16(ext.data.count))
+            extsData.append(ext.data)
+        }
+        var body = prefix
+        body.appendBE16(UInt16(extsData.count))
+        body.append(extsData)
+
+        var msg = Data()
+        msg.append(0x01) // Handshake type: ClientHello
+        let bodyCount = body.count
+        msg.append(UInt8((bodyCount >> 16) & 0xff))
+        msg.append(UInt8((bodyCount >> 8) & 0xff))
+        msg.append(UInt8(bodyCount & 0xff))
+        msg.append(body)
+        return msg
+    }
+
+    /// RFC 8446 §4.1.4 & RFC 9849 §6.1.5: Derives ClientHelloInner2 from ClientHelloInner1 on HRR.
+    /// Only RFC-allowed modifications are applied:
+    /// - Adds cookie extension if provided by HRR.
+    /// - Updates key_share extension if keyShare is provided (for HRR selected_group).
+    /// - All other extensions, random, session_id, and cipher suites remain byte-identical to CH1.
+    static func deriveClientHelloInner2(
+        from inner1: Data,
+        cookie: Data?,
+        keyShare: Data? = nil
+    ) -> Data? {
+        guard let parsed = parseClientHello(inner1) else { return nil }
+        var updatedExts = parsed.extensions
+
+        if let keyShare {
+            var shareData = Data()
+            shareData.appendBE16(UInt16(keyShare.count + 4))
+            shareData.appendBE16(0x001d) // X25519
+            shareData.appendBE16(UInt16(keyShare.count))
+            shareData.append(keyShare)
+            if let idx = updatedExts.firstIndex(where: { $0.type == 51 }) {
+                updatedExts[idx] = (type: 51, data: shareData)
+            } else {
+                updatedExts.append((type: 51, data: shareData))
+            }
+        }
+
+        if let cookie, !cookie.isEmpty {
+            if let idx = updatedExts.firstIndex(where: { $0.type == extensionCookie }) {
+                updatedExts[idx] = (type: extensionCookie, data: cookie)
+            } else {
+                if let ksIdx = updatedExts.firstIndex(where: { $0.type == 51 }) {
+                    updatedExts.insert((type: extensionCookie, data: cookie), at: ksIdx)
+                } else {
+                    updatedExts.append((type: extensionCookie, data: cookie))
+                }
+            }
+        }
+
+        return assembleClientHello(prefix: parsed.prefix, extensions: updatedExts)
+    }
+
+    /// RFC 9849 §6.1.5 & RFC 8446 §4.1.4: Derives ClientHelloOuter2 from ClientHelloOuter1 on HRR.
+    /// - Encrypts encodedInner2 with empty enc and next HPKE sequence number.
+    /// - Adds cookie if provided.
+    /// - Updates key_share if provided.
+    /// - Preserves outerRandom, session_id, cipher suites, and other extensions byte-identical to CH1.
+    static func deriveClientHelloOuter2(
+        from outer1: Data,
+        cookie: Data?,
+        keyShare: Data? = nil,
+        selectedConfig: NCECHSelectedConfig,
+        hpkeContext: NCHPKEContextS,
+        encodedInner2: Data
+    ) throws -> Data {
+        guard let parsed = parseClientHello(outer1) else {
+            throw NCHPKEError.validationError("Failed to parse ClientHelloOuter1")
+        }
+        var updatedExts = parsed.extensions
+
+        if let keyShare {
+            var shareData = Data()
+            shareData.appendBE16(UInt16(keyShare.count + 4))
+            shareData.appendBE16(0x001d)
+            shareData.appendBE16(UInt16(keyShare.count))
+            shareData.append(keyShare)
+            if let idx = updatedExts.firstIndex(where: { $0.type == 51 }) {
+                updatedExts[idx] = (type: 51, data: shareData)
+            } else {
+                updatedExts.append((type: 51, data: shareData))
+            }
+        }
+
+        if let cookie, !cookie.isEmpty {
+            if let idx = updatedExts.firstIndex(where: { $0.type == extensionCookie }) {
+                updatedExts[idx] = (type: extensionCookie, data: cookie)
+            } else {
+                if let ksIdx = updatedExts.firstIndex(where: { $0.type == 51 }) {
+                    updatedExts.insert((type: extensionCookie, data: cookie), at: ksIdx)
+                } else {
+                    updatedExts.append((type: extensionCookie, data: cookie))
+                }
+            }
+        }
+
+        // RFC 9849 §6.1.5: Outer ECH extension with empty enc and placeholder ciphertext
+        let ciphertextLen = encodedInner2.count + 16
+        let placeholderExtData = buildOuterECHExtensionData(
+            configID: selectedConfig.config.configID,
+            kdfID: selectedConfig.cipherSuite.kdfID,
+            aeadID: selectedConfig.cipherSuite.aeadID,
+            enc: Data(), // RFC 9849 §6.1.5: empty enc on HRR
+            payload: Data(repeating: 0, count: ciphertextLen)
+        )
+
+        guard let echIdx = updatedExts.firstIndex(where: { $0.type == extensionECH }) else {
+            throw NCHPKEError.validationError("Outer ECH extension not found in ClientHelloOuter1")
+        }
+        updatedExts[echIdx] = (type: extensionECH, data: placeholderExtData)
+
+        let outerWithPlaceholder = assembleClientHello(prefix: parsed.prefix, extensions: updatedExts)
+        guard outerWithPlaceholder.count >= 4 else {
+            throw NCHPKEError.validationError("Malformed outer ClientHello2")
+        }
+        let outerAAD = Data(outerWithPlaceholder.dropFirst(4))
+        let ciphertext = try hpkeContext.seal(aad: outerAAD, plaintext: encodedInner2)
+
+        let finalExtData = buildOuterECHExtensionData(
+            configID: selectedConfig.config.configID,
+            kdfID: selectedConfig.cipherSuite.kdfID,
+            aeadID: selectedConfig.cipherSuite.aeadID,
+            enc: Data(),
+            payload: ciphertext
+        )
+        updatedExts[echIdx] = (type: extensionECH, data: finalExtData)
+
+        return assembleClientHello(prefix: parsed.prefix, extensions: updatedExts)
     }
 }

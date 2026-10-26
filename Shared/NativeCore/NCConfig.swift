@@ -58,6 +58,18 @@ struct NCProxy: Equatable {
     var cipher: String? { fields["cipher"]?.string }
     var uuid: String? { fields["uuid"]?.string }
     var udp: Bool { fields["udp"]?.bool ?? false }
+
+    /// Structured ECH options (`ech-opts`), aligned with mihomo's ECHOptions.
+    var echOpts: NCECHOpts? {
+        if let obj = fields["ech-opts"]?.object {
+            return NCECHOpts(object: obj)
+        }
+        if let pluginOpts = fields["plugin-opts"]?.object,
+           let obj = pluginOpts["ech-opts"]?.object {
+            return NCECHOpts(object: obj)
+        }
+        return nil
+    }
 }
 
 struct NCProxyGroup: Equatable {

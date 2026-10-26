@@ -406,8 +406,15 @@ extension NCConnector {
             dialReality(proxy: proxy, server: server, port: port, queue: queue, completion: wrap)
             return
         }
+        let sni = proxy.fields["sni"]?.string ?? server
+        if needsNativeTLS(proxy) {
+            // fix/nc-ech-rest parity: ECH / client-fingerprint / cert pin go through the native TLS stack (default
+            // ALPN per transport: ws → http/1.1, grpc / h2 → h2), never a plaintext-SNI system handshake.
+            dialNativeTLS(proxy: proxy, server: server, port: port, serverName: sni, queue: queue, completion: wrap)
+            return
+        }
         let raw = NCStream(to: server, port: port,
-                           tlsServerName: proxy.fields["sni"]?.string ?? server,
+                           tlsServerName: sni,
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                            queue: queue)
         raw.start { err in wrap(err == nil ? raw : nil, err) }

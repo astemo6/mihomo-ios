@@ -42,6 +42,11 @@ enum NCShareLink {
                 let o = sMap(m, "plugin-opts")
                 var p = "v2ray-plugin;mode=\(sStr(o, "mode"));host=\(sStr(o, "host"));path=\(sStr(o, "path"))"
                 if sBool(o, "tls") { p += ";tls" }
+                let eo = sMap(o, "ech-opts")
+                if !eo.isEmpty, let opts = NCECHOpts(dictionary: eo), opts.enable {
+                    p += ";ech=\(opts.configBase64URL ?? "1")"
+                    if let qsn = opts.queryServerName, !qsn.isEmpty { p += ";ech-qsn=\(qsn)" }
+                }
                 q.add("plugin", p)
             case "cloak", "ck-client":
                 let o = sMap(m, "plugin-opts")
@@ -140,13 +145,19 @@ enum NCShareLink {
             default:
                 break
             }
-            if sBool(m, "tls") {
+            let echMap = sMap(m, "ech-opts")
+            let hasECH = !echMap.isEmpty && (NCECHOpts(dictionary: echMap)?.enable == true)
+            if sBool(m, "tls") || hasECH {
                 v["tls"] = "tls"
                 v["sni"] = sStr(m, "servername")
                 let a = sList(m, "alpn")
                 if !a.isEmpty { v["alpn"] = a.joined(separator: ",") }
                 let fp = sStr(m, "client-fingerprint")
                 if !fp.isEmpty { v["fp"] = fp }
+                if hasECH, let opts = NCECHOpts(dictionary: echMap) {
+                    v["ech"] = opts.configBase64URL ?? "1"
+                    if let qsn = opts.queryServerName, !qsn.isEmpty { v["ech-qsn"] = qsn }
+                }
             }
             let data = try JSONSerialization.data(withJSONObject: v, options: [])
             return "vmess://\(data.base64EncodedString())"
@@ -171,6 +182,7 @@ enum NCShareLink {
             if sBool(m, "skip-cert-verify") {
                 q.add("allowInsecure", "1")
             }
+            appendECHQuery(m, &q)
             return "vless://\(escapePath(sStr(m, "uuid")))@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "trojan":
@@ -186,6 +198,7 @@ enum NCShareLink {
             if sBool(m, "skip-cert-verify") {
                 q.add("allowInsecure", "1")
             }
+            appendECHQuery(m, &q)
             return "trojan://\(escapePath(sStr(m, "password")))@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "hysteria2", "hy2":
@@ -199,6 +212,7 @@ enum NCShareLink {
             q.add("pinSHA256", sStr(m, "fingerprint"))
             q.add("up", sStr(m, "up"))
             q.add("down", sStr(m, "down"))
+            appendECHQuery(m, &q)
             var hp = hostPort(m)
             let ports = sStr(m, "ports")
             if !ports.isEmpty {
@@ -220,6 +234,7 @@ enum NCShareLink {
             let a = sList(m, "alpn")
             if !a.isEmpty { q.add("alpn", a.joined(separator: ",")) }
             if sBool(m, "skip-cert-verify") { q.add("insecure", "1") }
+            appendECHQuery(m, &q)
             return "hysteria://\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "tuic":
@@ -230,6 +245,7 @@ enum NCShareLink {
             q.add("sni", sStr(m, "sni"))
             if sBool(m, "disable-sni") { q.add("disable_sni", "1") }
             q.add("udp_relay_mode", sStr(m, "udp-relay-mode"))
+            appendECHQuery(m, &q)
             var user = escapePath(sStr(m, "token"))
             let u = sStr(m, "uuid")
             if !u.isEmpty {
@@ -263,6 +279,7 @@ enum NCShareLink {
             q.add("sni", sStr(m, "sni"))
             if sBool(m, "skip-cert-verify") { q.add("insecure", "1") }
             q.add("hpkp", sStr(m, "fingerprint"))
+            appendECHQuery(m, &q)
             return "anytls://\(escapePath(sStr(m, "password")))@\(hostPort(m))/\(q.queryString)#\(frag(name))"
 
         case "naive", "http2", "h2", "http3", "h3":
@@ -667,6 +684,19 @@ enum NCShareLink {
         if !fp.isEmpty { q.add("fp", fp) }
         let a = sList(m, "alpn")
         if !a.isEmpty { q.add("alpn", a.joined(separator: ",")) }
+    }
+
+    private static func appendECHQuery(_ m: [String: Any], _ q: inout KVList) {
+        let echMap = sMap(m, "ech-opts")
+        guard !echMap.isEmpty, let opts = NCECHOpts(dictionary: echMap), opts.enable else { return }
+        if let cfg = opts.configBase64URL, !cfg.isEmpty {
+            q.add("ech", cfg)
+        } else {
+            q.add("ech", "1")
+        }
+        if let qsn = opts.queryServerName, !qsn.isEmpty {
+            q.add("ech-qsn", qsn)
+        }
     }
 
     private static func sStr(_ m: [String: Any], _ keys: String...) -> String {

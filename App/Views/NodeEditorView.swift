@@ -390,6 +390,7 @@ enum NodeProtocols {
         if echTypes.contains(type) {
             f.append(FieldSpec(key: "ech-opts.enable", label: "ECH", kind: .bool))
             f.append(FieldSpec(key: "ech-opts.config", label: "ECHConfig", placeholder: "Base64（留空则查询 DNS）"))
+            f.append(FieldSpec(key: "ech-opts.query-server-name", label: "ECH 查询域名", placeholder: "留空则使用 SNI"))
         }
         if pinTypes.contains(type) {
             f.append(FieldSpec(key: "fingerprint", label: "证书指纹", placeholder: "SHA-256（十六进制）"))

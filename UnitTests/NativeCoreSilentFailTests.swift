@@ -69,10 +69,18 @@ final class NativeCoreSilentFailTests: XCTestCase {
 
     // MARK: - NCSupport gates
 
-    func testECHEnabledIsUnsupported() {
+    /// The interim silent-fail ECH guard is gone (fix/nc-ech-rest wired ECH): trojan + ECH is supported; the
+    /// remaining ECH exceptions (REALITY, Vision, SS plugins, other types) are still marked, never silently degraded.
+    func testECHGateAfterECHRest() {
         let p = node("trojan", ["password": .string("x"), "ech-opts": .object(["enable": .bool(true)])])
-        XCTAssertNotNil(NCSupport.unsupportedReason(p))
-        XCTAssertTrue(NCSupport.unsupportedReason(p)!.contains("ECH"))
+        XCTAssertNil(NCSupport.unsupportedReason(p))
+        let reality = node("trojan", ["password": .string("x"), "ech-opts": .object(["enable": .bool(true)]),
+                                      "reality-opts": .object(["public-key": .string("k")])])
+        XCTAssertTrue(NCSupport.unsupportedReason(reality)?.contains("ECH") ?? false)
+        let vision = node("vless", ["uuid": .string("b831381d-6324-4d53-ad4f-8cda48b30811"),
+                                    "flow": .string("xtls-rprx-vision"), "tls": .bool(true),
+                                    "ech-opts": .object(["enable": .bool(true)])])
+        XCTAssertTrue(NCSupport.unsupportedReason(vision)?.contains("ECH") ?? false)
         let off = node("trojan", ["password": .string("x"), "ech-opts": .object(["enable": .bool(false)])])
         XCTAssertNil(NCSupport.unsupportedReason(off))
     }
