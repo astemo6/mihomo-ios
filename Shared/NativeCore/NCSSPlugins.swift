@@ -13,6 +13,9 @@ class NCFramedRelay: NCRelayStream {
     private var out: [Data] = []
     private var failure: Error?
     private var eof = false
+    /// Set by a subclass's `consume` when the framing layer saw a clean close (e.g. smux FIN): the
+    /// reader gets the plaintext already parsed, then EOF — not an error.
+    var peerClosed = false
 
     init(raw: NCRelayStream) { self.raw = raw }
 
@@ -31,7 +34,7 @@ class NCFramedRelay: NCRelayStream {
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         if !out.isEmpty { handler(out.removeFirst(), nil); return }
         if let failure { handler(nil, failure); return }
-        if eof { handler(nil, nil); return }
+        if eof || peerClosed { handler(nil, nil); return }
         raw.receive { [weak self] data, error in
             guard let self else { handler(nil, error); return }
             guard let data else { self.eof = true; handler(nil, error); return }
@@ -418,19 +421,114 @@ final class NCShadowTLSV3Conn: NCFramedRelay {
     }
 }
 
-// MARK: - gost-plugin smux (feat/nc-proto3)
+// MARK: - gost-plugin (feat/nc-ss-plugins2)
 
-/// gost-plugin's mux: one smux v1 stream over the websocket (mihomo transport/gost NewGostWebsocket with
-/// metacubex/smux DefaultConfig, keep-alive off). Frame: ver=1 ‖ cmd ‖ len (LE16) ‖ streamID (LE32) ‖ data;
-/// cmd SYN=0 FIN=1 PSH=2 NOP=3. v1 has no flow-control frames. The client's first stream ID is 1.
+/// `plugin: gost-plugin` + `plugin-opts`, decoded exactly like mihomo v1.19.33 adapter/outbound/shadowsocks.go
+/// (gostObfsOption, preset {Host: "bing.com", Mux: true}) feeding transport/gost/websocket.go NewGostWebsocket.
+///
+/// mihomo implements ONE gost-plugin mode — `websocket` — and rejects every other value at config load
+/// ("obfs mode error"); TLS and smux are the `tls` / `mux` booleans on top of it, so the four shapes are
+/// ws, ws+smux (default), wss, wss+smux. That is the whole mihomo surface; this mirrors it rather than the
+/// standalone gost-plugin binary's longer mode list (quic/grpc/kcp/... there are not reachable from mihomo).
+///
+/// TLS options (only read when `tls: true`, as mihomo): skip-cert-verify, fingerprint (SHA-256 pinning),
+/// name-cert-verify. `certificate`/`private-key` (client certificate) and `ech-opts.enable` have no native
+/// implementation and are reported unsupported instead of being dropped silently.
+struct NCGostPluginOptions: Equatable {
+    var host: String
+    var path: String
+    /// Headers other than Host, in config order is not significant (mihomo http.Header).
+    var headers: [String: String]
+    /// `headers.Host` — overrides the request Host and, with TLS, the SNI (mihomo NewGostWebsocket).
+    var hostHeader: String?
+    var tls: Bool
+    var mux: Bool
+    var skipCertVerify: Bool
+    var nameCertVerify: String?
+    var pinnedCertSHA256: Data?
+
+    /// Request Host header value (headers.Host, else host — no port, mihomo leaves Option.Port empty).
+    var requestHost: String { hostHeader ?? host }
+    /// TLS server name: mihomo sets ServerName = Host, then headers.Host overrides it.
+    var sni: String { hostHeader ?? host }
+    /// Our hand-rolled TLS client is needed for pinning / alternate verify name; plain wss uses NWConnection TLS.
+    var needsCustomTLS: Bool { pinnedCertSHA256 != nil || nameCertVerify != nil }
+
+    /// Returns the options, or the unsupported reason (Chinese, for NCSupport / 诊断).
+    static func parse(_ opts: [String: NCJSONValue]) -> (NCGostPluginOptions?, String?) {
+        let mode = opts["mode"]?.string ?? ""
+        guard mode == "websocket" else {
+            return (nil, "gost-plugin mode \(mode.isEmpty ? "(空)" : mode)（mihomo 仅支持 websocket，tls/mux 为开关）")
+        }
+        var headers: [String: String] = [:]
+        var hostHeader: String?
+        for (k, v) in opts["headers"]?.object ?? [:] {
+            guard let s = v.string else { continue }
+            if k.lowercased() == "host" { if !s.isEmpty { hostHeader = s } } else { headers[k] = s }
+        }
+        let host = opts["host"]?.string ?? "bing.com"
+        var o = NCGostPluginOptions(host: host, path: opts["path"]?.string ?? "", headers: headers,
+                                    hostHeader: hostHeader, tls: opts["tls"]?.bool ?? false,
+                                    mux: opts["mux"]?.bool ?? true, skipCertVerify: false,
+                                    nameCertVerify: nil, pinnedCertSHA256: nil)
+        guard o.tls else { return (o, nil) }
+        o.skipCertVerify = opts["skip-cert-verify"]?.bool ?? false
+        if let n = opts["name-cert-verify"]?.string, !n.isEmpty { o.nameCertVerify = n }
+        if let fp = opts["fingerprint"]?.string, !fp.isEmpty {
+            guard let pin = pinFingerprint(fp) else {
+                return (nil, "gost-plugin fingerprint 无效（需 SHA-256 证书指纹；浏览器指纹请用 client-fingerprint）")
+            }
+            o.pinnedCertSHA256 = pin
+        }
+        if !(opts["certificate"]?.string ?? "").isEmpty || !(opts["private-key"]?.string ?? "").isEmpty {
+            return (nil, "gost-plugin 客户端证书（certificate / private-key）")
+        }
+        if opts["ech-opts"]?.object?["enable"]?.bool == true {
+            return (nil, "gost-plugin ech-opts")
+        }
+        return (o, nil)
+    }
+
+    /// mihomo component/ca NewFingerprintVerifier: browser names are an error; colons stripped; 32 bytes hex.
+    static func pinFingerprint(_ fp: String) -> Data? {
+        if ["chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized"].contains(fp) {
+            return nil
+        }
+        let hex = Array(fp.replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespaces).utf8)
+        guard hex.count == 64 else { return nil }
+        func nib(_ c: UInt8) -> UInt8? {
+            switch c {
+            case 48...57: return c - 48
+            case 97...102: return c - 87
+            case 65...70: return c - 55
+            default: return nil
+            }
+        }
+        var out = Data(capacity: 32)
+        var i = 0
+        while i < 64 {
+            guard let h = nib(hex[i]), let l = nib(hex[i + 1]) else { return nil }
+            out.append(h << 4 | l)
+            i += 2
+        }
+        return out
+    }
+}
+
+/// gost-plugin's mux: one smux stream over the websocket (mihomo transport/gost NewGostWebsocket with
+/// metacubex/smux DefaultConfig: version 1, MaxFrameSize 32768, keep-alive off). Frame: ver=1 ‖ cmd ‖
+/// len (LE16) ‖ streamID (LE32) ‖ data; cmd SYN=0 FIN=1 PSH=2 NOP=3. v1 has no flow-control frames.
+/// smux's client session starts nextStreamID at 1 and OpenStream pre-increments by 2, so the first (and,
+/// for gost-plugin, only) client stream is 3. A peer FIN ends the stream cleanly (EOF after buffered data).
 final class NCGostSmuxStream: NCFramedRelay {
-    private static let sid: UInt32 = 1
-    private static let maxFrame = 32768
+    static let sid: UInt32 = 3
+    static let maxFrame = 32768
     private var opened = false
     private var finished = false
 
-    private static func frame(_ cmd: UInt8, _ payload: Data = Data()) -> Data {
-        var f = Data([1, cmd, UInt8(payload.count & 0xff), UInt8((payload.count >> 8) & 0xff)])
+    static func frame(_ cmd: UInt8, _ payload: Data = Data(), sid: UInt32 = NCGostSmuxStream.sid) -> Data {
+        var f = Data(capacity: 8 + payload.count)
+        f.append(contentsOf: [1, cmd, UInt8(payload.count & 0xff), UInt8((payload.count >> 8) & 0xff)])
         f.append(contentsOf: [UInt8(sid & 0xff), UInt8((sid >> 8) & 0xff), UInt8((sid >> 16) & 0xff), UInt8(sid >> 24)])
         f.append(payload)
         return f
@@ -442,29 +540,29 @@ final class NCGostSmuxStream: NCFramedRelay {
         raw.send(Self.frame(0))
     }
 
+    /// PSH frames for `data`, split at MaxFrameSize.
+    static func pshFrames(_ data: Data) -> Data {
+        var rest = data[...]
+        var wire = Data(capacity: data.count + 8 * (data.count / maxFrame + 1))
+        while !rest.isEmpty {
+            let chunk = Data(rest.prefix(maxFrame))
+            rest = rest.dropFirst(chunk.count)
+            wire.append(frame(2, chunk))
+        }
+        return wire
+    }
+
     override func send(_ data: Data) {
         open()
-        var rest = data[...]
-        var wire = Data()
-        while !rest.isEmpty {
-            let chunk = Data(rest.prefix(Self.maxFrame))
-            rest = rest.dropFirst(chunk.count)
-            wire.append(Self.frame(2, chunk))
-        }
+        let wire = Self.pshFrames(data)
         if !wire.isEmpty { raw.send(wire) }
     }
 
     override func send(_ data: Data, completion: @escaping () -> Void) {
-        // The SYN from open() is fire-and-forget; NWConnection ordering keeps it ahead of this wire,
+        // The SYN from open() is fire-and-forget; in-order delivery keeps it ahead of this wire,
         // whose completion is the one the caller waits on.
         open()
-        var rest = data[...]
-        var wire = Data()
-        while !rest.isEmpty {
-            let chunk = Data(rest.prefix(Self.maxFrame))
-            rest = rest.dropFirst(chunk.count)
-            wire.append(Self.frame(2, chunk))
-        }
+        let wire = Self.pshFrames(data)
         if wire.isEmpty { completion() } else { raw.send(wire, completion: completion) }
     }
 
@@ -475,19 +573,21 @@ final class NCGostSmuxStream: NCFramedRelay {
 
     override func consume() throws -> [Data] {
         var out: [Data] = []
-        while inbuf.count >= 8 {
-            let s = inbuf.startIndex
-            guard inbuf[s] == 1 else { throw Self.err("gost smux: bad version \(inbuf[s])") }
-            let cmd = inbuf[s + 1]
-            let len = Int(inbuf[s + 2]) | Int(inbuf[s + 3]) << 8
-            let sid = UInt32(inbuf[s + 4]) | UInt32(inbuf[s + 5]) << 8 | UInt32(inbuf[s + 6]) << 16 | UInt32(inbuf[s + 7]) << 24
-            guard inbuf.count >= 8 + len else { break }
-            let payload = Data(inbuf[(s + 8)..<(s + 8 + len)])
-            inbuf = Data(inbuf.dropFirst(8 + len))
+        var off = inbuf.startIndex
+        defer { inbuf = off == inbuf.endIndex ? Data() : Data(inbuf[off...]) }
+        while inbuf.endIndex - off >= 8 {
+            guard inbuf[off] == 1 else { throw Self.err("gost smux: bad version \(inbuf[off])") }
+            let cmd = inbuf[off + 1]
+            let len = Int(inbuf[off + 2]) | Int(inbuf[off + 3]) << 8
+            let sid = UInt32(inbuf[off + 4]) | UInt32(inbuf[off + 5]) << 8 | UInt32(inbuf[off + 6]) << 16 | UInt32(inbuf[off + 7]) << 24
+            guard inbuf.endIndex - off >= 8 + len else { break }
+            let body = (off + 8)..<(off + 8 + len)
+            off += 8 + len
+            guard cmd <= 3 else { throw Self.err("gost smux: bad command \(cmd)") }
             guard sid == Self.sid else { continue }
             switch cmd {
-            case 2: if !payload.isEmpty { out.append(payload) }
-            case 1: throw Self.err("gost smux: stream closed by peer")
+            case 2: if len > 0 { out.append(Data(inbuf[body])) }
+            case 1: finished = true; peerClosed = true; return out
             default: break // SYN / NOP
             }
         }
@@ -550,22 +650,17 @@ extension NCConnector {
                 wrap(raw)
             }
         case "gost-plugin":
-            // mihomo gostObfsOption{Host: "bing.com", Mux: true}; mode must be websocket.
-            let host = opts["host"]?.string ?? "bing.com"
-            let path = opts["path"]?.string ?? ""
-            var headers: [String: String] = [:]
-            for (k, v) in opts["headers"]?.object ?? [:] { if let s = v.string { headers[k] = s } }
-            let mux = opts["mux"]?.bool ?? true
-            let tls = opts["tls"]?.bool ?? false
-            let insecure = opts["skip-cert-verify"]?.bool ?? false
-            let hostHeader = headers.first(where: { $0.key.lowercased() == "host" })?.value
-            let sni = hostHeader ?? host
+            // mihomo NewGostWebsocket: [TLS] → websocket upgrade → [smux stream] (NCGostPluginOptions).
+            guard let g = NCGostPluginOptions.parse(opts).0 else {
+                queue.async { completion(nil, Failure.unsupported("ss plugin gost-plugin shape unsupported")) }
+                return
+            }
             func overWS(_ raw: NCRelayStream) {
-                let ws = NCWebSocketStream(raw: raw, hostHeader: hostHeader ?? host, path: path.isEmpty ? "/" : path,
-                                           headers: headers.filter { $0.key.lowercased() != "host" })
+                let ws = NCWebSocketStream(raw: raw, hostHeader: g.requestHost, path: g.path.isEmpty ? "/" : g.path,
+                                           headers: g.headers)
                 ws.startHandshake { err in
-                    guard err == nil else { completion(nil, err); return }
-                    if mux {
+                    guard err == nil else { raw.cancel(); completion(nil, err); return }
+                    if g.mux {
                         let m = NCGostSmuxStream(raw: ws)
                         m.open()
                         completion(m, nil)
@@ -574,26 +669,32 @@ extension NCConnector {
                     }
                 }
             }
-            if tls {
-                if let transport {
-                    var cfg = NCTLSClientStream.Config(serverName: sni)
-                    cfg.alpn = ["http/1.1"]
-                    cfg.allowInsecure = insecure
-                    let t = NCTLSClientStream(raw: transport, config: cfg, queue: queue)
-                    t.startHandshake { err in
-                        if let err { completion(nil, err) } else { overWS(t) }
-                    }
-                    return
-                }
-                let s = NCStream(to: server, port: port, tlsServerName: sni, allowInsecure: insecure, queue: queue)
-                s.start { err in
-                    if let err { completion(nil, err) } else { overWS(s) }
+            guard g.tls else {
+                plainRaw { raw, err in
+                    guard let raw else { completion(nil, err); return }
+                    overWS(raw)
                 }
                 return
             }
-            plainRaw { raw, err in
-                guard let raw else { completion(nil, err); return }
-                overWS(raw)
+            if transport != nil || g.needsCustomTLS {
+                // Chain hop, certificate pinning or name-cert-verify: our TLS client (ALPN http/1.1 as mihomo).
+                plainRaw { raw, err in
+                    guard let raw else { completion(nil, err); return }
+                    var cfg = NCTLSClientStream.Config(serverName: g.sni)
+                    cfg.alpn = ["http/1.1"]
+                    cfg.allowInsecure = g.skipCertVerify
+                    cfg.pinnedCertSHA256 = g.pinnedCertSHA256
+                    cfg.certVerifyName = g.nameCertVerify
+                    let t = NCTLSClientStream(raw: raw, config: cfg, queue: queue)
+                    t.startHandshake { err in
+                        if let err { t.cancel(); completion(nil, err) } else { overWS(t) }
+                    }
+                }
+                return
+            }
+            let s = NCStream(to: server, port: port, tlsServerName: g.sni, allowInsecure: g.skipCertVerify, queue: queue)
+            s.start { err in
+                if let err { s.cancel(); completion(nil, err) } else { overWS(s) }
             }
         case "shadow-tls":
             let version = opts["version"]?.int ?? 2

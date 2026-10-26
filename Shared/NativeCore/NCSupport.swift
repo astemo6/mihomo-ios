@@ -59,7 +59,7 @@ enum NCSupport {
     }
 
     /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
-    /// obfs http/tls, v2ray-plugin websocket / http-upgrade (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins; restls in NCRestls).
+    /// obfs http/tls, v2ray-plugin websocket / http-upgrade (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls with pinning / name-cert-verify, smux) are implemented in NCSSPlugins; restls in NCRestls).
     static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
         guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
@@ -72,8 +72,13 @@ enum NCSupport {
                 ? "obfs 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 http/tls）"
                 : "v2ray-plugin 的 plugin-opts（mode=\(opts["mode"]?.string ?? "")；支持 websocket / http-upgrade）"
         case "gost-plugin":
-            let mode = opts["mode"]?.string ?? ""
-            return mode == "websocket" ? nil : "gost-plugin mode \(mode)"
+            // NCGostPluginOptions: mihomo's only mode (websocket) with tls / mux / fingerprint /
+            // name-cert-verify; client certificates and ECH are explicit gaps.
+            return NCGostPluginOptions.parse(opts).1
+        case "kcptun":
+            // Not implemented natively (feat/nc-ss-plugins2 decision): KCP ARQ + Reed-Solomon FEC + 13 block
+            // ciphers + snappy + a shared multi-stream smux session over UDP — see docs/nc-ss-kcptun.md.
+            return "kcptun（KCP/UDP 插件）"
         case "shadow-tls":
             let v = opts["version"]?.int ?? 2
             return (1...3).contains(v) ? nil : "shadow-tls v\(v)"
