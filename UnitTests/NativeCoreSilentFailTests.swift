@@ -430,6 +430,35 @@ final class NativeCoreSilentFailTests: XCTestCase {
             && a.sct == b.sct && a.sessionTicket == b.sessionTicket && a.paddingTo512 == b.paddingTo512
     }
 
+    // MARK: - gRPC Hunk protobuf framing (trojan / vmess / vless over grpc)
+
+    /// The Gun Hunk wrapper: [0x0A][varint len][payload]; a bare stream body parses as an
+    /// (empty) Hunk on the server, which is what starved the trojan layer ("bad request size").
+    func testGRPCHunkWrapShape() {
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkWrap(Data([1, 2, 3])), Data([0x0A, 3, 1, 2, 3]))
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkWrap(Data()), Data([0x0A, 0]))
+        let big = Data(repeating: 0xAB, count: 300) // 300 = varint 0xAC 0x02
+        let wrapped = NCH2TunnelStream.grpcHunkWrap(big)
+        XCTAssertEqual(Array(wrapped.prefix(3)), [0x0A, 0xAC, 0x02])
+        XCTAssertEqual(wrapped.count, 303)
+        XCTAssertEqual(Data(wrapped.suffix(300)), big)
+    }
+
+    func testGRPCHunkPayloadRoundTripAndSkipsUnknownFields() {
+        let payload = Data((0..<1000).map { UInt8($0 & 0xFF) })
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkPayload(NCH2TunnelStream.grpcHunkWrap(payload)), payload)
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkPayload(Data()), Data())
+        // Unknown fields are skipped by wire type: field 2 varint, field 3 length-delimited,
+        // then the real field 1.
+        var body = Data([0x10, 0x96, 0x01])            // field 2, varint 150
+        body.append(contentsOf: [0x1A, 2, 9, 9])       // field 3, 2 bytes
+        body.append(NCH2TunnelStream.grpcHunkWrap(Data([7, 8])))
+        XCTAssertEqual(NCH2TunnelStream.grpcHunkPayload(body), Data([7, 8]))
+        // Malformed: declared length overruns the body, truncated varint.
+        XCTAssertNil(NCH2TunnelStream.grpcHunkPayload(Data([0x0A, 5, 1, 2])))
+        XCTAssertNil(NCH2TunnelStream.grpcHunkPayload(Data([0x0A, 0x80])))
+    }
+
     func testClientFingerprintDrivesUTLSAndFingerprintPins() {
         let hex = String(repeating: "ab", count: 32)
         let p = node("vless", ["client-fingerprint": .string("firefox"), "fingerprint": .string(hex)])

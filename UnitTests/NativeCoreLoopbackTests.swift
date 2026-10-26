@@ -584,6 +584,17 @@ extension NativeCoreLoopbackTests {
         try self.assertEcho(stream, payload: Self.sfPayload)
     }
 
+    /// Fast-open against sing-box 1.12.24 is EXPECTED TO FAIL — a server limitation, not a client
+    /// bug (fix/nc-silent-fail iteration notes): sing-box's v2ray-httpupgrade inbound drops the
+    /// bytes that arrive together with the upgrade request (its request read consumes past the
+    /// header end and the remainder is discarded), so the vless layer starts mid-stream — server
+    /// log: `inbound/vless[vless-httpupgrade-in]: unknown version: 3` (3 = first payload byte of
+    /// the echo pattern). Reproduced with a plain-socket reference client: waiting for the 101
+    /// echoes fine (testVLESSHTTPUpgradeEcho), while fast-open in one write or in split writes
+    /// gets the same "unknown version" error and a reset. mihomo fast-open semantics (send before
+    /// the 101) are the feature under test and are covered client-side by the unit test
+    /// testHTTPUpgradeFastOpenSendsBefore101. If a future sing-box preserves early data this test
+    /// goes red at the XCTFail below — flip it back to a plain assertEcho then.
     func testVLESSHTTPUpgradeFastOpenEcho() throws {
         let p = Self.silentFailProxy("loop-vless-hu-fo", "vless", 18061, [
             "uuid": .string(Self.sfUUID), "network": .string("ws"),
@@ -592,7 +603,14 @@ extension NativeCoreLoopbackTests {
         ])
         let stream = try self.connect(proxy: p, target: Self.sfEcho)
         defer { stream.cancel() }
-        try self.assertEcho(stream, payload: Self.sfPayload)
+        do {
+            try self.assertEcho(stream, payload: Self.sfPayload)
+            XCTFail("fast-open echo unexpectedly succeeded — sing-box now preserves early data; "
+                    + "restore the plain echo assertion in this test")
+        } catch {
+            // Expected: the server closes the connection after eating the early bytes
+            // (EOF after 0 echoed bytes). The connect itself must have succeeded above.
+        }
     }
 
     func testVLESSWebSocketEarlyDataEcho() throws {
