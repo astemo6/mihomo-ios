@@ -8,19 +8,30 @@ final class NativeCoreDiag439Tests: XCTestCase {
 
     /// A one-node IPv4 MaxMind DB: 0.0.0.0/1 → ["cloudflare","cn"] (array record), 128.0.0.0/1 → "us".
     private static func tinyGeoDB() -> Data {
-        func str(_ s: String) -> [UInt8] { [0x40 | UInt8(s.utf8.count)] + Array(s.utf8) }
-        let recA: [UInt8] = [0x02, 0x04] + str("cloudflare") + str("cn")   // array (extended type 11), 2 items
+        func str(_ s: String) -> [UInt8] {
+            var b: [UInt8] = [0x40 | UInt8(s.utf8.count)]
+            b.append(contentsOf: Array(s.utf8))
+            return b
+        }
+        func rec24(_ v: Int) -> [UInt8] { [UInt8((v >> 16) & 0xff), UInt8((v >> 8) & 0xff), UInt8(v & 0xff)] }
+        var recA: [UInt8] = [0x02, 0x04]          // array (extended type 11), 2 items
+        recA.append(contentsOf: str("cloudflare"))
+        recA.append(contentsOf: str("cn"))
         let recB: [UInt8] = str("us")
         let nodeCount = 1
-        func rec24(_ v: Int) -> [UInt8] { [UInt8((v >> 16) & 0xff), UInt8((v >> 8) & 0xff), UInt8(v & 0xff)] }
-        let left = nodeCount + 16 + 0
-        let right = nodeCount + 16 + recA.count
-        let tree = rec24(left) + rec24(right)
-        let separator = [UInt8](repeating: 0, count: 16)
-        let marker: [UInt8] = [0xab, 0xcd, 0xef] + Array("MaxMind.com".utf8)
-        let meta: [UInt8] = [0xE3] + str("node_count") + [0xA1, UInt8(nodeCount)]
-            + str("record_size") + [0xA1, 24] + str("ip_version") + [0xA1, 4]
-        return Data(tree + separator + recA + recB + marker + meta)
+        var out: [UInt8] = []
+        out.append(contentsOf: rec24(nodeCount + 16))               // left: 0.0.0.0/1 → recA
+        out.append(contentsOf: rec24(nodeCount + 16 + recA.count))  // right: 128.0.0.0/1 → recB
+        out.append(contentsOf: [UInt8](repeating: 0, count: 16))    // data section separator
+        out.append(contentsOf: recA)
+        out.append(contentsOf: recB)
+        out.append(contentsOf: [0xab, 0xcd, 0xef] as [UInt8])
+        out.append(contentsOf: Array("MaxMind.com".utf8))
+        out.append(0xE3)                                            // metadata map, 3 entries
+        out.append(contentsOf: str("node_count")); out.append(contentsOf: [0xA1, UInt8(nodeCount)] as [UInt8])
+        out.append(contentsOf: str("record_size")); out.append(contentsOf: [0xA1, 24] as [UInt8])
+        out.append(contentsOf: str("ip_version")); out.append(contentsOf: [0xA1, 4] as [UInt8])
+        return Data(out)
     }
 
     func testMMDBMultiCodeRecordReturnsEveryCode() throws {
@@ -216,10 +227,16 @@ final class NativeCoreDiag439Tests: XCTestCase {
 
     /// config-effective.yaml shape of the local CFT nodes: servername + ws Host, server = an edge IP.
     func testCloudFrontYAMLNodeSNIALPNAndPath() {
-        let p = proxy(["type": "vmess", "server": "13.32.0.1", "port": 443, "cipher": "aes-128-gcm",
-                       "uuid": "00000000-0000-0000-0000-000000000001", "alterId": 0, "network": "ws", "tls": true,
-                       "servername": Self.cfHost, "skip-cert-verify": true,
-                       "ws-opts": ["path": "/vm?ed=2048", "headers": ["Host": Self.cfHost]] as [String: Any]])
+        let ws: [String: Any] = ["path": "/vm?ed=2048", "headers": ["Host": Self.cfHost]]
+        var f: [String: Any] = ["type": "vmess", "server": "13.32.0.1", "port": 443, "cipher": "aes-128-gcm"]
+        f["uuid"] = "00000000-0000-0000-0000-000000000001"
+        f["alterId"] = 0
+        f["network"] = "ws"
+        f["tls"] = true
+        f["servername"] = Self.cfHost
+        f["skip-cert-verify"] = true
+        f["ws-opts"] = ws
+        let p = proxy(f)
         XCTAssertEqual(NCConnector.tlsSNI(p, server: "13.32.0.1"), Self.cfHost)
         XCTAssertEqual(NCConnector.tlsALPN(p), ["http/1.1"], "ws over TLS offers only http/1.1")
         XCTAssertEqual(NCConnector.wsOptions(p).path, "/vm")
@@ -230,8 +247,7 @@ final class NativeCoreDiag439Tests: XCTestCase {
     /// The provider nodes that failed (-9824) arrive as Quantumult X lines: `obfs=wss, obfs-host=<distribution>` and
     /// no tls-host. QX takes obfs-host as the SNI; NativeCore set only the ws Host, so SNI fell back to the IP.
     func testQXWSSNodeTakesObfsHostAsSNI() throws {
-        let line = "vmess=13.32.0.1:443, method=aes-128-gcm, password=00000000-0000-0000-0000-000000000001, obfs=wss, "
-            + "obfs-host=\(Self.cfHost), obfs-uri=/vm?ed=2048, tls-verification=false, fast-open=false, udp-relay=false, aead=true, tag=JP CFT"
+        let line = "vmess=13.32.0.1:443, method=aes-128-gcm, password=00000000-0000-0000-0000-000000000001, obfs=wss, obfs-host=\(Self.cfHost), obfs-uri=/vm?ed=2048, tls-verification=false, fast-open=false, udp-relay=false, aead=true, tag=JP CFT"
         var report = NCImportReport()
         let n = try XCTUnwrap(NCQXImport.buildQXNode(line: line, report: &report))
         XCTAssertEqual(n.fields["tls"]?.bool, true)
@@ -251,11 +267,11 @@ final class NativeCoreDiag439Tests: XCTestCase {
 
     /// vmess:// share link: `sni` → servername; without it the ws `host` is the SNI.
     func testVMessLinkSNI() throws {
-        func link(_ o: [String: Any]) throws -> String {
+        func link(_ o: [String: String]) throws -> String {
             "vmess://" + (try JSONSerialization.data(withJSONObject: o)).base64EncodedString()
         }
-        let base: [String: Any] = ["v": "2", "ps": "CFT", "add": "13.32.0.1", "port": "443", "id": "00000000-0000-0000-0000-000000000001",
-                                   "aid": "0", "scy": "aes-128-gcm", "net": "ws", "host": Self.cfHost, "path": "/vm", "tls": "tls"]
+        let base: [String: String] = ["v": "2", "ps": "CFT", "add": "13.32.0.1", "port": "443", "id": "00000000-0000-0000-0000-000000000001",
+                                      "aid": "0", "scy": "aes-128-gcm", "net": "ws", "host": Self.cfHost, "path": "/vm", "tls": "tls"]
         var withSNI = base; withSNI["sni"] = Self.cfHost
         let a = try XCTUnwrap(NCSubscriptionParser.parse(try link(withSNI)).first)
         XCTAssertEqual(a.fields["servername"]?.string, Self.cfHost)
