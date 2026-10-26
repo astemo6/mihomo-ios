@@ -39,4 +39,18 @@ final class NativeCoreSelfTestR1Tests: XCTestCase {
         XCTAssertTrue(after.contains("192.0.2.222"), "edited server written to the profile")
         XCTAssertFalse(after.contains("\"🇯🇵 Tokyo 02\""), "old name fully renamed (incl. group refs)")
     }
+
+    /// 真 bug 的最小复现: 演示配置的策略组全是 flow 式单行条目
+    /// (- {name: Auto, proxies: ["🇯🇵 Tokyo 02", …]}), renameRefs 旧实现只认行首形状
+    /// ("- name:" / "proxies:"), 看不见这种行内部的成员, 改名后组成员仍指向旧名,
+    /// commit 校验以 "proxy group …: '🇯🇵 Tokyo 02' not found" 拒绝保存。
+    func testRenameRefsRewritesFlowGroupMembers() {
+        let doc = NCProfileYAML(text: UITestSeed.profileYAML)
+        let st = doc.renameRefs(oldName: "🇯🇵 Tokyo 02", newName: "Tokyo 02 Edited")
+        XCTAssertTrue(st.groups.contains("Auto"), "flow group Auto reported: \(st.groups)")
+        XCTAssertTrue(st.groups.contains("Proxy"), "flow group Proxy reported: \(st.groups)")
+        let text = String(decoding: doc.data() ?? Data(), as: UTF8.self)
+        XCTAssertFalse(text.contains("\"🇯🇵 Tokyo 02\""), "no stale flow member left")
+        XCTAssertTrue(text.contains("Tokyo 02 Edited"), "flow members renamed")
+    }
 }
