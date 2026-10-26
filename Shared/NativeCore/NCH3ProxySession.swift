@@ -108,6 +108,10 @@ final class NCH3ProxyConnection {
 
     static var idleTimeout: TimeInterval = 90
     static let maxServerStreams = 4
+    /// Concurrent request streams per connection, mirroring NCH2ProxySession.maxStreams: the stream
+    /// table (and each stream's inbox) is per-connection state in a 50 MB extension, so it gets the
+    /// same bound instead of relying on extract() failing at the peer's MAX_STREAMS.
+    static let maxStreams = 100
 
     private var group: NWConnectionGroup?
     private var control: NCHy2StreamChannel?
@@ -257,7 +261,8 @@ final class NCH3ProxyConnection {
 
     private func openOnQueue(headers: [(String, String)], naive: Bool, callerQueue: DispatchQueue,
                              ready: @escaping (Error?) -> Void) -> NCH3ProxyStream? {
-        guard state == .ready, let group, let conn = group.extract(connectionTo: nil, using: nil) else { return nil }
+        guard state == .ready, streams.count < Self.maxStreams, let group,
+              let conn = group.extract(connectionTo: nil, using: nil) else { return nil }
         idleTimer?.cancel()
         idleTimer = nil
         let stream = NCH3ProxyStream(channel: NCHy2StreamChannel(conn: conn), naive: naive, queue: queue,
