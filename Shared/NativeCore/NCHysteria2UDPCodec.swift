@@ -21,15 +21,21 @@ import Foundation
 /// accept an empty address on fragments > 0 — sing-quic keeps it on all of them for that reason).
 /// Unfragmented messages carry Fragment count 1; Packet ID / Fragment ID are then irrelevant.
 enum NCHy2UDP {
-    /// Largest UDPMessage (header included) sent in one QUIC datagram. sing-quic uses 1200 - 3, but
-    /// it sits on quic-go, which re-fragments on DatagramTooLargeError; Network.framework gives no
-    /// such size (NWProtocolQUIC.Metadata has no max datagram size) and its QUIC packets start at
-    /// the 1200-byte minimum, so a 1197-byte DATAGRAM frame (+ short header, DATAGRAM frame
-    /// header and the 16-byte AEAD tag) does not fit and is lost (proto-loopback run 40195786967:
-    /// DNS-sized packets echoed, 3000-byte fragmented ones never did). 1100 leaves room for the
-    /// worst-case short header (20-byte CID + 4-byte PN) and the frame overhead. The connection
-    /// still lowers it if a send fails with EMSGSIZE.
-    static let maxDatagramSize = 1100
+    /// Largest UDPMessage (header included) sent in one QUIC datagram: sing-quic / apernet hysteria's
+    /// udpMTU (1200 - 3). Proven end to end on Network.framework (proto-loopback 40200309815 and
+    /// 40207809715: every single datagram up to 1197 B round-trips). The first cut assumed a 1197-byte
+    /// frame cannot fit a 1200-byte QUIC packet and used 1100 — but NW does not stop at 1200, and the
+    /// loss it was chasing was server-side (H3_DATAGRAM, see NCHy2.http3SettingsFrame). Note NW
+    /// silently drops a datagram above its real per-packet room (~1424 B on loopback) without a send
+    /// error, while maximumDatagramSize reports 16356 — so this stays the cap. The connection lowers
+    /// the budget to NWConnection.maximumDatagramSize when the path reports less, and on EMSGSIZE.
+    static let maxDatagramSize = 1197
+
+    /// The per-datagram budget for a flow whose NWConnection.maximumDatagramSize is `flowMax`
+    /// (0 = not known yet). A tiny or absent report is ignored rather than trusted.
+    static func datagramBudget(flowMax: Int) -> Int {
+        flowMax >= 512 ? min(maxDatagramSize, flowMax) : maxDatagramSize
+    }
 
     /// Fixed part of the header: session ID (4) + packet ID (2) + frag ID (1) + frag count (1).
     static let fixedHeaderSize = 8
@@ -187,5 +193,96 @@ enum NCHy2UDP {
         }
 
         mutating func reset() { pending.removeAll(); order.removeAll() }
+    }
+
+    /// Outbound datagram queue of one connection (session queue only): FIFO, bounded, with a window
+    /// of datagrams handed to Network.framework whose send has not completed yet.
+    ///
+    /// - nc-memory: Network.framework buffers every send(content:) it is given without limit, so a
+    ///   UDP burst (a QUIC handshake through the tunnel, a game tick, a video call) used to queue
+    ///   unbounded copies inside NW. Here at most `window` datagrams sit in NW and at most
+    ///   `maxBytes` / `maxDatagrams` wait in front of it; past that the NEWEST packet is dropped
+    ///   (UDP semantics: tail drop, the sender's own congestion control reacts to it).
+    /// - A packet is enqueued all-or-nothing: either every fragment is queued or none is, so a
+    ///   full queue never sends a fragment the server can not complete (a partial packet costs the
+    ///   server a reassembly slot for 10 s and the path its bytes for nothing).
+    /// - Fragments of one packet stay contiguous and in order (FIFO), which is what the server's
+    ///   defragger and its 10 s age-out expect.
+    struct SendQueue {
+        /// Datagrams handed to NW and not yet reported .contentProcessed.
+        var window: Int
+        var maxBytes: Int
+        var maxDatagrams: Int
+
+        private var items: [Data] = []
+        private var head = 0
+        private(set) var queuedBytes = 0
+        private(set) var inFlight = 0
+        /// Packets refused because the queue was full (diagnostics).
+        private(set) var droppedPackets = 0
+        /// High-water marks (diagnostics / tests).
+        private(set) var maxQueued = 0
+        private(set) var maxInFlight = 0
+
+        static let defaultWindow = 8
+        static let defaultMaxBytes = 128 * 1024
+        static let defaultMaxDatagrams = 256
+
+        init(window: Int = SendQueue.defaultWindow, maxBytes: Int = SendQueue.defaultMaxBytes,
+             maxDatagrams: Int = SendQueue.defaultMaxDatagrams) {
+            self.window = max(1, window)
+            self.maxBytes = maxBytes
+            self.maxDatagrams = maxDatagrams
+        }
+
+        var queuedCount: Int { items.count - head }
+        var isEmpty: Bool { queuedCount == 0 }
+
+        /// Queues every datagram of one packet, or none (returns false and counts a drop).
+        @discardableResult
+        mutating func enqueue(packet frames: [Data]) -> Bool {
+            guard !frames.isEmpty else { return true }
+            let bytes = frames.reduce(0) { $0 + $1.count }
+            guard queuedCount + frames.count <= maxDatagrams, queuedBytes + bytes <= maxBytes else {
+                droppedPackets += 1
+                return false
+            }
+            items.append(contentsOf: frames)
+            queuedBytes += bytes
+            maxQueued = max(maxQueued, queuedCount)
+            return true
+        }
+
+        /// The next datagram to hand to NW, if the window allows one (counts it in flight).
+        mutating func next() -> Data? {
+            guard inFlight < window, head < items.count else { return nil }
+            let d = items[head]
+            items[head] = Data()
+            head += 1
+            queuedBytes -= d.count
+            inFlight += 1
+            maxInFlight = max(maxInFlight, inFlight)
+            if head == items.count {
+                items.removeAll(keepingCapacity: items.capacity <= 64)
+                head = 0
+            } else if head >= 64 && head * 2 >= items.count {
+                items.removeFirst(head)
+                head = 0
+            }
+            return d
+        }
+
+        /// One handed-out datagram's send completed (success or error).
+        mutating func completed() {
+            if inFlight > 0 { inFlight -= 1 }
+        }
+
+        /// Drops everything queued and forgets what was in flight (the flow is gone).
+        mutating func reset() {
+            items = []
+            head = 0
+            queuedBytes = 0
+            inFlight = 0
+        }
     }
 }

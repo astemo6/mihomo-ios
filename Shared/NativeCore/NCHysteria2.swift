@@ -298,16 +298,29 @@ enum NCHy2 {
     }
 
     /// The client SETTINGS frame: QPACK max table capacity 0 (keeps server
-    /// responses inside the decodable subset), QPACK blocked streams 0, and
-    /// H3_DATAGRAM enabled (needed for UDP).
-    static func http3SettingsFrame() -> Data {
+    /// responses inside the decodable subset) and QPACK blocked streams 0.
+    ///
+    /// hy2-frag: NO H3_DATAGRAM (0x33). Hysteria2 UDP rides raw QUIC datagrams, not RFC 9297
+    /// HTTP datagrams, and the official / sing-box clients never announce it. When the client does,
+    /// the server's quic-go http3 layer (apernet/hysteria and sing-quic both serve auth through
+    /// http3.Server.ServeQUICConn) starts its own HTTP-datagram reader on the same connection; it
+    /// and the hysteria UDP loop then take turns calling ReceiveDatagram, and every datagram the
+    /// http3 reader wins is parsed as an HTTP datagram and dropped. That is the "burst / fragment
+    /// loss": roughly every other datagram vanished inside the server (quic-go debug log in
+    /// proto-loopback 40333737866 shows every frame received intact; reproduced against sing-box
+    /// 1.12.24 with an aioquic client: identical wire format, 100% delivery without the setting,
+    /// ~40% with it). A fragmented packet needs all pieces, so it almost never survived.
+    /// `advertiseH3Datagram` exists only for the loopback control group.
+    static func http3SettingsFrame(advertiseH3Datagram: Bool = false) -> Data {
         var payload = Data()
         payload.append(varintEncode(0x01)) // QPACK_MAX_TABLE_CAPACITY
         payload.append(varintEncode(0))
         payload.append(varintEncode(0x07)) // QPACK_BLOCKED_STREAMS
         payload.append(varintEncode(0))
-        payload.append(varintEncode(0x33)) // H3_DATAGRAM
-        payload.append(varintEncode(1))
+        if advertiseH3Datagram {
+            payload.append(varintEncode(0x33)) // H3_DATAGRAM — see above, never in production
+            payload.append(varintEncode(1))
+        }
         return http3Frame(type: 0x04, payload: payload)
     }
 
@@ -516,9 +529,25 @@ final class NCHysteria2Connection {
     /// A peer-initiated datagram flow that arrived while we already had our own (kept so it stays
     /// alive and its datagrams are read; never sent on).
     private var peerDatagramFlow: NWConnection?
-    /// Largest UDPMessage per datagram: sing-quic's 1197, lowered on EMSGSIZE (NWProtocolQUIC.Metadata
-    /// exposes no max datagram size in the iOS SDK — CI build error, so the send error is the signal).
+    /// Largest UDPMessage per datagram: sing-quic's 1197, lowered to the flow's
+    /// NWConnection.maximumDatagramSize when the path reports less (re-read on path updates) and on
+    /// EMSGSIZE. (NWProtocolQUIC.Metadata exposes no max datagram size in the iOS SDK.)
     private var datagramLimit = NCHy2UDP.maxDatagramSize
+    /// Set by setUDPDatagramLimitForTesting: path updates leave a test override alone.
+    private var datagramLimitPinned = false
+    /// NWConnection.maximumDatagramSize of the datagram flow (0 until it is ready).
+    private var flowMaxDatagramSize = 0
+    /// Outbound datagrams (NCHy2UDP.SendQueue): bounded, windowed, all-or-nothing per packet.
+    private var udpTx = NCHy2UDP.SendQueue()
+    /// Test seams for the hy2-frag ladder: a pause of `udpTxGapMs` after each completed datagram
+    /// send (0 = none; >0 implies one datagram in NW at a time), and whether a pump's sends are
+    /// wrapped in NWConnection.batch.
+    private var udpTxGapMs = 0
+    private var udpTxBatch = true
+    private var udpTxGapPending = false
+    /// Test seam (loopback control group only): announce H3_DATAGRAM in our SETTINGS like the first
+    /// cut did. Read when the control stream opens, so only a change before start() takes effect.
+    var advertiseH3DatagramForTesting = false
     /// UDP sessions by hysteria session ID (session queue only). Inbound datagrams are demultiplexed on
     /// the 4-byte session ID (NCHy2UDP.peekSessionID) and handed raw to exactly one sink; the sink's
     /// session reassembles. Was a fan-out to every sink (each re-parsing every datagram).
@@ -532,14 +561,32 @@ final class NCHysteria2Connection {
     private var udpRxCount = 0
     private var udpRxMaxSize = 0
 
-    /// Test seam: override the per-datagram budget (session queue hop).
+    /// Test seam: override the per-datagram budget (session queue hop); <= 0 restores the default.
     func setUDPDatagramLimitForTesting(_ limit: Int) {
-        ncOnSessionQueue(queue) { self.datagramLimit = limit }
+        ncOnSessionQueue(queue) {
+            self.datagramLimitPinned = limit > 0
+            self.datagramLimit = limit > 0 ? limit : NCHy2UDP.datagramBudget(flowMax: self.flowMaxDatagramSize)
+        }
+    }
+
+    /// Test seam: outbound pacing (see udpTxGapMs / udpTxBatch); window <= 0 keeps the current one.
+    func setUDPSendModeForTesting(window: Int, gapMs: Int, batch: Bool) {
+        ncOnSessionQueue(queue) {
+            if window > 0 { self.udpTx.window = window }
+            self.udpTxGapMs = max(0, gapMs)
+            self.udpTxBatch = batch
+        }
+    }
+
+    /// Current per-datagram budget (diagnostics / tests).
+    var udpDatagramLimit: Int {
+        if NCSessionQueues.isCurrent(queue) { return datagramLimit }
+        return queue.sync { datagramLimit }
     }
 
     /// Snapshot of the UDP datagram path for diagnostics/tests.
     var udpDiagnostics: String {
-        let read = { "limit=\(self.datagramLimit) flow=\(self.datagramFlow != nil) peerFlow=\(self.peerDatagramFlow != nil) rx=\(self.udpRxCount) rxMax=\(self.udpRxMaxSize) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
+        let read = { "limit=\(self.datagramLimit) flowMax=\(self.flowMaxDatagramSize) h3dg=\(self.advertiseH3DatagramForTesting) win=\(self.udpTx.window) gap=\(self.udpTxGapMs) batch=\(self.udpTxBatch) flow=\(self.datagramFlow != nil) peerFlow=\(self.peerDatagramFlow != nil) rx=\(self.udpRxCount) rxMax=\(self.udpRxMaxSize) txQmax=\(self.udpTx.maxQueued) txInflMax=\(self.udpTx.maxInFlight) txDrops=\(self.udpTx.droppedPackets) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
         if NCSessionQueues.isCurrent(queue) { return read() }
         return queue.sync(execute: read)
     }
@@ -618,10 +665,8 @@ final class NCHysteria2Connection {
         if echEnabled {
             ncSetSystemECH(tlsOptions, true)
         }
-        // RFC 9221 max_datagram_frame_size: our SETTINGS announce H3_DATAGRAM=1, and a
-        // quic-go HTTP/3 peer with datagrams enabled closes the connection
-        // (H3_SETTINGS_ERROR "missing QUIC Datagram support") when the transport did not
-        // negotiate datagrams. hysteria2 UDP rides QUIC datagrams too.
+        // RFC 9221 max_datagram_frame_size: hysteria2 UDP rides QUIC datagrams, which the
+        // transport must negotiate. (Not HTTP/3 datagrams — see http3SettingsFrame.)
         quicOptions.maxDatagramFrameSize = 1400
         return quicOptions
     }
@@ -713,7 +758,7 @@ final class NCHysteria2Connection {
             // = control stream), followed by SETTINGS. Sent exactly once, on
             // this stream only — never on the auth stream or a proxy stream.
             var flight = NCHy2.varintEncode(0x00)
-            flight.append(NCHy2.http3SettingsFrame())
+            flight.append(NCHy2.http3SettingsFrame(advertiseH3Datagram: self.advertiseH3DatagramForTesting))
             self.control?.send(flight)
         }
         authChannel.start(queue: queue) { [weak self] error in
@@ -805,8 +850,10 @@ final class NCHysteria2Connection {
         serverControl?.cancel()
         serverControl = nil
         datagramFlow?.stateUpdateHandler = nil
+        datagramFlow?.pathUpdateHandler = nil
         datagramFlow?.cancel()
         datagramFlow = nil
+        udpTx.reset()
         peerDatagramFlow?.stateUpdateHandler = nil
         peerDatagramFlow?.cancel()
         peerDatagramFlow = nil
@@ -888,21 +935,57 @@ final class NCHysteria2Connection {
             let frames = NCHy2UDP.fragment(sessionID: sessionID, packetID: packetID,
                                            address: Self.udpAddress(target), payload: payload,
                                            maxDatagramSize: self.datagramLimit)
-            for frame in frames {
-                flow.send(content: frame, completion: .contentProcessed { [weak self] error in
-                    guard let self, let error else { return }
-                    ncOnSessionQueue(self.queue) {
-                        self.udpSendErrors += 1
-                        self.lastUDPSendError = "\(error) (\(frame.count) B)"
-                        // Datagram larger than the path allows right now: shrink for the next packets
-                        // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
-                        if case .posix(let code) = error, code == .EMSGSIZE {
-                            self.datagramLimit = max(512, min(self.datagramLimit, frame.count) - 64)
-                        }
-                    }
-                })
+            guard !frames.isEmpty else { return }
+            // All-or-nothing; a full queue drops this (newest) packet — UDP tail drop.
+            guard self.udpTx.enqueue(packet: frames) else { return }
+            self.pumpUDP(flow)
+        }
+    }
+
+    /// Session queue only. Hands queued datagrams to NW while the window allows, in FIFO order; each
+    /// completion frees a window slot and pumps again (sender-side back-pressure — the
+    /// .contentProcessed pattern Network.framework documents for datagram senders).
+    private func pumpUDP(_ flow: NWConnection) {
+        // Not ready yet: the queue holds the packets (bounded) and the .ready handler pumps them.
+        guard datagramFlow === flow, flow.state == .ready, !udpTxGapPending else { return }
+        let gap = udpTxGapMs
+        let send = {
+            while let frame = self.udpTx.next() {
+                self.sendDatagram(frame, on: flow)
+                if gap > 0 { break } // paced: one datagram in NW at a time
             }
         }
+        if udpTxBatch { flow.batch(send) } else { send() }
+    }
+
+    private func sendDatagram(_ frame: Data, on flow: NWConnection) {
+        flow.send(content: frame, completion: .contentProcessed { [weak self, weak flow] error in
+            guard let self else { return }
+            ncOnSessionQueue(self.queue) {
+                if let error {
+                    self.udpSendErrors += 1
+                    self.lastUDPSendError = "\(error) (\(frame.count) B)"
+                    // Datagram larger than the path allows right now: shrink for the next packets
+                    // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
+                    if case .posix(let code) = error, code == .EMSGSIZE {
+                        self.datagramLimit = max(512, min(self.datagramLimit, frame.count) - 64)
+                    }
+                }
+                // A flow that died meanwhile was reset (teardown / .failed) — its slot is gone already.
+                guard let flow, self.datagramFlow === flow else { return }
+                self.udpTx.completed()
+                if self.udpTxGapMs > 0 {
+                    self.udpTxGapPending = true
+                    self.queue.asyncAfter(deadline: .now() + .milliseconds(self.udpTxGapMs)) { [weak self, weak flow] in
+                        guard let self else { return }
+                        self.udpTxGapPending = false
+                        if let flow { self.pumpUDP(flow) }
+                    }
+                } else {
+                    self.pumpUDP(flow)
+                }
+            }
+        })
     }
 
     /// "host:port", IPv6 literals bracketed (sing-quic parses the address with M.ParseSocksaddr).
@@ -918,7 +1001,7 @@ final class NCHysteria2Connection {
 
     /// The connection's RFC 9221 datagram flow, extracted on first use with the group's own QUIC
     /// options flipped to isDatagram (NCQUICStreamOptions — fresh options fail to clone, ENETDOWN).
-    /// Sends issued before the flow is ready are queued by Network.framework.
+    /// Packets sent before the flow is ready wait in udpTx (bounded) and go out from the .ready handler.
     private func ensureDatagramFlow() -> NWConnection? {
         if let datagramFlow { return datagramFlow }
         guard state == .ready, let group,
@@ -941,10 +1024,15 @@ final class NCHysteria2Connection {
             guard let self, let flow else { return }
             switch st {
             case .ready:
+                if self.datagramFlow === flow { self.adoptFlowMaxDatagramSize(flow) }
                 self.readDatagrams(flow)
+                if self.datagramFlow === flow { self.pumpUDP(flow) }
             case .failed, .cancelled:
                 // A dead flow is re-extracted on the next send / registration.
-                if self.datagramFlow === flow { self.datagramFlow = nil }
+                if self.datagramFlow === flow {
+                    self.datagramFlow = nil
+                    self.udpTx.reset()
+                }
                 if self.peerDatagramFlow === flow { self.peerDatagramFlow = nil }
                 flow.stateUpdateHandler = nil
                 flow.cancel()
@@ -952,7 +1040,19 @@ final class NCHysteria2Connection {
                 break
             }
         }
+        flow.pathUpdateHandler = { [weak self, weak flow] _ in
+            // The path (interface, MTU) changed: refit the fragment budget to what the flow carries now.
+            guard let self, let flow, self.datagramFlow === flow else { return }
+            self.adoptFlowMaxDatagramSize(flow)
+        }
         flow.start(queue: queue)
+    }
+
+    /// Session queue only: the fragment budget follows NWConnection.maximumDatagramSize of the flow
+    /// (capped at NCHy2UDP.maxDatagramSize), unless a test pinned it.
+    private func adoptFlowMaxDatagramSize(_ flow: NWConnection) {
+        flowMaxDatagramSize = flow.maximumDatagramSize
+        if !datagramLimitPinned { datagramLimit = NCHy2UDP.datagramBudget(flowMax: flowMaxDatagramSize) }
     }
 
     /// One receiveMessage per datagram; dispatch by session ID to exactly one sink.

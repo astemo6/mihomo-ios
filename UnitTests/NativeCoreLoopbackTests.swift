@@ -649,37 +649,167 @@ final class NativeCoreLoopbackTests: XCTestCase {
         }
         XCTAssertEqual(first, Self.dnsQuery, "no hysteria2 UDP echo over QUIC datagrams (\(conn.udpDiagnostics))")
 
-        // Size ladder (diagnostics): unfragmented single datagrams up to the client budget, then the
-        // fragmented 3000-byte packet at the default budget and at a small one. Each rung reports
-        // whether its echo came back, so a failure pinpoints the direction / size that is lost.
-        func roundTrip(_ payload: Data, tries: Int = 3) -> Bool {
-            for _ in 0..<tries {
-                conn.sendUDP(sessionID: sessionID, target: target, payload: payload)
-                let until = Date().addingTimeInterval(1.5)
-                while Date() < until, let got = replies.wait(timeout: until.timeIntervalSinceNow) {
-                    if got == payload { return true }
+        // hy2-frag ladder, printed as one "HY2LADDER" line whatever the outcome (diagnostics):
+        //  A = the shipped defaults on the shared connection (no H3_DATAGRAM in SETTINGS, windowed send
+        //      queue, batched pumps, budget = min(1197, flow maximumDatagramSize));
+        //  B = control group: a private connection that announces H3_DATAGRAM like the first cut did —
+        //      the server's http3 layer then steals QUIC datagrams (hy2-frag root cause), so B is lossy.
+        // Rungs: "u<W>" one unfragmented datagram of W wire bytes; "b<n>x<W>[g<ms>]" n separate packets
+        // back to back (or <ms> apart); "f<budget><mode>" a 3000-byte packet fragmented at <budget>.
+        let probeA = Hy2UDPProbe(conn: conn, sessionID: sessionID, replies: replies, target: target)
+        var ladder: [String] = ["A[" + conn.udpDiagnostics + "]"]
+        ladder.append(contentsOf: probeA.sizeRungs([1197, 1300, 1400]))
+        ladder.append(probeA.burst(3, wire: 1000, gapMs: 0))
+        ladder.append(probeA.burst(6, wire: 300, gapMs: 0))
+        let b8 = probeA.burst(8, wire: 1000, gapMs: 0)
+        ladder.append(b8)
+        // The acceptance check: five fragmented 3000-byte packets in a row, each must come back on its
+        // first and only send (no retry masks a loss any more).
+        var fragOK = 0
+        for i in 0..<5 {
+            if probeA.once(Hy2UDPProbe.pattern(3000, seed: 101 + i)) { fragOK += 1 }
+        }
+        ladder.append("fDEFAULT(\(conn.udpDatagramLimit))x5:\(fragOK)/5")
+        let burstOK = b8.hasPrefix("b8x1000:8/8")
+
+        // B: control connection without the payload cap.
+        var bLine = "B[unavailable]"
+        if let b = Self.startPrivateHy2(advertiseH3Datagram: true) {
+            let bReplies = UDPReplies()
+            if let bID = b.registerUDP({ raw in bReplies.feed(raw) }) {
+                bReplies.sessionID = bID
+                let probeB = Hy2UDPProbe(conn: b, sessionID: bID, replies: bReplies, target: target)
+                if probeB.warmUp(Self.dnsQuery) {
+                    var r: [String] = []
+                    r.append(contentsOf: probeB.sizeRungs([1197, 1300]))
+                    r.append(probeB.burst(8, wire: 1000, gapMs: 0))
+                    r.append(probeB.fragRung(budget: 1197, label: "", seed: 300))
+                    bLine = "B[" + b.udpDiagnostics + "] " + r.joined(separator: " ")
+                } else {
+                    bLine = "B[no warm-up echo " + b.udpDiagnostics + "]"
                 }
+                b.unregisterUDP(bID)
             }
-            return false
+            b.close()
         }
-        var ladder: [String] = []
-        for size in [512, 900, 1050] {
-            let p = Data((0..<size).map { UInt8(($0 * 11 + 1) & 0xff) })
-            ladder.append("\(size):\(roundTrip(p) ? "ok" : "lost")")
+        ladder.append(bLine)
+        ladder.append("A-end[" + conn.udpDiagnostics + "]")
+        let line = "HY2LADDER " + ladder.joined(separator: " ")
+        print(line)
+        XCTContext.runActivity(named: line) { _ in }
+        XCTAssertEqual(fragOK, 5, "fragmented 3000-byte UDP packets lost at the default settings [\(line)]")
+        XCTAssertTrue(burstOK, "back-to-back UDP packets lost at the default settings [\(line)]")
+    }
+
+    /// A private (non-registry) hysteria2 connection to the loopback inbound, for control-group rungs.
+    private static func startPrivateHy2(advertiseH3Datagram: Bool) -> NCHysteria2Connection? {
+        let queue = DispatchQueue(label: "nc.loopback.hy2udp.b")
+        guard let conn = NCHysteria2Connection(proxy: Self.hy2Proxy, queue: queue) else { return nil }
+        conn.advertiseH3DatagramForTesting = advertiseH3Datagram
+        let done = DispatchSemaphore(value: 0)
+        let box = LockedBox<Error?>(nil)
+        conn.start { err in
+            box.set(err)
+            done.signal()
         }
-        let big = Data((0..<3000).map { UInt8(($0 * 13 + 5) & 0xff) })
-        var bigOK = roundTrip(big)
-        ladder.append("3000@\(NCHy2UDP.maxDatagramSize):\(bigOK ? "ok" : "lost")")
-        if !bigOK {
-            conn.setUDPDatagramLimitForTesting(600)
-            bigOK = roundTrip(big)
-            ladder.append("3000@600:\(bigOK ? "ok" : "lost")")
-            conn.setUDPDatagramLimitForTesting(NCHy2UDP.maxDatagramSize)
+        guard done.wait(timeout: .now() + 30) == .success, box.get() == nil else {
+            conn.close()
+            return nil
         }
-        let echoed: Data? = bigOK ? big : nil
-        XCTAssertEqual(echoed?.count, big.count,
-                       "fragmented 3000-byte UDP packet did not round-trip [\(ladder.joined(separator: " "))] (\(conn.udpDiagnostics))")
-        XCTAssertEqual(echoed, big)
+        return conn
+    }
+}
+
+/// hy2-frag ladder rungs over one registered hysteria2 UDP session (see testHysteria2UDPEcho).
+private final class Hy2UDPProbe {
+    let conn: NCHysteria2Connection
+    let sessionID: UInt32
+    let replies: UDPReplies
+    let target: NCTarget
+    let addrHeader: Int
+
+    init(conn: NCHysteria2Connection, sessionID: UInt32, replies: UDPReplies, target: NCTarget) {
+        self.conn = conn
+        self.sessionID = sessionID
+        self.replies = replies
+        self.target = target
+        self.addrHeader = NCHy2UDP.headerSize(address: NCHysteria2Connection.udpAddress(target))
+    }
+
+    static func pattern(_ n: Int, seed: Int) -> Data {
+        var d = Data(count: n)
+        for j in 0..<n {
+            let v: Int = j &* 13 &+ seed &* 7
+            d[j] = UInt8(truncatingIfNeeded: v)
+        }
+        return d
+    }
+
+    /// Resends `payload` until it echoes (the datagram flow comes up asynchronously).
+    func warmUp(_ payload: Data) -> Bool {
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            conn.sendUDP(sessionID: sessionID, target: target, payload: payload)
+            if let got = replies.wait(timeout: 1.0), got == payload { return true }
+        }
+        return false
+    }
+
+    /// One send, wait for its exact echo.
+    func once(_ payload: Data, timeout: TimeInterval = 2.0) -> Bool {
+        replies.drain()
+        conn.sendUDP(sessionID: sessionID, target: target, payload: payload)
+        let until = Date().addingTimeInterval(timeout)
+        while Date() < until {
+            guard let got = replies.wait(timeout: until.timeIntervalSinceNow) else { break }
+            if got == payload { return true }
+        }
+        return false
+    }
+
+    /// Unfragmented single datagrams of each wire size (budget pinned above them).
+    func sizeRungs(_ wires: [Int]) -> [String] {
+        conn.setUDPDatagramLimitForTesting(9000)
+        var out: [String] = []
+        for wire in wires {
+            let p = Self.pattern(wire - addrHeader, seed: wire)
+            let before = replies.rawCount
+            let ok = once(p, timeout: 1.5)
+            out.append("u\(wire):\(ok ? "ok" : "LOST")(rx=\(replies.rawCount - before))")
+        }
+        conn.setUDPDatagramLimitForTesting(0)
+        return out
+    }
+
+    /// `n` separate unfragmented packets of `wire` bytes, back to back or `gapMs` apart.
+    func burst(_ n: Int, wire: Int, gapMs: Int) -> String {
+        replies.drain()
+        let before = replies.rawCount
+        var want = Set<Data>()
+        for i in 0..<n {
+            let p = Self.pattern(wire - addrHeader, seed: 1000 + i * 31 + wire + gapMs)
+            want.insert(p)
+            conn.sendUDP(sessionID: sessionID, target: target, payload: p)
+            if gapMs > 0 { Thread.sleep(forTimeInterval: Double(gapMs) / 1000) }
+        }
+        var got = 0
+        let until = Date().addingTimeInterval(1.5)
+        while got < n, Date() < until {
+            guard let r = replies.wait(timeout: until.timeIntervalSinceNow) else { break }
+            if want.remove(r) != nil { got += 1 }
+        }
+        let tag = gapMs > 0 ? "g\(gapMs)" : ""
+        return "b\(n)x\(wire)\(tag):\(got)/\(n)(rx=\(replies.rawCount - before))"
+    }
+
+    /// Two 3000-byte packets fragmented at `budget`, one send each.
+    func fragRung(budget: Int, label: String, seed: Int) -> String {
+        conn.setUDPDatagramLimitForTesting(budget)
+        let before = replies.rawCount
+        var ok = 0
+        for i in 0..<2 where once(Self.pattern(3000, seed: seed + i), timeout: 1.5) { ok += 1 }
+        conn.setUDPDatagramLimitForTesting(0)
+        return "f\(budget)\(label):\(ok)/2(rx=\(replies.rawCount - before))"
     }
 
     // MARK: - NaïveProxy (feat/nc-naive-h2h3): sing-box naive inbound, h2 on 18040 (TCP), h3 on 18041 (UDP)
@@ -861,12 +991,26 @@ private final class UDPReplies {
     private var ready: [Data] = []
     var sessionID: UInt32 = 0
 
+    private var rawSeen = 0
+    /// Raw datagrams delivered to this session so far (any fragment, matched or not).
+    var rawCount: Int {
+        cond.lock(); defer { cond.unlock() }
+        return rawSeen
+    }
+
     func feed(_ raw: Data) {
         cond.lock(); defer { cond.unlock() }
+        rawSeen += 1
         guard let frame = NCHy2UDP.decodeFrame(raw), frame.sessionID == sessionID,
               let payload = reassembler.feed(frame) else { return }
         ready.append(payload)
         cond.signal()
+    }
+
+    /// Forget echoes of earlier rungs that arrived late.
+    func drain() {
+        cond.lock(); defer { cond.unlock() }
+        ready.removeAll()
     }
 
     func wait(timeout: TimeInterval) -> Data? {

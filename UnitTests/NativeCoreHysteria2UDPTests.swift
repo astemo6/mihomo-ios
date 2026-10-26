@@ -230,4 +230,101 @@ final class NativeCoreHysteria2UDPTests: XCTestCase {
         XCTAssertEqual(ok, 64)
         XCTAssertEqual(NCHPACK.huffmanLookup.count, 256)
     }
+
+    // MARK: hy2-frag: budget, payload cap, send queue
+
+    func testDatagramBudgetFollowsFlowMax() {
+        XCTAssertEqual(NCHy2UDP.maxDatagramSize, 1197, "sing-quic / hysteria udpMTU")
+        XCTAssertEqual(NCHy2UDP.datagramBudget(flowMax: 0), 1197, "unknown flow size: default")
+        XCTAssertEqual(NCHy2UDP.datagramBudget(flowMax: 16356), 1197, "loopback-sized report: capped")
+        XCTAssertEqual(NCHy2UDP.datagramBudget(flowMax: 1150), 1150, "smaller path: follow it")
+        XCTAssertEqual(NCHy2UDP.datagramBudget(flowMax: 100), 1197, "nonsense report ignored")
+    }
+
+    func testSettingsFrameNeverAnnouncesH3Datagram() {
+        // type 0x04, len 4: QPACK_MAX_TABLE_CAPACITY 0, QPACK_BLOCKED_STREAMS 0 — and no 0x33 H3_DATAGRAM,
+        // which makes a quic-go http3 server steal hysteria's QUIC datagrams (hy2-frag root cause).
+        XCTAssertEqual(NCHy2.http3SettingsFrame(), Data([0x04, 0x04, 0x01, 0x00, 0x07, 0x00]))
+        XCTAssertEqual(NCHy2.http3SettingsFrame(advertiseH3Datagram: true),
+                       Data([0x04, 0x06, 0x01, 0x00, 0x07, 0x00, 0x33, 0x01]))
+    }
+
+    func testSendQueueWindowAndOrder() {
+        var q = NCHy2UDP.SendQueue(window: 2, maxBytes: 10_000, maxDatagrams: 100)
+        XCTAssertTrue(q.enqueue(packet: [Data([1]), Data([2]), Data([3])]))
+        XCTAssertTrue(q.enqueue(packet: [Data([4])]))
+        XCTAssertEqual(q.next(), Data([1]))
+        XCTAssertEqual(q.next(), Data([2]))
+        XCTAssertNil(q.next(), "window of 2 is full")
+        XCTAssertEqual(q.inFlight, 2)
+        q.completed()
+        XCTAssertEqual(q.next(), Data([3]))
+        XCTAssertNil(q.next())
+        q.completed(); q.completed()
+        XCTAssertEqual(q.next(), Data([4]))
+        q.completed()
+        XCTAssertNil(q.next())
+        XCTAssertTrue(q.isEmpty)
+        XCTAssertEqual(q.inFlight, 0)
+        XCTAssertEqual(q.queuedBytes, 0)
+        XCTAssertEqual(q.maxInFlight, 2)
+        q.completed() // stray completion never goes negative
+        XCTAssertEqual(q.inFlight, 0)
+    }
+
+    func testSendQueueDropsWholePacketsWhenFull() {
+        var q = NCHy2UDP.SendQueue(window: 1, maxBytes: 3000, maxDatagrams: 4)
+        let piece = Data(count: 1000)
+        XCTAssertTrue(q.enqueue(packet: [piece, piece]))
+        XCTAssertFalse(q.enqueue(packet: [piece, piece]), "would exceed maxBytes: refused as a whole")
+        XCTAssertEqual(q.queuedCount, 2, "no fragment of the refused packet was queued")
+        XCTAssertEqual(q.droppedPackets, 1)
+        XCTAssertTrue(q.enqueue(packet: [piece]))
+        XCTAssertFalse(q.enqueue(packet: [Data([1]), Data([2])]), "would exceed maxDatagrams")
+        XCTAssertEqual(q.droppedPackets, 2)
+        XCTAssertEqual(q.queuedBytes, 3000)
+        // Draining frees room again.
+        _ = q.next(); q.completed()
+        XCTAssertTrue(q.enqueue(packet: [Data([9])]))
+    }
+
+    func testSendQueueBoundedUnderSustainedLoad() {
+        // A sender that never completes: memory stays at the caps, everything past them is dropped.
+        var q = NCHy2UDP.SendQueue()
+        let frame = Data(count: 1197)
+        var accepted = 0
+        for _ in 0..<10_000 where q.enqueue(packet: [frame, frame, frame]) { accepted += 1 }
+        XCTAssertLessThanOrEqual(q.queuedBytes, NCHy2UDP.SendQueue.defaultMaxBytes)
+        XCTAssertLessThanOrEqual(q.queuedCount, NCHy2UDP.SendQueue.defaultMaxDatagrams)
+        XCTAssertEqual(accepted + q.droppedPackets, 10_000)
+        XCTAssertGreaterThan(q.droppedPackets, 9_000)
+        // Steady state: drain and refill many times — the backing store is compacted, not grown.
+        for _ in 0..<5_000 {
+            if let _ = q.next() { q.completed() }
+            _ = q.enqueue(packet: [frame])
+        }
+        XCTAssertLessThanOrEqual(q.queuedCount, NCHy2UDP.SendQueue.defaultMaxDatagrams)
+        q.reset()
+        XCTAssertTrue(q.isEmpty)
+        XCTAssertEqual(q.queuedBytes, 0)
+        XCTAssertEqual(q.inFlight, 0)
+    }
+
+    func testSendQueueKeepsFragmentsContiguous() throws {
+        var q = NCHy2UDP.SendQueue(window: 64)
+        let a = NCHy2UDP.fragment(sessionID: 1, packetID: 1, address: "1.1.1.1:53", payload: Self.pattern(3000))
+        let b = NCHy2UDP.fragment(sessionID: 1, packetID: 2, address: "1.1.1.1:53", payload: Self.pattern(2500))
+        XCTAssertTrue(q.enqueue(packet: a))
+        XCTAssertTrue(q.enqueue(packet: b))
+        var ids: [UInt16] = []
+        var r = NCHy2UDP.Reassembler()
+        var out: [Data] = []
+        while let d = q.next() {
+            let f = try XCTUnwrap(NCHy2UDP.decodeFrame(d))
+            ids.append(f.packetID)
+            if let p = r.feed(f) { out.append(p) }
+        }
+        XCTAssertEqual(ids, Array(repeating: 1, count: a.count) + Array(repeating: 2, count: b.count))
+        XCTAssertEqual(out, [Self.pattern(3000), Self.pattern(2500)])
+    }
 }
