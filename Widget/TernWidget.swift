@@ -12,7 +12,7 @@ import ActivityKit
 // API. Nothing here touches the Network Extension's memory.
 
 @main
-struct MihomoWidgets: WidgetBundle {
+struct TernWidgets: WidgetBundle {
     var body: some Widget {
         StatusWidget()
         ConnectionLiveActivity()
@@ -316,7 +316,7 @@ struct StatusWidgetView: View {
 
 struct ConnectionLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: MihomoActivityAttributes.self) { context in
+        ActivityConfiguration(for: TernActivityAttributes.self) { context in
             LiveActivityLockContent(state: context.state, profile: context.attributes.profile, stale: context.isStale)
                 .activityBackgroundTint(WidgetTheme.bg.opacity(0.85))
                 .activitySystemActionForegroundColor(WidgetTheme.accent)

@@ -535,7 +535,7 @@ enum MemorySnapshotWriter {
 ///   ≥ 47 MB or < 3 MB available         close the oldest 25 % of connections (50 % below 2 MB available),
 ///                                       then not again until the footprint fell below 42 MB or 30 s passed.
 final class MemoryGuard {
-    private let queue = DispatchQueue(label: "mihomo.memoryguard", qos: .utility)
+    private let queue = DispatchQueue(label: "tern.memoryguard", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
     private var interval = 10
@@ -650,7 +650,7 @@ final class MemoryGuard {
 /// write. r7 (backlog B19): with 实时活动 off the timer no longer wakes the extension every 10 s — it re-checks
 /// every 10 min, and the app's Darwin notification (LiveStats.wantedChangedNotification) switches it at once.
 final class LiveStatsSampler {
-    private let queue = DispatchQueue(label: "mihomo.livestats", qos: .utility)
+    private let queue = DispatchQueue(label: "tern.livestats", qos: .utility)
     private var timer: DispatchSourceTimer?
     /// Queue-confined.
     private var stopped = false
@@ -724,7 +724,7 @@ final class LiveStatsSampler {
 
 /// Adds the core's traffic counters to today's bucket in TrafficHistory every two minutes.
 final class TrafficRecorder {
-    private let queue = DispatchQueue(label: "mihomo.traffic", qos: .utility)
+    private let queue = DispatchQueue(label: "tern.traffic", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var lastUp: Int64 = 0
     private var lastDown: Int64 = 0

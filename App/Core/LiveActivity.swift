@@ -30,8 +30,8 @@ final class LiveActivityController: ObservableObject {
     /// v0.12: only activities still on screen. Ended / dismissed ones can linger in `activities`; updating
     /// them is a no-op, which used to keep a new activity from starting after the user swiped one away.
     @available(iOS 16.2, *)
-    private var current: [Activity<MihomoActivityAttributes>] {
-        Activity<MihomoActivityAttributes>.activities.filter { $0.activityState == .active || $0.activityState == .stale }
+    private var current: [Activity<TernActivityAttributes>] {
+        Activity<TernActivityAttributes>.activities.filter { $0.activityState == .active || $0.activityState == .stale }
     }
 
     var systemAllowed: Bool {
@@ -46,7 +46,7 @@ final class LiveActivityController: ObservableObject {
     func start() {
         guard enabled, #available(iOS 16.2, *), ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let since = VPNManager.shared.connectedDate ?? Date()
-        var state = MihomoActivityAttributes.ContentState(connected: true, node: DashboardModel.shared.selectedNode, up: 0, down: 0, since: since, updated: Date())
+        var state = TernActivityAttributes.ContentState(connected: true, node: DashboardModel.shared.selectedNode, up: 0, down: 0, since: since, updated: Date())
         state.proxyOnly = TrafficScope.current == .proxy ? true : nil
         let live = current
         if let a = live.first {
@@ -55,7 +55,7 @@ final class LiveActivityController: ObservableObject {
             for extra in live.dropFirst() { Task { await extra.end(nil, dismissalPolicy: .immediate) } }
             return
         }
-        let attrs = MihomoActivityAttributes(profile: ProfileStore.shared.active?.name ?? "Tern")
+        let attrs = TernActivityAttributes(profile: ProfileStore.shared.active?.name ?? "Tern")
         _ = try? Activity.request(attributes: attrs, content: ActivityContent(state: state, staleDate: nil, relevanceScore: 50), pushType: nil)
     }
 
@@ -91,7 +91,7 @@ final class LiveActivityController: ObservableObject {
         lastUpdate = now
         last = (up, down, node)
         let since = VPNManager.shared.connectedDate ?? a.content.state.since
-        var state = MihomoActivityAttributes.ContentState(connected: true, node: node, up: up, down: down, since: since, updated: now)
+        var state = TernActivityAttributes.ContentState(connected: true, node: node, up: up, down: down, since: since, updated: now)
         state.proxyOnly = proxyOnly
         state.totalUp = totalUp
         state.totalDown = totalDown
@@ -100,7 +100,7 @@ final class LiveActivityController: ObservableObject {
 
     // MARK: v0.11 updates while the app is closed
 
-    static let refreshTaskID = "mihomo.liveactivity.refresh"
+    static let refreshTaskID = "tern.liveactivity.refresh"
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     /// AppDelegate.didFinishLaunching: background refresh handler + the refresh button's hook.
@@ -193,7 +193,7 @@ final class LiveActivityController: ObservableObject {
     /// r7: ends a Live Activity left behind by a tunnel that stopped while the app was not running (widget / Control
     /// Center / iOS). Called on launch / foreground and on the tunnel's stop notification; cheap when none is shown.
     func endIfTunnelDown() async {
-        guard #available(iOS 16.2, *), !Activity<MihomoActivityAttributes>.activities.isEmpty else { return }
+        guard #available(iOS 16.2, *), !Activity<TernActivityAttributes>.activities.isEmpty else { return }
         await VPNManager.shared.load()
         if !VPNManager.shared.isConnected && VPNManager.shared.status != .connecting && VPNManager.shared.status != .reasserting {
             endAll()
@@ -202,7 +202,7 @@ final class LiveActivityController: ObservableObject {
 
     func endAll() {
         guard #available(iOS 16.2, *) else { return }
-        for a in Activity<MihomoActivityAttributes>.activities {
+        for a in Activity<TernActivityAttributes>.activities {
             var s = a.content.state
             s.connected = false; s.up = 0; s.down = 0; s.updated = Date()
             Task { await a.end(ActivityContent(state: s, staleDate: nil), dismissalPolicy: .immediate) }

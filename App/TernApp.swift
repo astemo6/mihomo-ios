@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 @main
-struct MihomoApp: App {
+struct TernApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var vpn = VPNManager.shared
     @StateObject private var router = ImportRouter.shared

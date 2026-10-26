@@ -6,7 +6,7 @@ import AppIntents
 /// v0.10 实时活动 / 灵动岛: attributes shared by the app (starts / updates / ends the activity) and the
 /// widget extension (draws it). The tunnel extension compiles this file but never uses it.
 @available(iOS 16.2, *)
-struct MihomoActivityAttributes: ActivityAttributes {
+struct TernActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var connected: Bool
         var node: String

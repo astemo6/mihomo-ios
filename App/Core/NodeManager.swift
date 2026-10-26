@@ -567,7 +567,7 @@ final class NodeManagerModel: ObservableObject {
 /// that pool, which has only as many threads as CPU cores: 8 (节点) or 6 (策略) blocked tests stalled every
 /// other async task in the app (loads, downloads, UI refreshes) until the tests returned.
 enum BlockingWork {
-    private static let queue = DispatchQueue(label: "mihomo.blocking-work", qos: .userInitiated, attributes: .concurrent)
+    private static let queue = DispatchQueue(label: "tern.blocking-work", qos: .userInitiated, attributes: .concurrent)
 
     static func run<T>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { c in

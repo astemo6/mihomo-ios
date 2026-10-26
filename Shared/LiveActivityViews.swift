@@ -131,7 +131,7 @@ struct LiveStatusLine: View {
 /// all; either way with the time the numbers were taken (「更新于 下午4:22」).
 @available(iOS 16.2, *)
 struct LiveSpeeds: View {
-    let state: MihomoActivityAttributes.ContentState
+    let state: TernActivityAttributes.ContentState
     var stale = false
     var font: Font = .footnote
 
@@ -223,7 +223,7 @@ struct LiveStatusIcon: View {
 /// Node line: flag + name as the app shows it, one line, middle truncation; the profile when no node is known.
 @available(iOS 16.2, *)
 struct LiveNodeLine: View {
-    let state: MihomoActivityAttributes.ContentState
+    let state: TernActivityAttributes.ContentState
     let profile: String
     var body: some View {
         Text(verbatim: state.node.isEmpty ? profile : state.node)
@@ -236,7 +236,7 @@ struct LiveNodeLine: View {
 /// Lock Screen / banner presentation.
 @available(iOS 17.0, *)
 struct LiveActivityLockContent: View {
-    let state: MihomoActivityAttributes.ContentState
+    let state: TernActivityAttributes.ContentState
     let profile: String
     var stale = false
     var body: some View {
@@ -261,7 +261,7 @@ struct LiveActivityLockContent: View {
 /// Dynamic Island expanded regions.
 @available(iOS 17.0, *)
 struct LiveIslandLeading: View {
-    let state: MihomoActivityAttributes.ContentState
+    let state: TernActivityAttributes.ContentState
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
             LiveStatusIcon(connected: state.connected, size: 30)
@@ -285,7 +285,7 @@ struct LiveIslandLeading: View {
 
 @available(iOS 17.0, *)
 struct LiveIslandTrailing: View {
-    let state: MihomoActivityAttributes.ContentState
+    let state: TernActivityAttributes.ContentState
     var stale = false
     var body: some View {
         LiveSpeeds(state: state, stale: stale, font: .caption)
@@ -296,7 +296,7 @@ struct LiveIslandTrailing: View {
 
 @available(iOS 17.0, *)
 struct LiveIslandBottom: View {
-    let state: MihomoActivityAttributes.ContentState
+    let state: TernActivityAttributes.ContentState
     let profile: String
     var body: some View {
         HStack(spacing: 10) {
@@ -314,7 +314,7 @@ struct LiveIslandBottom: View {
 @available(iOS 16.2, *)
 struct LiveCompactSpeed: View {
     let up: Bool
-    let state: MihomoActivityAttributes.ContentState
+    let state: TernActivityAttributes.ContentState
     var stale = false
     var body: some View {
         HStack(spacing: 1) {

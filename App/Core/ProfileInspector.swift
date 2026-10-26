@@ -322,7 +322,7 @@ enum PhysicalInterface {
                 let iface = path.availableInterfaces.first { $0.type == .wifi || $0.type == .cellular || $0.type == .wiredEthernet }
                 finish(path.status == .satisfied ? iface?.name : nil)
             }
-            monitor.start(queue: DispatchQueue(label: "mihomo.physical-interface"))
+            monitor.start(queue: DispatchQueue(label: "tern.physical-interface"))
             DispatchQueue.global().asyncAfter(deadline: .now() + 1) { finish(nil) }
         }
     }

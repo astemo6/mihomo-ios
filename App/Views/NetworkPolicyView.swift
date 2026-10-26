@@ -454,7 +454,7 @@ final class PathTypeWatcher: ObservableObject {
             else { t = "other" }
             Task { @MainActor in self?.type = t }
         }
-        monitor.start(queue: DispatchQueue(label: "mihomo.path-type"))
+        monitor.start(queue: DispatchQueue(label: "tern.path-type"))
     }
 
     deinit { monitor.cancel() }

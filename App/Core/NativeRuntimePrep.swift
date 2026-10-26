@@ -118,7 +118,7 @@ enum NativeRuntimePrep {
                 let fp = inputs()
                 timing?.lap("fingerprint")
                 if NativeRuntimePrepCache.hit(home: home, inputs: fp) {
-                    NSLog("[Mihomo] native runtime unchanged since the last prepare: reusing it")
+                    NSLog("[Tern] native runtime unchanged since the last prepare: reusing it")
                     return (nil, true)
                 }
             }
@@ -167,7 +167,7 @@ enum NativeRuntimePrep {
         let build = NCPrepMarkers.currentBuild
         let crashed = NCPrepMarkers.readInflight(home: home)
         if let crashed {
-            NSLog("[Mihomo] previous native runtime prepare did not finish (stage %@, build %@)", crashed.stage, crashed.build)
+            NSLog("[Tern] previous native runtime prepare did not finish (stage %@, build %@)", crashed.stage, crashed.build)
             if crashed.stage == "rewrite", let fp = crashed.fp {
                 NCPrepMarkers.writeQuarantine(home: home, .init(fp: fp, build: crashed.build, at: Int64(Date().timeIntervalSince1970)))
             }
@@ -344,7 +344,7 @@ enum NativeRuntimePrep {
         }
 
         let summary = "runtime.yaml \(buildResult.data.count) B, \(rep.rules) rules, geosite \(rep.geosite?.count ?? 0), rewrite \(rep.rewrite ? "true" : "false"), mitm hosts \(rep.mitmHosts), scripts \(rep.scripts), warnings \(rep.warnings?.count ?? 0)"
-        NSLog("[Mihomo] native runtime prepared: %@", summary)
+        NSLog("[Tern] native runtime prepared: %@", summary)
         return nil
     }
 
@@ -363,7 +363,7 @@ enum NativeRuntimePrep {
     }
 
     private static func fail(_ message: String) -> String {
-        NSLog("[Mihomo] native runtime prepare failed: %@", message)
+        NSLog("[Tern] native runtime prepare failed: %@", message)
         return String(localized: "生成运行配置失败：") + message
     }
 }

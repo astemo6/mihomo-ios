@@ -164,7 +164,7 @@ final class VPNManager: ObservableObject {
         canOfferSafeMode = AppShared.containerOK && AppShared.activeProfileURL != nil && !safeModeActive
         await pauseKeepAliveAfterFailure()
         lastError = String(localized: "连接失败：") + (msg ?? String(localized: "网络扩展启动后立即退出（未返回原因）。请到 更多 → 诊断 导出诊断包查看。"))
-        NSLog("[Mihomo] tunnel start failed: %@", lastError ?? "")
+        NSLog("[Tern] tunnel start failed: %@", lastError ?? "")
     }
 
     /// fix/vpn-stays-on: a tunnel that is up without the keep-alive rule (connected by an older build, from iOS
@@ -200,7 +200,7 @@ final class VPNManager: ObservableObject {
             } else { status = .invalid }
         } catch {
             lastError = String(localized: "读取 VPN 配置失败：") + Self.describe(error)
-            NSLog("[Mihomo] loadAllFromPreferences: %@", error.localizedDescription)
+            NSLog("[Tern] loadAllFromPreferences: %@", error.localizedDescription)
         }
     }
 
@@ -265,7 +265,7 @@ final class VPNManager: ObservableObject {
             try await m.saveToPreferences()
             try await m.loadFromPreferences()
         } catch {
-            NSLog("[Mihomo] saveToPreferences (create) failed: %@", error.localizedDescription)
+            NSLog("[Tern] saveToPreferences (create) failed: %@", error.localizedDescription)
             throw error
         }
         manager = m
@@ -395,7 +395,7 @@ final class VPNManager: ObservableObject {
                     try await m.saveToPreferences()
                     try await m.loadFromPreferences()
                 } catch {
-                    NSLog("[Mihomo] saveToPreferences (enable) failed: %@", error.localizedDescription)
+                    NSLog("[Tern] saveToPreferences (enable) failed: %@", error.localizedDescription)
                     throw error
                 }
             }
@@ -431,7 +431,7 @@ final class VPNManager: ObservableObject {
         } catch {
             Self.trace("failed: \(Self.describe(error))")
             lastError = String(localized: "启动失败：") + Self.describe(error)
-            NSLog("[Mihomo] start failed: %@", error.localizedDescription)
+            NSLog("[Tern] start failed: %@", error.localizedDescription)
         }
     }
 
@@ -612,7 +612,7 @@ final class VPNManager: ObservableObject {
             m.isOnDemandEnabled = false
             OnDemandSettings.setPaused(true)
             Task {
-                do { try await m.saveToPreferences() } catch { NSLog("[Mihomo] pause on-demand failed: %@", error.localizedDescription) }
+                do { try await m.saveToPreferences() } catch { NSLog("[Tern] pause on-demand failed: %@", error.localizedDescription) }
                 m.connection.stopVPNTunnel()
             }
         } else {

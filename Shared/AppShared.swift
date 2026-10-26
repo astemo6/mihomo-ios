@@ -41,7 +41,7 @@ enum AppShared {
             }
         }
         if let own = mainAppBundle.bundleIdentifier, !own.isEmpty { return own + ".tunnel" }
-        return Bundle.main.object(forInfoDictionaryKey: "MihomoTunnelBundleID") as? String ?? "com.astemo6.mihomo.tunnel"
+        return Bundle.main.object(forInfoDictionaryKey: "TernTunnelBundleID") as? String ?? "com.astemo6.mihomo.tunnel"
     }()
 
     /// App groups granted by the provisioning profile the IPA was (re-)signed with.
@@ -99,7 +99,7 @@ enum AppShared {
     /// 4. as before: profile groups in sorted order, then the Info.plist value, then the built-in default.
     /// Every process applies the same rules to the same containers, so app, tunnel and widget agree.
     static let appGroup: String = {
-        let plist = Bundle.main.object(forInfoDictionaryKey: "MihomoAppGroup") as? String ?? defaultAppGroup
+        let plist = Bundle.main.object(forInfoDictionaryKey: "TernAppGroup") as? String ?? defaultAppGroup
         var mine = provisionedAppGroups()
         if mine.isEmpty && isExtension { mine = provisionedAppGroups(mainAppBundle) }
         var ordered: [(String, String)] = mine.sorted().map { ($0, "描述文件") }

@@ -51,7 +51,7 @@ extension NativeMemoryGovernor {
 
     /// JSC collection off the caller's thread: JSGarbageCollect takes the VM lock, which a script run holds for up to
     /// ~1 s — admission (a Go goroutine opening a body) must not wait for it. Coalesced: one pending at a time.
-    private static let jscQueue = DispatchQueue(label: "mihomo.nativememgovernor.jsc", qos: .utility)
+    private static let jscQueue = DispatchQueue(label: "tern.nativememgovernor.jsc", qos: .utility)
     private static let jscLock = NSLock()
     private static var jscPending = false
     static func collectJSCAsync() {
@@ -88,7 +88,7 @@ extension BoundedLRU {
 final class NativeMemoryGovernorSampler {
     let governor: NativeMemoryGovernor
     private let go: RuntimeMemoryControlling
-    private let queue = DispatchQueue(label: "mihomo.nativememgovernor", qos: .utility)
+    private let queue = DispatchQueue(label: "tern.nativememgovernor", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
     private var interval = 0

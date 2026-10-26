@@ -75,7 +75,7 @@ enum NCProfileYAMLRepair {
             } catch {
                 return false
             }
-            NSLog("[Mihomo] profile YAML repaired from its .conf source (old emitter cut it): %@", (profilePath as NSString).lastPathComponent)
+            NSLog("[Tern] profile YAML repaired from its .conf source (old emitter cut it): %@", (profilePath as NSString).lastPathComponent)
             return true
         }
     }

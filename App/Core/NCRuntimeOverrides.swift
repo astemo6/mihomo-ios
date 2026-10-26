@@ -180,7 +180,7 @@ struct NCRuntimeSettings {
         if home.isEmpty { return processSecretValue() }
         let homeURL = URL(fileURLWithPath: home)
         if !FileManager.default.fileExists(atPath: homeURL.appendingPathComponent("overrides.json").path) {
-            NSLog("[Mihomo] 控制器密钥为空且 overrides.json 不存在，本次使用随机密钥")
+            NSLog("[Tern] 控制器密钥为空且 overrides.json 不存在，本次使用随机密钥")
             return processSecretValue()
         }
         let secretsURL = homeURL.appendingPathComponent("secrets.json")
@@ -189,13 +189,13 @@ struct NCRuntimeSettings {
             do {
                 let data = try Data(contentsOf: secretsURL)
                 guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-                    NSLog("[Mihomo] 控制器密钥为空且 secrets.json 无法解析，本次使用随机密钥")
+                    NSLog("[Tern] 控制器密钥为空且 secrets.json 无法解析，本次使用随机密钥")
                     return processSecretValue()
                 }
                 raw = obj
             } catch {
                 if !isNotExist(error) {
-                    NSLog("[Mihomo] 控制器密钥为空且无法读取 secrets.json，本次使用随机密钥")
+                    NSLog("[Tern] 控制器密钥为空且无法读取 secrets.json，本次使用随机密钥")
                     return processSecretValue()
                 }
             }
@@ -208,11 +208,11 @@ struct NCRuntimeSettings {
                 let data = try JSONSerialization.data(withJSONObject: raw)
                 try NCRuntimeFiles.writeAtomic(data, to: secretsURL.path)
             } catch {
-                NSLog("[Mihomo] 控制器密钥为空，写回 secrets.json 失败（%@），本次使用随机密钥", error.localizedDescription)
+                NSLog("[Tern] 控制器密钥为空，写回 secrets.json 失败（%@），本次使用随机密钥", error.localizedDescription)
                 return processSecretValue()
             }
             _ = chmod(secretsURL.path, 0o600)
-            NSLog("[Mihomo] 控制器密钥为空，已生成随机密钥并写回 secrets.json")
+            NSLog("[Tern] 控制器密钥为空，已生成随机密钥并写回 secrets.json")
             return s
         }
     }

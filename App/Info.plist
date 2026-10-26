@@ -44,8 +44,8 @@
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>mihomo.liveactivity.refresh</string>
-		<string>mihomo.subscriptions.refresh</string>
+		<string>tern.liveactivity.refresh</string>
+		<string>tern.subscriptions.refresh</string>
 	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
@@ -267,9 +267,9 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>MihomoAppGroup</key>
+	<key>TernAppGroup</key>
 	<string>$(APP_GROUP_ID)</string>
-	<key>MihomoTunnelBundleID</key>
+	<key>TernTunnelBundleID</key>
 	<string>$(TUNNEL_BUNDLE_ID)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>扫描节点二维码</string>

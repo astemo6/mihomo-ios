@@ -18,7 +18,7 @@ final class NetworkWatcher {
     }
 
     private let monitor = NWPathMonitor(prohibitedInterfaceTypes: [.other, .loopback])
-    private let queue = DispatchQueue(label: "mihomo.network-watcher")
+    private let queue = DispatchQueue(label: "tern.network-watcher")
     private var last: String?
     private var pending: DispatchWorkItem?
     /// v0.19.1: path updates are numbered (on `queue`). A Wi-Fi update waits for NEHotspotNetwork.fetchCurrent;
