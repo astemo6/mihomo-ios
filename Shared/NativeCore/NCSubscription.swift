@@ -279,12 +279,9 @@ enum NCSubscriptionParser {
                 // Unknown binary: keep it verbatim with its parsed args
                 // instead of dropping the plugin on the floor.
                 f["plugin"] = .string(binary)
-                var po = args.mapValues { NCJSONValue.string($0) }
-                if let eo = NCECHOpts.parse(query: args) {
-                    po["ech-opts"] = .object(eo.toObject())
-                }
-                if !po.isEmpty {
-                    f["plugin-opts"] = .object(po)
+                // Review #149 item 5: an unknown plugin's own `ech` arg is not ECH — kept verbatim, not reinterpreted.
+                if !args.isEmpty {
+                    f["plugin-opts"] = .object(args.mapValues { .string($0) })
                 }
             }
         }

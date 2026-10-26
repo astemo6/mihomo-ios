@@ -161,7 +161,8 @@ public struct NCECHOpts: Equatable, Hashable, Codable {
             let cfg = query["ech-config"] ?? query["ech_config"]
             return NCECHOpts(enable: true, config: cfg.map(fromBase64URL), queryServerName: qsn)
         } else if trimmed == "0" || trimmed.lowercased() == "false" {
-            return NCECHOpts(enable: false, config: nil, queryServerName: nil)
+            // Review #149 item 5: ech=0 is "no ECH" — no ech-opts written, so the exported YAML stays unchanged.
+            return nil
         } else {
             // Value is a base64 or base64url encoded ECHConfigList
             let stdConfig = fromBase64URL(trimmed)
