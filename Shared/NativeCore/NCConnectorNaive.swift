@@ -43,8 +43,14 @@ extension NCConnector {
                 let session = NCH2ProxySession(key: registryKey(proxy, o) + "|chain", closeWhenIdle: true)
                 dialH2Session(session, options: o, transport: transport)
                 session.whenReady(callerQueue: queue) { err in
-                    if let err { completion(nil, err); return }
-                    openH2(session, headers: headers, naive: o.naive, queue: queue, completion: completion)
+                    // A private (chain) session exists for this one flow: if the dial or the CONNECT
+                    // fails it has no stream that would ever trigger its closeWhenIdle close, so the
+                    // TLS base would stay open for the life of the process. Close it on any failure.
+                    if let err { session.close(); completion(nil, err); return }
+                    openH2(session, headers: headers, naive: o.naive, queue: queue) { stream, err in
+                        if err != nil { session.close() }
+                        completion(stream, err)
+                    }
                 }
                 return
             }
