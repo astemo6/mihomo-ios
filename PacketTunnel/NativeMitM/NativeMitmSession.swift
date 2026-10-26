@@ -261,12 +261,18 @@ enum NativeMitmRuntime {
                 NativeMitmSession(conn: conn, codec: codec, upstream: upstream, driver: driver, bodies: bodies)?.start()
             }
         }
+        // fix/nc-e2e-gaps: plain HTTP (port 80) from the TUN data plane — the same HTTP/1.1 session, no TLS.
+        MitmPlainFront.shared.onAccept = { conn in
+            NativeMitmSession(conn: conn, codec: codec, upstream: upstream, driver: driver, bodies: bodies)?.start()
+        }
         NativeH2Runtime.resetBreaker()
         return true
     }
 
     static func uninstall() {
         forced = false
+        MitmPlainFront.shared.onAccept = nil
+        MitmPlainFront.shared.stop()
         lock.lock(); _selectiveEngines = false; lock.unlock()
         cancelAll("native MitM off")
         NativeH2Runtime.cancelAll()
@@ -387,7 +393,7 @@ final class NativeMitmSession {
     /// Another request may follow: the client is still open, or it half-closed after pipelining more requests.
     private var clientMayContinue: Bool { !clientEOF || !clientBuf.isEmpty }
 
-    private var connInfo: MitmConnInfo { MitmConnInfo(host: conn.host, port: conn.port, tls: true, connID: conn.connID) }
+    private var connInfo: MitmConnInfo { MitmConnInfo(host: conn.host, port: conn.port, tls: conn.tls, connID: conn.connID) }
 
     // MARK: timers
 

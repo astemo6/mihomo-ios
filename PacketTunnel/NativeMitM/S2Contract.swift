@@ -107,6 +107,8 @@ struct MitmAcceptedConnection {
     let port: Int              // origin port (443 unless the TLS lane learns otherwise)
     let alpn: String?          // negotiated ALPN (http/1.1 only in stage 2)
     let connID: Int64          // stable id for logs / Go flow heads
+    /// fix/nc-e2e-gaps: false for the plain-HTTP front (port 80 flows handed to the rewrite engine without TLS).
+    var tls: Bool = true
 }
 
 /// The TLS lane's front. It conforms to LibmihomoNativeTLSFrontProtocol in its own file (Go calls listen()).

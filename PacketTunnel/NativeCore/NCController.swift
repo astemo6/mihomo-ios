@@ -283,6 +283,18 @@ final class NCController {
             streamTraffic(conn)
         case ("GET", "/app/traffic"):
             respond(conn, status: 200, json: appTrafficJSON())
+        // fix/nc-e2e-gaps: 统计 page / 首页速度历史 / 网络 page (NCStatsRecorder, Go-era bridge/statsrecorder.go shape)
+        case ("GET", "/app/stats"):
+            let q = req.query
+            respond(conn, status: 200, json: NCStatsRecorder.shared.statsJSON(
+                session: Int64(q["session"] ?? "") ?? 0, closedAfter: Int64(q["closedAfter"] ?? "") ?? 0,
+                hostLimit: Int(q["hosts"] ?? "") ?? 0, ruleLimit: Int(q["rules"] ?? "") ?? 0))
+        case ("DELETE", "/app/stats"):
+            NCStatsRecorder.shared.reset()
+            respond(conn, status: 204, json: nil)
+        case ("GET", "/app/stats/speed"):
+            respond(conn, status: 200, json: NCStatsRecorder.shared.speedJSON(
+                lastSeconds: Int(req.query["seconds"] ?? "") ?? 0, buckets: (Int(req.query["buckets"] ?? "") ?? 1) != 0))
         // gap C4 (astemo6/Muse NativeCore): MitM request log + log history from NativeCore's own stores
         case ("GET", "/mitm/requests"):
             respondEncodable(conn, NativeRequestLogStore.shared.summaries(since: Int64(req.query["since"] ?? "") ?? 0))
