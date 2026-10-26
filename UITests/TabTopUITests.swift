@@ -28,8 +28,12 @@ extension MihomoUITests {
             guard bar.exists else { return }
             tops[names[i]] = bar.frame.minY
             barHeights[names[i]] = bar.frame.height
-            let t = bar.staticTexts.matching(NSPredicate(format: "label == %@", L(titles[i]))).firstMatch
-            if t.exists { titleMid[names[i]] = t.frame.midY; titleLeft[names[i]] = t.frame.minX }
+            // The drawn title is the leading item (id tabroot.title); the bar also keeps the navigation title as a
+            // zero-size centred text (VoiceOver / back button), so match by identifier, not by label.
+            let drawn = bar.descendants(matching: .any).matching(identifier: "tabroot.title").firstMatch
+            let t: XCUIElement? = drawn.exists ? drawn : bar.staticTexts.matching(NSPredicate(format: "label == %@", L(titles[i])))
+                .allElementsBoundByIndex.first { $0.exists && $0.frame.width > 1 }
+            if let t, t.exists { titleMid[names[i]] = t.frame.midY; titleLeft[names[i]] = t.frame.minX }
             let buttons = bar.buttons.allElementsBoundByIndex.filter { $0.exists && $0.frame.minX > bar.frame.midX }
             if let b = buttons.first { buttonMid[names[i]] = b.frame.midY }
         }
