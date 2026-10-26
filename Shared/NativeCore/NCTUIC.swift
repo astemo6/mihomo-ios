@@ -142,7 +142,7 @@ final class NCTUICConnection {
         sni = disableSNI ? nil : (proxy.fields["sni"]?.string ?? server)
         alpn = proxy.fields["alpn"]?.array?.compactMap { $0.string } ?? ["h3"]
         allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
-        echEnabled = proxy.fields["ech-opts"]?.object?["enable"]?.bool == true
+        echEnabled = NCSupport.systemQUICECHEnabled(proxy)
         if echEnabled && NCSupport.hasStaticECHConfig(proxy) {
             StartupLog.write("tuic「\(proxy.name)」: 节点配置了静态 ech-opts.config，但系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 获取，静态配置不生效）")
         }
@@ -194,7 +194,7 @@ final class NCTUICConnection {
         // 3. 需系统 DNS 解析具备 DoH/HTTPS 记录支持；若无法从 DNS 获取则自动回退为普通 ClientHello。
         // 因此此处为「系统 ECH（尽力而为）」。
         if echEnabled {
-            sec_protocol_options_set_enable_encrypted_client_hello(tls, true)
+            ncSetSystemECH(tls, true)
         }
         options.idleTimeout = 30_000
         // RFC 9221: advertise DATAGRAM support so native-mode UDP (and server heartbeats) can flow.

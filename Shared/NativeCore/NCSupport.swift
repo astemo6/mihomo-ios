@@ -28,14 +28,11 @@ enum NCSupport {
         if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
-        // ECH (RFC 9849): 自研 TLS 栈（NCTLS13）已支持 ECH 握手能力；QUIC 路径（TUIC / Hysteria2）走系统 ECH（尽力而为，PR #150 / E6）。
-        // 校验互斥与协议栈范围：
-        // 1. REALITY 与 ECH 互斥（不能同时启用）。
-        // 2. QUIC 路径（TUIC / Hysteria2）走系统 ECH（尽力而为），不在此判定为不可用。
-        // 3. 各出站协议（Trojan / VLESS / VMess / AnyTLS / HTTPS）已接入自研 TLS 栈（feat/nc-tls-parity）。
-        // 4. Vision 流与 Shadowsocks 插件暂不支持 ECH。
-        if let ech = p.fields["ech-opts"]?.object ?? (p.fields["plugin-opts"]?.object?["ech-opts"]?.object),
-           ech["enable"]?.bool == true {
+        // ECH (RFC 9849), one judgement for every layer, read from p.echOpts (mihomo semantics: enable must be true).
+        // TCP/TLS nodes (trojan / vless / vmess / anytls / https) do ECH in the native TLS stack (static
+        // ech-opts.config, else the HTTPS RR via the kernel DNS); hy2 / tuic use the system QUIC ECH switch
+        // (best effort, DNS only — see report()). REALITY is exclusive; Vision and SS plugins are not wired.
+        if let ech = p.echOpts, ech.enable {
             let sec = p.fields["security"]?.string?.lowercased()
             if p.fields["reality-opts"] != nil || sec == "reality" {
                 return "REALITY 与 ECH 互斥，不能同时启用"
@@ -45,9 +42,12 @@ enum NCSupport {
             }
             if t == "vless" {
                 let flow = (p.fields["flow"]?.string ?? "").lowercased()
-                if flow == "xtls-rprx-vision" || flow == "xtls-rprx-vision-udp443" {
+                if flow.hasPrefix("xtls-rprx-vision") {
                     return "VLESS Vision 不支持 ECH"
                 }
+            }
+            if !Self.echTypes.contains(t) {
+                return "\(t) 不支持 ECH（ech-opts）"
             }
         }
         switch t {
@@ -206,19 +206,21 @@ enum NCSupport {
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.
     static let groupTypes: Set<String> = ["select", "url-test", "fallback", "load-balance", "relay"]
 
+    /// Proxy types whose dial honours ech-opts (native TLS stack, or the system QUIC switch for hy2 / tuic).
+    static let echTypes: Set<String> = ["trojan", "vless", "vmess", "anytls", "https", "hysteria2", "hy2", "tuic"]
+
+    /// hy2 / tuic: whether the system QUIC ECH switch is turned on — only for an explicit `ech-opts.enable: true`
+    /// (nodes without ech-opts stay byte-for-byte unchanged; review #150 item 1).
+    static func systemQUICECHEnabled(_ p: NCProxy) -> Bool {
+        p.echOpts?.enable == true
+    }
+
     /// Whether the proxy explicitly configures `ech-opts` with a non-empty static `config`.
     /// System QUIC (NWProtocolQUIC) ECH can only discover ECHConfig dynamically via system DNS (HTTPS/SVCB records),
     /// so static configs cannot be injected into the system QUIC stack.
     static func hasStaticECHConfig(_ p: NCProxy) -> Bool {
-        guard let echOpts = p.fields["ech-opts"]?.object,
-              echOpts["enable"]?.bool == true else { return false }
-        if let s = echOpts["config"]?.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return true
-        }
-        if let a = echOpts["config"]?.array, !a.isEmpty {
-            return true
-        }
-        return false
+        guard let opts = p.echOpts, opts.enable else { return false }
+        return opts.config != nil
     }
 
     /// One line per unsupported node / group type / rule, for the startup log and 诊断.

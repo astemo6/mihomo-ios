@@ -22,7 +22,9 @@ private let secProtocolOptionsSetEnableECHSymbol: (@convention(c) (sec_protocol_
     return unsafeBitCast(sym, to: (@convention(c) (sec_protocol_options_t, Bool) -> Void).self)
 }()
 
-func sec_protocol_options_set_enable_encrypted_client_hello(_ options: sec_protocol_options_t, _ enable: Bool) {
+/// Experimental: called only for nodes with `ech-opts.enable: true` (hy2 / tuic). Named apart from the C function so a
+/// future SDK that makes the symbol available on iOS cannot be shadowed by / confused with this wrapper.
+func ncSetSystemECH(_ options: sec_protocol_options_t, _ enable: Bool) {
     if let fn = secProtocolOptionsSetEnableECHSymbol {
         fn(options, enable)
     }

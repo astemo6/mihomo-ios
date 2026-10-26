@@ -536,7 +536,7 @@ final class NCHysteria2Connection {
     convenience init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let server = proxy.server, let port = proxy.port,
               let password = proxy.password else { return nil }
-        let echEnabled = proxy.fields["ech-opts"]?.object?["enable"]?.bool == true
+        let echEnabled = NCSupport.systemQUICECHEnabled(proxy)
         if echEnabled && NCSupport.hasStaticECHConfig(proxy) {
             StartupLog.write("hysteria2「\(proxy.name)」: 节点配置了静态 ech-opts.config，但系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 获取，静态配置不生效）")
         }
@@ -593,7 +593,7 @@ final class NCHysteria2Connection {
         // 3. 需系统 DNS 解析具备 DoH/HTTPS 记录支持；若无法从 DNS 获取则自动回退为普通 ClientHello。
         // 因此此处为「系统 ECH（尽力而为）」。
         if echEnabled {
-            sec_protocol_options_set_enable_encrypted_client_hello(tlsOptions, true)
+            ncSetSystemECH(tlsOptions, true)
         }
         // RFC 9221 max_datagram_frame_size: our SETTINGS announce H3_DATAGRAM=1, and a
         // quic-go HTTP/3 peer with datagrams enabled closes the connection
