@@ -294,14 +294,20 @@ final class NativeTunnelCore {
     private func loadRewriteSnapshot(home: String, engine: NativeCoreEngine) {
         logRewriteSkips()
         // Scripts: the prelude once per process, the app's script manifest (code files + run setup) every load.
-        StartupLog.write("native scripts: " + NativeScriptHost.shared.load(home: home))
+        let scriptsLine = NativeScriptHost.shared.load(home: home)
+        StartupLog.write("native scripts: " + scriptsLine)
         // gap C3: cron / event / generic tasks and panels from the same manifest
         StartupLog.write("native tasks: " + NativeTaskRunner.shared.load(home: home))
+        // fix/nc-mitm-live: 脚本日志 gets one line per load, so an empty page no longer means "nothing happened or broken?"
+        let sched = NativeTaskRunner.shared.scheduleSummary()
+        StartupLog.write("native task schedule: " + sched)
+        NativeLogRing.shared.addScript(script: "Tern", level: "info", msg: "脚本引擎已加载：\(scriptsLine)；\(sched)")
         let url = URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json")
         if let text = try? String(contentsOf: url, encoding: .utf8), let snap = RWSnapshot.decode(text) {
             NativeRewriteSnapshotSource.shared.setSnapshot(snap, json: text)
             NativeRewriteEngine.load(snap)
             StartupLog.write("native rewrite snapshot: \(snap.rules?.count ?? 0) rules, \(snap.inc?.count ?? 0) MitM hosts, on \(snap.on)")
+            NativeLogRing.shared.addScript(script: "Tern", level: "info", msg: "重写已加载：\(snap.rules?.count ?? 0) 条规则，\(NativeRewriteEngine.shared.mitmHostCount) 个 MitM 主机")
         } else if let canonical = engine.loadedCanonicalConfig {
             let snap = canonical.buildRewriteSnapshot()
             NativeRewriteSnapshotSource.shared.setSnapshot(snap)

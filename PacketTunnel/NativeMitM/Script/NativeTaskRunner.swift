@@ -466,6 +466,28 @@ final class NativeTaskRunner {
         return "\(nt) task(s), \(np) panel(s)"
     }
 
+    /// fix/nc-mitm-live: what the schedule holds, for the startup log and one line in 脚本日志 at every load
+    /// (a cron that does not parse used to make its task silently never run).
+    func scheduleSummary() -> String {
+        lock.lock(); defer { lock.unlock() }
+        let cronTasks = tasks.filter { ($0.cron ?? "").isEmpty == false }
+        let bad = cronTasks.filter { crons[$0.id] == nil }
+        let off = tasks.filter { !enabledLocked($0) }.count
+        var nextName = "", nextAt = 0.0
+        for t in cronTasks where enabledLocked(t) {
+            if let st = states[t.id], st.nextRun > 0, nextAt == 0 || st.nextRun < nextAt { nextAt = st.nextRun; nextName = t.name }
+        }
+        var out = "\(tasks.count) 个任务（定时 \(cronTasks.count)，停用 \(off)）"
+        if prefs.paused == true { out += "，全部已暂停" }
+        if !bad.isEmpty { out += "，cron 无法解析：" + bad.prefix(3).map { "\($0.name)（\($0.cron ?? "")）" }.joined(separator: "、") }
+        if nextAt > 0 {
+            let f = DateFormatter()
+            f.dateFormat = "MM-dd HH:mm"
+            out += "；下一次：\(nextName) \(f.string(from: Date(timeIntervalSince1970: nextAt)))"
+        }
+        return out
+    }
+
     func stop() {
         lock.lock()
         timer?.cancel()

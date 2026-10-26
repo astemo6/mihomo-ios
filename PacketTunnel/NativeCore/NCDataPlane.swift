@@ -52,26 +52,25 @@ final class NCDataPlane {
     private var relayFailed = 0
     private var relayRejected = 0
     private var udpOpened = 0
-    private var connLogWindow: UInt64 = 0
-    private var connLogCount = 0
-    private var connLogSuppressed = 0
-    static let connLogPerSecond = 20
+    static let connLogPerSecond = NCDiagLimiter.perSecond
+    // fix/nc-mitm-live: MitM handoff health / counters (statsLine) and the periodic fake-ip flush.
+    private var mitmDecrypted = 0
+    private var mitmPassthrough = 0
+    private var mitmFallbacks = 0
+    private var mitmFrontFailStreak = 0
+    private var mitmFrontDown = false
+    private var fakeUnmappedReset = 0
+    private var lastFakeIPPersist = Date()
+    /// Wait for the front's first bytes (ServerHello) before falling back to a plain relay.
+    static let mitmFrontTimeout: TimeInterval = 4
+    /// Bytes kept for a fallback replay while the front has not answered yet.
+    static let mitmReplayCap = 32 << 10
 
     /// One line per session outcome into the log ring, at most `connLogPerSecond` a second (the rest are counted
     /// and reported as one "suppressed" line) — the ring keeps 400 lines, so memory stays flat.
+    /// fix/nc-mitm-live: through the shared NCDiagLimiter ([TCP] / [UDP] / [MITM] / [REWRITE] / [SCRIPT] together ≤ 20/s).
     private func connLog(_ line: String, level: String = "info") {
-        let now = DispatchTime.now().uptimeNanoseconds
-        if now &- connLogWindow >= 1_000_000_000 {
-            if connLogSuppressed > 0 {
-                NativeLogRing.shared.add(type: "warning", payload: "[conn] \(connLogSuppressed) connection line(s) suppressed (limit \(Self.connLogPerSecond)/s)")
-            }
-            connLogWindow = now
-            connLogCount = 0
-            connLogSuppressed = 0
-        }
-        guard connLogCount < Self.connLogPerSecond else { connLogSuppressed += 1; return }
-        connLogCount += 1
-        NativeLogRing.shared.add(type: level, payload: line)
+        NCDiagLimiter.shared.line(line, level: level)
     }
 
     private static func short(_ e: Error?) -> String {
@@ -159,6 +158,17 @@ final class NCDataPlane {
         var ruleText = ""
         var policyName = ""
         var dialAt: DispatchTime?   // fix/nc-ctrl-bsd: connect latency for the outcome line
+        // fix/nc-mitm-live
+        var mitmPeek = false        // held for the ClientHello: MitM decision pending
+        var unmappedFake = false    // fake-ip destination with no mapping: SNI / Host is the only way to its domain
+        var mitmHost: String?       // handed to the native front for this host
+        var mitmTried = false       // handoffMitm ran once (never twice per flow)
+        var frontAt: Date?          // when the front stream was opened
+        var frontAwaiting = false   // front opened, no byte back yet (fallback still possible)
+        var frontSent = Data()      // client bytes sent to the front while awaiting (replayed on fallback)
+        var frontReplayable = true  // frontSent still holds everything sent
+        var replay: Data?           // bytes to resend first on the fallback relay
+        var relayGen = 0            // bumped when a MitM fallback swaps the relay (stale receive callbacks ignored)
         enum State { case deciding, connecting, open, closed }
         init(conn: NCTunStack.TCPConn, target: NCTarget, ruleDomain: String?) {
             self.conn = conn
@@ -186,6 +196,13 @@ final class NCDataPlane {
         stack.onUDP = { [weak self] info, data in self?.udp(info, data) }
         stack.onTCPSent = { [weak self] conn in self?.tcpSent(conn) }
         stack.onUDPClosed = { [weak self] id in self?.udpGone(id) }
+        // fix/nc-mitm-live: a client that refuses our leaf shows up in 诊断 (was silent: only the pinning memory knew).
+        MitmTLSFront.shared.reportHandshakeFailure = { host, kind in
+            let pin = kind == "cert" || kind == "closed"
+            if pin { NCPinningMemory.shared.markPinned(host) }
+            let hint = kind == "cert" ? " — the client does not trust the Tern CA (install it and enable full trust: 设置 → 通用 → 关于本机 → 证书信任设置), or it pins its certificate" : ""
+            NCDiagLimiter.shared.line("[MITM] \(host) → passthrough(client TLS handshake failed: \(kind)\(hint))\(pin ? "; next connections to it pass through" : "")", level: "warning")
+        }
         // The v6 address mirrors PacketTunnelProvider's NEIPv6Settings so
         // fake-IP v6 destinations terminate in the stack like v4 ones.
         guard stack.start(ip4: "198.18.0.1", ip6: "fdfe:dcba:9876::1", mtu: mtu) else {
@@ -245,7 +262,7 @@ final class NCDataPlane {
     }
 
     var statsLine: String {
-        "native: packets in \(packetsIn), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped), relay ok \(relayOK), direct \(relayDirect), relay failed \(relayFailed), rejected \(relayRejected), udp opened \(udpOpened)"
+        "native: packets in \(packetsIn), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped), relay ok \(relayOK), direct \(relayDirect), relay failed \(relayFailed), rejected \(relayRejected), udp opened \(udpOpened), mitm decrypted \(mitmDecrypted), mitm passthrough \(mitmPassthrough), mitm fallback \(mitmFallbacks)\(mitmFrontDown ? " (front DOWN)" : ""), fake-ip unmapped reset \(fakeUnmappedReset)"
     }
 
     // MARK: Packet flow
@@ -316,6 +333,10 @@ final class NCDataPlane {
             if s.state == .deciding, now.timeIntervalSince(s.acceptedAt) > 1.5 {
                 connect(s) // server-first protocol or silent client: go by IP
             }
+            if s.state == .open, s.frontAwaiting, let at = s.frontAt, now.timeIntervalSince(at) > Self.mitmFrontTimeout {
+                mitmFallback(s, reason: "no TLS answer from the front in \(Int(Self.mitmFrontTimeout)) s (loopback listener not accepting?)")
+                continue
+            }
             if s.state == .open {
                 // rv2-life: an app that stopped reading never lets a finished relay's tail drain: give up after 30 s
                 if let eof = s.closeAfterDrain, now.timeIntervalSince(eof) > 30 { close(s) } else { drain(s) }
@@ -327,6 +348,11 @@ final class NCDataPlane {
             entry.session.cancel()
             udpSessions.removeValue(forKey: id)
             stack.udpClose(session: id)
+        }
+        if now.timeIntervalSince(lastFakeIPPersist) >= 60 {
+            lastFakeIPPersist = now
+            let e = engine
+            DispatchQueue.global(qos: .utility).async { e.persistFakeIPIfChanged() }
         }
         if sessions.isEmpty && udpSessions.isEmpty {
             idleTicks += 1
@@ -349,6 +375,18 @@ final class NCDataPlane {
             loggedFirstAccept = true
             StartupLog.write("data plane: first TCP flow accepted (port \(conn.dst.port), \(fakeDomain != nil ? "fake-ip domain" : "ip"))")
         }
+        // fix/nc-mitm-live: an unmapped fake-ip destination cannot be dialed; its first bytes (SNI / Host) are the only
+        // way to the domain, whatever the sniffer config says — held for decide(), RST if nothing turns up.
+        if fakeDomain == nil, let ip = conn.dst.ip, engine.isFakeAddress(ip) { s.unmappedFake = true }
+        // fix/nc-mitm-live: the MitM decision no longer depends on the sniffer path (it used to run only for bare-IP
+        // flows with parse-pure-ip on, so flows with a known domain — fake-ip or redir-host — never reached the front).
+        if !mitmFrontDown {
+            let engine = self.engine
+            s.mitmPeek = NCMitmGate.shouldPeek(knownDomain: fakeDomain, port: conn.dst.port, mitmActive: engine.mitmActive,
+                                               mitmPorts: engine.mitmPorts,
+                                               isMitm: { engine.isMitm(host: $0, port: $1) })
+        }
+        if s.mitmPeek || s.unmappedFake { return true } // decide() runs on the first bytes; the tick bounds the wait
         let sniff = engine.snifferConfig
         if !sniff.enable {
             connect(s) // sniffer off (config / user toggle): no first-packet inspection
@@ -389,6 +427,9 @@ final class NCDataPlane {
         case .open:
             countUp(s, data.count)
             guard let relay = s.relay else { return }
+            if s.frontAwaiting, s.frontReplayable {
+                if s.frontSent.count + data.count <= Self.mitmReplayCap { s.frontSent.append(data) } else { s.frontReplayable = false; s.frontSent = Data() }
+            }
             let n = data.count
             NCRelayFlow.send(relay, data, queue: queue) { [weak self, weak s] in
                 guard let self, let s, s.state != .closed else { return }
@@ -417,6 +458,47 @@ final class NCDataPlane {
     /// Learn the real domain from the first bytes (TLS SNI / HTTP Host) when the
     /// app dialed a bare IP; otherwise keep the IP as the target.
     private func decide(_ s: TCPSession) {
+        if s.mitmPeek {
+            let engine = self.engine
+            let verdict = NCMitmGate.decide(firstBytes: s.pending, knownDomain: s.ruleDomain,
+                                            dstIP: s.conn.dst.ip != nil ? s.conn.dst.host : nil, port: s.target.port,
+                                            isMitm: { engine.isMitm(host: $0, port: $1) })
+            switch verdict {
+            case .needMore:
+                return // the next segment calls decide() again; the tick connects after 1.5 s
+            case .mitm(let host, let alpn):
+                s.mitmPeek = false
+                s.protocolHint = "tls"
+                if s.ruleDomain == nil { s.ruleDomain = host }
+                if handoffMitm(s, host: host, alpn: alpn) { return }
+            case .passthrough(let reason):
+                s.mitmPeek = false
+                // Only flows whose known domain is a MitM host are MitM flows; a bare-IP peek that is not one is quiet.
+                if let d = s.ruleDomain, engine.isMitm(host: d, port: s.target.port) {
+                    mitmPassthrough &+= 1
+                    connLog("[MITM] \(d):\(s.target.port) → passthrough(\(reason))", level: "warning")
+                }
+                if case .tls(let sni, _) = NCSniffer.detect(s.pending), let sni, !sni.isEmpty, s.ruleDomain == nil || s.unmappedFake {
+                    s.ruleDomain = sni.lowercased()
+                }
+            }
+        }
+        if s.unmappedFake && s.ruleDomain == nil {
+            // first TLS record split over segments: wait for the rest (bounded by the tick / pending cap)
+            if s.pending.first == 0x16, !NCMitmGate.helloComplete(s.pending), s.pending.count < NCMitmGate.maxHelloBytes { return }
+            switch NCSniffer.detect(s.pending) {
+            case .tls(let sni, let alpn):
+                s.protocolHint = alpn == ["h3"] ? "quic" : "tls"
+                if let sni, !sni.isEmpty { s.ruleDomain = sni.lowercased() }
+            case .http(let host, _):
+                s.protocolHint = "http"
+                if let host, !host.isEmpty { s.ruleDomain = host.lowercased() }
+            case .unknown:
+                break
+            }
+            connect(s) // no domain → connect() resets the flow
+            return
+        }
         let sniff = engine.snifferConfig
         guard sniff.enable, !sniff.matchesSkipDomain(s.ruleDomain) else { connect(s); return }
         switch NCSniffer.detect(s.pending) {
@@ -435,34 +517,9 @@ final class NCDataPlane {
                     s.target = NCTarget(host: sni, port: s.target.port)
                 }
             }
-            if let sni, engine.isMitm(host: sni, port: s.target.port) {
-                let alpnStr = alpn.joined(separator: ",")
-                let mitmPort = MitmTLSFront.shared.listen(host: sni, alpn: alpnStr)
-                if mitmPort > 0 {
-                    s.state = .connecting
-                    s.policyName = "MITM"
-                    s.chainName = "MITM"
-                    let stream = NCStream(to: "127.0.0.1", port: Int(mitmPort), queue: queue)
-                    stream.start { [weak self, weak s] err in
-                        guard let self, let s, s.state == .connecting else {
-                            stream.cancel()
-                            return
-                        }
-                        if let err {
-                            self.close(s)
-                            return
-                        }
-                        s.relay = stream
-                        s.state = .open
-                        if !s.pending.isEmpty {
-                            self.countUp(s, s.pending.count)
-                            stream.send(s.pending)
-                            s.pending = Data()
-                        }
-                        self.receiveLoop(s)
-                    }
-                    return
-                }
+            if let sni, !s.mitmTried, !mitmFrontDown, engine.mitmActive, engine.isMitm(host: sni, port: s.target.port),
+               handoffMitm(s, host: sni.lowercased(), alpn: alpn) {
+                return
             }
             connect(s)
         case .http(let host, _):
@@ -480,6 +537,83 @@ final class NCDataPlane {
         }
     }
 
+    // MARK: MitM handoff (fix/nc-mitm-live)
+
+    /// Hands the flow to the native MitM front (loopback TLS listener presenting the leaf for `host`). false = the
+    /// front declined (pinned host, session cap, no CA / leaf, listener failed): the caller relays normally.
+    private func handoffMitm(_ s: TCPSession, host: String, alpn: [String]) -> Bool {
+        guard !s.mitmTried else { return false }
+        s.mitmTried = true
+        let mitmPort = MitmTLSFront.shared.listen(host: host, alpn: alpn.joined(separator: ","))
+        guard mitmPort > 0 else {
+            mitmPassthrough &+= 1
+            let why = NCPinningMemory.shared.isPinned(host)
+                ? "pinned: the client rejected the Tern certificate earlier"
+                : (MitmTLSFront.shared.onAccept == nil ? "native front not installed" : "front declined: session cap / no CA leaf / listener")
+            connLog("[MITM] \(host):\(s.target.port) → passthrough(\(why))", level: "warning")
+            return false
+        }
+        s.state = .connecting
+        s.policyName = "MITM"
+        s.chainName = "MITM"
+        s.ruleText = "MITM"
+        s.mitmHost = host
+        s.frontAt = Date()
+        let stream = NCStream(to: "127.0.0.1", port: Int(mitmPort), queue: queue)
+        stream.start { [weak self, weak s] err in
+            guard let self, let s, s.state == .connecting, s.mitmHost != nil else {
+                stream.cancel()
+                return
+            }
+            if let err {
+                stream.cancel()
+                self.mitmFallback(s, reason: "front unreachable: \(Self.short(err))")
+                return
+            }
+            s.relay = stream
+            s.state = .open
+            s.frontAwaiting = true
+            s.frontAt = Date()
+            if !s.pending.isEmpty {
+                self.countUp(s, s.pending.count)
+                s.frontSent = s.pending
+                stream.send(s.pending)
+                s.pending = Data()
+            }
+            self.receiveLoop(s)
+        }
+        return true
+    }
+
+    /// The front gave no byte back (timeout / EOF / error) before the TLS handshake started: nothing reached the app
+    /// yet, so the flow is re-routed as a plain relay and everything the client sent is replayed. Three in a row
+    /// mean the loopback front is not working in this process: MitM is bypassed for the rest of the session.
+    private func mitmFallback(_ s: TCPSession, reason: String) {
+        guard s.state != .closed, let host = s.mitmHost else { return }
+        let replayable = s.frontReplayable
+        let sent = s.frontSent
+        s.relay?.cancel()
+        s.relay = nil
+        s.relayGen &+= 1
+        s.mitmHost = nil
+        s.frontAwaiting = false
+        s.frontSent = Data()
+        mitmFallbacks &+= 1
+        mitmFrontFailStreak += 1
+        connLog("[MITM] \(host):\(s.target.port) → passthrough(\(reason))", level: "warning")
+        if mitmFrontFailStreak >= 3 && !mitmFrontDown {
+            mitmFrontDown = true
+            StartupLog.write("MITM: native front failed \(mitmFrontFailStreak)× in a row (last: \(reason)) — MitM bypassed for this session; reconnect the VPN to retry")
+        }
+        guard replayable else { close(s); return }
+        if !sent.isEmpty { s.replay = sent }
+        s.policyName = ""
+        s.chainName = ""
+        s.ruleText = ""
+        s.state = .deciding
+        connect(s)
+    }
+
     private func connect(_ s: TCPSession) {
         guard s.state == .deciding else { return }
         s.state = .connecting
@@ -488,8 +622,11 @@ final class NCDataPlane {
         // (mihomo rejects "fake DNS record missing").
         if let ip = s.target.ip, engine.isFakeAddress(ip) {
             guard let d = s.ruleDomain else {
-                connLog("[TCP] \(s.target.host):\(s.target.port) dropped: fake-ip without a domain mapping", level: "warning")
-                close(s)
+                // fix/nc-mitm-live: RST (was a silent FIN close) so the app fails fast and re-resolves instead of
+                // retrying the stale address.
+                fakeUnmappedReset &+= 1
+                connLog("[TCP] \(s.target.host):\(s.target.port) reset: fake-ip without a domain mapping (no SNI / Host) — the app re-resolves", level: "warning")
+                resetUnmapped(s)
                 return
             }
             s.target = NCTarget(host: d, port: s.target.port)
@@ -540,6 +677,16 @@ final class NCDataPlane {
             self.connLog("\(Self.outcomeHead(s)) connected in \(ms) ms")
             s.relay = relay
             s.state = .open
+            if let r = s.replay {
+                // fix/nc-mitm-live: MitM fallback — what the client already sent to the front (acknowledged then)
+                s.replay = nil
+                NCRelayFlow.send(relay, r, queue: queue) {}
+            }
+            if s.started, s.pendingCounted > 0 {
+                // fallback after receiveLoop ran once: the pending bytes leave the budget here
+                bufferedTotal -= s.pendingCounted
+                s.pendingCounted = 0
+            }
             if !s.pending.isEmpty {
                 countUp(s, s.pending.count)
                 let p = s.pending
@@ -574,8 +721,20 @@ final class NCDataPlane {
                 s.unacked -= ackable
             }
         }
+        let gen = s.relayGen
         s.relay?.receive { [weak self, weak s] data, error in
-            guard let self, let s, s.state == .open else { return }
+            guard let self, let s, s.state == .open, s.relayGen == gen else { return }
+            if s.frontAwaiting {
+                guard let data, !data.isEmpty else {
+                    self.mitmFallback(s, reason: "front closed before the TLS handshake\(error.map { ": " + Self.short($0) } ?? "")")
+                    return
+                }
+                s.frontAwaiting = false
+                s.frontSent = Data()
+                self.mitmDecrypted &+= 1
+                self.mitmFrontFailStreak = 0
+                self.connLog("[MITM] \(s.mitmHost ?? s.target.host):\(s.target.port) → decrypted")
+            }
             if let data, !data.isEmpty {
                 countDown(s, data.count)
                 s.outQ.append(data)
@@ -726,6 +885,16 @@ final class NCDataPlane {
             s.unacked = 0
         }
         stack.tcpClose(s.conn)
+    }
+
+    /// fix/nc-mitm-live: RST toward the app (unusable destination), no outcome line.
+    private func resetUnmapped(_ s: TCPSession) {
+        guard s.state != .closed else { return }
+        s.state = .closed
+        sessions.removeValue(forKey: s.key)
+        releaseBuffers(s)
+        s.relay?.cancel()
+        stack.tcpAbort(s.conn)
     }
 
     /// rv2-life: overflow (pre-connect cap): RST toward the app and drop the relay.

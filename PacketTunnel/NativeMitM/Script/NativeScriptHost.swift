@@ -516,6 +516,9 @@ final class NativeScriptHost: ScriptHostAPI {
         let name = entry(rule)?.name ?? "script"
         let w = why.isEmpty ? "响应体超过上限或编码不支持" : why
         StartupLog.write("跳过脚本：\(name) — \(w)")
+        // fix/nc-mitm-live: 脚本日志 showed nothing — skips / failures only reached the startup log
+        NativeLogRing.shared.addScript(script: name, level: "warn", msg: "跳过脚本：" + w)
+        NCDiagLimiter.shared.line("[SCRIPT] \(name) skipped: \(w)", level: "warning")
         return "跳过脚本：" + name + " — " + w
     }
 
@@ -529,6 +532,11 @@ final class NativeScriptHost: ScriptHostAPI {
         default: why = detail.isEmpty ? "脚本错误" : detail
         }
         StartupLog.write("脚本失败：\(name) — \(why)\(afterDone ? "（$done 之后）" : "")")
+        // fix/nc-mitm-live: into 脚本日志 too (task runs log their own error line in NativeTaskRunner)
+        if rule >= 0 {
+            NativeLogRing.shared.addScript(script: name, level: "error", msg: why + (afterDone ? "（$done 之后）" : ""))
+        }
+        NCDiagLimiter.shared.line("[SCRIPT] \(name) error \(why)", level: "warning")
         var f = ScriptFail()
         if afterDone && stop == 0 {
             f.ignored = true // an exception after $done: logged, the answer stands (Go: Ignored, no note)
@@ -576,6 +584,13 @@ final class NativeScriptHost: ScriptHostAPI {
             lock.lock(); logLines += 1; let n = logLines; lock.unlock()
             if n <= 500 { StartupLog.write("script #\(rule): " + String(arg.prefix(300)), mirror: false) }
             return ""
+        case "x-finished":
+            // fix/nc-mitm-live: NativeScriptRun reports every finished run (ms in arg); nothing handled it, so a
+            // script that ran fine left no trace anywhere.
+            let name = entry(rule)?.name ?? "script #\(rule)"
+            if rule >= 0 { NativeLogRing.shared.addScript(script: name, level: "debug", msg: "执行完成，用时 \(arg) ms") }
+            NCDiagLimiter.shared.line("[SCRIPT] \(name) ok in \(arg) ms")
+            return ""
         case "btoa":
             return Data(arg.utf8).base64EncodedString()
         case "atob":
@@ -591,6 +606,9 @@ final class NativeScriptHost: ScriptHostAPI {
                 if arr.count > 3 && !arr[3].isEmpty {
                     content.userInfo = ["url": arr[3]]
                 }
+                // fix/nc-mitm-live: $notification.post also shows in 脚本日志 (level notify)
+                NativeLogRing.shared.addScript(script: entry(rule)?.name ?? "script #\(rule)", level: "notify",
+                                               msg: [arr[0], arr[1], arr[2]].filter { !$0.isEmpty }.joined(separator: " — "))
                 let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
                 UNUserNotificationCenter.current().add(req) { _ in }
                 return "true"
