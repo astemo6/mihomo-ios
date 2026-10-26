@@ -34,6 +34,7 @@ final class RequestsModel: ObservableObject {
         guard !demo else { return }
         task?.cancel()
         task = Task { [weak self] in
+            await self?.backfillClosed()
             while !Task.isCancelled {
                 if self?.paused == false { await self?.poll() }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -68,6 +69,43 @@ final class RequestsModel: ObservableObject {
         }
         active = now.sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
         await pollTimeline()
+    }
+
+    // fix/nc-diag-439 (I): 最近 is built by diffing our own /connections polls, and nothing polls while the App is in
+    // the background — connections that opened and closed meanwhile never showed up (build 439: "records appear only
+    // after opening another app"). The tunnel keeps every closed connection of the session (NCStatsRecorder ring, 300)
+    // behind GET /app/stats; on every start (screen appears / App back in the foreground) the closed entries newer
+    // than our cursor are merged in, deduped by id, newest first, capped at 300.
+    private var tunnelSession: Int64 = 0
+    private var tunnelClosedSeq: Int64 = 0
+
+    private func backfillClosed() async {
+        let q = [URLQueryItem(name: "session", value: String(tunnelSession)),
+                 URLQueryItem(name: "closedAfter", value: String(tunnelClosedSeq)),
+                 URLQueryItem(name: "hosts", value: "1"),
+                 URLQueryItem(name: "rules", value: "1")]
+        guard let s = try? await ControllerClient.shared.get(TunnelStats.self, "/app/stats", query: q, timeout: 5) else { return }
+        tunnelSession = s.session
+        tunnelClosedSeq = s.closedSeq
+        let incoming = s.closed.map(\.item)
+        guard !incoming.isEmpty else { return }
+        recent = Self.mergeClosed(recent: recent, incoming: incoming, activeIDs: Set(active.map(\.id)), cap: 300)
+    }
+
+    /// Existing entries win over tunnel copies of the same id; connections still listed as active are skipped.
+    nonisolated static func mergeClosed(recent: [ConnectionItem], incoming: [ConnectionItem],
+                                        activeIDs: Set<String>, cap: Int) -> [ConnectionItem] {
+        var seen = Set(recent.map(\.id)).union(activeIDs)
+        var add: [ConnectionItem] = []
+        for c in incoming where !seen.contains(c.id) {
+            seen.insert(c.id)
+            add.append(c)
+        }
+        guard !add.isEmpty else { return recent }
+        var all = recent + add
+        all.sort { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }
+        if all.count > cap { all.removeLast(all.count - cap) }
+        return all
     }
 
     /// Renews the core's 20 s watch lease and merges its records; ids no longer listed anywhere are dropped.

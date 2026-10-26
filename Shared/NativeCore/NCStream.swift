@@ -19,11 +19,16 @@ final class NCStream {
 
     /// TLS with proxy-protocol options: explicit SNI (servername) and optional
     /// skip-cert-verify, as Trojan/VLESS/VMess configs carry them.
-    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, queue: DispatchQueue) {
+    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, alpn: [String]? = nil, queue: DispatchQueue) {
         self.queue = queue
         let tlsOptions = NWProtocolTLS.Options()
         if let sni = tlsServerName, !sni.isEmpty {
             sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, sni)
+        }
+        // fix/nc-diag-439 (G): explicit ALPN (ws over TLS offers only http/1.1, like mihomo — an edge that is offered
+        // h2 may pick it and the ws upgrade then fails).
+        for p in alpn ?? [] where !p.isEmpty {
+            sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, p)
         }
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, complete in

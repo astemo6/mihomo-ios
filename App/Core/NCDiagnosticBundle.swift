@@ -59,6 +59,9 @@ extension DiagnosticSummary {
             out["settings/profiles.json"] = jsonText(r, b, section: "profiles")
         }
         out["geo.json"] = NCGeoStore.info(homeDir: home)
+        if !profilePath.isEmpty {
+            out["settings/provider-overrides.txt"] = providerOverridesSummary(home: home, profilePath: profilePath)
+        }
 
         // 2. logs + info + modules (after the configs so every secret is known)
         for (k, v) in sectionFiles(home: home, appInfo: appInfo, cachedModuleInfo: cachedModuleInfo, redactor: r) {
@@ -74,7 +77,7 @@ extension DiagnosticSummary {
             "modules.txt           模块、重写、脚本、MitM 开关与数量\n" +
             "config-effective.yaml 上次启动实际使用的配置\n" +
             "config-next-start.yaml 下次连接会使用的配置\n" +
-            "settings/             覆写、DNS、自定义规则、订阅处理等设置\n\n" +
+            "settings/             覆写、DNS、自定义规则、订阅处理等设置（provider-overrides.txt：节点集设置里停用 / 删除的节点集，不含链接）\n\n" +
             "已脱敏：服务器地址、密码、UUID、密钥、订阅链接、令牌、公网 IP 后两段。\n"
         return out
     }
@@ -94,6 +97,30 @@ extension DiagnosticSummary {
     }
 
     // MARK: helpers
+
+    /// fix/nc-diag-439 (E): what 节点集设置 changed for the active profile — names and disabled / deleted / renamed
+    /// state only, never URLs (the only App step that removes a proxy-provider; build 439 配置 3 → App 1 had no trace).
+    static func providerOverridesSummary(home: String, profilePath: String) -> String {
+        let id = NCRuntimeFiles.profileID(fromPath: profilePath)
+        guard let ov = NCRuntimeFiles.readProviderOverrides(home: home, profileID: id), !ov.isEmpty else {
+            return "（当前配置在节点集设置里没有改动）\n"
+        }
+        var lines = ["# 节点集设置（provider-overrides.json）当前配置的改动，不含链接"]
+        for key in ov.keys.sorted() {
+            guard let o = ov[key] else { continue }
+            var parts: [String] = []
+            if o.deleted == true { parts.append("已删除") }
+            if o.disabled == true { parts.append("已停用") }
+            if let n = o.name, !n.isEmpty, n != key { parts.append("改名为「\(n)」") }
+            if o.url != nil { parts.append("改了链接") }
+            if let i = o.interval { parts.append("更新间隔 \(i) s") }
+            if o.filter != nil || o.excludeFilter != nil { parts.append("改了过滤") }
+            if let p = o.policy { parts.append("策略 \(p)") }
+            if let order = o.order { parts.append("规则顺序 \(order.count) 项") }
+            lines.append("\(key): " + (parts.isEmpty ? "（仅图标等外观）" : parts.joined(separator: "，")))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
 
     private static func rfc3339(_ d: Date) -> String {
         let f = ISO8601DateFormatter()

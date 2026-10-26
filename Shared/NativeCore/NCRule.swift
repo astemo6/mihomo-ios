@@ -136,6 +136,9 @@ struct NCMatchContext {
     var subRules: [String: [NCRule]] = [:]
     /// Injected lookups (engine supplies GeoIP mmdb / rule providers later).
     var countryOf: (NCIP) -> String? = { _ in nil }
+    /// fix/nc-diag-439 (A): every code of the IP (Meta-geoip0 multi-code records). When set, GEOIP / SRC-GEOIP match
+    /// any of them (mihomo MetaV0); nil → `countryOf` alone, as before.
+    var countryCodesOf: ((NCIP) -> [String])? = nil
     var asnOf: (NCIP) -> Int? = { _ in nil }
     var ruleSetContains: (String, NCMatchContext) -> Bool = { _, _ in false }
     /// Whether the named rule set holds IP entries (ipcidr behavior, or a
@@ -178,11 +181,11 @@ struct NCRuleMatcher {
             guard let ip = ctx.srcIP, let cidr = NCCIDR(rule.payload) else { return false }
             return cidr.contains(ip)
         case "GEOIP":
-            guard let ip = ctx.ip, let c = ctx.countryOf(ip) else { return false }
-            return c.uppercased() == rule.payload.uppercased()
+            guard let ip = ctx.ip else { return false }
+            return geoIPMatches(rule.payload, ip, ctx)
         case "SRC-GEOIP":
-            guard let ip = ctx.srcIP, let c = ctx.countryOf(ip) else { return false }
-            return c.uppercased() == rule.payload.uppercased()
+            guard let ip = ctx.srcIP else { return false }
+            return geoIPMatches(rule.payload, ip, ctx)
         case "GEOSITE":
             guard let d = ctx.domain else { return false }
             return ctx.geositeMatches(rule.payload, d)
@@ -224,6 +227,16 @@ struct NCRuleMatcher {
         default:
             return false
         }
+    }
+
+    /// GEOIP payload against the IP's code(s), case-insensitive (fix/nc-diag-439: any code of a multi-code record).
+    static func geoIPMatches(_ payload: String, _ ip: NCIP, _ ctx: NCMatchContext) -> Bool {
+        let want = payload.trimmingCharacters(in: .whitespaces)
+        if let all = ctx.countryCodesOf {
+            return all(ip).contains { $0.caseInsensitiveCompare(want) == .orderedSame }
+        }
+        guard let c = ctx.countryOf(ip) else { return false }
+        return c.caseInsensitiveCompare(want) == .orderedSame
     }
 
     /// The policy a matched SUB-RULE yields, per mihomo's matchSubRules:
