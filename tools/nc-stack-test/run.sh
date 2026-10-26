@@ -14,6 +14,8 @@ rm -f "$out.probe"
 ${CC:-cc} -std=gnu11 -O1 -w -I"$L" -I"$L/include" -I"$L/port" -o "$out" \
   "$here/nc_stack_test.c" "$L/nc_stack.c" "$L"/core/*.c $shim
 "$out"
-rc=$?
-rm -f "$out"
-exit $rc
+# fix/nc-tcp1: many-flow / long-duration soak on a simulated clock (≥800 TCP flows v4+v6 + DNS over ~12 simulated min).
+${CC:-cc} -std=gnu11 -O1 -w -DNC_STACK_TEST_CLOCK -I"$L" -I"$L/include" -I"$L/port" -o "$out.soak" \
+  "$here/nc_soak_test.c" "$L/nc_stack.c" "$L"/core/*.c $shim
+"$out.soak"
+rm -f "$out" "$out.soak"

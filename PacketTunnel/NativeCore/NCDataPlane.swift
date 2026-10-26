@@ -144,6 +144,9 @@ final class NCDataPlane {
         let conn: NCTunStack.TCPConn
         var target: NCTarget        // dial target (domain after deref/sniff, else the IP)
         var ruleDomain: String?     // domain fed to rule matching, when known
+        // fix/nc-tcp1: redir-host — the real destination IP the domain was mapped from (DNS answer). mihomo keeps
+        // metadata.DstIP in redir-host (only fake-ip clears it), so IP rules match it without resolving the domain.
+        var mappedIP: NCIP?
         var protocolHint: String?   // rv2-rules: sniffed "tls" / "quic" / "http" (PROTOCOL rules)
         var pending = Data()        // client bytes buffered before the relay is up
         // rv2-life: relay bytes waiting for the stack's send window, as received chunks + a read offset into the
@@ -386,6 +389,7 @@ final class NCDataPlane {
         let derefed = engine.derefFakeIP(conn.dst)
         let fakeDomain = derefed.host != conn.dst.host ? derefed.host : nil
         let s = TCPSession(conn: conn, target: derefed, ruleDomain: fakeDomain)
+        if fakeDomain != nil { s.mappedIP = realDstIP(conn.dst.ip) }
         sessions[s.key] = s
         tcpAccepted &+= 1
         if !loggedFirstAccept {
@@ -418,6 +422,15 @@ final class NCDataPlane {
             connect(s) // pure-IP destination and parse-pure-ip off: mihomo doesn't sniff
         }
         return true
+    }
+
+    /// fix/nc-tcp1: the packet's destination when it is a real address (redir-host), nil for a fake-ip one. Before,
+    /// a redir-host flow was matched by its domain only, so the first IP rule (here RULE-SET 国内网站 = IP-ASN list,
+    /// then GEOIP,cn) re-resolved the domain through the upstreams; when that lookup failed every IP rule missed
+    /// and Chinese sites fell through to MATCH (proxy) — build433 self-check: www.baidu.com → MATCH, "direct 1".
+    private func realDstIP(_ ip: NCIP?) -> NCIP? {
+        guard let ip, !engine.isFakeAddress(ip) else { return nil }
+        return ip
     }
 
     private func tcpData(_ conn: NCTunStack.TCPConn, _ data: Data?) {
@@ -649,7 +662,7 @@ final class NCDataPlane {
             s.target = NCTarget(host: d, port: s.target.port)
         }
         var ctx = engine.matchContext(domain: s.ruleDomain,
-                                      ip: s.target.ip,
+                                      ip: s.target.ip ?? s.mappedIP,
                                       dstPort: s.target.port,
                                       network: "tcp")
         ctx.protocolHint = s.protocolHint
@@ -1060,7 +1073,7 @@ final class NCDataPlane {
             return
         }
         var ctx = engine.matchContext(domain: restored ? target.host : nil,
-                                      ip: restored ? nil : info.dst.ip,
+                                      ip: restored ? realDstIP(info.dst.ip) : info.dst.ip,
                                       dstPort: info.dst.port,
                                       network: "udp")
         if info.dst.port == 443 { ctx.protocolHint = "quic" }

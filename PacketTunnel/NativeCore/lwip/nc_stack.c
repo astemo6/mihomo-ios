@@ -30,12 +30,13 @@ void nc_lwip_ensure_init(void) {
   g_lwip_ready = 1;
 }
 
-/* Abort every PCB not bound to a netif (= every TUN-side PCB; WireGuard client PCBs are netif-bound),
-   including ones still closing / in TIME-WAIT after we dropped them. */
-static void nc_purge_unbound(struct tcp_pcb **list) {
+/* Abort every TUN-side PCB — unbound, or (fix/nc-tcp1) bound to the TUN netif `tun_idx` like every accepted PCB
+   since listeners are TUN-bound; WireGuard client PCBs are bound to their own netif — including ones still closing
+   / in TIME-WAIT after we dropped them. */
+static void nc_purge_unbound(struct tcp_pcb **list, u8_t tun_idx) {
   for (;;) {
     struct tcp_pcb *p = *list;
-    while (p && p->netif_idx != NETIF_NO_INDEX) p = p->next;
+    while (p && p->netif_idx != NETIF_NO_INDEX && p->netif_idx != tun_idx) p = p->next;
     if (!p) return;
     tcp_arg(p, NULL);
     tcp_recv(p, NULL);
@@ -45,15 +46,25 @@ static void nc_purge_unbound(struct tcp_pcb **list) {
   }
 }
 
+#ifdef NC_STACK_TEST_CLOCK
+/* fix/nc-tcp1: host soak test (tools/nc-stack-test/nc_soak_test.c) drives a simulated clock so minutes of
+   traffic — listener idle expiry, TIME_WAIT (2×MSL), UDP idle — run in milliseconds. Never defined in the app. */
+static u32_t g_test_now_ms;
+void nc_test_set_now(u32_t ms) { g_test_now_ms = ms; }
+u32_t sys_now(void) { return g_test_now_ms; }
+#else
 u32_t sys_now(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (u32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u);
 }
+#endif
 
 /* ------------------------------------------------------------------ state */
 
-#define NC_MAX_LISTENERS 48
+/* fix/nc-tcp1: one listener per destination PORT (any address, v4+v6), so this bounds distinct ports, not
+   destinations; it must not exceed lwIP's listen-PCB pool or tcp_listen fails before the table ever evicts. */
+#define NC_MAX_LISTENERS 24
 #define NC_MAX_UDP_SESSIONS 64
 #define NC_MAX_TCP_CONNS 96
 #define NC_UDP_IDLE_MS (120 * 1000)
@@ -96,6 +107,11 @@ static nc_udp_session g_udp[NC_MAX_UDP_SESSIONS];
 static uint32_t g_next_udp_id = 1;
 static uint8_t g_scratch[70000];
 static nc_stats g_stats;
+/* fix/nc-tcp1: set by nc_input for the packet being fed — TCP / UDP is always terminated here (see nc_lwip_dest_ours). */
+static int g_input_l4_ours;
+#if NC_MAX_LISTENERS > MEMP_NUM_TCP_PCB_LISTEN
+#error "NC_MAX_LISTENERS must fit lwIP's listen-PCB pool (MEMP_NUM_TCP_PCB_LISTEN)"
+#endif
 
 void nc_get_stats(nc_stats *out) {
   if (out) *out = g_stats;
@@ -282,45 +298,69 @@ static err_t nc_tcp_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
   return ERR_OK;
 }
 
+/* fix/nc-tcp1 (build433 "listen fail" / "not-ours" after ~60 s): listeners used to be keyed by (destination IP,
+   port) — one lwIP listen PCB per distinct server address, kept 5 min. MEMP_NUM_TCP_PCB_LISTEN is 24 (nc-memory)
+   while the table had 48 slots, so with real (redir-host) or many fake-ip destinations the 25th distinct address
+   made tcp_listen() fail: the SYN was counted "listen fail", no listener → ip4/ip6_input_accept said "not ours" →
+   silently dropped, the app retransmitted (each retry counted again) and never connected. Worse, the bound PCB
+   from the failed tcp_listen was leaked every time, so after ~128 failures the TCP PCB pool itself was empty.
+   Now: one listener per PORT bound to the any-type address (lwIP matches it for every v4/v6 destination and gives
+   the accepted PCB the real destination as local_ip), bound to the TUN netif (WireGuard netifs never match it),
+   SOF_REUSEADDR so a re-listen after idle expiry / eviction is not refused by live connections on that port;
+   when the table is full the least recently used listener is closed (accepted connections live on: they are
+   independent PCBs); a failed bind / listen frees its PCB. */
+static void nc_listener_close(nc_listener *l) {
+  for (int i = 0; i < NC_MAX_TCP_CONNS; i++) {
+    if (g_conns[i].used && g_conns[i].listener == l) g_conns[i].listener = NULL;
+  }
+  if (l->lpcb) {
+    tcp_arg(l->lpcb, NULL);
+    tcp_accept(l->lpcb, NULL);
+    tcp_close(l->lpcb); /* a LISTEN pcb always closes (frees) */
+  }
+  memset(l, 0, sizeof(*l));
+}
+
 static nc_listener *nc_ensure_listener(const ip_addr_t *dst, u16_t port) {
-  int free_idx = -1, lru_idx = -1;
-  u32_t lru_time = 0xffffffffu;
+  (void)dst;
+  int free_idx = -1, lru_idx = -1, lru_any = -1;
+  u32_t now = sys_now(), lru_age = 0, any_age = 0;
   for (int i = 0; i < NC_MAX_LISTENERS; i++) {
     nc_listener *l = &g_listeners[i];
     if (!l->used) {
       if (free_idx < 0) free_idx = i;
       continue;
     }
-    if (l->port == port && nc_ip_equal(&l->dst, dst)) {
-      l->last_used = sys_now();
+    if (l->port == port) {
+      l->last_used = now;
       return l;
     }
-    if (l->active == 0 && l->last_used < lru_time) {
-      lru_time = l->last_used;
-      lru_idx = i;
-    }
+    u32_t age = now - l->last_used; /* ages: sys_now() wraps */
+    if (l->active == 0 && (lru_idx < 0 || age > lru_age)) { lru_age = age; lru_idx = i; }
+    if (lru_any < 0 || age > any_age) { any_age = age; lru_any = i; }
   }
-  int idx = free_idx >= 0 ? free_idx : lru_idx;
+  int idx = free_idx >= 0 ? free_idx : (lru_idx >= 0 ? lru_idx : lru_any);
   if (idx < 0) return NULL;
   nc_listener *l = &g_listeners[idx];
-  if (l->used && l->lpcb) {
-    tcp_close(l->lpcb);
-  }
-  memset(l, 0, sizeof(*l));
-  struct tcp_pcb *pcb = tcp_new_ip_type(dst->type);
+  if (l->used) nc_listener_close(l);
+  struct tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
   if (!pcb) return NULL;
-  err_t e = tcp_bind(pcb, dst, port);
-  if (e != ERR_OK) {
+  ip_set_option(pcb, SOF_REUSEADDR);
+  tcp_bind_netif(pcb, &g_netif);
+  if (tcp_bind(pcb, IP_ANY_TYPE, port) != ERR_OK) {
     tcp_abort(pcb);
     return NULL;
   }
   struct tcp_pcb *lpcb = tcp_listen_with_backlog(pcb, TCP_DEFAULT_LISTEN_BACKLOG);
-  if (!lpcb) return NULL;
+  if (!lpcb) {
+    tcp_abort(pcb); /* tcp_listen leaves the original PCB to the caller on failure — it used to leak here */
+    return NULL;
+  }
   l->used = 1;
-  l->dst = *dst;
+  ip_addr_set_any(1, &l->dst);
   l->port = port;
   l->lpcb = lpcb;
-  l->last_used = sys_now();
+  l->last_used = now;
   tcp_arg(lpcb, l);
   tcp_accept(lpcb, nc_tcp_accept_cb);
   return l;
@@ -512,7 +552,7 @@ int nc_init(const nc_callbacks *cbs, void *ctx, const char *ip4, const char *ip6
 void nc_shutdown(void) {
   if (!g_up) return;
   for (int i = 0; i < NC_MAX_LISTENERS; i++) {
-    if (g_listeners[i].used && g_listeners[i].lpcb) tcp_close(g_listeners[i].lpcb);
+    if (g_listeners[i].used) nc_listener_close(&g_listeners[i]);
   }
   for (int i = 0; i < NC_MAX_TCP_CONNS; i++) {
     if (g_conns[i].used && g_conns[i].pcb) tcp_abort(g_conns[i].pcb);
@@ -520,8 +560,9 @@ void nc_shutdown(void) {
   for (int i = 0; i < NC_MAX_UDP_SESSIONS; i++) {
     if (g_udp[i].used && g_udp[i].pcb) udp_remove(g_udp[i].pcb);
   }
-  nc_purge_unbound(&tcp_active_pcbs);
-  nc_purge_unbound(&tcp_tw_pcbs);
+  u8_t tun_idx = netif_get_index(&g_netif);
+  nc_purge_unbound(&tcp_active_pcbs, tun_idx);
+  nc_purge_unbound(&tcp_tw_pcbs, tun_idx);
   netif_remove(&g_netif);
   memset(g_listeners, 0, sizeof(g_listeners));
   memset(g_conns, 0, sizeof(g_conns));
@@ -536,6 +577,11 @@ void nc_input(const uint8_t *pkt, uint32_t len) {
   else if (v == 6 && len >= 40) g_stats.in_v6++;
   else g_stats.in_other++;
   nc_peek(pkt, len);
+  /* fix/nc-tcp1: every TCP / UDP packet the TUN delivers is terminated here (TCP by the per-port listener or an
+     established PCB — anything else gets a RST from lwIP instead of a silent drop; UDP by the session nc_peek just
+     ensured). Only other protocols (ICMP) still go by the per-destination tables. v6: no extension-header walk. */
+  g_input_l4_ours = (v == 4 && len >= 20 && (pkt[9] == 6 || pkt[9] == 17)) ||
+                    (v == 6 && len >= 40 && (pkt[6] == 6 || pkt[6] == 17));
   struct pbuf *p = pbuf_alloc(PBUF_RAW, (u16_t)len, PBUF_RAM);
   if (!p) {
     g_stats.input_err++;
@@ -546,6 +592,7 @@ void nc_input(const uint8_t *pkt, uint32_t len) {
     g_stats.input_err++;
     pbuf_free(p);
   }
+  g_input_l4_ours = 0;
 }
 
 void nc_poll(void) {
@@ -562,10 +609,7 @@ void nc_poll(void) {
   }
   for (int i = 0; i < NC_MAX_LISTENERS; i++) {
     nc_listener *l = &g_listeners[i];
-    if (l->used && l->active == 0 && now - l->last_used > NC_LISTENER_IDLE_MS) {
-      tcp_close(l->lpcb);
-      memset(l, 0, sizeof(*l));
-    }
+    if (l->used && l->active == 0 && now - l->last_used > NC_LISTENER_IDLE_MS) nc_listener_close(l);
   }
 }
 
@@ -732,10 +776,8 @@ void nc_udp_close(uint32_t session) {
 /* fix/nc-tcp0: called from the patched ip6_input_accept (core/ip6.c) — the IPv6 twin of nc_lwip_dest_ours. */
 int nc_lwip_dest_ours6(const ip6_addr_t *dest) {
   ip_addr_t d;
+  if (g_input_l4_ours) return 1;
   ip_addr_copy_from_ip6(d, *dest);
-  for (int i = 0; i < NC_MAX_LISTENERS; i++) {
-    if (g_listeners[i].used && nc_ip_equal(&g_listeners[i].dst, &d)) return 1;
-  }
   for (int i = 0; i < NC_MAX_UDP_SESSIONS; i++) {
     if (g_udp[i].used && nc_ip_equal(&g_udp[i].dst, &d)) return 1;
   }
@@ -749,10 +791,8 @@ int nc_lwip_dest_ours6(const ip6_addr_t *dest) {
    one we terminate (listener, UDP session, or live connection)? */
 int nc_lwip_dest_ours(const ip4_addr_t *dest) {
   ip_addr_t d;
+  if (g_input_l4_ours) return 1;
   ip_addr_copy_from_ip4(d, *dest);
-  for (int i = 0; i < NC_MAX_LISTENERS; i++) {
-    if (g_listeners[i].used && nc_ip_equal(&g_listeners[i].dst, &d)) return 1;
-  }
   for (int i = 0; i < NC_MAX_UDP_SESSIONS; i++) {
     if (g_udp[i].used && nc_ip_equal(&g_udp[i].dst, &d)) return 1;
   }
