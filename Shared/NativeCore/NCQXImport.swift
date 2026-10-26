@@ -331,6 +331,8 @@ enum NCQXImport {
         // opt-parser and any other extras are preserved verbatim.
         NCConfImport.finishFields(&fields, kv: kv, order: order,
                                   consumed: ["enabled", "update-interval", "tag"])
+        // fix/nc-open-6-10 #10: fetched with the QuanX User-Agent (NCNodeSubscriptionStore.userAgents).
+        fields["x-origin"] = .string("qx")
         cfg.subscriptions.append(NCNodeSubscription(
             name: kv["tag"] ?? NCConfImport.hostDerivedName(url), url: url,
             interval: kv["update-interval"].flatMap { Int($0) } ?? 86400,

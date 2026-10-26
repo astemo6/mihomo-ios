@@ -350,4 +350,61 @@ final class NativeCoreOpen610Tests: XCTestCase {
         XCTAssertLessThanOrEqual(raw["ruleCount"] as? Int ?? 0, NCStatsRecorder.ruleCap)
         XCTAssertEqual(raw["totalConnections"] as? Int, 2000)
     }
+    // MARK: - #10 subscription User-Agent
+
+    func testSubscriptionUserAgents() {
+        let plain = NCNodeSubscription(name: "A", url: "https://a.test/sub")
+        XCTAssertEqual(NCNodeSubscriptionStore.userAgents(for: plain),
+                       [NCNodeSubscriptionStore.clashUserAgent, NCNodeSubscriptionStore.qxUserAgent])
+        let qx = NCNodeSubscription(name: "薯条", url: "https://b.test/s?token=1", fields: ["x-origin": .string("qx")])
+        XCTAssertEqual(NCNodeSubscriptionStore.userAgents(for: qx).first, NCNodeSubscriptionStore.qxUserAgent)
+        XCTAssertTrue(NCNodeSubscriptionStore.qxUserAgent.hasPrefix("Quantumult%20X/"))
+        let hdr = NCNodeSubscription(name: "H", url: "https://c.test/",
+                                     fields: ["header": .object(["User-Agent": .array([.string("Quantumult%20X/1.0.30 (iPhone14,2; iOS 15.6)")])])])
+        XCTAssertEqual(NCNodeSubscriptionStore.userAgents(for: hdr),
+                       [NCNodeSubscriptionStore.qxUserAgent, NCNodeSubscriptionStore.clashUserAgent])
+        let custom = NCNodeSubscription(name: "C", url: "https://d.test/", fields: ["header": .object(["user-agent": .string("Shadowrocket/2000")])])
+        XCTAssertEqual(NCNodeSubscriptionStore.userAgents(for: custom).first, "Shadowrocket/2000")
+    }
+
+    func testSubscriptionRetriesOtherUAOn403() {
+        let dir = URL(fileURLWithPath: tempHome()).appendingPathComponent("nodesubs")
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let store = NCNodeSubscriptionStore(dir: dir)
+        store.log = { _ in }
+        var uas: [String] = []
+        store.fetcher = { _, ua, done in
+            uas.append(ua)
+            if ua.hasPrefix("Quantumult") {
+                done(Data("trojan://pw@hk.example.com:443#HK\n".utf8), 200)
+            } else {
+                done(nil, 403)
+            }
+        }
+        let sub = NCNodeSubscription(name: "S", url: "https://e.test/sub")
+        let exp = expectation(description: "refresh")
+        store.refresh(sub) { exp.fulfill() }
+        wait(for: [exp], timeout: 5)
+        XCTAssertEqual(uas, [NCNodeSubscriptionStore.clashUserAgent, NCNodeSubscriptionStore.qxUserAgent])
+        XCTAssertEqual(store.nodes(for: sub).map(\.name), ["HK"])
+
+        // a network error (no HTTP status) is not retried with another UA
+        uas = []
+        store.fetcher = { _, ua, done in uas.append(ua); done(nil, 0) }
+        let exp2 = expectation(description: "refresh2")
+        store.refresh(NCNodeSubscription(name: "T", url: "https://f.test/sub")) { exp2.fulfill() }
+        wait(for: [exp2], timeout: 5)
+        XCTAssertEqual(uas.count, 1)
+    }
+
+    func testQXImportMarksServerRemote() {
+        let conf = """
+        [server_remote]
+        https://sub.example.com/api/v1/client/subscribe?token=abc, tag=薯条, update-interval=86400, opt-parser=false, enabled=true
+        """
+        let c = NCQXImport.quantumultx(conf)
+        guard !c.subscriptions.isEmpty else { return XCTFail("no subscription") }
+        XCTAssertEqual(c.subscriptions.first?.fields["x-origin"]?.string, "qx")
+        XCTAssertEqual(NCNodeSubscriptionStore.userAgents(for: c.subscriptions[0]).first, NCNodeSubscriptionStore.qxUserAgent)
+    }
 }

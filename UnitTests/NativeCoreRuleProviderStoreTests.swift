@@ -239,7 +239,7 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
 
         let store = NCNodeSubscriptionStore(dir: dir)
         var fetched: [String] = []
-        store.fetcher = { url, done in
+        store.fetcher = { url, _, done in
             fetched.append(url)
             done(Data("""
             proxies:
@@ -249,7 +249,7 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
                 port: 8388
                 cipher: aes-256-gcm
                 password: pass
-            """.utf8))
+            """.utf8), 200)
         }
         let sub = NCNodeSubscription(name: "Airport", url: wrapped)
         let done = expectation(description: "refresh")
@@ -360,9 +360,9 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
         XCTAssertTrue(logs.contains("proxy provider Inl: 1 nodes (inline)"), "\(logs)")
 
         var fetched: [String] = []
-        store.fetcher = { url, done in
+        store.fetcher = { url, _, done in
             fetched.append(url)
-            done(Data("trojan://pw@hk.example.com:443#HK%20CF%20CDN\ntrojan://pw@sz.example.com:443#SZ%20CN\ntrojan://pw@tw.example.com:443#TW%20New\n".utf8))
+            done(Data("trojan://pw@hk.example.com:443#HK%20CF%20CDN\ntrojan://pw@sz.example.com:443#SZ%20CN\ntrojan://pw@tw.example.com:443#TW%20New\n".utf8), 200)
         }
         let done = expectation(description: "refresh")
         store.refresh(air) { done.fulfill() }
