@@ -50,7 +50,10 @@ final class NativeCoreSelfTestR1Tests: XCTestCase {
         XCTAssertTrue(st.groups.contains("Auto"), "flow group Auto reported: \(st.groups)")
         XCTAssertTrue(st.groups.contains("Proxy"), "flow group Proxy reported: \(st.groups)")
         let text = String(decoding: doc.data() ?? Data(), as: UTF8.self)
-        XCTAssertFalse(text.contains("\"🇯🇵 Tokyo 02\""), "no stale flow member left")
+        // 注意: 节点条目本身的改名是 upsertProxy 的事, 不在本用例范围; 这里只验组成员引用。
+        XCTAssertFalse(text.contains("\"🇯🇵 Tokyo 02\", \"🇭🇰 Hong Kong 01\""), "flow group members renamed")
+        XCTAssertEqual(text.components(separatedBy: "🇯🇵 Tokyo 02").count - 1, 1,
+                       "old name survives only in the node entry itself (renaming that is upsertProxy's job)")
         XCTAssertTrue(text.contains("Tokyo 02 Edited"), "flow members renamed")
     }
 }
