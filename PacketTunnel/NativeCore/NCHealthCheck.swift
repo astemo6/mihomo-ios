@@ -35,6 +35,24 @@ enum NCTunnelDelayTester {
         }
     }
 
+    /// fix/nc-delay-2: the budget of the cold phase (dial + inner TLS + first request). In unified-delay mode the
+    /// reported value is the warm second request, so a cold dial through a CDN on a high-RTT network (~1.9 s seen on
+    /// device) must not eat the `timeout` meant for that request: the cold phase gets max(timeout, 5000) (mihomo's
+    /// default timeout) and the warm request its own `timeout`. Without unified-delay the cold time IS the result and
+    /// `timeout` bounds it, as in mihomo.
+    static let defaultTimeoutMs = 5000
+    static func coldBudgetMs(timeoutMs: Int, unified: Bool) -> Int {
+        unified ? max(timeoutMs, defaultTimeoutMs) : timeoutMs
+    }
+
+    /// Longest one probe can take (cold budget + warm request window): what group rounds and callers must wait for.
+    static func probeWindowMs(timeoutMs: Int, unified: Bool) -> Int {
+        let t = max(1, timeoutMs)
+        guard unified else { return t }
+        let (sum, o) = coldBudgetMs(timeoutMs: t, unified: true).addingReportingOverflow(t)
+        return o ? Int.max : sum
+    }
+
     /// Lines per 10 s for probe diagnostics (a 20-node group test fits; background health checks only log failures).
     private static let probeLimiter = NCLineLimiter(perWindow: 40, window: 10)
 
@@ -54,9 +72,12 @@ enum NCTunnelDelayTester {
 
     private static func emit(name: String, outcome: Outcome, timeoutMs: Int, logSuccess: Bool) {
         guard let sink = NCDialTrace.logSink, logSuccess || outcome.ms == nil else { return }
-        let (ok, dropped) = probeLimiter.admit()
-        guard ok else { return }
-        if dropped > 0 { sink("[delay] \(dropped) probe line(s) suppressed", false) }
+        // fix/nc-delay-2: manual tests (logSuccess) log every probe; only background health-check failures are limited.
+        if !logSuccess {
+            let (ok, dropped) = probeLimiter.admit()
+            guard ok else { return }
+            if dropped > 0 { sink("[delay] \(dropped) probe line(s) suppressed", false) }
+        }
         sink(logLine(name: name, outcome: outcome, timeoutMs: timeoutMs), outcome.ms == nil)
     }
 
@@ -95,6 +116,14 @@ enum NCTunnelDelayTester {
         let trace: NCDialTrace?
         let start: DispatchTime
         let finish: (Int?, String?) -> Void
+        /// fix/nc-delay-2: the warm (unified) request's own timeout, armed on `timerQueue` when it is sent; nil = none
+        /// (the caller's overall timer bounds it). `onWarmStart` lets the caller stop its cold-phase timer.
+        var warmTimeoutMs: Int?
+        var timerQueue: DispatchQueue?
+        var onWarmStart: (() -> Void)?
+        /// Set when the warm request ran out of its timeout and the cold time exceeded it too (reported as a timeout).
+        private(set) var warmTimedOut = false
+        private var ended = false
         private var buf = Data()
         private var second = false
         private var firstMs: Int?
@@ -122,41 +151,62 @@ enum NCTunnelDelayTester {
                     if second, let firstMs {
                         trace?.end("request2", error: err)
                         trace?.note("unified: 2nd request failed, cold time kept")
-                        finish(firstMs, nil)
+                        end(firstMs, nil)
                     } else {
                         let why = err.map(NCDialTrace.describe) ?? "connection closed before any response"
                         trace?.end("request", error: err)
                         trace?.fail("request: \(why)")
-                        finish(nil, "request: \(why)")
+                        end(nil, "request: \(why)")
                     }
                     return
                 }
                 if second {
                     trace?.end("request2")
-                    finish(NCDialTrace.ms(from: t2, to: .now()), nil)
+                    end(NCDialTrace.ms(from: t2, to: .now()), nil)
                     return
                 }
                 if firstMs == nil {
                     firstMs = NCDialTrace.ms(from: start, to: .now())
                     trace?.end("request")
                 }
-                guard unified else { finish(firstMs, nil); return }
+                guard unified else { end(firstMs, nil); return }
                 buf.append(data)
                 switch NCTunnelDelayTester.parseHead(buf) {
                 case .incomplete:
                     next()
                 case .invalid, .complete(reusable: false):
                     trace?.note("unified: connection not reusable, cold time")
-                    finish(firstMs, nil)
+                    end(firstMs, nil)
                 case .complete(reusable: true):
                     second = true
                     buf = Data()
                     t2 = .now()
                     trace?.begin("request2")
+                    onWarmStart?()
+                    if let w = warmTimeoutMs, let tq = timerQueue {
+                        tq.asyncAfter(deadline: .now() + .milliseconds(max(1, w))) { [self] in
+                            guard !ended else { return }
+                            // mihomo: a failed / timed-out second request keeps the cold time — when that cold time
+                            // itself fits the timeout; otherwise the probe timed out.
+                            if let f = firstMs, f <= w {
+                                trace?.note("unified: 2nd request timed out, cold time kept")
+                                end(f, nil)
+                            } else {
+                                warmTimedOut = true
+                                end(nil, "request2: no response within \(w) ms")
+                            }
+                        }
+                    }
                     relay.send(NCTunnelDelayTester.request(target, keepAlive: false))
                     next()
                 }
             }
+        }
+
+        private func end(_ ms: Int?, _ err: String?) {
+            guard !ended else { return }
+            ended = true
+            finish(ms, err)
         }
     }
 
@@ -197,6 +247,9 @@ enum NCTunnelDelayTester {
             return
         }
         let resolution = groups.resolve(name)
+        // fix/nc-delay-2: cold phase and warm request have separate budgets (see coldBudgetMs).
+        let coldBudget = coldBudgetMs(timeoutMs: timeoutMs, unified: unified)
+        var expiredBudget = coldBudget
         let trace = NCDialTrace()
         let start = trace.start
         var done = false
@@ -225,7 +278,7 @@ enum NCTunnelDelayTester {
             workQueue.async {
                 var o = pre
                 o.stages = trace.summary
-                emit(name: name, outcome: o, timeoutMs: timeoutMs, logSuccess: logSuccess)
+                emit(name: name, outcome: o, timeoutMs: expiredBudget, logSuccess: logSuccess)
                 completion(o)
             }
         }
@@ -236,12 +289,23 @@ enum NCTunnelDelayTester {
             return true
         }
 
-        workQueue.asyncAfter(deadline: .now() + .milliseconds(timeoutMs)) { finish(nil, nil, true) }
+        let coldTimer = DispatchWorkItem { finish(nil, nil, true) }
+        workQueue.asyncAfter(deadline: .now() + .milliseconds(coldBudget), execute: coldTimer)
 
         let exchange: (NCRelayStream) -> Void = { relay in
-            HTTPExchange(relay: relay, target: target, unified: unified, trace: trace, start: start) { ms, err in
-                finish(ms, err, false)
-            }.run()
+            var ex: HTTPExchange?
+            ex = HTTPExchange(relay: relay, target: target, unified: unified, trace: trace, start: start) { ms, err in
+                let warmTimedOut = ex?.warmTimedOut ?? false
+                ex = nil
+                finish(ms, err, warmTimedOut)
+            }
+            if unified {
+                ex?.warmTimeoutMs = timeoutMs
+                ex?.timerQueue = workQueue
+                // The cold phase is over: from here only the warm request's own timeout applies.
+                ex?.onWarmStart = { coldTimer.cancel(); expiredBudget = timeoutMs }
+            }
+            ex?.run()
         }
 
         if case .direct = resolution {
@@ -350,7 +414,7 @@ enum NCTunnelDelayTester {
         // Bound the round so hung members can never stall the caller: every member
         // gets its own timeout, plus slack for queueing behind the concurrency cap.
         let rounds = (members.count + limit - 1) / limit
-        let roundTimeout = overallTimeoutMs ?? roundTimeoutMs(timeoutMs: timeoutMs, rounds: rounds)
+        let roundTimeout = overallTimeoutMs ?? roundTimeoutMs(timeoutMs: probeWindowMs(timeoutMs: timeoutMs, unified: unified), rounds: rounds)
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(roundTimeout)) { run.finish() }
         for _ in 0..<limit { run.launchNext() }
     }

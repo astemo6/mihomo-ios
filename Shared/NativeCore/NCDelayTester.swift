@@ -127,7 +127,8 @@ enum NCDelayTester {
             result = ms
             sem.signal()
         }
-        let t = max(timeoutMs, 1000) + 500
+        // fix/nc-delay-2: a URL test may take the cold budget plus the warm request (unified-delay).
+        let t = NCTunnelDelayTester.probeWindowMs(timeoutMs: max(timeoutMs, 1000), unified: true) + 500
         _ = sem.wait(timeout: .now() + .milliseconds(t))
         return result
     }
@@ -187,7 +188,7 @@ enum NCDelayTester {
         }
 
         let workQueue = DispatchQueue(label: "nc.delay.http", qos: .userInitiated)
-        let start = Date()
+        let start = DispatchTime.now()
         var finished = false
         var activeStream: NCRelayStream?
 
@@ -201,8 +202,21 @@ enum NCDelayTester {
             }
         }
 
-        workQueue.asyncAfter(deadline: .now() + .milliseconds(timeout)) {
-            finish(-1)
+        // fix/nc-delay-2: same accounting as the tunnel's probe (NCTunnelDelayTester, mihomo unified-delay, which
+        // Tern always sets): the cold phase (dial + inner TLS + first request) gets max(timeout, 5000); the reported
+        // value is the second request on the warm connection, bounded by `timeout`. Offline tests used to time the
+        // cold dial against `timeout` alone, so a CDN node on a high-RTT network always showed 超时.
+        let coldTimer = DispatchWorkItem { finish(-1) }
+        workQueue.asyncAfter(deadline: .now() + .milliseconds(NCTunnelDelayTester.coldBudgetMs(timeoutMs: timeout, unified: true)),
+                             execute: coldTimer)
+        let probeHttp: (NCRelayStream, (host: String, port: Int, tls: Bool, path: String), DispatchTime, @escaping (Int) -> Void) -> Void = { stream, target, start, finish in
+            let ex = NCTunnelDelayTester.HTTPExchange(relay: stream, target: target, unified: true, trace: nil, start: start) { ms, _ in
+                finish(ms.map { max(1, $0) } ?? -1)
+            }
+            ex.warmTimeoutMs = timeout
+            ex.timerQueue = workQueue
+            ex.onWarmStart = { coldTimer.cancel() }
+            ex.run()
         }
 
         if proxy.type == "direct" {
@@ -212,7 +226,7 @@ enum NCDelayTester {
             activeStream = stream
             stream.start { err in
                 if err != nil { finish(-1); return }
-                probeHttp(stream: stream, target: target, start: start, finish: finish)
+                probeHttp(stream, target, start, finish)
             }
             return
         }
@@ -234,24 +248,10 @@ enum NCDelayTester {
                 activeStream = tls
                 tls.startHandshake { err in
                     if err != nil { finish(-1); return }
-                    probeHttp(stream: tls, target: target, start: start, finish: finish)
+                    probeHttp(tls, target, start, finish)
                 }
             } else {
-                probeHttp(stream: relay, target: target, start: start, finish: finish)
-            }
-        }
-    }
-
-    private static func probeHttp(stream: NCRelayStream, target: (host: String, port: Int, tls: Bool, path: String),
-                                  start: Date, finish: @escaping (Int) -> Void) {
-        let req = "GET \(target.path) HTTP/1.1\r\nHost: \(target.host)\r\nUser-Agent: curl/7.88.1\r\nConnection: close\r\n\r\n"
-        stream.send(Data(req.utf8))
-        stream.receive { data, error in
-            if let data, !data.isEmpty {
-                let ms = max(1, Int(Date().timeIntervalSince(start) * 1000))
-                finish(ms)
-            } else {
-                finish(-1)
+                probeHttp(relay, target, start, finish)
             }
         }
     }

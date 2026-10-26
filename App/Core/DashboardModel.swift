@@ -328,15 +328,36 @@ final class IPInfoModel: ObservableObject {
         let connected = VPNManager.shared.isConnected
         // v0.12: a custom API with a QX geo_location_checker script goes through GeoChecker; everything
         // else (auto / preferred API / custom JSON API) is IPInfoFetcher's ordered endpoints (shared with qx/rebuild).
-        async let exitInfo = GeoChecker.usesScript ? GeoChecker.fetchWithScript() : IPInfoFetcher.fetch()
+        // fix/nc-delay-2: the whole lookup is capped (each endpoint has its own 6 s timeout, but several endpoints
+        // through a stalled tunnel kept 「正在查询…」 up for most of a minute); a miss shows 查询失败 and is logged.
+        async let exitInfo = Self.withDeadline(15) {
+            await (GeoChecker.usesScript ? GeoChecker.fetchWithScript() : IPInfoFetcher.fetch())
+        }
         async let directInfo = fetchDirectFromTunnel(enabled: connected)
         let (e, d) = await (exitInfo, directInfo)
         exit = e
         direct = connected ? d : nil
         failed = (e == nil)
+        if e == nil, !Task.isCancelled {
+            StartupLog.write("app: exit-ip lookup failed (\(connected ? "VPN on" : "VPN off"), \(GeoChecker.usesScript ? "script" : "endpoints"))")
+        }
         if let e {
             let c = Cached(exit: e, direct: direct, at: Date())
             if let data = try? JSONEncoder().encode(c) { UserDefaults.standard.set(data, forKey: Self.cacheKey) }
+        }
+    }
+
+    /// nil when `body` does not finish within `seconds` (the body is cancelled).
+    nonisolated static func withDeadline(_ seconds: Double, _ body: @escaping @Sendable () async -> IPInfo?) async -> IPInfo? {
+        await withTaskGroup(of: IPInfo?.self) { tg in
+            tg.addTask { await body() }
+            tg.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            let first = await tg.next() ?? nil
+            tg.cancelAll()
+            return first
         }
     }
 
