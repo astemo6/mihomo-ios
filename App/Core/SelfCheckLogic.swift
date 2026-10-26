@@ -169,6 +169,82 @@ enum SelfCheckLogic {
         return tail[r.upperBound...].split(whereSeparator: { $0 == " " || $0 == "(" || $0 == "," }).first.map(String.init)
     }
 
+
+    struct DelayFailure: Equatable {
+        var stage: String
+        var reason: String
+        var nodes: [String]
+    }
+
+    /// Every failed `[delay]` line → (stage, reason) with the distinct nodes that hit it, most nodes first. Build 419:
+    /// "ws · handshake failed: ws upgrade refused" ×25 and "tls · -9824: 握手失败" ×8 were hidden behind one count.
+    static func delayFailures(_ payloads: [String]) -> [DelayFailure] {
+        var order: [String] = []
+        var map: [String: DelayFailure] = [:]
+        for p in payloads where p.hasPrefix("[delay] ") {
+            let body = p.dropFirst(8)
+            var name = "", stage = "", reason = ""
+            if let r = body.range(of: ": failed at stage ") ?? body.range(of: ": timeout at stage ") {
+                name = String(body[..<r.lowerBound])
+                let timeout = body[r].contains("timeout")
+                var rest = body[r.upperBound...]
+                if let bar = rest.range(of: " | ") { rest = rest[..<bar.lowerBound] }
+                let st = rest.prefix { $0 != " " && $0 != "(" }
+                stage = String(st)
+                rest = rest.dropFirst(st.count)
+                var paren = ""
+                if let o = rest.firstIndex(of: "("), let c = rest.lastIndex(of: ")"), o < c {
+                    paren = String(rest[rest.index(after: o)..<c])
+                }
+                if timeout {
+                    reason = String(localized: "超时") + (paren.isEmpty ? "" : "（\(paren)）")
+                } else {
+                    reason = paren.isEmpty ? String(localized: "失败") : paren
+                }
+            } else if let r = body.range(of: ": not in the running config (404)") {
+                name = String(body[..<r.lowerBound]); stage = "route"; reason = String(localized: "404 不在运行配置")
+            } else if let r = body.range(of: ": tcp handshake to ") {
+                name = String(body[..<r.lowerBound]); stage = "tcp"
+                reason = body[r.upperBound...].range(of: "failed (").map { String(body[$0.upperBound...].dropLast()) } ?? String(localized: "失败")
+            } else { continue }
+            if reason.count > 90 { reason = String(reason.prefix(90)) + "…" }
+            let key = stage + "\u{1}" + reason
+            if map[key] == nil { order.append(key); map[key] = DelayFailure(stage: stage, reason: reason, nodes: []) }
+            if !map[key]!.nodes.contains(name) { map[key]!.nodes.append(name) }
+        }
+        return order.compactMap { map[$0] }.enumerated()
+            .sorted { $0.element.nodes.count != $1.element.nodes.count ? $0.element.nodes.count > $1.element.nodes.count : $0.offset < $1.offset }
+            .map(\.element)
+    }
+
+    /// Up to `top` lines "stage · reason：N 个节点（例：a、b、c）".
+    static func delayFailureLines(_ f: [DelayFailure], top: Int = 6) -> [String] {
+        var out = f.prefix(top).map { x -> String in
+            let ex = x.nodes.prefix(3).joined(separator: "、") + (x.nodes.count > 3 ? "…" : "")
+            return String(localized: "\(x.stage) · \(x.reason)：\(x.nodes.count) 个节点（例：\(ex)）")
+        }
+        if f.count > top { out.append(String(localized: "…另有 \(f.count - top) 种失败原因")) }
+        return out
+    }
+
+    /// Why the fetch step's requests failed, from the data-plane counter deltas around them. nil = counters look fine.
+    static func fetchDiagnosis(before b: [String: Int], after a: [String: Int], tun: Bool) -> String? {
+        func d(_ k: String) -> Int { (a[k] ?? 0) - (b[k] ?? 0) }
+        let counters = "packets in +\(d("packets in")) · tcp accepted +\(d("tcp accepted")) · dns queries +\(d("dns queries")) / replies +\(d("dns replies")) / failed +\(d("dns failed"))"
+        if tun && d("tcp accepted") == 0 {
+            var s = String(localized: "隧道未收到 TCP 连接（tcp accepted \(a["tcp accepted"] ?? 0)，本次 +0）")
+            if d("dns queries") == 0 { s += String(localized: "，DNS 查询也没有进入隧道") }
+            else if d("dns replies") == 0 { s += String(localized: "，DNS 没有应答") }
+            return s + "：" + counters
+        }
+        if d("dns queries") > 0 && d("dns replies") == 0 { return String(localized: "隧道收到 DNS 查询但没有应答：") + counters }
+        if d("dns failed") > 0 && d("dns failed") >= d("dns replies") { return String(localized: "DNS 上游失败：") + counters }
+        if d("tcp accepted") > 0 && d("relay ok") == 0 && d("direct") == 0 {
+            return String(localized: "隧道收到 \(d("tcp accepted")) 个 TCP 连接，但没有一个转发成功（relay failed +\(d("relay failed"))，rejected +\(d("rejected"))）：") + counters
+        }
+        return nil
+    }
+
     // MARK: rewrite probe
 
     /// A concrete https URL a rewrite rule pattern matches, or nil when the pattern has no literal scheme+host prefix.

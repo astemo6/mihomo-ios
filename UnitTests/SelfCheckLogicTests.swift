@@ -215,4 +215,55 @@ final class SelfCheckLogicTests: XCTestCase {
         }
         XCTAssertNil(SelfCheckLogic.verifySelfSignature(Data([0x30, 0x03, 0x02, 0x01, 0x00])).ok)
     }
+
+    // MARK: build 419 feedback
+
+    func testDelayFailuresGroupReasonsByNodeCount() {
+        let p = [
+            "[delay] 🇨🇳 SZ CN: failed at stage tls (-9808: 错误的证书格式) | dial 391 ms · connect 391 ms",
+            "[delay] 🇯🇵 东京ORA JP02 CFT [ORA V6]: failed at stage tls (-9824: 握手失败) | dial 537 ms · connect 537 ms",
+            "[delay] 🇯🇵 东京ORA JP01 CFT [CF V6]: failed at stage tls (-9824: 握手失败) | dial 556 ms · connect 556 ms",
+            "[delay] 土耳其V6落地: failed at stage ws (handshake failed: ws upgrade refused) | dial 763 ms · dns 1 ms (expired cache, 13 addr → [2606:4700::1]) · tcp 145 ms",
+            "[delay] 印度V6落地: failed at stage ws (handshake failed: ws upgrade refused) | dial 765 ms · tls 167 ms (rtt 164 ms)",
+            "[delay] 印度V6落地: failed at stage ws (handshake failed: ws upgrade refused) | dial 700 ms",
+            "[delay] 美国V6落地: failed at stage ws (handshake failed: ws upgrade refused) | dial 765 ms",
+            "[delay] HK CF CDN: timeout at stage request after 2000 ms | dial 1909 ms · dns 10 ms (cache, 3 addr)",
+            "[delay] a/b: not in the running config (404), not tested",
+            "[delay] Proxy: 137 ms (unified) | dial 756 ms",
+            "[TCP] www.gstatic.com:443 rule MATCH → Proxy",
+        ]
+        let f = SelfCheckLogic.delayFailures(p)
+        XCTAssertEqual(f.first?.stage, "ws")
+        XCTAssertEqual(f.first?.reason, "handshake failed: ws upgrade refused")
+        XCTAssertEqual(f.first?.nodes.count, 3, "distinct nodes")
+        XCTAssertEqual(f[1].stage, "tls"); XCTAssertEqual(f[1].reason, "-9824: 握手失败"); XCTAssertEqual(f[1].nodes.count, 2)
+        XCTAssertTrue(f.contains { $0.stage == "request" && $0.reason.hasPrefix("超时") })
+        XCTAssertTrue(f.contains { $0.stage == "route" && $0.nodes == ["a/b"] })
+        XCTAssertFalse(f.contains { $0.nodes.contains("Proxy") }, "successes are not failures")
+        let lines = SelfCheckLogic.delayFailureLines(f, top: 2)
+        XCTAssertTrue(lines[0].hasPrefix("ws · handshake failed: ws upgrade refused"), lines[0])
+        XCTAssertTrue(lines[0].contains("3"))
+        XCTAssertEqual(lines.count, 3, "top 2 + 「另有」")
+    }
+
+    func testFetchDiagnosisNamesTcpAccepted0() {
+        let b = SelfCheckLogic.parsePlaneCounters("diagnostics: native: packets in 75, tcp accepted 0, sessions 0, dns queries 5, dns replies 5, dns failed 0, relay ok 0, direct 0, relay failed 0, rejected 0")
+        let a = SelfCheckLogic.parsePlaneCounters("diagnostics: native: packets in 90, tcp accepted 0, sessions 0, dns queries 7, dns replies 7, dns failed 0, relay ok 0, direct 0, relay failed 0, rejected 0")
+        let d = SelfCheckLogic.fetchDiagnosis(before: b, after: a, tun: true)
+        XCTAssertNotNil(d)
+        XCTAssertTrue(d!.hasPrefix("隧道未收到 TCP 连接（tcp accepted 0"), d!)
+        XCTAssertTrue(d!.contains("packets in +15"))
+        XCTAssertNil(SelfCheckLogic.fetchDiagnosis(before: b, after: a, tun: false).flatMap { $0.contains("TCP 连接") ? $0 : nil })
+        var ok = a; ok["tcp accepted"] = 3; ok["relay ok"] = 3
+        XCTAssertNil(SelfCheckLogic.fetchDiagnosis(before: b, after: ok, tun: true))
+        var relayFail = a; relayFail["tcp accepted"] = 3; relayFail["relay failed"] = 3
+        XCTAssertTrue(SelfCheckLogic.fetchDiagnosis(before: b, after: relayFail, tun: true)!.contains("没有一个转发成功"))
+    }
+
+    func testMitmHostsReadFromPatField() throws {
+        // nativecore-rewrite.json "inc" entries are {"pat": …} (RWSnapHost), not "host".
+        let json = #"{"version":1,"on":true,"capture":false,"inc":[{"pat":"*.example.com"},{"pat":"api.example.net","port":443}],"rules":[]}"#
+        let snap = try XCTUnwrap(RWSnapshot.decode(json))
+        XCTAssertEqual(snap.inc?.map(\.pat), ["*.example.com", "api.example.net"])
+    }
 }

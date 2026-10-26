@@ -137,7 +137,7 @@ final class SelfCheck: ObservableObject {
                 await guarded("resources", 45) { await self.stepResources() }
                 await guarded("delay", 60) { await self.stepDelay() }
                 await guarded("delay-nodes", 50) { await self.stepNodeDelay() }
-                await guarded("exitip", 25) { await self.stepExitIP() }
+                await guarded("exitip", 40) { await self.stepExitIP() }
                 await guarded("fetch", 45) { await self.stepFetch() }
                 await guarded("dataplane", 15) { await self.stepDataPlane() }
                 await guarded("mitm", 20) { await self.stepMitM() }
@@ -600,14 +600,23 @@ final class SelfCheck: ObservableObject {
             let r = try await ControllerClient.shared.membersDelay(members)
             let ok = r.values.filter { $0 > 0 }.count
             let slow = r.filter { $0.value > 0 }.max { $0.value < $1.value }
-            let stages = (try? await Self.delayStages(since: since)) ?? [:]
-            var d = String(localized: "策略组「\(g)」：\(ok) 个可用 · \(members.count - ok) 个超时") + (all.count > members.count ? String(localized: "（测了前 \(members.count) 个）") : "")
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            let fails = SelfCheckLogic.delayFailures((try? await Self.logPayloads(since: since)) ?? [])
+            var d = String(localized: "策略组「\(g)」：\(ok) 个可用 · \(members.count - ok) 个失败") + (all.count > members.count ? String(localized: "（测了前 \(members.count) 个）") : "")
             if let slow { d += " · " + String(localized: "最慢 \(slow.key) \(slow.value) ms") }
-            if let worst = stages.max(by: { $0.value < $1.value }) {
-                d += "\n" + String(localized: "失败最多的阶段：\(worst.key)（\(worst.value) 次）")
+            if !fails.isEmpty {
+                d += "\n" + String(localized: "失败原因（按节点数）：")
+                d += "\n" + SelfCheckLogic.delayFailureLines(fails).joined(separator: "\n")
             } else if ok < members.count {
-                d += "\n" + String(localized: "内核没有给出失败阶段")
+                d += "\n" + String(localized: "内核没有给出失败原因（没有 [delay] 行）")
             }
+            // Everything probed since the VPN came up (策略 page, background url-test …), not just this group.
+            let session = SelfCheckLogic.delayFailures((try? await Self.logPayloads(since: 0)) ?? [])
+            if !session.isEmpty {
+                d += "\n" + String(localized: "本次连接以来所有测速的失败原因：")
+                d += "\n" + SelfCheckLogic.delayFailureLines(session, top: 8).joined(separator: "\n")
+            }
+            if ok == 0 { d = String(localized: "策略组「\(g)」没有一个成员可用") + (fails.first.map { "：\($0.stage) · \($0.reason)（\($0.nodes.count) 个）" } ?? "") + "\n" + d }
             set("delay", ok > 0 ? .pass : .fail, d)
         } catch {
             set("delay", .fail, error.localizedDescription)
@@ -625,15 +634,6 @@ final class SelfCheck: ObservableObject {
         let data = try await ControllerClient.shared.send("/hark/logs", query: [URLQueryItem(name: "since", value: String(since))], timeout: 4)
         let o = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return (o?["logs"] as? [[String: Any]] ?? []).compactMap { $0["payload"] as? String }
-    }
-
-    /// `[delay] node: timeout at stage X …` / `failed at stage X` lines since `since` → count per stage.
-    private static func delayStages(since: UInt64) async throws -> [String: Int] {
-        var out: [String: Int] = [:]
-        for p in try await logPayloads(since: since) where p.hasPrefix("[delay]") {
-            if let st = SelfCheckLogic.delayStage(p) { out[st, default: 0] += 1 }
-        }
-        return out
     }
 
     // MARK: 7 per-node delay
@@ -677,7 +677,6 @@ final class SelfCheck: ObservableObject {
         let payloads = (try? await Self.logPayloads(since: since)) ?? []
         var lines: [String] = []
         var okCount = 0, timeouts = 0, notFound = 0, errors = 0
-        var stages: [String: Int] = [:]
         for n in names {
             let kind = providerOf[n].map { String(localized: "订阅·\($0)") } ?? String(localized: "普通")
             let tail = SelfCheckLogic.delayLine(for: n, in: payloads)
@@ -689,7 +688,6 @@ final class SelfCheck: ObservableObject {
             case .error(let e): errors += 1; l += String(localized: "请求出错：") + e
             }
             if let tail {
-                if let s = SelfCheckLogic.delayStage(tail) { stages[s, default: 0] += 1 }
                 if case .ok = results[n] ?? .timeout {} else { l += "\n    " + String(tail.prefix(220)) }
             } else if case .ok = results[n] ?? .timeout {} else {
                 l += String(localized: "（内核没有写 [delay] 行：请求可能没到探测）")
@@ -697,7 +695,8 @@ final class SelfCheck: ObservableObject {
             lines.append(l)
         }
         var head = String(localized: "\(okCount)/\(names.count) 可用 · 超时 \(timeouts) · 404 \(notFound) · 出错 \(errors)（预算 \(st.timeoutMs) ms）")
-        if let worst = stages.max(by: { $0.value < $1.value }) { head += " · " + String(localized: "失败最多的阶段 \(worst.key)") }
+        let fails = SelfCheckLogic.delayFailures(payloads.filter { p in names.contains { p.hasPrefix("[delay] \($0): ") } })
+        if let top = fails.first { head += " · " + String(localized: "最多：\(top.stage) · \(top.reason)（\(top.nodes.count) 个）") }
         if okCount == 0 { head = String(localized: "抽样节点没有一个可用：") + head }
         else if notFound > 0 { head = String(localized: "有节点在内核里找不到（名字编码或配置不一致）：") + head }
         set("delay-nodes", okCount > 0 && notFound == 0 && errors == 0 ? .pass : .fail, ([head] + lines).joined(separator: "\n"))
@@ -721,6 +720,17 @@ final class SelfCheck: ObservableObject {
         }
         var lines = results.map(\.1)
         let okCount = results.filter(\.2).count
+        // Home's own path (IPInfoModel.refresh): the same call under the same 15 s cap.
+        progress("exitip", String(localized: "首页出口信息（15 秒）"))
+        let tHome = Date()
+        let useScript = GeoChecker.usesScript
+        let home = await IPInfoModel.withDeadline(15) {
+            await (useScript ? GeoChecker.fetchWithScript() : IPInfoFetcher.fetch())
+        }
+        let homeMs = Self.ms(tHome)
+        let homeLine = home.map { String(localized: "首页出口信息：\($0.ip) \($0.countryCode ?? "")（\($0.source ?? "-")）· \(homeMs) ms") }
+            ?? String(localized: "首页出口信息 15 秒内没有结果（首页会显示「查询失败」）· \(homeMs) ms")
+        lines.insert(homeLine, at: 0)
         if GeoChecker.usesScript {
             progress("exitip", String(localized: "自定义查询脚本"))
             let t0 = Date()
@@ -734,6 +744,10 @@ final class SelfCheck: ObservableObject {
             head = String(localized: "\(eps.count) 个出口查询接口全部失败：首页会一直「查询失败」")
         } else {
             head = String(localized: "\(okCount)/\(eps.count) 个接口可用，首页会用 \(firstOK ?? "-")")
+        }
+        if home == nil {
+            set("exitip", .fail, ([String(localized: "首页出口信息 15 秒内没有结果") + (okCount > 0 ? String(localized: "（单独查询有 \(okCount) 个接口可用：首页按顺序查询，被前面慢的接口拖住）") : String(localized: "：所有接口都失败"))] + [head] + lines).joined(separator: "\n"))
+            return
         }
         set("exitip", okCount > 0 ? .pass : .fail, ([head] + lines).joined(separator: "\n"))
     }
@@ -818,7 +832,19 @@ final class SelfCheck: ObservableObject {
         }
         progress("fetch", String(localized: "读取数据面计数"))
         planeAfter = await planeCounters()
-        if failed > 0 { lines.insert(String(localized: "\(failed) 个网址经隧道访问失败"), at: 0) }
+        let ov = CoreOverrides.load()
+        let tun = !(ov.isMixed || ov.isProxyOnly)
+        var cause: String?
+        if let b = planeBefore, let a = planeAfter {
+            func d(_ k: String) -> Int { (a[k] ?? 0) - (b[k] ?? 0) }
+            lines.append(String(localized: "数据面计数（前后差）：packets in +\(d("packets in")) · tcp accepted +\(d("tcp accepted")) · dns queries +\(d("dns queries")) / replies +\(d("dns replies")) / failed +\(d("dns failed")) · relay ok +\(d("relay ok")) · direct +\(d("direct")) · failed +\(d("relay failed"))"))
+            cause = SelfCheckLogic.fetchDiagnosis(before: b, after: a, tun: tun)
+        } else {
+            lines.append(String(localized: "读不到数据面计数（扩展没有回应 dumpDiagnostics）"))
+        }
+        if failed > 0 {
+            lines.insert(cause ?? String(localized: "\(failed) 个网址经隧道访问失败（数据面计数正常：问题在出站节点或目标）"), at: 0)
+        }
         set("fetch", failed == 0 ? .pass : .fail, lines.joined(separator: "\n"))
     }
 
