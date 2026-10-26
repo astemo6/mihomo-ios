@@ -216,6 +216,9 @@ final class NativeRewriteEngine {
     private let exc: [(pat: String, port: Int)]
     /// fix/nc-mitm-live: the TUN data plane holds a bare-IP flow for its ClientHello only on these ports.
     let mitmPorts: Set<Int>
+    /// fix/nc-e2e-gaps: literal hosts of the rules whose pattern can match a plain http:// URL (`^http://a\.b\.com/…`,
+    /// `^https?://…`): their port-80 flows go through the rewrite engine on TUN (MitmPlainFront).
+    let plainHTTPHosts: Set<String>
     var hasMitmHosts: Bool { !inc.isEmpty }
     var mitmHostCount: Int { inc.count }
     /// fix/nc-e2e-real: GET /mitm/status — rewrite rules loaded / how many of them run a script.
@@ -262,6 +265,7 @@ final class NativeRewriteEngine {
             return (pat: p, port: h.port ?? 0)
         }
         mitmPorts = NCMitmGate.ports(fromPatterns: inc)
+        plainHTTPHosts = Set(rules.compactMap { $0.snap.re.flatMap { Self.httpLiteralHost($0.p) } })
         portable = s.portable ?? 0
         total = s.total ?? rules.count
     }
@@ -283,6 +287,52 @@ final class NativeRewriteEngine {
             if NativeRewriteEngine.glob(p.pat, h) { return true }
         }
         return false
+    }
+
+    /// fix/nc-e2e-gaps: a port-80 HTTP request to `host` has rewrite work — the host is a MitM host (443 or :80
+    /// entry) or the literal host of a rule that matches http://. The TUN data plane hands such flows to the
+    /// plain-HTTP front; everything else on port 80 is relayed untouched (no session, no buffering).
+    func wantsPlainHTTP(host: String) -> Bool {
+        guard on else { return false }
+        var h = RWAscii.lower(host)
+        if h.hasSuffix(".") { h.removeLast() }
+        if let c = h.lastIndex(of: ":"), !h.contains("]"), h[h.index(after: c)...].allSatisfy(\.isNumber) { h = String(h[..<c]) }
+        guard !h.isEmpty else { return false }
+        for p in exc where NativeRewriteEngine.glob(p.pat, h) { return false }
+        if plainHTTPHosts.contains(h) { return true }
+        return intercepts(host: h, port: 80) || intercepts(host: h, port: 443)
+    }
+
+    /// The literal host of a URL pattern that can match http:// (`^http://`, `^https?://`, `^http(s)?://`, escaped
+    /// slashes too); nil when the scheme is https only, absent, or the host has regex in it.
+    static func httpLiteralHost(_ pattern: String) -> String? {
+        var s = Substring(pattern)
+        if s.hasPrefix("^") { s = s.dropFirst() }
+        var rest: Substring?
+        for pre in ["http://", "http:\\/\\/", "https?://", "https?:\\/\\/", "http(s)?://", "http(s)?:\\/\\/",
+                    "(https?)://", "(https?):\\/\\/", "(http|https)://", "(http|https):\\/\\/"] where s.hasPrefix(pre) {
+            rest = s.dropFirst(pre.count)
+            break
+        }
+        guard let rest else { return nil }
+        var host = ""
+        var i = rest.startIndex
+        while i < rest.endIndex {
+            let c = rest[i]
+            if c == "\\" {
+                let n = rest.index(after: i)
+                guard n < rest.endIndex else { return nil }
+                if rest[n] == "." { host.append("."); i = rest.index(after: n); continue }
+                if rest[n] == "/" { break }
+                return nil // \d, \w … in the host
+            }
+            if c == "/" || c == ":" || c == "$" { break }
+            if c.isLetter || c.isNumber || c == "-" { host.append(Character(c.lowercased())); i = rest.index(after: i); continue }
+            return nil // ., *, (, [, ? … : not a literal host
+        }
+        guard host.contains("."), !host.hasPrefix("."), !host.hasSuffix("."),
+              host.unicodeScalars.allSatisfy({ $0.isASCII }) else { return nil }
+        return host
     }
 
     /// config.go globMatch: * and ? on bytes.

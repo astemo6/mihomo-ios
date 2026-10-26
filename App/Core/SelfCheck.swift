@@ -1036,16 +1036,17 @@ final class SelfCheck: ObservableObject {
         }
     }
 
-    // MARK: 13 plain-HTTP rewrite (known gap)
+    // MARK: 13 plain-HTTP rewrite
 
+    /// fix/nc-e2e-gaps: TUN port-80 HTTP to a MitM host or to the literal host of an http:// rule now goes through the
+    /// rewrite engine (MitmPlainFront in the tunnel); this step reports the configuration it applies to.
     private func stepRewriteHTTP() {
         set("rewrite-http", .running)
         guard let snap = rewriteSnapshot(), snap.on else { set("rewrite-http", .skip, String(localized: "重写与 MitM 未开启")); return }
         let httpOnly = (snap.rules ?? []).filter { r in r.re.map { SelfCheckLogic.isPlainHTTPOnly($0.p) } ?? false }
-        var d = String(localized: "已知缺口：TUN 下 80 端口的明文 HTTP 请求不经过重写引擎（只有 HTTPS 经 MitM 重写）")
-        d += "\n" + (httpOnly.isEmpty ? String(localized: "当前配置没有只匹配 http:// 的规则；匹配 https?:// 的规则对明文请求同样不生效")
-                                       : String(localized: "受影响：\(httpOnly.count) 条只匹配 http:// 的规则不会生效"))
-        set("rewrite-http", .known, d)
+        var d = String(localized: "TUN 下 80 端口的明文 HTTP 请求：MitM 主机及 http:// 规则里写明的主机交给重写引擎处理（无需解密）")
+        if !httpOnly.isEmpty { d += "\n" + String(localized: "当前配置有 \(httpOnly.count) 条只匹配 http:// 的规则") }
+        set("rewrite-http", .pass, d)
     }
 
     // MARK: 14 script

@@ -76,6 +76,7 @@ final class TernE2ETunnelTests: XCTestCase {
         groupDelay(engine)
         mem.checkpoint("contract+delay")
         let mapped = trafficFakeIP(engine)
+        appStatsRecorded()
         mitm()
         tasksAndScripts()
         // fix/nc-e2e-real: judged on the core phases (start, providers, rule sets, controller, delay, fake-ip traffic,
@@ -427,14 +428,98 @@ final class TernE2ETunnelTests: XCTestCase {
                 r.record("traffic-rule-set-reject", rejected ? .pass : .fail, "\(line); got \(res.text.isEmpty ? "no data" : String(res.text.prefix(60)))")
             } else { r.record("traffic-rule-set-reject", .fail, "no DNS answer for \(dReject)") }
         } else if E2EReport.internetOK {
-            let host = "connectivitycheck.gstatic.com"
-            if let p = resolveRetry(host)?.ips.first {
-                expectHTTP("traffic-proxied", ip: p, port: 80, host: host, path: "/generate_204", wantStatus: 204, avoidVia: "DIRECT")
-            } else { r.record("traffic-proxied", .fail, "no DNS answer for \(host)") }
+            trafficProxiedReal(engine)
         } else {
             r.record("traffic-proxied", .skip, "no internet on this runner")
         }
         return mapped
+    }
+
+    /// fix/nc-e2e-gaps: the traffic scenarios above must show up in GET /app/stats (统计) and /app/stats/speed.
+    private func appStatsRecorded() {
+        _ = E2ENet.waitUntil(2.5) { (self.api.call("GET", "/app/stats/speed").object?["seconds"] as? [Any])?.isEmpty == false }
+        let st = api.call("GET", "/app/stats", query: ["hosts": "600", "rules": "300", "session": "0", "closedAfter": "0"])
+        let sp = api.call("GET", "/app/stats/speed")
+        guard st.ok, let o = st.object, sp.ok, let so = sp.object else {
+            r.record("app-stats-recorded", .fail, "GET /app/stats HTTP \(st.status), /app/stats/speed HTTP \(sp.status)")
+            return
+        }
+        let total = o["totalConnections"] as? Int ?? 0
+        let hosts = (o["hosts"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        let closed = (o["closed"] as? [Any])?.count ?? 0
+        let secs = (so["seconds"] as? [Any])?.count ?? 0
+        let sawLocal = hosts.contains { $0.hasSuffix("localtest.me") }
+        let ok = total > 0 && sawLocal && secs > 0 && (o["full"] as? Bool) == true
+        r.record("app-stats-recorded", ok ? .pass : .fail,
+                 "connections \(total), hosts \(hosts.count) (localtest.me \(sawLocal)), rules \(o["ruleCount"] ?? "-"), closed \(closed), speed points \(secs)")
+    }
+
+    // MARK: - proxied traffic on the real fixture (fix/nc-e2e-gaps)
+
+    /// Run 40290997704 sent connectivitycheck.gstatic.com through the config's final policy — DIRECT on the user's
+    /// profile — so the proxied path was never exercised. Now the target is chosen by the engine's own routing: a
+    /// DOMAIN / DOMAIN-SUFFIX rule of the profile whose policy resolves to a proxy node (Google-family first: an HTTP
+    /// generate_204 there is stable), then the injected connectivitycheck.gstatic.com rule (→ the url-test group,
+    /// see injectRules). PASS needs: the request answered over the tunnel, the [TCP] line not DIRECT / REJECT, and the
+    /// rule's resolution a node (or chain). A dead node the user selected is tried past, not counted as a Tern bug.
+    private func proxiedCandidates(_ engine: NativeCoreEngine) -> [(host: String, path: String, rule: String, node: String)] {
+        var out: [(host: String, path: String, rule: String, node: String)] = []
+        var seen = Set<String>()
+        func node(for host: String) -> (String, String)? {
+            let ctx = engine.matchContext(domain: host, ip: nil, dstPort: 80, network: "tcp")
+            let (policy, rule, res) = engine.route(ctx)
+            switch res {
+            case .proxy(let p): return ("\(rule ?? "?") → \(policy)", p.name)
+            case .chain(let ps): return ("\(rule ?? "?") → \(policy)", ps.map(\.name).joined(separator: " -> "))
+            default: return nil
+            }
+        }
+        func add(_ host: String, _ path: String) {
+            guard seen.insert(host).inserted, let found = node(for: host) else { return }
+            out.append((host, path, found.0, found.1))
+        }
+        let rules = engine.effectiveConfig?.rules ?? []
+        var google: [String] = [], other: [String] = []
+        for l in rules {
+            let p = l.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard p.count >= 3 else { continue }
+            let t = p[0].uppercased(), v = p[1].lowercased()
+            guard t == "DOMAIN" || t == "DOMAIN-SUFFIX", !v.hasSuffix("localtest.me"), v.contains("."),
+                  !v.hasPrefix("connectivitycheck.") else { continue }
+            let host = t == "DOMAIN-SUFFIX" && v.split(separator: ".").count == 2 ? "www." + v : v
+            if v == "google.com" || v.hasSuffix(".google.com") || v == "gstatic.com" || v.hasSuffix(".gstatic.com") {
+                google.append(host)
+            } else { other.append(host) }
+        }
+        for h in google.prefix(3) { add(h, "/generate_204") }
+        for h in other where out.count < 3 { add(h, "/") }
+        add("connectivitycheck.gstatic.com", "/generate_204")
+        return out
+    }
+
+    private func trafficProxiedReal(_ engine: NativeCoreEngine) {
+        let cands = proxiedCandidates(engine)
+        guard !cands.isEmpty else {
+            r.record("traffic-proxied", .fail, "no profile domain (nor the injected connectivitycheck rule) resolves to a proxy node")
+            return
+        }
+        var tried: [String] = []
+        for c in cands.prefix(4) {
+            guard let ip = resolveRetry(c.host)?.ips.first else { tried.append("\(c.host): no DNS answer"); continue }
+            let res = net.httpGet(ip: ip, port: 80, host: c.host, path: c.path, timeout: 12)
+            let via = connLine(host: c.host) ?? "no [TCP] line"
+            let proxied = via.contains("→") && !via.contains("→ DIRECT") && !via.contains("→ REJECT")
+            let answered = res.established && res.status != nil
+            let detail = "\(c.host):80\(c.path) via \(ip) — rule \(c.rule) (node \(c.node)); \(res.established ? "established" : "no SYN-ACK"), status \(res.status.map { String($0) } ?? "-") in \(res.ms) ms; \(via)"
+            if answered && proxied {
+                r.record("traffic-proxied", .pass, detail + (tried.isEmpty ? "" : " — earlier candidates: " + tried.joined(separator: "; ")))
+                return
+            }
+            tried.append(detail)
+            // routed DIRECT despite the engine saying proxy = product bug: stop and fail on it
+            if via.contains("→ DIRECT") { break }
+        }
+        r.record("traffic-proxied", .fail, tried.joined(separator: " | "))
     }
 
     // MARK: - MitM
@@ -670,14 +755,23 @@ final class TernE2ETunnelTests: XCTestCase {
         let url = URL(fileURLWithPath: home).appendingPathComponent("nativecore-runtime.json")
         guard let d = try? Data(contentsOf: url), var o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return }
         var rules = o["rules"] as? [String] ?? []
-        let finalPolicy = rules.last.flatMap { l -> String? in
+        // fix/nc-e2e-gaps: the connectivity check goes to a group of proxy nodes (url-test first), not the final
+        // policy (DIRECT on the user's profile — run 40290997704 never tested a proxied path).
+        let groups = o["proxy-groups"] as? [[String: Any]] ?? []
+        func members(_ g: [String: Any]) -> [String] {
+            (g["proxies"] as? [String] ?? []).filter { !["DIRECT", "REJECT", "REJECT-DROP", "PASS"].contains($0.uppercased()) }
+        }
+        let proxyGroup = (groups.first { ($0["type"] as? String) == "url-test" && members($0).count > 1 }
+            ?? groups.first { ($0["type"] as? String) == "fallback" && members($0).count > 1 }
+            ?? groups.first { ($0["type"] as? String) == "select" && members($0).count > 1 && ($0["name"] as? String) != "GLOBAL" })?["name"] as? String
+        let finalPolicy = proxyGroup ?? rules.last.flatMap { l -> String? in
             let p = l.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             return p.first?.uppercased() == "MATCH" || p.first?.uppercased() == "FINAL" ? p.last : nil
         } ?? "DIRECT"
         rules.insert(contentsOf: ["DOMAIN-SUFFIX,localtest.me,DIRECT", "DOMAIN,connectivitycheck.gstatic.com,\(finalPolicy)"], at: 0)
         o["rules"] = rules
         if let nd = try? JSONSerialization.data(withJSONObject: o) { try? nd.write(to: url, options: .atomic) }
-        r.note("real fixture: prepended 2 test rules (localtest.me → DIRECT, connectivitycheck.gstatic.com → final policy)")
+        r.note("real fixture: prepended 2 test rules (localtest.me → DIRECT, connectivitycheck.gstatic.com → \(proxyGroup != nil ? "proxy group" : "final policy"))")
     }
 
     private func dumpStartupLog() {

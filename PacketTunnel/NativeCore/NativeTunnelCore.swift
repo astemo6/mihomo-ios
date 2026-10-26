@@ -15,6 +15,8 @@ final class NativeTunnelCore {
     private var _plane: NCDataPlane?
     private var _controller: NCController?
     private var _localProxy: NCLocalProxy?
+    /// fix/nc-e2e-gaps: loopback `listeners` with a fixed policy (节点探测 MIHOMO-PROBE on 127.0.0.1:7899).
+    private var _probeProxies: [NCProbeProxy] = []
     var engine: NativeCoreEngine? { lock.lock(); defer { lock.unlock() }; return _engine }
     var plane: NCDataPlane? { lock.lock(); defer { lock.unlock() }; return _plane }
     var controller: NCController? { lock.lock(); defer { lock.unlock() }; return _controller }
@@ -115,6 +117,7 @@ final class NativeTunnelCore {
         _controller = controller
         _localProxy = localProxy
         lock.unlock()
+        syncProbeListeners(engine, taken: [mixedPort, controllerPort])
         NativeCoreEngine.active = engine
         // fix/nc-start-empty: logs (once per queue) when the lwIP / controller queue stops running blocks.
         watchdog?.stop()
@@ -130,6 +133,31 @@ final class NativeTunnelCore {
         logSupport(engine)
     }
 
+    /// fix/nc-e2e-gaps: (re)starts the fixed-policy loopback listeners the config asks for; unchanged ones stay up.
+    /// A port the mixed proxy / controller already holds is skipped (the App's probePort rule avoids them anyway).
+    private func syncProbeListeners(_ engine: NativeCoreEngine, taken: [Int]) {
+        let want = NCProbeListener.specs(engine.config?.raw).filter { !taken.contains(Int($0.port)) }
+        lock.lock()
+        let have = _probeProxies
+        lock.unlock()
+        var keep: [NCProbeProxy] = []
+        for pp in have {
+            if want.contains(pp.spec) { keep.append(pp) } else { pp.stop() }
+        }
+        for spec in want where !keep.contains(where: { $0.spec == spec }) {
+            let pp = NCProbeProxy(engine: engine, spec: spec)
+            if let why = pp.start() {
+                StartupLog.write("probe listener \(spec.name): 127.0.0.1:\(spec.port) not listening: \(why)")
+            } else {
+                StartupLog.write("probe listener \(spec.name): HTTP / CONNECT on 127.0.0.1:\(spec.port) → \(spec.policy)")
+                keep.append(pp)
+            }
+        }
+        lock.lock()
+        _probeProxies = keep
+        lock.unlock()
+    }
+
     func stop() {
         _ = bumpGeneration() // cancels an in-flight reload (it re-checks before committing anything)
         lifecycle.lock()
@@ -143,11 +171,13 @@ final class NativeTunnelCore {
         watchdog = nil
         lock.lock()
         let (c, lp, p, e) = (_controller, _localProxy, _plane, _engine)
-        _controller = nil; _localProxy = nil; _plane = nil; _engine = nil
+        let probes = _probeProxies
+        _controller = nil; _localProxy = nil; _plane = nil; _engine = nil; _probeProxies = []
         lastSample = nil
         lock.unlock()
         c?.stop()
         lp?.stop()
+        for pp in probes { pp.stop() }
         p?.stop()
         e?.stop()
         NativeCoreEngine.active = nil
@@ -200,6 +230,8 @@ final class NativeTunnelCore {
                 lock.lock(); let live = _engine === engine; lock.unlock()
                 if live && isCurrent(gen) {
                     loadRewriteSnapshot(home: home, engine: engine)
+                    lock.lock(); let taken = [Int(_localProxy?.port ?? 0)]; lock.unlock()
+                    syncProbeListeners(engine, taken: taken)
                     StartupLog.write("native core reloaded (\(hot ? "hot" : "full")): \(engine.statsLine)")
                     logSupport(engine)
                     NCMemorySampler.sample("reload-post")

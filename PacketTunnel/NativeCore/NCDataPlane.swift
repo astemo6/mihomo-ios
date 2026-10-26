@@ -177,6 +177,10 @@ final class NCDataPlane {
         var frontReplayable = true  // frontSent still holds everything sent
         var replay: Data?           // bytes to resend first on the fallback relay
         var relayGen = 0            // bumped when a MitM fallback swaps the relay (stale receive callbacks ignored)
+        // fix/nc-e2e-gaps: /app/stats — bytes already reported to NCStatsRecorder, and whether it counted the flow
+        var statsUp: Int64 = 0
+        var statsDown: Int64 = 0
+        var statsOpened = false
         enum State { case deciding, connecting, open, closed }
         init(conn: NCTunStack.TCPConn, target: NCTarget, ruleDomain: String?) {
             self.conn = conn
@@ -461,6 +465,7 @@ final class NCDataPlane {
     private func tcpError(_ conn: NCTunStack.TCPConn) {
         guard let s = sessions.removeValue(forKey: UInt(bitPattern: conn.handle)) else { return }
         logClose(s, "reset by the app side")
+        recordClosed(s)
         s.state = .closed
         releaseBuffers(s)
         s.relay?.cancel()
@@ -514,6 +519,13 @@ final class NCDataPlane {
                 break
             }
             connect(s) // no domain → connect() resets the flow
+            return
+        }
+        // fix/nc-e2e-gaps: plain HTTP on port 80 to a host with rewrite work → the rewrite engine (no TLS), whatever
+        // the sniffer settings say (the request line + Host are in the first segment).
+        if s.target.port == 80, !s.mitmTried, !mitmFrontDown, case .http(let host, _) = NCSniffer.detect(s.pending),
+           let h = (host ?? s.ruleDomain).map({ $0.lowercased() }), !h.isEmpty,
+           NativeRewriteEngine.shared.wantsPlainHTTP(host: h), handoffPlain(s, host: h) {
             return
         }
         let sniff = engine.snifferConfig
@@ -574,6 +586,7 @@ final class NCDataPlane {
         s.policyName = "MITM"
         s.chainName = "MITM"
         s.ruleText = "MITM"
+        recordOpened(s)
         s.mitmHost = host
         s.frontAt = Date()
         let stream = NCStream(to: "127.0.0.1", port: Int(mitmPort), queue: queue)
@@ -594,6 +607,54 @@ final class NCDataPlane {
             if !s.pending.isEmpty {
                 self.countUp(s, s.pending.count)
                 s.frontSent = s.pending
+                stream.send(s.pending)
+                s.pending = Data()
+            }
+            self.receiveLoop(s)
+        }
+        return true
+    }
+
+    /// fix/nc-e2e-gaps: hands a port-80 HTTP flow to the plain-HTTP front (MitmPlainFront → NativeMitmSession with
+    /// tls false: rewrite / reject / scripts, then the origin over plain TCP). false = declined (no session slot,
+    /// MitM runtime off): the caller relays normally. A front that cannot be reached falls back to a plain relay
+    /// (nothing was sent yet, so the client's bytes are still all in `pending`).
+    private func handoffPlain(_ s: TCPSession, host: String) -> Bool {
+        s.mitmTried = true
+        let port = MitmPlainFront.shared.admit()
+        guard port > 0 else { return false }
+        s.state = .connecting
+        s.protocolHint = "http"
+        if s.ruleDomain == nil { s.ruleDomain = host }
+        s.policyName = "MITM"
+        s.chainName = "MITM"
+        s.ruleText = "MITM"
+        recordOpened(s)
+        let stream = NCStream(to: "127.0.0.1", port: Int(port), queue: queue)
+        stream.start { [weak self, weak s] err in
+            guard let self, let s, s.state == .connecting else {
+                stream.cancel()
+                if err != nil { MitmPlainFront.shared.unadmit() } // connected: the front's accept claims the slot
+                return
+            }
+            if let err {
+                stream.cancel()
+                MitmPlainFront.shared.unadmit()
+                self.mitmFallbacks &+= 1
+                self.connLog("[MITM] \(host):80 → plain relay (rewrite front unreachable: \(Self.short(err)))", level: "warning")
+                s.policyName = ""
+                s.chainName = ""
+                s.ruleText = ""
+                s.state = .deciding
+                self.connect(s)
+                return
+            }
+            self.mitmDecrypted &+= 1
+            self.connLog("[MITM] \(host):80 → plain HTTP to the rewrite engine")
+            s.relay = stream
+            s.state = .open
+            if !s.pending.isEmpty {
+                self.countUp(s, s.pending.count)
                 stream.send(s.pending)
                 s.pending = Data()
             }
@@ -672,6 +733,7 @@ final class NCDataPlane {
         case .unknown(let n): n
         }
         s.dialAt = .now()
+        recordOpened(s)
         let isReject: Bool = { if case .reject = resolution { return true }; return false }()
         NCConnector.connect(target: s.target, resolution: resolution, queue: queue) { [weak self, weak s] relay, error in
             guard let self, let s, s.state == .connecting else {
@@ -815,6 +877,57 @@ final class NCDataPlane {
         }
         stats.update(connections: conns, up: totalUp, down: totalDown,
                      proxyUp: totalProxyUp, proxyDown: totalProxyDown)
+        // fix/nc-e2e-gaps: /app/stats — per-policy / per-host growth since the last tick, and one speed point
+        // (TUN + local mixed proxy totals).
+        var batch: [(policy: String, host: String, up: Int64, down: Int64)] = []
+        for s in sessions.values where s.statsOpened && (s.upBytes != s.statsUp || s.downBytes != s.statsDown) {
+            batch.append((Self.statsPolicy(s), Self.statsHost(s), s.upBytes - s.statsUp, s.downBytes - s.statsDown))
+            s.statsUp = s.upBytes
+            s.statsDown = s.downBytes
+        }
+        let rec = NCStatsRecorder.shared
+        rec.bytesBatch(batch)
+        let all = stats.snapshot()
+        rec.sample(up: all.up, down: all.down, proxyUp: all.proxyUp, proxyDown: all.proxyDown)
+    }
+
+    // MARK: /app/stats (fix/nc-e2e-gaps)
+
+    /// mihomo's chains.last: the rule's policy (group), else the dialed chain; the MitM hop is the App's
+    /// engine outbound (left out of 策略 / 规则 there).
+    private static func statsPolicy(_ s: TCPSession) -> String {
+        if s.policyName == "MITM" { return NCStatsRecorder.engineOutbound }
+        if !s.policyName.isEmpty { return s.policyName }
+        return s.chainName.isEmpty ? "DIRECT" : s.chainName
+    }
+
+    /// The App's ConnectionAnalytics.hostName: host, else the destination IP.
+    private static func statsHost(_ s: TCPSession) -> String {
+        if let d = s.ruleDomain, !d.isEmpty { return d }
+        return s.target.host
+    }
+
+    /// A flow got its rule + policy: one connection (the first time) and one rule hit.
+    private func recordOpened(_ s: TCPSession) {
+        NCStatsRecorder.shared.opened(rule: s.ruleText, policy: Self.statsPolicy(s), newConnection: !s.statsOpened)
+        s.statsOpened = true
+    }
+
+    /// A counted flow ended: its last bytes and its closed-connection record.
+    private func recordClosed(_ s: TCPSession) {
+        guard s.statsOpened else { return }
+        let rec = NCStatsRecorder.shared
+        let policy = Self.statsPolicy(s)
+        rec.bytes(policy: policy, host: Self.statsHost(s), up: s.upBytes - s.statsUp, down: s.downBytes - s.statsDown)
+        s.statsUp = s.upBytes
+        s.statsDown = s.downBytes
+        var chains = [s.chainName.isEmpty ? "DIRECT" : s.chainName]
+        if policy != chains[0] { chains.append(policy) }
+        rec.closed(NCStatsRecorder.Closed(
+            seq: 0, id: String(s.key), network: "tcp", srcPort: s.conn.srcPort, dstIP: s.conn.dst.host,
+            dstPort: s.conn.dst.port, host: s.ruleDomain ?? "", remote: s.target.host, chains: chains,
+            rule: s.ruleText, up: s.upBytes, down: s.downBytes,
+            start: Int64(s.acceptedAt.timeIntervalSince1970 * 1000), closedAt: Int64(Date().timeIntervalSince1970 * 1000)))
     }
 
     /// The local mixed proxy (gap D1), whose connections the controller lists and closes next to the TUN ones.
@@ -891,6 +1004,7 @@ final class NCDataPlane {
     private func close(_ s: TCPSession) {
         guard s.state != .closed else { return }
         logClose(s, "closed")
+        recordClosed(s)
         s.state = .closed
         sessions.removeValue(forKey: s.key)
         releaseBuffers(s)
@@ -918,6 +1032,7 @@ final class NCDataPlane {
     private func reset(_ s: TCPSession) {
         guard s.state != .closed else { return }
         logClose(s, "aborted (buffer cap)")
+        recordClosed(s)
         s.state = .closed
         sessions.removeValue(forKey: s.key)
         releaseBuffers(s)

@@ -230,6 +230,19 @@ final class NCLoopbackConn {
         if !writeSuspended { writeSuspended = true; writeSource.suspend() }
     }
 
+    /// fix/nc-e2e-gaps: half-close — FIN after everything queued so far was written; reads keep working
+    /// (the plain-HTTP MitM front's ByteStream.closeWrite).
+    func shutdownWrite() {
+        queue.async {
+            guard !self.isClosed else { return }
+            self.outQ.append((Data(), { [weak self] _ in
+                guard let self, !self.isClosed else { return }
+                _ = Darwin.shutdown(self.fd, SHUT_WR)
+            }))
+            self.flush()
+        }
+    }
+
     /// Closes the connection (queued, unsent bytes are dropped — callers cancel from a send completion).
     func cancel() {
         queue.async { self.cancelNow() }
