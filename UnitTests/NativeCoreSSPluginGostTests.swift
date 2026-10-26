@@ -157,10 +157,10 @@ final class NativeCoreSSPluginGostTests: XCTestCase {
         ])))
     }
 
-    func testKcptunStaysUnsupported() {
-        let why = NCSupport.unsupportedReason(ss("kcptun", ["key": .string("k"), "crypt": .string("aes")]))
-        XCTAssertNotNil(why)
-        XCTAssertTrue(why?.contains("kcptun") ?? false)
+    /// kcptun was an explicit gap here; PR #146 (feat/nc-ss-cloak-kcptun, NCKcptunOptions) implements it, so a
+    /// valid key / crypt node is supported now (option validation itself is covered by NativeCoreKcptunTests).
+    func testKcptunIsSupportedAfterPR146() {
+        XCTAssertNil(NCSupport.unsupportedReason(ss("kcptun", ["key": .string("k"), "crypt": .string("aes")])))
     }
 
     // MARK: - smux v1 framing
