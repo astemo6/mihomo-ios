@@ -715,7 +715,11 @@ enum NCConnector {
             }
             tuicStream(proxy: proxy, target: target, queue: queue, completion: completion)
         case "masque":
-            queue.async { completion(nil, Failure.unsupported("masque: 数据面将在 S2 接入")) }
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("masque over a chain transport")) }
+                return
+            }
+            NCMASQUERegistry.masqueStream(proxy: proxy, target: target, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }

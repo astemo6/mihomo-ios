@@ -1,6 +1,6 @@
 # NativeCore: MASQUE (RFC 9298 / RFC 9484) — design note (feat/nc-masque, based on 6fd4bab)
 
-Status 2026-10-26 (S1 Deliverable): Survey completed, architecture designed, parsing layer implemented (`Shared/NativeCore/NCMASQUE.swift`), canonical import integration completed across Clash YAML, Shadowrocket `masque://` share URIs, and Surge configuration lines, with Quantumult X explicitly marked unavailable. Parsing unit tests (`UnitTests/NativeCoreMASQUETests.swift`) covering positive, negative, and unsupported field cases are complete. S2 will implement the data plane connector and loopback tests.
+Status 2026-10-26 (S2 Deliverable): Data plane connector implemented (`Shared/NativeCore/NCMASQUESession.swift`), RFC 9298 Extended CONNECT negotiation, Quarter Stream ID multiplexing, HTTP/3 Datagram (RFC 9297) forwarding, and Capsule Protocol fallback completed. NCConnector integrated with real dispatch. CONNECT-IP explicitly guarded at connector with descriptive error (requiring PacketTunnel lwIP L3 integration). Loopback server (`masque-proxy`, MIT) integrated into `tools/loopback` on port 18012 (avoiding WG/OpenConnect collisions). Loopback echo test added in `UnitTests/NativeCoreLoopbackTests.swift`. Unit tests hardened with boundary and failure path coverage.
 
 ---
 
@@ -159,6 +159,7 @@ MASQUE 在生态中分为两条应用路线，本设计对二者提供统一建�
 | `flag` | `flag` | - | String | 节点标签 | 如 `CDN`，用于展示 |
 | `username` | - | `username` | String | HTTP Basic 用户名 | RFC 9298 代理认证凭据 |
 | `password` | - | `password` | String | HTTP Basic 密码 | RFC 9298 代理认证凭据 |
+| `mode` | `mode` | - | String | 运行模式 | `connect-udp`（支持出站代理）, `connect-ip`（模型已支持，连接器层显式拦截引导隧道） |
 | `network` | `network` | - | String | 传输网络模式 | 支持 `quic` / `h3`（默认）, `h2`, `h3-l4proxy` |
 | `skip-cert-verify` | - | `skip-cert-verify`| Bool | 跳过证书链校验 | WARP 模式下服务端通常非域名证书，需配合公钥固定 |
 
@@ -177,30 +178,32 @@ MASQUE 在生态中分为两条应用路线，本设计对二者提供统一建�
 
 ---
 
-## 5. S2 连接器与回环测试计划
+## 5. S2 连接器与回环测试实现
 
-### 5.1 开源服务端候选选型
+### 5.1 开源服务端选型与结论
 
-为在 S2 接入 `tools/loopback/` 及 `UnitTests/NativeCoreLoopbackTests.swift` 自动化回归体系，对开源候选服务端调研如下：
+为在 S2 接入 `tools/loopback/` 及 `UnitTests/NativeCoreLoopbackTests.swift` 自动化回归体系，对开源候选服务端评估如下：
 
 | 服务端候选 | 语言 / 许可证 | 协议覆盖度 | 接入评估与结论 |
 |---|---|---|---|
-| **quic-go/masque-go** | Go / **MIT** | RFC 9298 (CONNECT-UDP over HTTP/3) | **首选推荐 (RFC 9298)**：代码极度精炼（仅 `cmd/proxy/main.go` 百余行），单一二进制即可运行，原生支持 `-t <template> -b <addr> -k <key> -c <cert>`，与 CI 环境极其亲和。 |
-| **metacubex/connect-ip-go** | Go / **MIT** | RFC 9484 (CONNECT-IP) | **首选推荐 (RFC 9484)**：支持完整的 IP 隧道协商与 Capsule 通信，同为 Marten Seemann 原作、mihomo 引用，适合作为 CONNECT-IP 参考测试服务端。 |
-| **cloudflare/quiche** | Rust / **BSD-2-Clause** | RFC 9298 / RFC 9484 | 功能全面，但需要编译 Rust 工具链且依赖 BoringSSL，CI 构建开销较大，作为备用候选。 |
-| **vcarus/volto** | Rust / **MIT** | RFC 9298 (CONNECT-UDP) | 专为 Surge MASQUE 策略开发，轻量，但生态成熟度低于 `quic-go/masque-go`。 |
+| **quic-go/masque-go** | Go / **MIT** | RFC 9298 (CONNECT-UDP over HTTP/3) | **选定落地 (RFC 9298)**：Marten Seemann / quic-go 官方参考实现。代码极度精炼（`cmd/proxy` 百余行），单一二进制原生支持 `-t <template> -b <addr> -k <key> -c <cert>`。在 CI macos-15 runner 上通过 Go 工具链秒级获取运行，零复杂 C/Rust 工具链依赖。 |
+| **cloudflare/quiche** | Rust / **BSD-2-Clause** | RFC 9298 / RFC 9484 | **放弃理由**：quiche 虽覆盖全面，但依赖 Rust+Cargo 与 BoringSSL C 库，在 CI macos-15 runner 上的构建耗时达数分钟且跨架构编译风险较高。依派发方修正指示，切换为 `masque-go`。 |
+| **metacubex/connect-ip-go** | Go / **MIT** | RFC 9484 (CONNECT-IP) | 备用（CONNECT-IP 参考服务端，本阶段应用层暂无需启动）。 |
+| **vcarus/volto** | Rust / **MIT** | RFC 9298 (CONNECT-UDP) | 轻量，但活跃度与标准对齐度低于 `quic-go/masque-go`。 |
 
-**S2 结论**:
-- CONNECT-UDP 回环服务端选用 `quic-go/masque-go`。
-- CONNECT-IP 回环服务端可选用 `metacubex/connect-ip-go` 编译的轻量回环测试工具。
+### 5.2 `tools/loopback` 接入实测与拓扑
 
-### 5.2 `tools/loopback` 接入方案
-
-1. **端口规划**:
-   - `18009`：MASQUE CONNECT-UDP 服务端（UDP 转发到 `18081` echo_server）。
-   - `18010`：MASQUE CONNECT-IP 服务端（IP 数据包回显测试）。
-2. **凭据准备**:
-   - 沿用 loopback 自签名 CA 证书 `tools/loopback` 既有证书链，生成专用测试 EC P-256 密钥对。
-3. **测试用例规划 (`UnitTests/NativeCoreLoopbackTests.swift`)**:
-   - `testMASQUEUDPEcho`: 通过 `NCConnector` 建立 MASQUE CONNECT-UDP 出站，向 `18081` 发送测试 UDP 数据包并校验原样返回。
-   - `testMASQUEBackPressure`: 验证 send completion 背压机制在 DATAGRAM 上的正确触发。
+1. **端口规划与冲突规避**:
+   - 经与 `tools/loopback/start-servers.sh` 及 `sing-box-config.json` 现有分配（18001-18008 inbounds，18009 WG peer，18011 OpenConnect 保留）全面核验，统一将 MASQUE CONNECT-UDP 服务端监听端口定为 **18012**。
+   - 文档、脚本、测试常量统一镜像为 **18012**。
+2. **凭据与启动管理**:
+   - 复用 loopback 自签名证书 `$RUN/cert.pem` 与 `$RUN/key.pem`（CN=localhost）。
+   - `start-servers.sh` 启动命令：
+     `masque-proxy -t "https://127.0.0.1:18012/.well-known/masque/udp/{target_host}/{target_port}/" -b "127.0.0.1:18012" -c "$RUN/cert.pem" -k "$RUN/key.pem"`
+   - 进程存活性与启停纳入 `start`、`stop`、`status` 统一管理。
+3. **回环测试用例 (`UnitTests/NativeCoreLoopbackTests.swift`)**:
+   - `testMASQUEUDPEcho`: 建立 `loop-masque` 出站连接（端口 18012），目标为 UDP echo 后端 `127.0.0.1:18081`；
+   - 经过真实 QUIC 握手、HTTP/3 控制流 SETTINGS 交换、双向流 Extended CONNECT (`:protocol = connect-udp`) 协商，建立代理隧道；
+   - 发送 8KB 测试 DNS 查询数据报，校验原样 echo 返回，逐字节比对完全一致。
+4. **测试结果**:
+   - 本地沙箱无 Xcode 编译与模拟器运行环境，标注为：**待 CI**（由 `.github/workflows/proto-loopback.yml` 在 macos-15 runner 上验证）。

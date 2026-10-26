@@ -45,6 +45,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18006 | sing-box Hysteria2 inbound — `nc-loop-hy2-pw`, TLS ALPN h3 |
 | 18007 | sing-box TUIC inbound — same uuid / `nc-loop-tuic-pw`, ALPN h3, BBR |
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
+| 18012 | masque-proxy — RFC 9298 CONNECT-UDP (HTTP/3) / self-signed TLS (CN=localhost) |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
@@ -72,6 +73,8 @@ self-signed cert the start script generates into the runtime dir
   (`NCSSEncoder`/`NCSSDecoder`, `NCSS2022UDPCrypto`) — the `NCUDPSession`
   classes themselves live in the PacketTunnel target, which the app-hosted
   test bundle cannot link.
+- **MASQUE**: RFC 9298 CONNECT-UDP echo against `masque-proxy` on port 18012
+  (QUIC / HTTP/3 Datagrams targeting UDP echo `:18081`).
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.

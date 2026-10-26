@@ -59,6 +59,33 @@ find_sing_box() {
     printf '%s' "$bin"
 }
 
+find_masque_proxy() {
+    if [ -n "${MASQUE_PROXY_BIN:-}" ]; then
+        printf '%s' "$MASQUE_PROXY_BIN"
+        return 0
+    fi
+    if [ -x "$RUN/bin/masque-proxy" ]; then
+        printf '%s' "$RUN/bin/masque-proxy"
+        return 0
+    fi
+    if command -v masque-proxy >/dev/null 2>&1; then
+        command -v masque-proxy
+        return 0
+    fi
+    if command -v go >/dev/null 2>&1; then
+        log "installing masque-go proxy (RFC 9298, MIT) via go install"
+        GOBIN="$RUN/bin" go install github.com/quic-go/masque-go/cmd/proxy@v0.6.0
+        if [ -x "$RUN/bin/proxy" ]; then
+            mv "$RUN/bin/proxy" "$RUN/bin/masque-proxy"
+        fi
+        if [ -x "$RUN/bin/masque-proxy" ]; then
+            printf '%s' "$RUN/bin/masque-proxy"
+            return 0
+        fi
+    fi
+    return 1
+}
+
 gen_cert() {
     if [ -f "$RUN/cert.pem" ] && [ -f "$RUN/key.pem" ]; then
         return
@@ -113,8 +140,23 @@ do_start() {
     nohup "$sb" run -c "$RUN/sing-box.json" >"$RUN/sing-box.log" 2>&1 &
     echo $! > "$RUN/sing-box.pid"
 
+    local masque_bin=""
+    if masque_bin="$(find_masque_proxy 2>/dev/null)" && [ -n "$masque_bin" ]; then
+        log "starting masque-proxy on port 18012"
+        nohup "$masque_bin" \
+            -t "https://127.0.0.1:18012/.well-known/masque/udp/{target_host}/{target_port}/" \
+            -b "127.0.0.1:18012" \
+            -c "$RUN/cert.pem" \
+            -k "$RUN/key.pem" >"$RUN/masque.log" 2>&1 &
+        echo $! > "$RUN/masque.pid"
+        sleep 0.5
+        kill -0 "$(cat "$RUN/masque.pid")" 2>/dev/null || log "masque-proxy failed to stay alive"
+    else
+        log "masque-proxy not found (install go or set MASQUE_PROXY_BIN to enable MASQUE loopback)"
+    fi
+
     # TCP inbounds + backends can be probed directly. The UDP inbounds
-    # (hysteria2 / tuic / wireguard) cannot; sing-box is a single process, so
+    # (hysteria2 / tuic / wireguard / masque) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
     for p in 18001 18002 18003 18004 18005 18080 18082; do
@@ -122,12 +164,12 @@ do_start() {
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 masque :18012 echo :18080/:18081 blackhole :18082"
 }
 
 do_stop() {
     local f
-    for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
+    for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/masque.pid"; do
         if alive "$f"; then
             kill "$(cat "$f")" 2>/dev/null || true
         fi
@@ -138,7 +180,7 @@ do_stop() {
 
 do_status() {
     local rc=0
-    for name in sing-box echo; do
+    for name in sing-box echo masque; do
         if alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
         else

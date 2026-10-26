@@ -27,6 +27,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let masquePort = 18012
     private static let tcpEchoPort = 18080
     private static let udpEchoPort = 18081
     private static let blackholePort = 18082
@@ -148,6 +149,16 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-tuic", type: "tuic", port: Self.tuicPort, extra: [
             "uuid": .string(Self.uuid), "password": .string(Self.tuicPassword),
             "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    private static var masqueProxy: NCProxy {
+        Self.proxy(name: "loop-masque", type: "masque", port: Self.masquePort, extra: [
+            "mode": .string("connect-udp"),
+            "uri": .string("https://\(Self.host):\(Self.masquePort)/.well-known/masque/udp/{target_host}/{target_port}/"),
+            "sni": .string("localhost"),
+            "skip-cert-verify": .bool(true),
+            "udp": .bool(true),
         ])
     }
 
@@ -453,6 +464,24 @@ final class NativeCoreLoopbackTests: XCTestCase {
         let decoded = try XCTUnwrap(crypto.decodePacket(reply), "SS2022 UDP reply did not decode")
         XCTAssertEqual(decoded.1, Self.dnsQuery)
         XCTAssertEqual(decoded.0.port, Self.udpEchoPort)
+    }
+
+    // MARK: - MASQUE CONNECT-UDP echo (RFC 9298)
+
+    func testMASQUEUDPEcho() throws {
+        let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
+        let stream: NCRelayStream
+        do {
+            stream = try self.connect(proxy: Self.masqueProxy, target: target, timeout: 15)
+        } catch {
+            let env = ProcessInfo.processInfo.environment["NC_LOOPBACK"] == "1"
+            if !env {
+                throw XCTSkip("masque-proxy on :\(Self.masquePort) not reachable (skipped in local non-CI run): \(error)")
+            }
+            throw error
+        }
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.dnsQuery)
     }
 }
 

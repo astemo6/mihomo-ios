@@ -313,4 +313,120 @@ final class NativeCoreMASQUETests: XCTestCase {
         XCTAssertTrue(String(data: qpack, encoding: .isoLatin1)?.contains("connect-ip") == true)
         XCTAssertTrue(String(data: qpack, encoding: .isoLatin1)?.contains("capsule-protocol") == true)
     }
+
+    // MARK: - S2 Data Plane & Boundary Tests
+
+    func testDatagramCodecBoundaries() {
+        // 1. Empty data
+        XCTAssertNil(NCMASQUE.decodeH3Datagram(Data()))
+
+        // 2. Truncated Quarter Stream ID (declared 2 bytes but only 1 byte present)
+        let truncatedSID = Data([0x40])
+        XCTAssertNil(NCMASQUE.decodeH3Datagram(truncatedSID))
+
+        // 3. Truncated Context ID (valid SID but incomplete context ID)
+        let truncatedCtx = Data([0x00, 0x80])
+        XCTAssertNil(NCMASQUE.decodeH3Datagram(truncatedCtx))
+
+        // 4. Zero payload datagram (valid header, empty payload)
+        let emptyPayloadWire = NCMASQUE.encodeH3Datagram(streamID: 4, contextID: 0, payload: Data())
+        let decodedEmpty = NCMASQUE.decodeH3Datagram(emptyPayloadWire)
+        XCTAssertNotNil(decodedEmpty)
+        XCTAssertEqual(decodedEmpty?.streamID, 4)
+        XCTAssertEqual(decodedEmpty?.contextID, 0)
+        XCTAssertEqual(decodedEmpty?.payload, Data())
+
+        // 5. Multi-byte varint stream ID (e.g. streamID 1024 -> quarterStreamID 256)
+        let largeSID: UInt64 = 1024
+        let largeWire = NCMASQUE.encodeH3Datagram(streamID: largeSID, contextID: 1, payload: Data("BOUNDARY".utf8))
+        let decodedLarge = NCMASQUE.decodeH3Datagram(largeWire)
+        XCTAssertNotNil(decodedLarge)
+        XCTAssertEqual(decodedLarge?.streamID, largeSID)
+        XCTAssertEqual(decodedLarge?.contextID, 1)
+        XCTAssertEqual(decodedLarge?.payload, Data("BOUNDARY".utf8))
+    }
+
+    func testCapsuleCodecBoundaries() {
+        var parser = NCMASQUE.CapsuleParser()
+
+        // 1. Truncated header (only 1 byte with 2-byte varint length prefix)
+        let truncated = parser.feed(Data([0x40]))
+        XCTAssertEqual(truncated.count, 0)
+
+        // 2. Unknown capsule type (RFC 9297 §3.2 requires endpoints to ignore unknown capsules)
+        let unknownType: UInt64 = 0x12345
+        let unknownPayload = Data([0xde, 0xad, 0xbe, 0xef])
+        let unknownWire = NCMASQUE.encodeCapsule(type: unknownType, value: unknownPayload)
+        let parsedUnknown = parser.feed(unknownWire)
+        XCTAssertEqual(parsedUnknown.count, 1)
+        XCTAssertEqual(parsedUnknown[0].type, unknownType)
+        XCTAssertEqual(parsedUnknown[0].value, unknownPayload)
+
+        // 3. Consecutive mixed capsules in a single chunk
+        let cap1 = NCMASQUE.encodeCapsule(type: NCMASQUE.capsuleTypeDatagram, value: Data([0x00, 0x01, 0x02]))
+        let cap2 = NCMASQUE.encodeCapsule(type: NCMASQUE.capsuleTypeAddressAssign, value: Data([0x03, 0x04]))
+        let batch = parser.feed(cap1 + cap2)
+        XCTAssertEqual(batch.count, 2)
+        XCTAssertEqual(batch[0].type, NCMASQUE.capsuleTypeDatagram)
+        XCTAssertEqual(batch[1].type, NCMASQUE.capsuleTypeAddressAssign)
+    }
+
+    func testNegotiationFailurePaths() {
+        // 1. QPACK response with non-2xx status (e.g. 403 Forbidden: static index 68)
+        var qpack403 = Data([0x00, 0x00]) // QPACK section prefix
+        qpack403.append(0xC0 | 68)         // Indexed static table index 68 (:status 403)
+        let fields = NCMASQUE.qpackDecodeFieldSection(qpack403)
+        XCTAssertNotNil(fields)
+        let status = fields?.first(where: { $0.name == ":status" })?.value
+        XCTAssertEqual(status, "403")
+
+        // 2. Malformed QPACK field section (missing prefix / out of bounds)
+        let malformed = Data([0xff, 0xff])
+        XCTAssertNil(NCMASQUE.qpackDecodeFieldSection(malformed))
+    }
+
+    func testURITemplateExpansion() {
+        // 1. Standard RFC 9298 template
+        let tmpl1 = "/.well-known/masque/udp/{target_host}/{target_port}/"
+        let t1 = NCTarget(host: "1.1.1.1", port: 53)
+        let res1 = NCMASQUE.expandURITemplate(tmpl1, target: t1)
+        XCTAssertEqual(res1, "/.well-known/masque/udp/1.1.1.1/53/")
+
+        // 2. Absolute URL template
+        let tmpl2 = "https://127.0.0.1:18012/.well-known/masque/udp/{target_host}/{target_port}/"
+        let t2 = NCTarget(host: "127.0.0.1", port: 18081)
+        let res2 = NCMASQUE.expandURITemplate(tmpl2, target: t2)
+        XCTAssertEqual(res2, "/.well-known/masque/udp/127.0.0.1/18081/")
+
+        // 3. IPv6 target: must be enclosed in brackets
+        let tmpl3 = "/.well-known/masque/udp/{target_host}/{target_port}/"
+        let t3 = NCTarget(host: "2606:4700::1", port: 53)
+        let res3 = NCMASQUE.expandURITemplate(tmpl3, target: t3)
+        XCTAssertEqual(res3, "/.well-known/masque/udp/[2606:4700::1]/53/")
+    }
+
+    func testConnectIPModeRejectedAtConnector() {
+        // CONNECT-IP mode (WARP MASQUE node) called through NCConnector.connect must fail explicitly
+        let warpProxy = NCProxy(name: "WARP-Test", type: "masque", fields: [
+            "server": .string("162.159.198.1"),
+            "port": .number(443),
+            "private-key": .string("MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgTESTPRIV"),
+            "public-key": .string("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETESTPUB"),
+            "ip": .string("172.16.0.2"),
+            "ipv6": .string("2606:4700::1"),
+        ])
+        let target = NCTarget(host: "1.1.1.1", port: 53)
+        let exp = expectation(description: "reject connect-ip at connector")
+        let queue = DispatchQueue(label: "nc.masque.test")
+
+        NCConnector.connect(target: target, proxy: warpProxy, queue: queue) { stream, error in
+            XCTAssertNil(stream)
+            XCTAssertNotNil(error)
+            let desc = error?.localizedDescription ?? ""
+            XCTAssertTrue(desc.contains("CONNECT-IP"), "Error must explicitly explain CONNECT-IP limitation: \(desc)")
+            exp.fulfill()
+        }
+
+        wait(for: [exp], timeout: 5)
+    }
 }

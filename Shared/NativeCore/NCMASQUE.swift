@@ -658,6 +658,41 @@ enum NCMASQUE {
         return out
     }
 
+    // MARK: - URI Template Expansion (RFC 9298 §3)
+
+    /// Expand an RFC 9298 URI template with the target host and port.
+    /// Extracts the relative HTTP path component if an absolute URI was passed.
+    static func expandURITemplate(_ template: String, target: NCTarget) -> String {
+        var path = template
+        let hostStr = target.host.contains(":") && !target.host.hasPrefix("[") ? "[\(target.host)]" : target.host
+        if path.contains("{target_host}") || path.contains("{target_port}") {
+            path = path.replacingOccurrences(of: "{target_host}", with: hostStr)
+            path = path.replacingOccurrences(of: "{target_port}", with: "\(target.port)")
+        } else {
+            if !path.hasSuffix("/") { path += "/" }
+            path += "\(hostStr)/\(target.port)/"
+        }
+        if path.hasPrefix("https://") || path.hasPrefix("http://") {
+            if let url = URL(string: path) {
+                var p = url.path
+                if let q = url.query { p += "?\(q)" }
+                path = p
+            }
+        }
+        if !path.hasPrefix("/") {
+            path = "/" + path
+        }
+        return path
+    }
+
+    // MARK: - QPACK Response Decoding (RFC 9204)
+
+    /// Decode a QPACK field section using the static table and literal field lines.
+    /// Forwarded to NCHy2.qpackDecodeFieldSection.
+    static func qpackDecodeFieldSection(_ data: Data) -> [(name: String, value: String)]? {
+        NCHy2.qpackDecodeFieldSection(data)
+    }
+
     // MARK: - QPACK Integer & String Primitives
 
     private static func qpackEncodeInteger(_ value: Int, prefixBits: Int, flags: UInt8) -> Data {
