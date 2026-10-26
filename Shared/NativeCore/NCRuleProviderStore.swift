@@ -368,32 +368,24 @@ final class NCRuleProviderStore {
 
     /// Fetch one provider and swap its index on success. Failures keep the
     /// old index and do not update the timestamp (retry next cycle).
-    ///
+    /// A 304, or a body byte-identical to the cache (size + SHA-256), keeps the index and the cache without parsing.
+    func refresh(_ p: Provider, completion: (() -> Void)? = nil) {
+        fetch(p, downloaded: nil, completion: completion)
+    }
+
     /// fix/nc-ruleset-fast: `downloaded` fires once the network part is over (the body is on disk, or 304, or a
     /// failure) — refreshAll starts the next download then; `completion` fires after the parse / publish.
-    /// (`completion` stays first so `refresh(p) { … }` keeps binding the trailing closure to it.)
-    /// A 304, or a body byte-identical to the cache (size + SHA-256), keeps the index and the cache without parsing.
-    func refresh(_ p: Provider, completion: (() -> Void)? = nil, downloaded: (() -> Void)? = nil) {
+    /// The escaping callbacks hold the store only weakly and never across `downloaded` / `completion` (a store
+    /// dropped by a reload must stop its chain), and use no dynamic `Self`.
+    private func fetch(_ p: Provider, downloaded: (() -> Void)?, completion: (() -> Void)?) {
         guard let url = p.url else { downloaded?(); completion?(); return }
         let t0 = Date()
-        Self.memLine(p.name, "fetch-start")
+        NCRuleProviderStore.memLine(p.name, "fetch-start")
         if let fetcher {
             fetcher(url) { [weak self] data in
-                defer { downloaded?(); completion?() }
-                guard let self, let data else { return }
-                Self.memLine(p.name, "fetched bytes=\(data.count) ms=\(Self.ms(t0))")
-                var idx = NCRuleSetIndex()
-                do {
-                    try Self.populateIndex(idx: &idx, data: data, provider: p)
-                } catch {
-                    NSLog("[NCRuleProviderStore] refresh failed for %@: %@", p.name, String(describing: error))
-                    return
-                }
-                guard idx.entryCount > 0 else { return }
-                let cache = self.cacheFile(for: p.name)
-                try? data.write(to: cache, options: .atomic)
-                NCFetchValidators.remove(for: cache) // written without validators
-                self.publish(p, idx)
+                if let data { self?.applyFetched(p, data: data, t0: t0) }
+                downloaded?()
+                completion?()
             }
             return
         }
@@ -401,44 +393,71 @@ final class NCRuleProviderStore {
         // Validators only when the index they describe is loaded: a 304 must have something to keep.
         let prev = isLoaded(name: p.name) ? NCFetchValidators.load(for: cache, url: url) : nil
         let handle: (Download) -> Void = { [weak self] result in
-            guard let self else { downloaded?(); completion?(); return }
             switch result {
             case .failed:
-                downloaded?(); completion?()
+                break
             case .notModified:
-                downloaded?()
-                if prev != nil, self.isLoaded(name: p.name) {
-                    Self.memLine(p.name, "not-modified ms=\(Self.ms(t0))")
-                    NCFetchValidators.touch(cache)
-                    self.publish(p, nil)
-                } else {
-                    NSLog("[NCRuleProviderStore] refresh failed for %@: unexpected HTTP 304", p.name)
-                }
-                completion?()
+                self?.keepNotModified(p, cache: cache, sentValidators: prev != nil, t0: t0)
             case .file(let file, let etag, let lm):
                 // The temporary file is deleted once this callback returns: move it next to the cache file first.
-                let part = self.partFile(for: cache)
-                do { try FileManager.default.moveItem(at: file, to: part) } catch {
-                    NSLog("[NCRuleProviderStore] refresh failed for %@: %@", p.name, String(describing: error))
-                    downloaded?(); completion?()
-                    return
-                }
+                guard let part = self?.moveToPart(file, cache: cache, name: p.name) else { break }
                 downloaded?()
-                Self.parseQueue.async { [weak self] in
-                    var ok = false
-                    if let self {
-                        ok = self.loadDownloaded(p, url: url, part: part, cache: cache, t0: t0,
-                                                 etag: etag, lastModified: lm, prev: prev)
-                    }
+                NCRuleProviderStore.parseQueue.async { [weak self] in
+                    let ok = self?.loadDownloaded(p, url: url, part: part, cache: cache, t0: t0,
+                                                  etag: etag, lastModified: lm, prev: prev) ?? false
                     if !ok { try? FileManager.default.removeItem(at: part) }
                     completion?()
                 }
+                return
             }
+            downloaded?()
+            completion?()
         }
         if let downloader {
-            downloader(url) { file in handle(file.map { .file($0, etag: nil, lastModified: nil) } ?? .failed) }
+            downloader(url) { file in
+                if let file { handle(.file(file, etag: nil, lastModified: nil)) } else { handle(.failed) }
+            }
         } else {
             httpDownloader(url, prev?.requestHeaders ?? [:], handle)
+        }
+    }
+
+    /// The test-hook (in-memory body) path: parse, write the cache, publish.
+    private func applyFetched(_ p: Provider, data: Data, t0: Date) {
+        Self.memLine(p.name, "fetched bytes=\(data.count) ms=\(Self.ms(t0))")
+        var idx = NCRuleSetIndex()
+        do {
+            try Self.populateIndex(idx: &idx, data: data, provider: p)
+        } catch {
+            NSLog("[NCRuleProviderStore] refresh failed for %@: %@", p.name, String(describing: error))
+            return
+        }
+        guard idx.entryCount > 0 else { return }
+        let cache = cacheFile(for: p.name)
+        try? data.write(to: cache, options: .atomic)
+        NCFetchValidators.remove(for: cache) // written without validators
+        publish(p, idx)
+    }
+
+    /// HTTP 304: the loaded index and the cache stay; the list is stamped fresh.
+    private func keepNotModified(_ p: Provider, cache: URL, sentValidators: Bool, t0: Date) {
+        guard sentValidators, isLoaded(name: p.name) else {
+            NSLog("[NCRuleProviderStore] refresh failed for %@: unexpected HTTP 304", p.name)
+            return
+        }
+        Self.memLine(p.name, "not-modified ms=\(Self.ms(t0))")
+        NCFetchValidators.touch(cache)
+        publish(p, nil)
+    }
+
+    private func moveToPart(_ file: URL, cache: URL, name: String) -> URL? {
+        let part = partFile(for: cache)
+        do {
+            try FileManager.default.moveItem(at: file, to: part)
+            return part
+        } catch {
+            NSLog("[NCRuleProviderStore] refresh failed for %@: %@", name, String(describing: error))
+            return nil
         }
     }
 
@@ -552,7 +571,7 @@ final class NCRuleProviderStore {
     /// reload stops fetching for itself instead of being kept alive (with its indexes) by its own refresh chain.
     private static func pump(_ store: NCRuleProviderStore?, _ pending: FetchQueue) {
         guard let store, let p = pending.pop() else { return }
-        store.refresh(p, downloaded: { [weak store] in pump(store, pending) })
+        store.fetch(p, downloaded: { [weak store] in pump(store, pending) }, completion: nil)
     }
 
     private final class FetchQueue {
