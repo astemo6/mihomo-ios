@@ -510,6 +510,9 @@ final class NCUDPSnellSession: NCUDPSession {
     private let v4Writer: NCSnellV4Writer?
     private let v4Reader: NCSnellV4Reader?
     private var cancelled = false
+    /// fix/nc-silent-fail: set when the dial fails — the session is dead and send() drops instead of
+    /// encoding into a never-connected stream until the idle reap (NCUDPTrojanSession marks dead alike).
+    private var dead = false
 
     init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let password = proxy.password, let server = proxy.server, let port = proxy.port
@@ -536,7 +539,8 @@ final class NCUDPSnellSession: NCUDPSession {
             wire = raw
         }
         raw.start { [weak self] err in
-            guard let self, err == nil else { return }
+            guard let self else { return }
+            guard err == nil else { self.dead = true; return }
             if let v4Writer {
                 if let w = v4Writer.write(NCSnell.udpHeader()) { self.wire.send(w) }
             } else if let encoder {
@@ -571,6 +575,7 @@ final class NCUDPSnellSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
+        guard !dead, !cancelled else { return }
         let frame = NCSnell.udpFrame(target: target, payload: data)
         if let v4Writer {
             if let w = v4Writer.frame(frame) { wire.send(w) }
