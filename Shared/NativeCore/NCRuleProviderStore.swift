@@ -98,7 +98,38 @@ final class NCRuleProviderStore {
     /// (urlString, completion) — completion gets the body or nil on failure.
     var fetcher: (String, @escaping (Data?) -> Void) -> Void = { urlString, done in
         guard let url = URL(string: urlString) else { done(nil); return }
-        URLSession.shared.dataTask(with: url) { data, _, _ in done(data) }.resume()
+        URLSession.shared.dataTask(with: url) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard err == nil, (200..<300).contains(code), let data, !data.isEmpty else {
+                StartupLog.write("rule set: fetch failed \(NCRuleProviderStore.logName(urlString)) — " +
+                                 (err.map { $0.localizedDescription } ?? "HTTP \(code)"))
+                done(nil)
+                return
+            }
+            done(data)
+        }.resume()
+    }
+
+    /// Go-era configs point remote QX/Surge/Loon rule lists at the bridge's own converter
+    /// (http://127.0.0.1:<port>/rules/convert?url=<src>&kind=<kind>). NativeCore has no converter:
+    /// its parser reads every dialect itself, so fetch the source list directly.
+    static func unwrapLoopbackConvert(_ urlString: String) -> String {
+        guard let c = URLComponents(string: urlString),
+              let host = c.host, host == "127.0.0.1" || host == "localhost" || host == "::1",
+              c.path.hasSuffix("/rules/convert"),
+              let src = c.queryItems?.first(where: { $0.name == "url" })?.value,
+              src.hasPrefix("http://") || src.hasPrefix("https://") else { return urlString }
+        return src
+    }
+
+    static func loopbackConvertKind(_ urlString: String) -> String? {
+        guard let c = URLComponents(string: urlString), c.path.hasSuffix("/rules/convert") else { return nil }
+        return c.queryItems?.first(where: { $0.name == "kind" })?.value
+    }
+
+    static func logName(_ urlString: String) -> String {
+        guard let c = URLComponents(string: urlString), let h = c.host else { return "?" }
+        return h + "/…" + (c.path.split(separator: "/").last.map(String.init) ?? "")
     }
 
     init(dir: URL) {
@@ -124,7 +155,11 @@ final class NCRuleProviderStore {
                 // without one): per-line dialect detection, which also
                 // handles classical lines and YAML payload documents.
                 p.behavior = o["behavior"]?.string?.lowercased() ?? "auto"
-                p.url = o["url"]?.string
+                p.url = o["url"]?.string.map(Self.unwrapLoopbackConvert)
+                if let raw = o["url"]?.string, raw != p.url, o["behavior"] == nil,
+                   Self.loopbackConvertKind(raw) == "domainset" {
+                    p.behavior = "domain"
+                }
                 p.filePath = o["path"]?.string
                 p.format = o["format"]?.string ?? (
                     (p.filePath?.hasSuffix(".mrs") == true || p.url?.hasSuffix(".mrs") == true) ? "mrs" : "yaml"

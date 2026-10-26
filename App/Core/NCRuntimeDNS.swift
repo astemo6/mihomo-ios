@@ -603,7 +603,13 @@ extension NCRuntimeSteps {
         return (m.str("x-convert"), u)
     }
 
-    /// bridge rewriteConvertProviders.
+    /// bridge rewriteConvertProviders, NativeCore edition. The Go bridge pointed "convert" providers at its own
+    /// loopback converter (http://127.0.0.1:<port>/rules/convert | /nodes/convert + a Bearer header). NativeCore
+    /// has no such endpoint (device: 27× HTTP 401, remote rule lists never loaded), and it reads every dialect
+    /// itself — NCRuleProviderStore parses QX/Surge/Loon/classical/domain-set lines, NCSubscriptionParser parses
+    /// raw subscription bodies — so the provider keeps its source URL. The kind still decides the behavior
+    /// (domainset → domain, else classical; format text), as the converter's output did. Old runtime/profile
+    /// files that still carry the loopback URL are unwrapped by the stores and by NCFinalConfigReadable.
     static func rewriteConvertProviders(
         _ raw: inout [String: NCJSONValue],
         _ o: NCRuntimeSettings
@@ -620,19 +626,14 @@ extension NCRuntimeSteps {
                     continue
                 }
                 if m.str("x-source").isEmpty { m["x-source"] = .string(src) }
-                if kind == "nodes" {
-                    var comps = URLComponents()
-                    comps.scheme = "http"
-                    comps.host = "127.0.0.1"
-                    comps.port = o.core.controllerPort
-                    comps.path = "/nodes/convert"
-                    comps.queryItems = [URLQueryItem(name: "url", value: src)]
-                    m["url"] = .string(comps.string ?? "")
-                } else {
-                    m["url"] = .string(ruleConvertURL(o, src: src, kind: kind))
+                m["url"] = .string(src)
+                // Kept (private key, stripped from the readable export; the tunnel ignores it) so the App's provider
+                // download (providerPlan) still converts / splits the list as before — x-own-policy lists need it.
+                m["x-convert"] = .string(kind)
+                if kind != "nodes" {
+                    m["behavior"] = .string(kind == "domainset" ? "domain" : "classical")
+                    m["format"] = .string("text")
                 }
-                m["header"] = .object(["Authorization": .array([.string("Bearer " + o.core.secret)])])
-                m["proxy"] = .string("DIRECT")
                 pv[name] = .object(m)
             }
             raw[key] = .object(pv)

@@ -318,6 +318,7 @@ enum NCProviderPorts {
                     convert = q.first { $0.name == "kind" }?.value ?? ""
                     if pu.path.hasSuffix("/nodes/convert") { convert = "nodes" }
                 }
+                if convert.isEmpty { convert = ncStr(m["x-convert"]) } // fix/nc-ruleset-convert: runtime keeps the source URL
                 if NCRuntimeSteps.truthy(m["x-own-policy"]) && convert == "list" { convert = "list-split" }
                 let xs = ncStr(m["x-source"])
                 if dl.isEmpty || path.isEmpty { continue }

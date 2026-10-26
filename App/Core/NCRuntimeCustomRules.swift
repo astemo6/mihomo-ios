@@ -61,7 +61,8 @@ extension NCRuntimeSteps {
 
     // MARK: - Remote providers (customrules.go)
 
-    /// bridge ruleConvertURL.
+    /// bridge ruleConvertURL. Legacy: NativeCore has no /rules/convert endpoint, so new runtime configs no longer
+    /// emit this (providers keep the source URL); kept for recognising old configs / tests.
     static func ruleConvertURL(_ o: NCRuntimeSettings, src: String, kind: String) -> String {
         var comps = URLComponents()
         comps.scheme = "http"
@@ -94,8 +95,8 @@ extension NCRuntimeSteps {
             "type": .string("http"),
             "behavior": .string(behavior),
             "format": .string("text"),
-            "url": .string(ruleConvertURL(o, src: sp.url, kind: sp.kind)),
-            "header": .object(["Authorization": .array([.string("Bearer " + o.core.secret)])]),
+            // NativeCore fetches and parses the source list itself (no loopback /rules/convert).
+            "url": .string(sp.url),
             "proxy": .string("DIRECT"),
             "path": .string(path),
             "interval": .number(Double(interval > 0 ? interval : 86400)),

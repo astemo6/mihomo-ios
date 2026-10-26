@@ -1078,23 +1078,62 @@ enum NCNodeFilter {
     }
 }
 
-/// Cached store for node subscriptions, mirroring the rule-provider
-/// store's freshness model: cache-first, refresh failures keep old nodes.
+/// Cached store for node subscriptions (mihomo proxy-providers, Surge/Loon/QX remote node lists), mirroring the
+/// rule-provider store's freshness model: cache-first, refresh failures keep old nodes.
+///
+/// fix/nc-ruleset-convert (build 401: the tunnel only had the 9 local proxies; every group fed by a provider was
+/// empty while the App, disconnected, showed them):
+/// - `type: file` providers (the App's 节点订阅 → ./nodesubs/<id>.yaml) and `type: inline` providers load from their
+///   path / payload; http providers load the tunnel's own cache, else the file the App downloaded to the provider's
+///   `path`, then refresh from the source URL (a Go-era loopback /nodes/convert URL is unwrapped first).
+/// - provider filter / exclude-filter / exclude-type / override (additional-prefix/-suffix, proxy-name, field
+///   overrides like udp / skip-cert-verify / dialer-proxy) apply, as in mihomo.
+/// - every provider logs "proxy provider <name>: N nodes (<source>)" or why it has none.
 final class NCNodeSubscriptionStore {
     private let dir: URL
+    private let home: URL
     private let lock = NSLock()
     private var nodesBySub: [String: [NCProxy]] = [:]
     private var fetchedAt: [String: TimeInterval] = [:]
+    /// provider name → "HTTP" / "File" / "Inline", for /providers/proxies.
+    private var vehicleBySub: [String: String] = [:]
+    var log: (String) -> Void = { StartupLog.write($0) }
 
     var fetcher: (String, @escaping (Data?) -> Void) -> Void = { urlString, done in
         guard let url = URL(string: urlString) else { done(nil); return }
         var req = URLRequest(url: url)
         req.setValue("clash-verge/v2.0", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: req) { data, _, _ in done(data) }.resume()
+        req.timeoutInterval = 30
+        URLSession.shared.dataTask(with: req) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard err == nil, (200..<300).contains(code), let data, !data.isEmpty else {
+                StartupLog.write("node subscription: fetch failed \(NCRuleProviderStore.logName(urlString)) — " +
+                                 (err.map { $0.localizedDescription } ?? "HTTP \(code)"))
+                done(nil)
+                return
+            }
+            done(data)
+        }.resume()
     }
 
-    init(dir: URL) {
+    /// Go-era configs point proxy-providers at the bridge's own converter
+    /// (http://127.0.0.1:<port>/nodes/convert?url=<src>). NativeCore has no converter: NCSubscriptionParser
+    /// reads raw subscription bodies (Clash YAML, base64 / plain share-link lists, QX/Surge node lines,
+    /// SIP008 / sing-box JSON) itself, so fetch the source subscription directly.
+    static func unwrapLoopbackConvert(_ urlString: String) -> String {
+        guard let c = URLComponents(string: urlString),
+              let host = c.host, host == "127.0.0.1" || host == "localhost" || host == "::1",
+              c.path.hasSuffix("/nodes/convert"),
+              let src = c.queryItems?.first(where: { $0.name == "url" })?.value,
+              src.hasPrefix("http://") || src.hasPrefix("https://") else { return urlString }
+        return src
+    }
+
+    /// `home` resolves relative provider paths (./nodesubs/…, ./proxies/…); defaults to dir's parent
+    /// (<home>/nativecore-nodesubs).
+    init(dir: URL, home: URL? = nil) {
         self.dir = dir
+        self.home = home ?? dir.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         if let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Double] {
@@ -1108,20 +1147,58 @@ final class NCNodeSubscriptionStore {
         return dir.appendingPathComponent(String(format: "sub-%016llx.txt", hash))
     }
 
+    private func providerFile(_ sub: NCNodeSubscription) -> URL? {
+        guard let p = sub.fields["path"]?.string, !p.isEmpty else { return nil }
+        if p.hasPrefix("/") { return URL(fileURLWithPath: p) }
+        return home.appendingPathComponent(p)
+    }
+
+    private static func vehicle(_ sub: NCNodeSubscription) -> String {
+        switch sub.fields["type"]?.string?.lowercased() ?? "" {
+        case "file": return "File"
+        case "inline": return "Inline"
+        default: return sub.url.isEmpty ? "File" : "HTTP"
+        }
+    }
+
+    private func set(_ sub: NCNodeSubscription, nodes: [NCProxy]) {
+        lock.lock(); nodesBySub[sub.name] = nodes; lock.unlock()
+    }
+
     /// Load cached nodes for all subscriptions; returns those needing a
-    /// network refresh (stale or never fetched).
+    /// network refresh (stale or never fetched; http providers only).
     @discardableResult
     func loadCached(_ subs: [NCNodeSubscription]) -> [NCNodeSubscription] {
         var stale: [NCNodeSubscription] = []
         for sub in subs {
-            if let text = try? String(contentsOf: cacheFile(for: sub.name), encoding: .utf8) {
-                let nodes = NCSubscriptionParser.parse(text)
-                if !nodes.isEmpty {
-                    lock.lock(); nodesBySub[sub.name] = nodes; lock.unlock()
+            let vehicle = Self.vehicle(sub)
+            lock.lock(); vehicleBySub[sub.name] = vehicle; lock.unlock()
+            if vehicle == "Inline" {
+                let nodes = (sub.fields["payload"]?.array ?? []).compactMap { v -> NCProxy? in
+                    guard let o = v.object, let n = o["name"]?.string, let t = o["type"]?.string else { return nil }
+                    return NCProxy(name: n, type: t.lowercased(), fields: o)
                 }
+                set(sub, nodes: nodes)
+                log("proxy provider \(sub.name): \(nodes.count) nodes (inline)")
+                continue
             }
+            var nodes: [NCProxy] = []
+            var source = ""
+            if vehicle == "HTTP", let text = try? String(contentsOf: cacheFile(for: sub.name), encoding: .utf8) {
+                nodes = NCSubscriptionParser.parse(text); source = "cache"
+            }
+            if nodes.isEmpty, let f = providerFile(sub), let text = try? String(contentsOf: f, encoding: .utf8) {
+                nodes = NCSubscriptionParser.parse(text); source = vehicle == "HTTP" ? "app download" : "file"
+            }
+            if !nodes.isEmpty {
+                set(sub, nodes: nodes)
+                log("proxy provider \(sub.name): \(nodes.count) nodes (\(source))")
+            } else if vehicle != "HTTP" {
+                log("proxy provider \(sub.name): no nodes — file \(sub.fields["path"]?.string ?? "?") missing or unreadable")
+            }
+            guard vehicle == "HTTP" else { continue }
             lock.lock(); let at = fetchedAt[sub.name]; lock.unlock()
-            if at == nil || Date().timeIntervalSince1970 - at! > Double(max(sub.interval, 60)) {
+            if nodes.isEmpty || at == nil || Date().timeIntervalSince1970 - at! > Double(max(sub.interval, 60)) {
                 stale.append(sub)
             }
         }
@@ -1129,13 +1206,23 @@ final class NCNodeSubscriptionStore {
     }
 
     func refresh(_ sub: NCNodeSubscription, completion: (() -> Void)? = nil) {
-        fetcher(sub.url) { [weak self] data in
-            guard let self, let data, let text = String(data: data, encoding: .utf8) else {
+        guard !sub.url.isEmpty else { completion?(); return }
+        let url = Self.unwrapLoopbackConvert(sub.url)
+        fetcher(url) { [weak self] data in
+            guard let self else { completion?(); return }
+            guard let data, let text = String(data: data, encoding: .utf8) else {
+                let have = self.allNodes()[sub.name]?.count ?? 0
+                self.log("proxy provider \(sub.name): fetch failed (\(NCRuleProviderStore.logName(url))), keeping \(have) cached nodes")
                 completion?()
                 return
             }
             let nodes = NCSubscriptionParser.parse(text)
-            guard !nodes.isEmpty else { completion?(); return }
+            guard !nodes.isEmpty else {
+                let have = self.allNodes()[sub.name]?.count ?? 0
+                self.log("proxy provider \(sub.name): fetched \(data.count) B but no nodes recognised, keeping \(have) cached nodes")
+                completion?()
+                return
+            }
             try? data.write(to: self.cacheFile(for: sub.name), options: .atomic)
             self.lock.lock()
             self.nodesBySub[sub.name] = nodes
@@ -1145,18 +1232,78 @@ final class NCNodeSubscriptionStore {
             if let mdata = try? JSONSerialization.data(withJSONObject: meta) {
                 try? mdata.write(to: self.dir.appendingPathComponent("meta.json"), options: .atomic)
             }
+            self.log("proxy provider \(sub.name): \(nodes.count) nodes (fetched)")
             completion?()
         }
     }
 
-    /// Nodes of one subscription with its own include/exclude filter applied.
+    /// Nodes of one subscription with its own filter / exclude-filter / exclude-type / override applied.
     func nodes(for sub: NCNodeSubscription) -> [NCProxy] {
         lock.lock(); let raw = nodesBySub[sub.name] ?? []; lock.unlock()
-        return NCNodeFilter.apply(raw, include: sub.includeRegex, exclude: sub.excludeRegex)
+        return NCProviderNodes.apply(raw, sub: sub)
+    }
+
+    func vehicleType(of name: String) -> String {
+        lock.lock(); defer { lock.unlock() }
+        return vehicleBySub[name] ?? "HTTP"
+    }
+
+    func updatedAt(of name: String) -> TimeInterval? {
+        lock.lock(); defer { lock.unlock() }
+        return fetchedAt[name]
     }
 
     func allNodes() -> [String: [NCProxy]] {
         lock.lock(); defer { lock.unlock() }
         return nodesBySub
+    }
+}
+
+/// mihomo proxy-provider post-processing: filter / exclude-filter (several patterns may be joined with "`"),
+/// exclude-type ("ss|http"), override (additional-prefix, additional-suffix, proxy-name [{pattern, target}] and
+/// plain field overrides). Order as mihomo adapter/provider: filter → exclude-filter → exclude-type → override.
+enum NCProviderNodes {
+    private static func regexes(_ s: String?) -> [NSRegularExpression] {
+        guard let s, !s.isEmpty else { return [] }
+        return s.split(separator: "`").compactMap { try? NSRegularExpression(pattern: String($0)) }
+    }
+
+    private static func hit(_ res: [NSRegularExpression], _ name: String) -> Bool {
+        let r = NSRange(name.startIndex..., in: name)
+        return res.contains { $0.firstMatch(in: name, range: r) != nil }
+    }
+
+    static func apply(_ nodes: [NCProxy], sub: NCNodeSubscription) -> [NCProxy] {
+        let inc = regexes(sub.includeRegex), exc = regexes(sub.excludeRegex)
+        let exTypes = Set((sub.fields["exclude-type"]?.string ?? "")
+            .split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty })
+        var out = nodes.filter { n in
+            if !inc.isEmpty && !hit(inc, n.name) { return false }
+            if !exc.isEmpty && hit(exc, n.name) { return false }
+            if exTypes.contains(n.type.lowercased()) { return false }
+            return true
+        }
+        guard let ov = sub.fields["override"]?.object, !ov.isEmpty else { return out }
+        let prefix = ov["additional-prefix"]?.string ?? ""
+        let suffix = ov["additional-suffix"]?.string ?? ""
+        let renames: [(NSRegularExpression, String)] = (ov["proxy-name"]?.array ?? []).compactMap { v in
+            guard let o = v.object, let p = o["pattern"]?.string,
+                  let re = try? NSRegularExpression(pattern: p) else { return nil }
+            return (re, o["target"]?.string ?? "")
+        }
+        var plain = ov
+        for k in ["additional-prefix", "additional-suffix", "proxy-name"] { plain.removeValue(forKey: k) }
+        out = out.map { n in
+            var name = prefix + n.name + suffix
+            for (re, target) in renames {
+                name = re.stringByReplacingMatches(in: name, range: NSRange(name.startIndex..., in: name),
+                                                   withTemplate: target)
+            }
+            var f = n.fields
+            for (k, v) in plain { f[k] = v }
+            f["name"] = .string(name)
+            return NCProxy(name: name, type: n.type, fields: f)
+        }
+        return out
     }
 }
