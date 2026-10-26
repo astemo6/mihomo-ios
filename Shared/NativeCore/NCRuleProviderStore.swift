@@ -10,9 +10,9 @@ import Foundation
 ///   `RULE-SET,https://…,Policy`) — registered keyed by that URL with
 ///   per-line dialect auto-detection
 ///
-/// Fetching is injected (`fetcher`) so tests never touch the network; the
-/// production default is a plain URLSession data task (the extension's own
-/// traffic does not loop through its tunnel). A failed refresh keeps the
+/// Fetching is injected (`fetcher` / `downloader` / `httpDownloader`) so tests
+/// never touch the network; the production default is a conditional URLSession
+/// download task (the extension's own traffic does not loop through its tunnel). A failed refresh keeps the
 /// previous index — a stale list beats an empty one (QX/Surge behavior).
 ///
 /// Payload caps (memory budget, docs/nativecore-memory-budget.md): a
@@ -99,24 +99,48 @@ final class NCRuleProviderStore {
     /// production download (`downloader`) and the body is parsed from memory as before.
     var fetcher: ((String, @escaping (Data?) -> Void) -> Void)? = nil
 
-    /// fix/nc-mem-3: production fetch — URLSession *download* task, so the body is streamed to a temporary file by
-    /// the networking stack instead of being accumulated in a growing Data (plus its doubling slack) in the
-    /// extension's heap. `done` gets the temporary file (valid only until `done` returns — the store moves it
-    /// synchronously) or nil on failure. Runs on `session`'s serial delegate queue, so parsing stays one list at a
-    /// time while `maxConcurrentFetches` downloads are in flight.
-    var downloader: (String, @escaping (URL?) -> Void) -> Void = { urlString, done in
-        guard let url = URL(string: urlString) else { done(nil); return }
-        NCRuleProviderStore.session.downloadTask(with: url) { file, resp, err in
+    /// fix/nc-mem-3 test hook: a plain download (no validators) — `done` gets the temporary file or nil. When set it
+    /// replaces `httpDownloader`.
+    var downloader: ((String, @escaping (URL?) -> Void) -> Void)? = nil
+
+    /// Result of one production download.
+    enum Download {
+        /// The body, streamed to a temporary file (valid only until the callback returns — the store moves it
+        /// synchronously), with the response's validators.
+        case file(URL, etag: String?, lastModified: String?)
+        /// HTTP 304 to the `If-None-Match` / `If-Modified-Since` the store sent.
+        case notModified
+        case failed
+    }
+
+    /// fix/nc-mem-3 + fix/nc-ruleset-fast: production fetch — URLSession *download* task (the body is streamed to a
+    /// temporary file by the networking stack, never accumulated in a growing Data in the extension's heap), sent
+    /// with the cached list's validators (headers; empty for a first download). Completes on `session`'s serial
+    /// delegate queue; the store only moves the file there and parses on `parseQueue`.
+    var httpDownloader: (String, [String: String], @escaping (Download) -> Void) -> Void = { urlString, headers, done in
+        guard let url = URL(string: urlString) else { done(.failed); return }
+        var req = URLRequest(url: url)
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+        NCRuleProviderStore.session.downloadTask(with: req) { file, resp, err in
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if err == nil, code == 304 { done(.notModified); return }
             guard err == nil, (200..<300).contains(code), let file else {
                 StartupLog.write("rule set: fetch failed \(NCRuleProviderStore.logName(urlString)) — " +
                                  (err.map { $0.localizedDescription } ?? "HTTP \(code)"))
-                done(nil)
+                done(.failed)
                 return
             }
-            done(file)
+            let (etag, lm) = NCFetchValidators.headers(of: resp)
+            done(.file(file, etag: etag, lastModified: lm))
         }.resume()
     }
+
+    /// fix/nc-ruleset-fast: every downloaded list is parsed here, one list at a time process-wide (each in its own
+    /// autorelease pool) — downloads no longer wait for parses, parses never overlap (memory first).
+    static let parseQueue = DispatchQueue(label: "nc.ruleprovider.parse", qos: .utility)
+
+    /// Test hook: called on `parseQueue` with true before / false after each list parse.
+    var parseObserver: ((Bool) -> Void)? = nil
 
     /// fix/nc-mem-3: per-list `[nc-mem]` lines around fetch / parse (footprint before, after the download, after the
     /// parse, and the kernel's lifetime peak). Debug builds (E2E replay) only.
@@ -134,13 +158,14 @@ final class NCRuleProviderStore {
     }
 
     /// fix/nc-mem-providers: rule-list downloads skip URLSession.shared's in-memory URLCache (a cached copy of every
-    /// list body next to the parsed index) and complete on one serial queue, so at most one body is being parsed at
-    /// a time. The on-disk cache file (cacheFile) is the only copy kept.
+    /// list body next to the parsed index; it would also answer our own 304s with its copy). Completions run on one
+    /// serial queue and only move the downloaded file; parsing is on `parseQueue`. The on-disk cache file
+    /// (cacheFile) is the only copy kept.
     static let session: URLSession = {
         let c = URLSessionConfiguration.ephemeral
         c.urlCache = nil
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
-        c.httpMaximumConnectionsPerHost = 4
+        c.httpMaximumConnectionsPerHost = 6 // fix/nc-ruleset-fast: = maxConcurrentFetches (most lists share one host)
         let q = OperationQueue()
         q.maxConcurrentOperationCount = 1
         q.name = "nc.ruleprovider.fetch"
@@ -175,6 +200,14 @@ final class NCRuleProviderStore {
         if let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Double] {
             fetchedAt = obj
+        }
+        // fix/nc-ruleset-fast: downloads interrupted by a crash / kill leave `<cache>.<n>.part` files; drop old ones
+        // (not fresh ones: a replaced store's download may still be finishing in the same directory).
+        let fm = FileManager.default
+        for n in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where n.hasSuffix(".part") {
+            let u = dir.appendingPathComponent(n)
+            let m = (try? fm.attributesOfItem(atPath: u.path))?[.modificationDate] as? Date ?? .distantPast
+            if Date().timeIntervalSince(m) > 600 { try? fm.removeItem(at: u) }
         }
     }
 
@@ -335,53 +368,99 @@ final class NCRuleProviderStore {
 
     /// Fetch one provider and swap its index on success. Failures keep the
     /// old index and do not update the timestamp (retry next cycle).
-    func refresh(_ p: Provider, completion: (() -> Void)? = nil) {
-        guard let url = p.url else { completion?(); return }
+    ///
+    /// fix/nc-ruleset-fast: `downloaded` fires once the network part is over (the body is on disk, or 304, or a
+    /// failure) — refreshAll starts the next download then; `completion` fires after the parse / publish.
+    /// (`completion` stays first so `refresh(p) { … }` keeps binding the trailing closure to it.)
+    /// A 304, or a body byte-identical to the cache (size + SHA-256), keeps the index and the cache without parsing.
+    func refresh(_ p: Provider, completion: (() -> Void)? = nil, downloaded: (() -> Void)? = nil) {
+        guard let url = p.url else { downloaded?(); completion?(); return }
         let t0 = Date()
         Self.memLine(p.name, "fetch-start")
         if let fetcher {
             fetcher(url) { [weak self] data in
-                guard let self, let data else { completion?(); return }
+                defer { downloaded?(); completion?() }
+                guard let self, let data else { return }
                 Self.memLine(p.name, "fetched bytes=\(data.count) ms=\(Self.ms(t0))")
                 var idx = NCRuleSetIndex()
                 do {
                     try Self.populateIndex(idx: &idx, data: data, provider: p)
                 } catch {
                     NSLog("[NCRuleProviderStore] refresh failed for %@: %@", p.name, String(describing: error))
-                    completion?()
                     return
                 }
-                guard idx.entryCount > 0 else { completion?(); return }
-                try? data.write(to: self.cacheFile(for: p.name), options: .atomic)
+                guard idx.entryCount > 0 else { return }
+                let cache = self.cacheFile(for: p.name)
+                try? data.write(to: cache, options: .atomic)
+                NCFetchValidators.remove(for: cache) // written without validators
                 self.publish(p, idx)
-                completion?()
             }
             return
         }
-        downloader(url) { [weak self] file in
-            guard let self, let file else { completion?(); return }
-            // The temporary file is deleted once this callback returns: move it next to the cache file first.
-            let cache = self.cacheFile(for: p.name)
-            let part = cache.appendingPathExtension("part")
-            try? FileManager.default.removeItem(at: part)
-            do { try FileManager.default.moveItem(at: file, to: part) } catch {
-                NSLog("[NCRuleProviderStore] refresh failed for %@: %@", p.name, String(describing: error))
+        let cache = cacheFile(for: p.name)
+        // Validators only when the index they describe is loaded: a 304 must have something to keep.
+        let prev = isLoaded(name: p.name) ? NCFetchValidators.load(for: cache, url: url) : nil
+        let handle: (Download) -> Void = { [weak self] result in
+            guard let self else { downloaded?(); completion?(); return }
+            switch result {
+            case .failed:
+                downloaded?(); completion?()
+            case .notModified:
+                downloaded?()
+                if prev != nil, self.isLoaded(name: p.name) {
+                    Self.memLine(p.name, "not-modified ms=\(Self.ms(t0))")
+                    NCFetchValidators.touch(cache)
+                    self.publish(p, nil)
+                } else {
+                    NSLog("[NCRuleProviderStore] refresh failed for %@: unexpected HTTP 304", p.name)
+                }
                 completion?()
-                return
+            case .file(let file, let etag, let lm):
+                // The temporary file is deleted once this callback returns: move it next to the cache file first.
+                let part = self.partFile(for: cache)
+                do { try FileManager.default.moveItem(at: file, to: part) } catch {
+                    NSLog("[NCRuleProviderStore] refresh failed for %@: %@", p.name, String(describing: error))
+                    downloaded?(); completion?()
+                    return
+                }
+                downloaded?()
+                Self.parseQueue.async { [weak self] in
+                    var ok = false
+                    if let self {
+                        ok = self.loadDownloaded(p, url: url, part: part, cache: cache, t0: t0,
+                                                 etag: etag, lastModified: lm, prev: prev)
+                    }
+                    if !ok { try? FileManager.default.removeItem(at: part) }
+                    completion?()
+                }
             }
-            let ok = self.loadDownloaded(p, part: part, cache: cache, t0: t0)
-            if !ok { try? FileManager.default.removeItem(at: part) }
-            completion?()
         }
+        if let downloader {
+            downloader(url) { file in handle(file.map { .file($0, etag: nil, lastModified: nil) } ?? .failed) }
+        } else {
+            httpDownloader(url, prev?.requestHeaders ?? [:], handle)
+        }
+    }
+
+    private static var partSeq: UInt64 = 0
+    private static let partLock = NSLock()
+
+    /// `<cache>.<n>.part` — unique per download, so two refreshes of one list never share a temp file.
+    private func partFile(for cache: URL) -> URL {
+        Self.partLock.lock(); Self.partSeq &+= 1; let n = Self.partSeq; Self.partLock.unlock()
+        return cache.appendingPathExtension("\(n).part")
     }
 
     /// Parse a downloaded list straight from its file (memory-mapped: clean, file-backed pages that do not count
     /// toward the extension's footprint the way a heap copy of the body does) and, when it parses to entries,
     /// make that file the cache file (a rename — the body is never copied or rewritten). One pool per list.
-    private func loadDownloaded(_ p: Provider, part: URL, cache: URL, t0: Date) -> Bool {
+    /// A body byte-identical to the cache file (size, then SHA-256 over the mapped bytes) is not parsed: the
+    /// loaded index already is that list. Returns true when the cache is current (renamed or identical).
+    private func loadDownloaded(_ p: Provider, url: String, part: URL, cache: URL, t0: Date,
+                                etag: String?, lastModified: String?, prev: NCFetchValidators?) -> Bool {
         var ok = false
         Self.withPool {
-            let size = ((try? FileManager.default.attributesOfItem(atPath: part.path))?[.size] as? NSNumber)?.intValue ?? 0
+            let size = NCFetchValidators.fileSize(part) ?? 0
             Self.memLine(p.name, "fetched bytes=\(size) ms=\(Self.ms(t0))")
             guard size > 0 else { return }
             guard size <= Self.maxPayloadBytes else {
@@ -389,10 +468,30 @@ final class NCRuleProviderStore {
                     NCRuleProviderGateError.payloadTooLarge(name: p.name, bytes: size, limit: Self.maxPayloadBytes)))
                 return
             }
+            guard let data = try? Data(contentsOf: part, options: .alwaysMapped) else {
+                NSLog("[NCRuleProviderStore] refresh failed for %@: cannot map the download", p.name)
+                return
+            }
+            let hash = NCContentHash.hex(data)
+            var v = NCFetchValidators(url: url, etag: etag, lastModified: lastModified,
+                                      bodySize: size, bodyHash: hash, cacheSize: size)
+            if self.isLoaded(name: p.name), NCFetchValidators.fileSize(cache) == size {
+                let cachedHash = (prev?.bodySize == size ? prev?.bodyHash : nil) ?? NCContentHash.file(cache)?.hash
+                if cachedHash == hash {
+                    Self.memLine(p.name, "unchanged bytes=\(size)")
+                    try? FileManager.default.removeItem(at: part)
+                    NCFetchValidators.touch(cache)
+                    v.save(for: cache)
+                    self.publish(p, nil)
+                    ok = true
+                    return
+                }
+            }
             let t1 = Date()
+            self.parseObserver?(true)
+            defer { self.parseObserver?(false) }
             var idx = NCRuleSetIndex()
             do {
-                let data = try Data(contentsOf: part, options: .alwaysMapped)
                 try Self.populateIndex(idx: &idx, data: data, provider: p)
             } catch {
                 NSLog("[NCRuleProviderStore] refresh failed for %@: %@", p.name, String(describing: error))
@@ -405,15 +504,18 @@ final class NCRuleProviderStore {
                 NSLog("[NCRuleProviderStore] cache rename failed for %@ (errno %d)", p.name, errno)
                 return
             }
+            v.cacheSize = size
+            v.save(for: cache)
             self.publish(p, idx)
             ok = true
         }
         return ok
     }
 
-    private func publish(_ p: Provider, _ idx: NCRuleSetIndex) {
+    /// Swap in a new index (nil: the loaded one stays — 304 / identical body) and stamp the list fresh.
+    private func publish(_ p: Provider, _ idx: NCRuleSetIndex?) {
         lock.lock()
-        indexes[p.name] = idx
+        if let idx { indexes[p.name] = idx }
         fetchedAt[p.name] = Date().timeIntervalSince1970
         let meta = fetchedAt
         lock.unlock()
@@ -433,12 +535,12 @@ final class NCRuleProviderStore {
         #endif
     }
 
-    /// fix/nc-mem-2: lists in flight at once during refreshAll. It used to start every stale list together — 29 for
-    /// the real E2E fixture at core start, each URLSession task buffering its whole body (plus the HTTP/2 / TLS
-    /// receive buffers) while the serial parse queue worked through them one by one; a cold start held every body at
-    /// once on top of the parse transient. Two keep the network busy (one big list never blocks the small ones for
-    /// long) and bound the bodies held to two plus the one being parsed.
-    static let maxConcurrentFetches = 2
+    /// fix/nc-mem-2: lists in flight at once during refreshAll. It used to start every stale list together, each
+    /// URLSession task buffering its whole body in the heap while the serial parse worked through them.
+    /// fix/nc-ruleset-fast: since fix/nc-mem-3 a body is streamed to a file, not held in the heap, so six downloads
+    /// cost little memory (HTTP/2 multiplexes lists of one host on one connection) and the slot is released when the
+    /// download ends, not when its parse does; parsing stays one list at a time on `parseQueue`.
+    static let maxConcurrentFetches = 6
 
     func refreshAll(_ providers: [Provider]) {
         let pending = FetchQueue(providers.filter { $0.url != nil })
@@ -446,11 +548,11 @@ final class NCRuleProviderStore {
         for _ in 0..<min(Self.maxConcurrentFetches, pending.count) { Self.pump(self, pending) }
     }
 
-    /// Starts the next pending fetch when one finishes. The store is held weakly: a store replaced by a reload stops
-    /// fetching for itself instead of being kept alive (with its indexes) by its own refresh chain.
+    /// Starts the next pending fetch when one's download finishes. The store is held weakly: a store replaced by a
+    /// reload stops fetching for itself instead of being kept alive (with its indexes) by its own refresh chain.
     private static func pump(_ store: NCRuleProviderStore?, _ pending: FetchQueue) {
         guard let store, let p = pending.pop() else { return }
-        store.refresh(p) { [weak store] in pump(store, pending) }
+        store.refresh(p, downloaded: { [weak store] in pump(store, pending) })
     }
 
     private final class FetchQueue {
