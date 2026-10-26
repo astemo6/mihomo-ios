@@ -311,7 +311,7 @@ enum IPInfoFetcher {
         var why: [String] = []
         defer {
             if !why.isEmpty {
-                StartupLog.write("app: exit-ip lookup: " + why.joined(separator: "; "))
+                StartupLog.write("exit-ip lookup: " + why.joined(separator: "; "), tag: "app")
             }
         }
         for ep in orderedEndpoints {

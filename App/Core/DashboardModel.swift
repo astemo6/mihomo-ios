@@ -339,7 +339,7 @@ final class IPInfoModel: ObservableObject {
         direct = connected ? d : nil
         failed = (e == nil)
         if e == nil, !Task.isCancelled {
-            StartupLog.write("app: exit-ip lookup failed (\(connected ? "VPN on" : "VPN off"), \(GeoChecker.usesScript ? "script" : "endpoints"))")
+            StartupLog.write("exit-ip lookup failed (\(connected ? "VPN on" : "VPN off"), \(GeoChecker.usesScript ? "script" : "endpoints"))", tag: "app")
         }
         if let e {
             let c = Cached(exit: e, direct: direct, at: Date())
