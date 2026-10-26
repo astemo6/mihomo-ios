@@ -27,6 +27,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let openConnectPort = 18011
     private static let tcpEchoPort = 18080
     private static let udpEchoPort = 18081
     private static let blackholePort = 18082
@@ -40,6 +41,8 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPassword = "nc-loop-trojan-pw"
     private static let hy2Password = "nc-loop-hy2-pw"
     private static let tuicPassword = "nc-loop-tuic-pw"
+    private static let openConnectUser = "nc-loop-oc-user"
+    private static let openConnectPassword = "nc-loop-oc-pw"
 
     /// Same generator as the validation probe: byte i = (i * 7 + 3) % 256.
     private static let payload = Data((0..<8192).map { UInt8(($0 * 7 + 3) & 0xff) })
@@ -71,8 +74,12 @@ final class NativeCoreLoopbackTests: XCTestCase {
     }
 
     private static func serversReachable() -> Bool {
+        isPortReachable(Self.ssPort)
+    }
+
+    private static func isPortReachable(_ port: Int) -> Bool {
         let conn = NWConnection(host: NWEndpoint.Host(Self.host),
-                                port: NWEndpoint.Port(rawValue: UInt16(Self.ssPort))!,
+                                port: NWEndpoint.Port(rawValue: UInt16(port))!,
                                 using: .tcp)
         let sem = DispatchSemaphore(value: 0)
         let box = LockedBox(false)
@@ -148,6 +155,26 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-tuic", type: "tuic", port: Self.tuicPort, extra: [
             "uuid": .string(Self.uuid), "password": .string(Self.tuicPassword),
             "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    private static var openConnectProxy: NCProxy {
+        Self.proxy(name: "loop-openconnect", type: "openconnect", port: Self.openConnectPort, extra: [
+            "username": .string(Self.openConnectUser),
+            "password": .string(Self.openConnectPassword),
+            "sni": .string("localhost"),
+            "skip-cert-verify": .bool(true),
+            "dtls": .bool(false),
+        ])
+    }
+
+    private static var openConnectDTLSProxy: NCProxy {
+        Self.proxy(name: "loop-openconnect-dtls", type: "openconnect", port: Self.openConnectPort, extra: [
+            "username": .string(Self.openConnectUser),
+            "password": .string(Self.openConnectPassword),
+            "sni": .string("localhost"),
+            "skip-cert-verify": .bool(true),
+            "dtls": .bool(true),
         ])
     }
 
@@ -262,8 +289,12 @@ final class NativeCoreLoopbackTests: XCTestCase {
     // MARK: - Server sanity
 
     func testServerPortsReachable() {
-        for port in [Self.ssPort, Self.ss2022Port, Self.vmessPort, Self.vlessPort,
-                     Self.trojanPort, Self.tcpEchoPort, Self.blackholePort] {
+        var ports = [Self.ssPort, Self.ss2022Port, Self.vmessPort, Self.vlessPort,
+                     Self.trojanPort, Self.tcpEchoPort, Self.blackholePort]
+        if Self.isPortReachable(Self.openConnectPort) {
+            ports.append(Self.openConnectPort)
+        }
+        for port in ports {
             let conn = NWConnection(host: NWEndpoint.Host(Self.host),
                                     port: NWEndpoint.Port(rawValue: UInt16(port))!,
                                     using: .tcp)
@@ -340,6 +371,31 @@ final class NativeCoreLoopbackTests: XCTestCase {
         let stream = try self.connect(proxy: Self.tuicProxy, target: Self.echoTarget)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testOpenConnectTCPEcho() throws {
+        guard Self.isPortReachable(Self.openConnectPort) else {
+            throw XCTSkip("ocserv not running on port \(Self.openConnectPort)")
+        }
+        let stream = try self.connect(proxy: Self.openConnectProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testOpenConnectDTLSFallback() throws {
+        guard Self.isPortReachable(Self.openConnectPort) else {
+            throw XCTSkip("ocserv not running on port \(Self.openConnectPort)")
+        }
+        let stream = try self.connect(proxy: Self.openConnectDTLSProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testOpenConnectDTLSSkip() throws {
+        // DTLS 1.2 PSK requires setting ClientHello.legacy_session_id to X-DTLS-App-ID.
+        // Network.framework does not expose custom SessionID setting via public sec_protocol_options API.
+        // Per S1/S2 design and dispatcher instructions, skip explicitly rather than faking.
+        throw XCTSkip("OpenConnect DTLS 1.2 PSK requires setting ClientHello.legacy_session_id to X-DTLS-App-ID, which Network.framework does not expose via public API; DTLS fast channel skipped per S1/S2 design note")
     }
 
     // WireGuard and Mieru are intentionally absent:

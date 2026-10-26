@@ -281,4 +281,306 @@ final class NativeCoreOpenConnectTests: XCTestCase {
         XCTAssertNotNil(reason)
         XCTAssertEqual(reason, "Quantumult X 无公开 OpenConnect 格式")
     }
+
+    // MARK: - 5. S2 Authentication State Machine Tests
+
+    func testAuthXMLParsingAndGeneration() {
+        let authReqXML = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <config-auth client="vpn" type="auth-request">
+            <version who="sg">0.1(1)</version>
+            <auth id="main">
+                <title>Corporate VPN</title>
+                <message>Please enter your credentials.</message>
+                <form action="/auth" method="post">
+                    <input label="Group:" name="group_list" type="select" />
+                    <input label="Username:" name="username" type="text" />
+                    <input label="Password:" name="password" type="password" />
+                </form>
+            </auth>
+        </config-auth>
+        """
+
+        guard let parsed = NCOpenConnect.AuthResponse.parse(xmlString: authReqXML) else {
+            XCTFail("Failed to parse auth-request XML")
+            return
+        }
+
+        XCTAssertEqual(parsed.type, .authRequest)
+        XCTAssertEqual(parsed.formAction, "/auth")
+        XCTAssertEqual(parsed.message, "Please enter your credentials.")
+        XCTAssertEqual(parsed.inputs["group_list"], "select")
+        XCTAssertEqual(parsed.inputs["username"], "text")
+        XCTAssertEqual(parsed.inputs["password"], "password")
+
+        // XML builder tests
+        let initXML = NCOpenConnect.buildInitXML()
+        XCTAssertTrue(initXML.contains("type=\"init\""))
+        XCTAssertTrue(initXML.contains("<version who=\"vpn\">v5.01</version>"))
+
+        let replyXML = NCOpenConnect.buildAuthReplyXML(username: "alice", password: "p&w", authGroup: "Engineering")
+        XCTAssertTrue(replyXML.contains("type=\"auth-reply\""))
+        XCTAssertTrue(replyXML.contains("<username>alice</username>"))
+        XCTAssertTrue(replyXML.contains("<password>p&amp;w</password>")) // escaped
+        XCTAssertTrue(replyXML.contains("<group_list>Engineering</group_list>"))
+
+        // Form urlencoded builder
+        let form = NCOpenConnect.buildFormURLEncoded(fields: [("username", "alice@corp"), ("password", "pass 123")])
+        XCTAssertEqual(form, "username=alice%40corp&password=pass%20123")
+
+        // Complete XML
+        let completeXML = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <config-auth client="vpn" type="complete">
+            <version who="sg">0.1(1)</version>
+            <auth id="success"><title>SSL VPN Service</title></auth>
+        </config-auth>
+        """
+        guard let completeParsed = NCOpenConnect.AuthResponse.parse(xmlString: completeXML) else {
+            XCTFail("Failed to parse complete XML")
+            return
+        }
+        XCTAssertEqual(completeParsed.type, .complete)
+
+        // Error XML
+        let errorXML = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <config-auth client="vpn" type="error">
+            <error>Invalid username or password</error>
+        </config-auth>
+        """
+        guard let errorParsed = NCOpenConnect.AuthResponse.parse(xmlString: errorXML) else {
+            XCTFail("Failed to parse error XML")
+            return
+        }
+        XCTAssertEqual(errorParsed.type, .error)
+        XCTAssertEqual(errorParsed.error, "Invalid username or password")
+    }
+
+    func testHTTPMessageParserWithCookiesAndHeaders() {
+        let rawHTTP = [
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/xml",
+            "Content-Length: 13",
+            "Set-Cookie: webvpncontext=ABC123Context; path=/; Secure; HttpOnly",
+            "Set-Cookie: webvpn=SessionTokenXYZ789; path=/; Secure; HttpOnly",
+            "X-Transcend-Version: 1",
+            "",
+            "Hello World!\n"
+        ].joined(separator: "\r\n")
+
+        guard let rawData = rawHTTP.data(using: .utf8),
+              let (msg, consumed) = NCOpenConnect.HTTPMessage.parse(data: rawData) else {
+            XCTFail("Failed to parse valid HTTP response")
+            return
+        }
+
+        XCTAssertEqual(msg.statusCode, 200)
+        XCTAssertEqual(msg.statusText, "OK")
+        XCTAssertEqual(msg.headers["content-type"], "text/xml")
+        XCTAssertEqual(msg.headers["x-transcend-version"], "1")
+        XCTAssertEqual(msg.cookies["webvpncontext"], "ABC123Context")
+        XCTAssertEqual(msg.cookies["webvpn"], "SessionTokenXYZ789")
+        XCTAssertEqual(String(data: msg.body, encoding: .utf8), "Hello World!\n")
+        XCTAssertEqual(consumed, rawData.count)
+
+        // Incomplete HTTP header returns nil
+        let partialData = Data("HTTP/1.1 200 OK\r\nContent-Type: text".utf8)
+        XCTAssertNil(NCOpenConnect.HTTPMessage.parse(data: partialData))
+
+        // Incomplete body (< Content-Length) returns nil
+        let partialBodyData = Data("HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\nShort".utf8)
+        XCTAssertNil(NCOpenConnect.HTTPMessage.parse(data: partialBodyData))
+    }
+
+    func testTunnelParametersParsing() {
+        let headers: [String: String] = [
+            "x-cstp-version": "1",
+            "X-CSTP-Address": "192.168.109.55",
+            "X-CSTP-Netmask": "255.255.255.0",
+            "X-CSTP-DNS": "192.168.109.1",
+            "X-CSTP-Base-MTU": "1500",
+            "X-CSTP-MTU": "1434",
+            "X-CSTP-DPD": "30",
+            "X-CSTP-Keepalive": "300",
+            "X-DTLS-Port": "18011",
+            "X-DTLS-App-ID": "0102030405060708090a0b0c0d0e0f10",
+            "X-DTLS-CipherSuite": "PSK-NEGOTIATE",
+            "X-DTLS-DPD": "30",
+            "X-DTLS-Keepalive": "300"
+        ]
+
+        let params = NCOpenConnect.TunnelParameters.parse(headers: headers)
+        XCTAssertEqual(params.assignedIPv4, "192.168.109.55")
+        XCTAssertEqual(params.netmaskIPv4, "255.255.255.0")
+        XCTAssertEqual(params.dnsServers, ["192.168.109.1"])
+        XCTAssertEqual(params.baseMTU, 1500)
+        XCTAssertEqual(params.mtu, 1434)
+        XCTAssertEqual(params.dpd, 30)
+        XCTAssertEqual(params.keepalive, 300)
+        XCTAssertEqual(params.dtlsPort, 18011)
+        XCTAssertEqual(params.dtlsAppID, "0102030405060708090a0b0c0d0e0f10")
+        XCTAssertEqual(params.dtlsCipherSuite, "PSK-NEGOTIATE")
+    }
+
+    // MARK: - 6. S2 CSTP Codec Boundary Tests
+
+    func testCSTPCodecBoundaries() {
+        // 1. Buffer smaller than header (7 bytes)
+        let shortHeader = Data([0x53, 0x54, 0x46, 0x01, 0x00, 0x05, 0x00])
+        XCTAssertNil(NCOpenConnect.decodeCSTP(shortHeader))
+
+        // 2. Corrupted magic header
+        let badMagic = Data([0x53, 0x54, 0x46, 0x02, 0x00, 0x01, 0x00, 0x00, 0xff])
+        XCTAssertNil(NCOpenConnect.decodeCSTP(badMagic))
+
+        // 3. Truncated payload: declares 10 bytes, only provides 4
+        let truncated = Data([0x53, 0x54, 0x46, 0x01, 0x00, 0x0a, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04])
+        XCTAssertNil(NCOpenConnect.decodeCSTP(truncated))
+
+        // 4. Unknown payload type (0xef)
+        let unknownType = Data([0x53, 0x54, 0x46, 0x01, 0x00, 0x01, 0xef, 0x00, 0x42])
+        XCTAssertNil(NCOpenConnect.decodeCSTP(unknownType))
+
+        // 5. Zero-length payload
+        let zeroPayloadPacket = NCOpenConnect.encodeCSTP(type: .dpdReq, payload: Data())
+        guard let decodedZero = NCOpenConnect.decodeCSTP(zeroPayloadPacket) else {
+            XCTFail("Failed to decode zero-length CSTP packet")
+            return
+        }
+        XCTAssertEqual(decodedZero.type, .dpdReq)
+        XCTAssertEqual(decodedZero.payload.count, 0)
+        XCTAssertEqual(decodedZero.consumed, 8)
+
+        // 6. Concatenated packets in a single buffer
+        let p1 = NCOpenConnect.encodeCSTP(type: .data, payload: Data([0x11, 0x22]))
+        let p2 = NCOpenConnect.encodeCSTP(type: .dpdResp, payload: Data([0x33, 0x44, 0x55]))
+        var combined = Data()
+        combined.append(p1)
+        combined.append(p2)
+
+        // First packet
+        guard let d1 = NCOpenConnect.decodeCSTP(combined) else {
+            XCTFail("Failed to decode first concatenated packet")
+            return
+        }
+        XCTAssertEqual(d1.type, .data)
+        XCTAssertEqual(d1.payload, Data([0x11, 0x22]))
+        XCTAssertEqual(d1.consumed, p1.count)
+
+        // Second packet
+        let remaining = Data(combined.dropFirst(d1.consumed))
+        guard let d2 = NCOpenConnect.decodeCSTP(remaining) else {
+            XCTFail("Failed to decode second concatenated packet")
+            return
+        }
+        XCTAssertEqual(d2.type, .dpdResp)
+        XCTAssertEqual(d2.payload, Data([0x33, 0x44, 0x55]))
+        XCTAssertEqual(d2.consumed, p2.count)
+
+        // 7. Max 16384 bytes payload
+        let bigPayload = Data(repeating: 0xaa, count: 16384)
+        let bigPacket = NCOpenConnect.encodeCSTP(type: .data, payload: bigPayload)
+        guard let decodedBig = NCOpenConnect.decodeCSTP(bigPacket) else {
+            XCTFail("Failed to decode large CSTP packet")
+            return
+        }
+        XCTAssertEqual(decodedBig.payload.count, 16384)
+        XCTAssertEqual(decodedBig.consumed, 8 + 16384)
+    }
+
+    // MARK: - 7. S2 DTLS Fallback Decision Tests
+
+    func testDTLSFallbackWhenDisabledByConfig() {
+        let p = NCProxy(name: "NoDTLSNode", type: "openconnect", fields: [
+            "server": .string("127.0.0.1"),
+            "port": .number(18011),
+            "username": .string("user"),
+            "password": .string("pass"),
+            "dtls": .bool(false)
+        ])
+        guard let (cfg, _) = NCOpenConnect.Config.parse(p), let config = cfg else {
+            XCTFail("Config parse failed")
+            return
+        }
+        XCTAssertEqual(config.dtls, false)
+
+        let session = NCOpenConnectSession(config: config, target: NCTarget(host: "127.0.0.1", port: 18080), queue: .main)
+        session.evaluateDTLSChannel()
+
+        XCTAssertEqual(session.activeMode, .cstp)
+        XCTAssertEqual(session.dtlsFallbackReason, .disabledByConfig)
+        XCTAssertEqual(session.channelState, .dtlsFallbackToCSTP(reason: .disabledByConfig))
+    }
+
+    func testDTLSFallbackWhenServerNotOffering() {
+        let p = NCProxy(name: "DTLSNode", type: "openconnect", fields: [
+            "server": .string("127.0.0.1"),
+            "port": .number(18011),
+            "username": .string("user"),
+            "password": .string("pass"),
+            "dtls": .bool(true)
+        ])
+        guard let (cfg, _) = NCOpenConnect.Config.parse(p), let config = cfg else {
+            XCTFail("Config parse failed")
+            return
+        }
+
+        let session = NCOpenConnectSession(config: config, target: NCTarget(host: "127.0.0.1", port: 18080), queue: .main)
+        // No tunnel parameters set yet (simulating server without DTLS headers)
+        session.evaluateDTLSChannel()
+
+        XCTAssertEqual(session.activeMode, .cstp)
+        XCTAssertEqual(session.dtlsFallbackReason, .serverNotOffered)
+        XCTAssertEqual(session.channelState, .dtlsFallbackToCSTP(reason: .serverNotOffered))
+    }
+
+    func testDTLSFallbackWhenMissingAppID() {
+        let p = NCProxy(name: "DTLSNode", type: "openconnect", fields: [
+            "server": .string("127.0.0.1"),
+            "port": .number(18011),
+            "username": .string("user"),
+            "password": .string("pass"),
+            "dtls": .bool(true)
+        ])
+        guard let (cfg, _) = NCOpenConnect.Config.parse(p), let config = cfg else {
+            XCTFail("Config parse failed")
+            return
+        }
+
+        let session = NCOpenConnectSession(config: config, target: NCTarget(host: "127.0.0.1", port: 18080), queue: .main)
+        // Set tunnel parameters with DTLS port and cipher but no App-ID
+        let headers: [String: String] = [
+            "x-dtls-port": "18011",
+            "x-dtls-ciphersuite": "PSK-NEGOTIATE"
+        ]
+        session.tunnelParams = NCOpenConnect.TunnelParameters.parse(headers: headers)
+        session.evaluateDTLSChannel()
+
+        XCTAssertEqual(session.activeMode, .cstp)
+        XCTAssertEqual(session.dtlsFallbackReason, .missingAppID)
+        XCTAssertEqual(session.channelState, .dtlsFallbackToCSTP(reason: .missingAppID))
+    }
+
+    func testDTLSFallbackWhenPlatformUnsupported() {
+        let p = NCProxy(name: "DTLSNode", type: "openconnect", fields: [
+            "server": .string("127.0.0.1"),
+            "port": .number(18011),
+            "username": .string("user"),
+            "password": .string("pass"),
+            "dtls": .bool(true)
+        ])
+        guard let (cfg, _) = NCOpenConnect.Config.parse(p), let config = cfg else {
+            XCTFail("Config parse failed")
+            return
+        }
+
+        let session = NCOpenConnectSession(config: config, target: NCTarget(host: "127.0.0.1", port: 18080), queue: .main)
+        session.triggerDTLSFallback(reason: .platformUnsupported)
+
+        XCTAssertEqual(session.activeMode, .cstp)
+        XCTAssertEqual(session.dtlsFallbackReason, .platformUnsupported)
+        XCTAssertEqual(session.channelState, .dtlsFallbackToCSTP(reason: .platformUnsupported))
+        XCTAssertTrue(session.channelState.description.contains("Network.framework does not support custom SessionID"))
+    }
 }

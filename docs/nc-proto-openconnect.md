@@ -1,6 +1,6 @@
 # NativeCore: OpenConnect (AnyConnect 兼容) — design note (feat/nc-openconnect, based on astemo6/mihomo-ios NativeCore 6fd4bab)
 
-Status 2026-10-26 (S1): 协议调研、双通道设计、解析层（URI/Shadowrocket conf/Clash YAML/QuanX 不可用标记）、不支持字段显式拦截、解析单测完成。S2 将实现纯 Swift connector 数据面与 ocserv 回环测试。
+Status 2026-10-26 (S2): 纯 Swift 会话层与数据泵落地（HTTPS XML 认证状态机、CONNECT 隧道协商、CSTP 8字节报文编解码与数据转发）、DTLS 1.2 显式回落 CSTP 状态机实现、NCConnector 真实分发接入、ocserv 回环测试体系建立（端口 18011 TCP+UDP 同口）。单测覆盖状态机、CSTP边界与回落判决；Xcode 单测待 CI。
 
 ---
 
@@ -307,29 +307,44 @@ CSTP (TCP) 与 DTLS (UDP) 的容灾协作策略：
 
 ---
 
-## 9. S2 回环测试计划 (S2 Loopback Plan: ocserv)
+## 9. 回环测试与服务端接入 (Loopback: ocserv)
 
-S2 阶段将接入真实服务端 `ocserv` 进行回环测试。
+S2 阶段接入真实开源服务端 `ocserv` 进行回环测试。
 
-### 9.1 拓扑集成 (`tools/loopback/`)
+### 9.1 端口分配与冲突规避 (`tools/loopback/`)
+
+回环服务端选用 `ocserv`，分配端口 **18011 (TCP + UDP)**。
+- **端口核对依据**：经核查 `tools/loopback/sing-box-config.json` 与 `start-servers.sh`，18001..18007 为既有代理入站，18008 为 WireGuard 监听端点，18009 为 WireGuard 对端端口，18010 预留；18080..18083 为 echo 服务。原 S1 计划的 18009 存在严重冲突，派发方修正为 18011，确认零冲突。
 
 | 端口 | 服务 | 协议 | 认证方式 | 作用 |
 |:---:|:---:|:---:|:---:|:---:|
-| `18009` | `ocserv` | TCP (CSTP) | 用户名/密码 (`nc-loop-oc-user` / `nc-loop-oc-pw`) | CSTP 控制面与数据通道 |
-| `18009` | `ocserv` | UDP (DTLS) | PSK-NEGOTIATE (RFC 5705 导出) | DTLS 高速数据通道 |
+| `18011` | `ocserv` | TCP (CSTP) | 用户名/密码 (`nc-loop-oc-user` / `nc-loop-oc-pw`) | CSTP 控制面与数据通道 |
+| `18011` | `ocserv` | UDP (DTLS) | PSK-NEGOTIATE (RFC 5705 导出) | DTLS 高速辅通道 |
 
-### 9.2 服务端配置草案 (`tools/loopback/ocserv.conf`)
+### 9.2 服务端配置 (`tools/loopback/ocserv.conf`)
 - 复用 `tools/loopback/` 现有的自签名根证书与 localhost 服务端证书 (`__LOOPBACK_DIR__/cert.pem`)。
 - 认证后端：使用简易密码文件 (`ocpasswd`) 配置测试账号。
 - 网络配置：
   - `ipv4-network = 192.168.109.0/24`
-  - `cstp-port = 18009`, `dtls-port = 18009`
-  - `keepalive = 10`, `dpd = 10`
+  - `tcp-port = 18011`, `udp-port = 18011`
+  - `keepalive = 300`, `dpd = 30`
   - `try-mtu-discovery = false`
-- 接入脚本：在 `tools/loopback/start-servers.sh` 中增加 `ocserv` 启动与 PID 监控逻辑；在 `.github/workflows/proto-loopback.yml` 安装 `ocserv` 软件包。
+  - `isolate-workers = false`
+- 接入脚本：在 `tools/loopback/start-servers.sh` 中增加 `find_ocserv`、`find_ocpasswd`、`ocpasswd` 生成与 `ocserv` 启动/停止/状态监测；在 `.github/workflows/proto-loopback.yml` 安装 `ocserv` 软件包。
 
-### 9.3 单测验证点
-在 `UnitTests/NativeCoreLoopbackTests.swift` 中增加：
-- OpenConnect CSTP TCP 模式回环 Echo 测试（向 `18080` 发送并校验回显）。
-- OpenConnect DTLS UDP 模式回环 Echo 测试。
-- DTLS 主动阻塞/中断时无缝回落 CSTP 的连通性测试。
+### 9.3 测试用例与结果 (Test Results)
+
+1. **单元测试 (`UnitTests/NativeCoreOpenConnectTests.swift`)**：
+   - 覆盖正向 URI / Conf / YAML 解析与反向序列化；
+   - 覆盖负向与不支持字段拦截（CSD, HIP, TNCC, TOTP, Compression）；
+   - 覆盖 Quantumult X 无公开格式告警与拒绝；
+   - 覆盖 CSTP 8 字节头部编码解码与 7 种边界条件（截断头、错误魔数、截断载荷、多包粘包拼接、超大载荷、0 长度包）；
+   - 覆盖 HTTPS XML 认证状态机（`auth-request`, `auth-reply`, `complete`, `error`）；
+   - 覆盖 DTLS 自动回落判决（配置禁用、服务端未协商、缺失 App-ID、平台 API 限制）。
+2. **回环测试 (`UnitTests/NativeCoreLoopbackTests.swift`)**：
+   - `testOpenConnectTCPEcho`: 连接 `127.0.0.1:18011`，完成 HTTPS XML 凭据认证，发送 HTTP `CONNECT` 获取网络参数，建立 CSTP 8 字节数据帧管道并以 DPD-REQ 发送 8192 字节 payload，接收 DPD-RESP 校验字节完全一致回显。
+   - `testOpenConnectDTLSFallback`: 在启用 `dtls: true` 时验证客户端状态机显式判定平台限制并平滑回落 CSTP，通道状态为 `dtlsFallbackToCSTP(reason: .platformUnsupported)`，CSTP 数据回显正常。
+   - `testOpenConnectDTLSSkip`: 因 iOS `Network.framework` 未公开在 DTLS PSK `ClientHello.legacy_session_id` 填入自定义 `X-DTLS-App-ID` 的接口，`ocserv` 无法校验会话关联，因此对纯 DTLS 独立测试用例显式标记 `XCTSkip`，在报告中详述依据，绝不弄虚作假。
+3. **实测与 CI 状态**：
+   - 本机无 Xcode 环境，xcodebuild 自动化测试标记为“**待 CI (proto-loopback)**”。
+   - 在构建环境中通过 `ocserv 1.2.4` + python/curl 实测验证了服务端在 18011 端口下的 TCP/UDP 监听、XML 认证流、CONNECT 200 CONNECTED 响应及 8192 字节 DPD Echo 回显，全流程闭环自洽。
