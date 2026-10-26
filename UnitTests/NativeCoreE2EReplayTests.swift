@@ -136,11 +136,23 @@ final class NativeCoreE2EReplayTests: XCTestCase {
         let detail = "\(prepMs) ms — proxies \(counts.proxies), proxy-providers \(counts.providers), groups \(counts.groups), rules \(counts.rules), rule-providers \(counts.ruleProviders), modules \(counts.modules), rewrite rules \(counts.rewriteRules), MitM hosts \(counts.mitmHosts), scripts \(counts.scripts) (\(unloadable.count) unloadable), tasks \(counts.tasks), warnings \(counts.warnings.count)"
         r.record("runtime-generation", counts.proxies + counts.providers > 0 && counts.rules > 0 ? .pass : .fail, detail)
         for w in counts.warnings { r.note("prep warning: \(w)") }
-        if unloadable.isEmpty {
-            r.record("scripts-loadable", .pass, "\(counts.scripts) script(s), all loaded")
+        // A real export can name scripts that only exist on the exporting phone (QX local script files) or whose
+        // remote URL is gone (HTTP 403/404/410): that is the fixture's environment, not a Tern bug. Those are listed
+        // as INFO; anything else (parse / compile / other download errors) fails. The sample serves every script.
+        let isSample = E2EReport.env("TERN_E2E_SAMPLE") == "1"
+        let unavailable = isSample ? [] : unloadable.filter { u in
+            let l = u.lowercased()
+            return l.contains("no such file") || l.contains("http 404") || l.contains("http 410") || l.contains("http 403")
+        }
+        let broken = unloadable.filter { !unavailable.contains($0) }
+        for u in unloadable { r.note("unloadable script: \(u)") }
+        if !unavailable.isEmpty {
+            r.record("scripts-unavailable", .info, "\(unavailable.count) script(s) the fixture references are not available here (local file on the exporting device / remote 4xx): " + unavailable.prefix(6).joined(separator: "; "))
+        }
+        if broken.isEmpty {
+            r.record("scripts-loadable", .pass, "\(counts.scripts - unavailable.count) of \(counts.scripts) script(s) loaded" + (unavailable.isEmpty ? "" : " (\(unavailable.count) unavailable, see scripts-unavailable)"))
         } else {
-            r.record("scripts-loadable", .fail, "\(unloadable.count) of \(counts.scripts) unloadable: " + unloadable.prefix(12).joined(separator: "; "))
-            for u in unloadable { r.note("unloadable script: \(u)") }
+            r.record("scripts-loadable", .fail, "\(broken.count) of \(counts.scripts) unloadable: " + broken.prefix(12).joined(separator: "; "))
         }
 
         E2EReport.writeHandoff([
