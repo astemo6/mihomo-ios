@@ -256,6 +256,14 @@ enum NCOpenConnect {
         let cookies: [String: String]
         let body: Data
 
+        // Manual Equatable: rawHeaders is a tuple array, which cannot synthesize conformance.
+        static func == (lhs: HTTPMessage, rhs: HTTPMessage) -> Bool {
+            lhs.statusCode == rhs.statusCode && lhs.statusText == rhs.statusText
+                && lhs.headers == rhs.headers && lhs.cookies == rhs.cookies && lhs.body == rhs.body
+                && lhs.rawHeaders.count == rhs.rawHeaders.count
+                && zip(lhs.rawHeaders, rhs.rawHeaders).allSatisfy { $0.0 == $1.0 && $0.1 == $1.1 }
+        }
+
         static func parse(data: Data) -> (message: HTTPMessage, consumed: Int)? {
             let crlf2 = Data([0x0d, 0x0a, 0x0d, 0x0a])
             let lf2 = Data([0x0a, 0x0a])

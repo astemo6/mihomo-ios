@@ -719,7 +719,8 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("openconnect: \(why)")) }
                 return
             }
-            guard let (cfg, errStr) = NCOpenConnect.Config.parse(proxy), let config = cfg else {
+            let (cfg, errStr) = NCOpenConnect.Config.parse(proxy)
+            guard let config = cfg else {
                 queue.async { completion(nil, Failure.handshake(errStr ?? "openconnect config invalid")) }
                 return
             }
