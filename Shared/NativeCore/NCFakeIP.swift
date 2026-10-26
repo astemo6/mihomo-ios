@@ -90,7 +90,7 @@ final class NCFakeIPPool {
                 if bitPos + 8 <= cidr6.bits { continue }
                 if bitPos >= cidr6.bits { b[i] = 0 } else {
                     let keep = cidr6.bits - bitPos
-                    b[i] = b[i] & (0xff << (8 - keep))
+                    b[i] = b[i] & (UInt8(0xff) << UInt8(8 - keep)) // UInt8 shift: never traps
                 }
             }
             base6 = b
@@ -298,7 +298,9 @@ final class NCFakeIPPool {
             for i in 0..<fullBytes where bytes[i] != base6[i] { return false }
             let remBits = prefix6 % 8
             if remBits > 0, fullBytes < 16 {
-                let mask = UInt8(0xff << (8 - remBits))
+                // fix/nc-h2-cidr: was UInt8(0xff << n) on Int, which traps for any fake-ip-range6 prefix not a
+                // multiple of 8 (/60, /7, /10) — same bug as NCCIDR (5d058fc). 需同步 feat/nc-kernel.
+                let mask = UInt8(0xff) << UInt8(8 - remBits)
                 if bytes[fullBytes] & mask != base6[fullBytes] & mask { return false }
             }
             return true
