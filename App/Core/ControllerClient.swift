@@ -275,6 +275,13 @@ final class ControllerClient {
         return !u.isEmpty && CoreOverrides.isValidTestURL(u) ? u : nil
     }
 
+    /// fix/nc-delay-2: longest one probe can take in the core with unified-delay (always on in Tern): the cold phase
+    /// gets max(timeout, 5000) and the timed warm request `timeout` (NCTunnelDelayTester.probeWindowMs) — the
+    /// request windows here must cover both or a slow cold dial (CDN node, high-RTT network) is cut off in the App.
+    static func delayWindow(_ timeoutMs: Int) -> TimeInterval {
+        TimeInterval(max(timeoutMs, 5000) + timeoutMs) / 1000
+    }
+
     /// 测速设置 → TCP 握手延迟: TCP nodes report the TCP connect time to their server (bridge netextras.go).
     static var tcpHandshake: Bool { CoreOverrides.load().tcpHandshakeDelay }
 
@@ -292,7 +299,7 @@ final class ControllerClient {
         do {
             let data = try await send("/group/\(Self.enc(group))/delay", query: [
                 URLQueryItem(name: "url", value: url ?? st.url), URLQueryItem(name: "timeout", value: String(ms)),
-            ], timeout: TimeInterval(ms) / 1000 + 10)
+            ], timeout: Self.delayWindow(ms) + 10)
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
             return .measured(obj.compactMapValues { ($0 as? NSNumber)?.intValue })
         } catch APIError.http(504, _) {
@@ -399,7 +406,7 @@ final class ControllerClient {
             if let prov { query.append(URLQueryItem(name: "provider", value: prov)) }
         }
         do {
-            let data = try await send(path, query: query, timeout: TimeInterval(ms) / 1000 + 5)
+            let data = try await send(path, query: query, timeout: Self.delayWindow(ms) + 3)
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             return (obj?["delay"] as? NSNumber)?.intValue ?? 0
         } catch APIError.http(let code, _) where code == 504 || code == 503 || code == 408 {

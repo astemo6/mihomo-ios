@@ -144,6 +144,8 @@ final class NCController {
         var query: [String: String] = [:]
         var headers: [String: String] = [:]
         var body = Data()
+        /// fix/nc-delay-2: path components split before percent-decoding (NCControllerRoute).
+        var comps: [String] = []
     }
 
     private func handle(_ conn: NCLoopbackConn) {
@@ -188,19 +190,10 @@ final class NCController {
         guard parts.count >= 2 else { return nil }
         let req = Request()
         req.method = String(parts[0])
-        let target = String(parts[1])
-        if let q = target.firstIndex(of: "?") {
-            req.path = String(target[target.startIndex..<q])
-            for pair in target[target.index(after: q)...].split(separator: "&") {
-                let kv = pair.split(separator: "=", maxSplits: 1)
-                if kv.count == 2 {
-                    req.query[String(kv[0])] = String(kv[1]).removingPercentEncoding ?? String(kv[1])
-                }
-            }
-        } else {
-            req.path = target
-        }
-        req.path = req.path.removingPercentEncoding ?? req.path
+        let routed = NCControllerRoute.split(target: String(parts[1]))
+        req.path = routed.path
+        req.comps = routed.comps
+        req.query = routed.query
         for line in lines.dropFirst() {
             if let colon = line.firstIndex(of: ":") {
                 req.headers[line[line.startIndex..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
@@ -340,7 +333,7 @@ final class NCController {
     }
 
     private func routeParameterized(_ conn: NCLoopbackConn, _ req: Request) {
-        let comps = req.path.split(separator: "/").map(String.init)
+        let comps = req.comps
         // /providers/proxies/{name} PUT (update now) | /providers/proxies/{name}/healthcheck GET
         if comps.count >= 3, comps[0] == "providers", comps[1] == "proxies" {
             let name = comps[2]
@@ -670,6 +663,8 @@ final class NCController {
         let timeout = Self.clampTimeout(query["timeout"])
         guard engine.effectiveConfig?.proxyMap[name] != nil || engine.effectiveConfig?.groupMap[name] != nil
                 || ["DIRECT", "REJECT"].contains(name.uppercased()) else {
+            // fix/nc-delay-2: a manual test that never reached a probe used to leave no trace at all.
+            NCDialTrace.logSink?("[delay] \(name): not in the running config (404), not tested", true)
             respond(conn, status: 404, json: ["message": "resource not found"])
             return
         }
@@ -714,7 +709,9 @@ final class NCController {
                                    completion: @escaping ([String: Int]) -> Void) {
         let width = NCTunnelDelayTester.manualGroupConcurrency
         NCTunnelDelayTester.measureGroup(groupEngine: engine.groupEngine, members: members, url: url, timeoutMs: timeoutMs,
-                                         overallTimeoutMs: NCTunnelDelayTester.manualRoundTimeoutMs(timeoutMs: timeoutMs, members: members.count, concurrency: width),
+                                         overallTimeoutMs: NCTunnelDelayTester.manualRoundTimeoutMs(
+                                             timeoutMs: NCTunnelDelayTester.probeWindowMs(timeoutMs: timeoutMs, unified: engine.unifiedDelay),
+                                             members: members.count, concurrency: width),
                                          maxConcurrency: width, unified: engine.unifiedDelay, logSuccess: true,
                                          queue: queue) { results in
             let successes = results.compactMapValues { $0 }

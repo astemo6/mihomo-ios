@@ -212,11 +212,17 @@ final class NativeCoreDelayProbeTests: XCTestCase {
         private(set) var maxActive = 0
         private(set) var accepted = 0
         private var conns: [ObjectIdentifier: NCLoopbackConn] = [:]
+        /// Connections counted as active (fix/nc-delay-2: a probe is over once its last response is out — the
+        /// client's close reaches this server's read only later, so counting until EOF overstated the overlap:
+        /// run 40265638851 saw maxActive 20 with the real cap at 10).
+        private var live: Set<ObjectIdentifier> = []
+        /// Responses after which a connection's probe is done (unified-delay: 2).
+        var responsesPerProbe = 2
 
         init(firstDelayMs: Int) {
             self.firstDelayMs = firstDelayMs
             listener = NCLoopbackListener(queue: queue)
-            listener.onAccept = { [unowned self] c in self.serve(c) }
+            listener.onAccept = { [weak self] c in self?.serve(c) }
         }
 
         func start() -> UInt16? { listener.start(port: 0) == nil ? listener.port : nil }
@@ -232,22 +238,27 @@ final class NativeCoreDelayProbeTests: XCTestCase {
         private func serve(_ c: NCLoopbackConn) {
             let id = ObjectIdentifier(c)
             conns[id] = c
+            live.insert(id)
             accepted += 1
             active += 1
             maxActive = max(maxActive, active)
-            c.onClose = { [unowned self] in self.closed(id) }
+            c.onClose = { [weak self] in self?.closed(id) }
             read(c, Data(), served: 0)
         }
 
         /// The probe closed its side (EOF) or the socket went away: no longer active (once per connection).
         private func closed(_ id: ObjectIdentifier) { closed(id: id) }
         private func closed(id: ObjectIdentifier) {
-            guard conns.removeValue(forKey: id) != nil else { return }
+            conns.removeValue(forKey: id)
+            guard live.remove(id) != nil else { return }
             active -= 1
         }
 
         private func read(_ c: NCLoopbackConn, _ buf: Data, served: Int) {
-            c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [unowned self] data, _, done, err in
+            c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, done, err in
+                // fix/nc-delay-2: weak — a cancelled connection's callback can arrive after the test released the
+                // server (run 40272786644: "read an unowned reference … already deallocated").
+                guard let self else { return }
                 var buf = buf
                 if let data { buf.append(data) }
                 if buf.range(of: Data("\r\n\r\n".utf8)) != nil {
@@ -255,6 +266,7 @@ final class NativeCoreDelayProbeTests: XCTestCase {
                     let delay = served == 0 ? self.firstDelayMs : 0
                     self.queue.asyncAfter(deadline: .now() + .milliseconds(delay)) {
                         c.send(content: Data("HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n".utf8), completion: .idempotent)
+                        if served + 1 >= self.responsesPerProbe, self.live.remove(ObjectIdentifier(c)) != nil { self.active -= 1 }
                         self.read(c, Data(), served: served + 1)
                     }
                     return
@@ -303,8 +315,9 @@ final class NativeCoreDelayProbeTests: XCTestCase {
         let e = expectation(description: "probe")
         var outcome: NCTunnelDelayTester.Outcome?
         let t0 = Date()
+        // unified: false — with unified-delay the cold phase gets max(timeout, 5000) (fix/nc-delay-2).
         NCTunnelDelayTester.measure(groupEngine: directEngine(), name: "DIRECT", url: "http://127.0.0.1:\(port)/",
-                                    timeoutMs: 600, unified: true) { o in
+                                    timeoutMs: 600, unified: false) { o in
             outcome = o
             e.fulfill()
         }
@@ -337,5 +350,63 @@ final class NativeCoreDelayProbeTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(t0), 3.0)
         XCTAssertEqual(o.stage, "tcp")
         XCTAssertFalse((o.error ?? "").isEmpty)
+    }
+
+    // MARK: fix/nc-delay-2
+
+    /// build 409: "timeout at stage request after 2000 ms | dial 1909 ms" — the cold dial ate the whole timeout.
+    /// With unified-delay the cold phase has max(timeout, 5000); the warm request is what `timeout` bounds.
+    func testColdPhaseHasItsOwnBudgetInUnifiedMode() throws {
+        let server = SlowHTTPServer(firstDelayMs: 700)
+        let port = try XCTUnwrap(server.start())
+        defer { server.stop() }
+        let e = expectation(description: "probe")
+        var outcome: NCTunnelDelayTester.Outcome?
+        NCTunnelDelayTester.measure(groupEngine: directEngine(), name: "DIRECT", url: "http://127.0.0.1:\(port)/generate_204",
+                                    timeoutMs: 300, unified: true) { o in
+            outcome = o
+            e.fulfill()
+        }
+        wait(for: [e], timeout: 8)
+        let o = try XCTUnwrap(outcome)
+        let ms = try XCTUnwrap(o.ms, "a 700 ms cold phase must not time out a 300 ms unified test: \(o.message) | \(o.stages)")
+        XCTAssertLessThan(ms, 300)
+    }
+
+    func testBudgets() {
+        typealias T = NCTunnelDelayTester
+        XCTAssertEqual(T.coldBudgetMs(timeoutMs: 2000, unified: true), 5000)
+        XCTAssertEqual(T.coldBudgetMs(timeoutMs: 8000, unified: true), 8000)
+        XCTAssertEqual(T.coldBudgetMs(timeoutMs: 2000, unified: false), 2000)
+        XCTAssertEqual(T.probeWindowMs(timeoutMs: 2000, unified: true), 7000)
+        XCTAssertEqual(T.probeWindowMs(timeoutMs: 2000, unified: false), 2000)
+        XCTAssertEqual(T.probeWindowMs(timeoutMs: Int.max, unified: true), Int.max)
+        // The App's per-node request window covers the core's longest probe.
+        for t in [1000, 2000, 5000, 10_000, 30_000] {
+            XCTAssertGreaterThan(ControllerClient.delayWindow(t) * 1000, Double(T.probeWindowMs(timeoutMs: t, unified: true)) - 1)
+            let round = T.manualRoundTimeoutMs(timeoutMs: T.probeWindowMs(timeoutMs: t, unified: true), members: 40, concurrency: 10)
+            XCTAssertLessThan(Double(round), (ControllerClient.delayWindow(t) + 10) * 1000, "group round inside the App's group window")
+        }
+    }
+
+    /// Node names from the build 409 report through the App's real URL building and the controller's real target
+    /// parsing: the provider-node route must land on the exact name.
+    func testControllerRouteDecodesAppEncodedNames() {
+        let names = ["东京 ORA JP01 [CF V6]", "🇭🇰 Alice HK CF CDN", "HK CF CDN", "春川 ORA KR01 [全 WARP]",
+                     "a/b %20 +&=?#", "新加坡 ORA SG02 CF CDN  [ORA V6]"]
+        let provider = "SelfBuild 订阅 #1"
+        let url = "https://www.gstatic.com/generate_204?x=1&y=a b"
+        for n in names {
+            let path = "/providers/proxies/\(ControllerClient.enc(provider))/\(ControllerClient.enc(n))/healthcheck"
+            let q = ControllerClient.query([("url", url), ("timeout", "2000")])
+            let r = NCControllerRoute.split(target: path + "?" + q)
+            XCTAssertEqual(r.comps, ["providers", "proxies", provider, n, "healthcheck"], n)
+            XCTAssertEqual(r.query["url"], url)
+            XCTAssertEqual(r.query["timeout"], "2000")
+            let d = NCControllerRoute.split(target: "/proxies/\(ControllerClient.enc(n))/delay?" + q)
+            XCTAssertEqual(d.comps, ["proxies", n, "delay"], n)
+        }
+        XCTAssertEqual(NCControllerRoute.split(target: "/version").comps, ["version"])
+        XCTAssertEqual(NCControllerRoute.split(target: "/logs?token=abc").query["token"], "abc")
     }
 }

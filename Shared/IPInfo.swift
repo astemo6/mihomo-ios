@@ -307,18 +307,30 @@ enum IPInfoFetcher {
     /// Tries the endpoints in order with the given session (v0.8: also a session through 节点探测).
     static func fetch(using session: URLSession) async -> IPInfo? {
         if disabled { return nil }
+        // fix/nc-delay-2: Home's 出口 line sat on 「正在查询…」 with no trace of why; one line per failed lookup.
+        var why: [String] = []
+        defer {
+            if !why.isEmpty {
+                StartupLog.write("exit-ip lookup: " + why.joined(separator: "; "), tag: "app")
+            }
+        }
         for ep in orderedEndpoints {
             guard let url = URL(string: ep.url) else { continue }
             var req = URLRequest(url: url)
             req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", forHTTPHeaderField: "User-Agent")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
             do {
+                let t0 = Date()
                 let (data, resp) = try await session.data(for: req)
-                guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
-                guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-                if let status = obj["status"] as? String, status.lowercased() == "fail" { continue }
-                if let success = obj["success"] as? Bool, success == false { continue }
+                let ms = Int(Date().timeIntervalSince(t0) * 1000)
+                guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    why.append("\(ep.name) HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1) in \(ms) ms"); continue
+                }
+                guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { why.append("\(ep.name) not JSON"); continue }
+                if let status = obj["status"] as? String, status.lowercased() == "fail" { why.append("\(ep.name) status fail"); continue }
+                if let success = obj["success"] as? Bool, success == false { why.append("\(ep.name) success false"); continue }
                 if var info = ep.parse(obj) {
+                    why = [] // found: nothing to report
                     info.source = ep.name
                     if info.timezone == nil {
                         info.timezone = str(obj, "timezone", "time_zone") ?? (obj["timezone"] as? [String: Any]).flatMap { str($0, "id") }
@@ -326,6 +338,9 @@ enum IPInfoFetcher {
                     return info
                 }
             } catch {
+                let ns = error as NSError
+                why.append("\(ep.name) \(ns.domain) \(ns.code)")
+                if Task.isCancelled { return nil }
                 continue
             }
         }
