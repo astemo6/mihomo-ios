@@ -682,8 +682,20 @@ final class NCProfileYAML {
         return false
     }
 
+    /// gate round 1: the four scalar-shape patterns were compiled on every call (up to 4 compiles per digit-led string
+    /// scalar, e.g. every IP server address on a profile save). Compiled once; NSRegularExpression is thread-safe.
+    private static let compiledLock = NSLock()
+    private static var compiled: [String: NSRegularExpression] = [:]
+    private static func regex(_ pattern: String) -> NSRegularExpression? {
+        compiledLock.lock(); defer { compiledLock.unlock() }
+        if let re = compiled[pattern] { return re }
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+        compiled[pattern] = re   // bounded: only the fixed literal patterns below reach here
+        return re
+    }
+
     private static func fullMatch(_ pattern: String, _ s: String) -> Bool {
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return false }
+        guard let re = regex(pattern) else { return false }
         let r = NSRange(s.startIndex..., in: s)
         guard let m = re.firstMatch(in: s, options: [.anchored], range: r) else { return false }
         return m.range.location == 0 && m.range.length == r.length
