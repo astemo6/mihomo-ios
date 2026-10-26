@@ -10,10 +10,10 @@ struct HomePowerCapsule: View {
 
     var body: some View {
         let on = vpn.isConnected
-        let busy = vpn.isBusy || vpn.status == .connecting || vpn.status == .disconnecting
+        let busy = vpn.switchBusy // fix/app-toggle-hitch: pending tap included (no double start)
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            Task { await vpn.toggle() }
+            vpn.requestToggle()
         } label: {
             HStack(spacing: 4) {
                 if busy { ProgressView().controlSize(.mini) }
