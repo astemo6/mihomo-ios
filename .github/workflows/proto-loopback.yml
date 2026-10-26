@@ -4,7 +4,8 @@
 # server fleet up before xcodebuild, and it only runs the loopback test class.
 #
 # Servers: tools/loopback/start-servers.sh (sing-box 1.12.24 pinned, one inbound per protocol on 127.0.0.1,
-# plus a python echo/blackhole backend). Constants are mirrored in tools/loopback/sing-box-config.json,
+# the official SUDOKU-ASCII/sudoku server binary pinned v0.5.2.0 on 18015, plus a python echo/blackhole backend).
+# Constants are mirrored in tools/loopback/sing-box-config.json, tools/loopback/sudoku-config.json,
 # tools/loopback/README.md and UnitTests/NativeCoreLoopbackTests.swift.
 #
 # Not covered, by design (see tools/loopback/README.md): WireGuard client (its NativeCore dialer exists only
@@ -93,8 +94,11 @@ jobs:
         run: |
           tools/loopback/start-servers.sh stop || true
           cp /tmp/nc-loopback/sing-box.log results/sing-box.log 2>/dev/null || true
+          cp /tmp/nc-loopback/sudoku.log results/sudoku.log 2>/dev/null || true
           echo "--- sing-box.log (hy2/tuic/quic lines, last 200) ---"
           grep -i -E "hy2|hysteria|tuic|quic|error|warn" /tmp/nc-loopback/sing-box.log | tail -n 200 || true
+          echo "--- sudoku.log (last 100) ---"
+          tail -n 100 /tmp/nc-loopback/sudoku.log 2>/dev/null || true
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -102,6 +106,7 @@ jobs:
           path: |
             results/loopback.log
             results/sing-box.log
+            results/sudoku.log
             build-loop.log
           if-no-files-found: warn
           retention-days: 14

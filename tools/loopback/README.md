@@ -4,7 +4,8 @@ Local reference servers for `UnitTests/NativeCoreLoopbackTests.swift`
 (fix/nc-proto-loopback): the NativeCore outbound stacks are driven through
 `NCConnector` against a real server, byte-exact echo is checked, the #116
 `send(_:completion:)` back-pressure contract is exercised on a real socket,
-and the SS / SS2022 UDP wire formats are round-tripped.
+and the SS / SS2022 UDP wire formats are round-tripped. Sudoku is tested
+against the official `SUDOKU-ASCII/sudoku` server binary as a black-box peer.
 
 ## Run
 
@@ -28,10 +29,11 @@ Without the env var the tests probe the SS port and run if the servers are
 already up; with neither, every test skips (the normal unit-test run is
 unaffected). CI runs this via `.github/workflows/proto-loopback.yml`.
 
-Runtime state (sing-box binary, rendered config, self-signed cert, logs,
-pidfiles) lives in `$NC_LOOPBACK_DIR` (default `/tmp/nc-loopback`), never in
-the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
-`SING_BOX_BIN`.
+Runtime state (sing-box/sudoku binaries, rendered configs, self-signed cert,
+logs, pidfiles) lives in `$NC_LOOPBACK_DIR` (default `/tmp/nc-loopback`), never
+in the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
+`SING_BOX_BIN`, `SUDOKU_VERSION` (default `0.5.2.0`, release tag `v0.5.2.0`),
+`SUDOKU_BIN`.
 
 ## Topology (all 127.0.0.1)
 
@@ -45,10 +47,22 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18006 | sing-box Hysteria2 inbound — `nc-loop-hy2-pw`, TLS ALPN h3 |
 | 18007 | sing-box TUIC inbound — same uuid / `nc-loop-tuic-pw`, ALPN h3, BBR |
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
+| 18015 | official Sudoku server binary (black box) — master pub key below, fallback → 18080 |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
 | 18083 | `echo_server.py` UDP control: datagram `go` → blackhole discards; `pause` → holds again |
+
+The Sudoku server runs the pinned upstream release (default `v0.5.2.0`,
+GPL-3.0, `SUDOKU-ASCII/sudoku`) with `tools/loopback/sudoku-config.json`:
+aead `chacha20-poly1305`, `ascii: prefer_ascii`, `padding_min/max: 0` (no
+server-side padding — fewest confounders for the client decoder),
+`enable_pure_downlink: true`, `httpmask.disable: true`, `multiplex: off`.
+`fallback_address` points at the 18080 echo backend, so a failed handshake
+is reflected back to the client instead of hanging. The `key` is the hex of
+a real Ed25519 master public key generated for this repo (the matching
+split/"available" private key lives in the test constants); loopback-only
+test values — never reuse them anywhere else.
 
 All inbounds route to a `direct` outbound, so the target a client asks for
 *is* the backend it reaches: tests aim at 18080 for echo and 18082 for
@@ -77,7 +91,13 @@ self-signed cert the start script generates into the runtime dir
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.
 - **Mieru**: sing-box has no mieru inbound, so there is no reference server;
   not covered rather than faked.
+- **Sudoku**: TCP echo through the official server (the interop verdict is
+  defined by CI — see `docs/nc-proto-sudoku.md` for the static divergence
+  analysis and predicted outcome) plus a wrong-key negative (dial must fail,
+  never return a stream). UDP is absent because the NativeCore Sudoku client
+  implements TCP (OpenTCP) only — no UoT session support yet.
 
-The constants in this table, `sing-box-config.json` and
-`UnitTests/NativeCoreLoopbackTests.swift` are three copies of one truth —
+The constants in this table, `sing-box-config.json`, `sudoku-config.json`,
+`start-servers.sh` (wait list + ready line) and
+`UnitTests/NativeCoreLoopbackTests.swift` are mirrors of one truth —
 change them together.

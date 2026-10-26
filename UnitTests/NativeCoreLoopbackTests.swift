@@ -27,6 +27,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let sudokuPort = 18015
     private static let tcpEchoPort = 18080
     private static let udpEchoPort = 18081
     private static let blackholePort = 18082
@@ -40,6 +41,16 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPassword = "nc-loop-trojan-pw"
     private static let hy2Password = "nc-loop-hy2-pw"
     private static let tuicPassword = "nc-loop-tuic-pw"
+
+    /// Official-server Sudoku loopback (mirror of tools/loopback/sudoku-config.json):
+    /// the client key is the split ("available") private key matching the master
+    /// public key configured server-side; aead/table/padding/httpmask match the
+    /// server config exactly.
+    private static let sudokuKey = "e2eac3d4c0036ceb028048417bf2bf7c213681e145603c38ec8bffadb2e40c014130de746760b7dc9b515545f47e29df255687fe3ee972c2c517264f6a37b60b"
+    private static let sudokuAead = "chacha20-poly1305"
+    private static let sudokuTable = "prefer_ascii"
+    /// First byte flipped — still 128 valid hex chars (same derivation path), wrong material.
+    private static let sudokuWrongKey = "e3eac3d4c0036ceb028048417bf2bf7c213681e145603c38ec8bffadb2e40c014130de746760b7dc9b515545f47e29df255687fe3ee972c2c517264f6a37b60b"
 
     /// Same generator as the validation probe: byte i = (i * 7 + 3) % 256.
     private static let payload = Data((0..<8192).map { UInt8(($0 * 7 + 3) & 0xff) })
@@ -148,6 +159,28 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-tuic", type: "tuic", port: Self.tuicPort, extra: [
             "uuid": .string(Self.uuid), "password": .string(Self.tuicPassword),
             "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    private static var sudokuProxy: NCProxy {
+        Self.proxy(name: "loop-sudoku", type: "sudoku", port: Self.sudokuPort, extra: [
+            "key": .string(Self.sudokuKey),
+            "aead-method": .string(Self.sudokuAead),
+            "table-type": .string(Self.sudokuTable),
+            "padding-min": .number(0), "padding-max": .number(0),
+            "enable-pure-downlink": .bool(true),
+            "httpmask": .object(["disable": .bool(true)]),
+        ])
+    }
+
+    private static var sudokuWrongKeyProxy: NCProxy {
+        Self.proxy(name: "loop-sudoku-wrongkey", type: "sudoku", port: Self.sudokuPort, extra: [
+            "key": .string(Self.sudokuWrongKey),
+            "aead-method": .string(Self.sudokuAead),
+            "table-type": .string(Self.sudokuTable),
+            "padding-min": .number(0), "padding-max": .number(0),
+            "enable-pure-downlink": .bool(true),
+            "httpmask": .object(["disable": .bool(true)]),
         ])
     }
 
@@ -263,7 +296,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
     func testServerPortsReachable() {
         for port in [Self.ssPort, Self.ss2022Port, Self.vmessPort, Self.vlessPort,
-                     Self.trojanPort, Self.tcpEchoPort, Self.blackholePort] {
+                     Self.trojanPort, Self.sudokuPort, Self.tcpEchoPort, Self.blackholePort] {
             let conn = NWConnection(host: NWEndpoint.Host(Self.host),
                                     port: NWEndpoint.Port(rawValue: UInt16(port))!,
                                     using: .tcp)
@@ -340,6 +373,32 @@ final class NativeCoreLoopbackTests: XCTestCase {
         let stream = try self.connect(proxy: Self.tuicProxy, target: Self.echoTarget)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    // Sudoku runs against the official SUDOKU-ASCII/sudoku server binary
+    // (black box, v0.5.2.0, 18015) — not sing-box, which has no sudoku
+    // inbound. Static analysis (docs/nc-proto-sudoku.md § interop) says the
+    // clean-room data plane cannot complete the handshake yet (PSK/HKDF key
+    // schedule, post-ServerHello rekey and the math/rand-v1 table shuffle all
+    // diverge), so this test is the CI verdict on that gap, and is expected
+    // to fail until the S3 data-plane port lands. It stays a plain,
+    // unhedged assertion on purpose.
+    func testSudokuTCPEcho() throws {
+        let stream = try self.connect(proxy: Self.sudokuProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// Wrong key must never yield a stream — the handshake has to fail
+    /// (AEAD open failure or fallback/disconnect), whatever the interop state.
+    func testSudokuWrongKeyRejected() throws {
+        do {
+            let stream = try self.connect(proxy: Self.sudokuWrongKeyProxy, target: Self.echoTarget)
+            stream.cancel()
+            XCTFail("dial with a wrong key must not return a stream")
+        } catch {
+            // expected
+        }
     }
 
     // WireGuard and Mieru are intentionally absent:
