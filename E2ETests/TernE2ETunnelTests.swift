@@ -157,7 +157,9 @@ final class TernE2ETunnelTests: XCTestCase {
         let names = providerNames()
         if names.isEmpty { r.record("proxy-providers", .info, "the config has no proxy-providers"); return }
         var nodes: [String: [String]] = [:]
-        _ = E2ENet.waitUntil(25) {
+        // fix/nc-mem-2: every 0.5 s (was back-to-back, ~22 GET /providers/proxies per second for the whole 25 s when a
+        // provider never fills — far beyond what the App asks of the controller).
+        _ = E2ENet.waitUntil(25, every: 0.5) {
             nodes = self.providerNodes()
             return names.allSatisfy { (nodes[$0]?.count ?? 0) > 0 }
         }
@@ -186,7 +188,8 @@ final class TernE2ETunnelTests: XCTestCase {
         // core start), as on a device. Run 40290997704 built a second NCRuleProviderStore here that downloaded and
         // indexed all 29 lists again in this process, inside the memory-footprint window.
         let remote = list.filter { $0.url != nil }
-        _ = E2ENet.waitUntil(30) { remote.allSatisfy { engine.ruleProviderIsLoaded($0.name) } }
+        // fix/nc-mem-2: the core fetches at most NCRuleProviderStore.maxConcurrentFetches lists at a time now.
+        _ = E2ENet.waitUntil(60, every: 0.25) { remote.allSatisfy { engine.ruleProviderIsLoaded($0.name) } }
         for p in list {
             guard let u = p.url else {
                 r.record("rule-set:\(p.name)", .info, "local (\(p.filePath != nil ? "file" : "inline")) — loaded with the config")

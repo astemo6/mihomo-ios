@@ -347,18 +347,28 @@ final class E2ENet {
         func get() -> [UInt8]? { lock.lock(); defer { lock.unlock() }; return value }
     }
 
-    /// Polls `cond`; on the main thread the run loop keeps turning (main-queue work is never starved).
-    static func waitUntil(_ timeout: TimeInterval, _ cond: () -> Bool) -> Bool {
+    /// Polls `cond` every `every` seconds; on the main thread the run loop keeps turning (main-queue work is never
+    /// starved).
+    ///
+    /// fix/nc-mem-2: every evaluation of `cond` runs in its own autorelease pool. The test method runs on the main
+    /// thread inside one outer run-loop iteration, so objects a poll autoreleased outside the nested `run(until:)`
+    /// (URLSession tasks + their responses, NSJSONSerialization trees, bridged strings) were only released when the
+    /// test returned. providers() polled GET /providers/proxies this way ~22×/s for 25 s (a 403 provider never fills)
+    /// — ~575 requests whose leftovers stayed in the test process inside the memory-footprint window (run
+    /// 40306946475: providers+rule-sets settled at +37.0 MB). The tunnel never runs this loop.
+    static func waitUntil(_ timeout: TimeInterval, every: TimeInterval = 0.02, _ cond: () -> Bool) -> Bool {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end {
-            if cond() { return true }
-            if Thread.isMainThread {
-                RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-            } else {
-                Thread.sleep(forTimeInterval: 0.02)
+            if autoreleasepool(invoking: cond) { return true }
+            autoreleasepool {
+                if Thread.isMainThread {
+                    RunLoop.current.run(until: Date().addingTimeInterval(every))
+                } else {
+                    Thread.sleep(forTimeInterval: every)
+                }
             }
         }
-        return cond()
+        return autoreleasepool(invoking: cond)
     }
 
     struct HTTPResult {
