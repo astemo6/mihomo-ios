@@ -5,7 +5,7 @@ import XCTest
 /// default enable behaviour, and share link encoding/decoding parity across three ECH forms.
 final class NativeCoreECHTests: XCTestCase {
 
-    private let sampleBase64 = "AEb+DQBB/wAgACCH507x8z5u8T8P4q8ka8A9tQ9t8/wAgACCH507x8z5u8T8P4q8="
+    private let sampleBase64 = "AEb+DQBB/wAgACCH507x8z5u8T8P4q8ka8A9tQ9t8/wAgACCH507x8z5u8T8P4q8" // 64 chars = 48 bytes (was 65 with a stray "=": invalid base64)
     private let sampleBase64URL = "AEb-DQBB_wAgACCH507x8z5u8T8P4q8ka8A9tQ9t8_wAgACCH507x8z5u8T8P4q8"
 
     // MARK: - 1. NCECHOpts Decode / Encode Round-Trip
@@ -136,7 +136,7 @@ final class NativeCoreECHTests: XCTestCase {
                   "config": [
                     "-----BEGIN ECH CONFIGS-----",
                     "AEb+DQBB/wAgACCH507x8z5u8T8P4q8",
-                    "ka8A9tQ9t8/wAgACCH507x8z5u8T8P4q8=",
+                    "ka8A9tQ9t8/wAgACCH507x8z5u8T8P4q8",
                     "-----END ECH CONFIGS-----"
                   ],
                   "query_server_name": "dns.example.com"
@@ -172,7 +172,7 @@ final class NativeCoreECHTests: XCTestCase {
                 "server_name": "example.com",
                 "ech": {
                   "enabled": true,
-                  "config": "-----BEGIN ECH CONFIGS-----\\nAEb+DQBB/wAgACCH507x8z5u8T8P4q8\\nka8A9tQ9t8/wAgACCH507x8z5u8T8P4q8=\\n-----END ECH CONFIGS-----",
+                  "config": "-----BEGIN ECH CONFIGS-----\\nAEb+DQBB/wAgACCH507x8z5u8T8P4q8\\nka8A9tQ9t8/wAgACCH507x8z5u8T8P4q8\\n-----END ECH CONFIGS-----",
                   "query_server_name": "dns.example.com"
                 }
               }
@@ -250,7 +250,7 @@ final class NativeCoreECHTests: XCTestCase {
         let pemLines = [
             "-----BEGIN ECH CONFIGS-----",
             "AEb+DQBB/wAgACCH507x8z5u8T8P4q8",
-            "ka8A9tQ9t8/wAgACCH507x8z5u8T8P4q8=",
+            "ka8A9tQ9t8/wAgACCH507x8z5u8T8P4q8",
             "-----END ECH CONFIGS-----"
         ]
         XCTAssertEqual(NCSubscriptionParser.normalizeSingBoxECHConfig(pemLines), sampleBase64)
