@@ -580,7 +580,7 @@ struct NodeEditorView: View {
                 }
                 .listRowBackground(Theme.card)
                 if let error {
-                    Section { Text(error).font(.footnote).foregroundStyle(Theme.bad) }.listRowBackground(Theme.card)
+                    Section { Text(error).font(.footnote).foregroundStyle(Theme.bad).accessibilityIdentifier("node.editor.error") }.listRowBackground(Theme.card)
                 }
             }
             .scrollContentBackground(.hidden)

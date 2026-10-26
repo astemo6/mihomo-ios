@@ -720,7 +720,15 @@ final class MihomoUITests: MihomoUITestCase {
         app.navigationBars.buttons[L("保存")].tap()
         let gone = NSPredicate(format: "exists == false")
         let closed = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: app.navigationBars[L("编辑节点")])], timeout: 10) == .completed
-        if !closed { snap("profile-node-editor-error"); issues.append("[\(Env.tag)] profile node did not save"); closeSheet() }
+        if !closed {
+            snap("profile-node-editor-error")
+            // Name the editor's own error (shown at the bottom of the form) so a failed save is diagnosable.
+            let err = app.element(id: "node.editor.error")
+            let why = scrollTo(err, maxSwipes: 6, fail: false) ? err.label : "no error shown (save still running?)"
+            snap("profile-node-editor-error-text")
+            issues.append("[\(Env.tag)] profile node did not save: \(why)")
+            closeSheet()
+        }
         usleep(1_000_000)
         // Renamed → the old detail closes; leave and come back, the list is read from the file again.
         for _ in 0..<3 where !app.navigationBars[L("更多")].exists { back() }
