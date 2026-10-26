@@ -222,7 +222,7 @@ final class NativeCoreDelayProbeTests: XCTestCase {
         init(firstDelayMs: Int) {
             self.firstDelayMs = firstDelayMs
             listener = NCLoopbackListener(queue: queue)
-            listener.onAccept = { [unowned self] c in self.serve(c) }
+            listener.onAccept = { [weak self] c in self?.serve(c) }
         }
 
         func start() -> UInt16? { listener.start(port: 0) == nil ? listener.port : nil }
@@ -242,7 +242,7 @@ final class NativeCoreDelayProbeTests: XCTestCase {
             accepted += 1
             active += 1
             maxActive = max(maxActive, active)
-            c.onClose = { [unowned self] in self.closed(id) }
+            c.onClose = { [weak self] in self?.closed(id) }
             read(c, Data(), served: 0)
         }
 
@@ -255,7 +255,10 @@ final class NativeCoreDelayProbeTests: XCTestCase {
         }
 
         private func read(_ c: NCLoopbackConn, _ buf: Data, served: Int) {
-            c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [unowned self] data, _, done, err in
+            c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, done, err in
+                // fix/nc-delay-2: weak — a cancelled connection's callback can arrive after the test released the
+                // server (run 40272786644: "read an unowned reference … already deallocated").
+                guard let self else { return }
                 var buf = buf
                 if let data { buf.append(data) }
                 if buf.range(of: Data("\r\n\r\n".utf8)) != nil {
