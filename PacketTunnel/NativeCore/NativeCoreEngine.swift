@@ -253,6 +253,19 @@ final class NativeCoreEngine {
         // may no longer enter the cache (fetched under the old DNS policy).
         resolveLock.lock(); resolveCache = [:]; resolveGeneration += 1; resolveLock.unlock()
         echResolver.clearCache()
+        #if TERN_TUNNEL
+        // ech-rest: dynamic ech-opts (enable without config) — NCConnector.dialNativeTLS asks this engine's
+        // resolver for the HTTPS RR of query-server-name / the TLS server name (kernel upstreams, TTL cache).
+        let ech = echResolver
+        NCConnector.echConfigLookup = { name, done in
+            ech.resolveECH(for: name) { result in
+                switch result {
+                case .success(let res): done(res.echConfigList, nil)
+                case .failure(let err): done(nil, err)
+                }
+            }
+        }
+        #endif
         ruleDiagnostics = Self.diagnose(cfg: cfg, rules: parsed, providers: preProviders, policy: policy,
                                         pool: pool, geoSite: geo, geoIP: geoIPDB != nil, asn: asnDB != nil)
         // Node subscriptions: cached nodes merge into the effective config;
@@ -962,7 +975,7 @@ final class NativeCoreEngine {
     /// Honors query-server-name, kernel nameserver-policy routing, and caches results by TTL.
     func resolveECH(for host: String, queryServerName: String? = nil,
                     timeout: TimeInterval = NCECHResolver.defaultTimeout,
-                    callerQueue: DispatchQueue = .main,
+                    callerQueue: DispatchQueue? = nil,
                     completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
         echResolver.resolveECH(for: host, queryServerName: queryServerName, timeout: timeout, callerQueue: callerQueue, completion: completion)
     }

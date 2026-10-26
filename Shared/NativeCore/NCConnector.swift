@@ -891,98 +891,88 @@ enum NCConnector {
         return nil
     }
 
-    /// Look up ech-opts dictionary.
-    static func echOpts(_ proxy: NCProxy) -> [String: NCJSONValue]? {
-        proxy.fields["ech-opts"]?.object ?? proxy.fields["plugin-opts"]?.object?["ech-opts"]?.object
-    }
-
-    /// Returns true if ECH is enabled for this proxy.
+    /// The node's ECH options — one reading for every layer (E3 NCProxy.echOpts: mihomo semantics, `enable`
+    /// must be explicitly true). SS plugin ECH sits under plugin-opts and is refused by NCSupport/the ss dial.
     static func isECHEnabled(_ proxy: NCProxy) -> Bool {
-        echOpts(proxy)?["enable"]?.bool == true
+        proxy.echOpts?.enable == true
     }
 
-    /// Parse static ECHConfigList bytes from ech-opts.config (Base64), validated via NCECHConfigParser.
-    static func parseStaticECHConfigList(_ proxy: NCProxy) throws -> Data? {
-        guard isECHEnabled(proxy), let opts = echOpts(proxy) else { return nil }
-        guard let cfgVal = opts["config"] else { return nil }
-        let b64Strings: [String]
-        if let s = cfgVal.string, !s.trimmingCharacters(in: .whitespaces).isEmpty {
-            b64Strings = [s.trimmingCharacters(in: .whitespaces)]
-        } else if let arr = cfgVal.array {
-            b64Strings = arr.compactMap { $0.string?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        } else {
-            return nil
+    /// Static ECHConfigList from `ech-opts.config` (base64 / base64url of one ECHConfigList, as mihomo), validated.
+    /// nil = no static config (dynamic lookup applies). Throws on a config that is present but unusable.
+    static func staticECHConfigList(_ proxy: NCProxy) throws -> Data? {
+        guard let opts = proxy.echOpts, opts.enable, opts.config != nil else { return nil }
+        guard let bytes = opts.configBytes, !bytes.isEmpty else {
+            throw Failure.handshake("ech-opts.config 不是有效的 base64")
         }
-        guard !b64Strings.isEmpty else { return nil }
-        var combinedData = Data()
-        for b64 in b64Strings {
-            var standard = b64.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-            while standard.count % 4 != 0 { standard.append("=") }
-            guard let data = Data(base64Encoded: standard) else {
-                throw Failure.handshake("invalid base64 in ech config")
-            }
-            combinedData.append(data)
-        }
-        guard !combinedData.isEmpty else { return nil }
         do {
-            _ = try NCECHConfigParser.parseList(combinedData)
+            _ = try NCECHConfigParser.select(fromECHConfigList: bytes)
         } catch {
-            throw Failure.handshake("invalid ECHConfigList: \(error.localizedDescription)")
+            throw Failure.handshake("ech-opts.config 无可用的 ECHConfig：\(error)")
         }
-        return combinedData
+        return bytes
     }
 
-    /// Single integration injection point for dynamic ECH resolution:
-    /// 1. If static `ech-opts.config` is provided, parse and return it.
-    /// 2. If ECH is enabled (`enable == true`) but no static config exists:
-    ///    - In this PR: explicitly throw `Failure.handshake("ECH enabled but no config available")`.
-    ///    - Later E2 integration point: perform async/dynamic DNS SVCB/HTTPS query here.
-    /// Never silently fall back to plaintext SNI when ECH is requested.
-    static func resolveECHConfigList(_ proxy: NCProxy) throws -> Data? {
-        guard isECHEnabled(proxy) else { return nil }
-        if let staticList = try parseStaticECHConfigList(proxy) {
-            return staticList
-        }
-        // E2 resolver injection point: dynamic HTTPS/SVCB DNS resolution will hook in here.
-        throw Failure.handshake("ECH enabled but no config available")
+    /// Dynamic ECH source (E2 NCECHResolver: DNS HTTPS RR through the kernel's own upstreams, TTL cache).
+    /// Installed by NativeCoreEngine when a config loads; nil outside the tunnel (app-hosted tests inject one).
+    /// Arguments: query name, callback(ECHConfigList or nil = the name publishes no ECH, error = lookup failed).
+    typealias ECHConfigLookup = (_ queryName: String, _ completion: @escaping (Data?, Error?) -> Void) -> Void
+    private static let echLookupLock = NSLock()
+    private static var echLookupStorage: ECHConfigLookup?
+    static var echConfigLookup: ECHConfigLookup? {
+        get { echLookupLock.lock(); defer { echLookupLock.unlock() }; return echLookupStorage }
+        set { echLookupLock.lock(); echLookupStorage = newValue; echLookupLock.unlock() }
     }
 
-    /// Determine default ALPN when the node does not explicitly specify `alpn`.
-    /// - ws transport: ["http/1.1"] (never offer h2, otherwise CF/nginx selects h2 and WebSocket upgrade fails)
-    /// - grpc transport: ["h2"]
-    /// - tcp/other transport: ["h2", "http/1.1"]
-    /// - trojan / https / anytls keep their existing defaults when unrelated to transport:
-    ///   - https: ["http/1.1"]
-    ///   - trojan: ["h2", "http/1.1"]
-    ///   - anytls: ["h2", "http/1.1"]
+    /// ECHConfigList for a node with ECH on: static `config`, else the HTTPS RR of `query-server-name` (else the
+    /// TLS server name), as mihomo's ech-opts. No list (no record, no ech SvcParam, lookup failed) is an error —
+    /// never a silent plaintext-SNI handshake. completion(nil, nil) only when ECH is off. Called back on `queue`.
+    static func resolveECHConfigList(_ proxy: NCProxy, serverName: String, queue: DispatchQueue,
+                                     completion: @escaping (Data?, Error?) -> Void) {
+        guard let opts = proxy.echOpts, opts.enable else { queue.async { completion(nil, nil) }; return }
+        do {
+            if let list = try staticECHConfigList(proxy) { queue.async { completion(list, nil) }; return }
+        } catch {
+            queue.async { completion(nil, error) }
+            return
+        }
+        let name = opts.queryServerName ?? serverName
+        guard let lookup = echConfigLookup else {
+            queue.async { completion(nil, Failure.handshake("ECH：无 ech-opts.config，且 DNS 解析器不可用")) }
+            return
+        }
+        lookup(name) { list, err in
+            queue.async {
+                if let err { completion(nil, Failure.handshake("ECH：查询 \(name) 的 HTTPS 记录失败：\(err.localizedDescription)")); return }
+                guard let list, !list.isEmpty else {
+                    completion(nil, Failure.handshake("ECH：\(name) 未发布 ECH 配置（HTTPS 记录无 ech）"))
+                    return
+                }
+                if (try? NCECHConfigParser.select(fromECHConfigList: list)) == nil {
+                    completion(nil, Failure.handshake("ECH：\(name) 的 ECH 配置无可用套件"))
+                    return
+                }
+                completion(list, nil)
+            }
+        }
+    }
+
+    /// Default ALPN when the node sets no `alpn` (mihomo defaults; the system-TLS path sent none):
+    /// - ws / httpupgrade / http transports: ["http/1.1"] (offering h2 lets a CDN pick h2 and the Upgrade breaks)
+    /// - grpc / h2 transports: ["h2"]
+    /// - trojan over tcp: ["h2", "http/1.1"] (mihomo trojan default)
+    /// - https proxy: ["http/1.1"]
+    /// - vmess / vless over tcp, anytls: none (mihomo sends no ALPN unless configured)
     static func defaultALPN(for proxy: NCProxy) -> [String] {
-        switch proxy.type.lowercased() {
-        case "https":
+        let type = proxy.type.lowercased()
+        if type == "https" || type == "http" { return ["http/1.1"] }
+        if type == "anytls" { return [] }
+        switch proxy.fields["network"]?.string?.lowercased() ?? "tcp" {
+        case "ws", "httpupgrade", "http":
             return ["http/1.1"]
-        case "anytls":
-            return ["h2", "http/1.1"]
-        case "trojan":
-            return ["h2", "http/1.1"]
-        case "vmess", "vless":
-            let network = proxy.fields["network"]?.string?.lowercased() ?? "tcp"
-            switch network {
-            case "ws":
-                return ["http/1.1"]
-            case "grpc":
-                return ["h2"]
-            default:
-                return ["h2", "http/1.1"]
-            }
+        case "grpc", "h2":
+            return ["h2"]
         default:
-            let network = proxy.fields["network"]?.string?.lowercased() ?? "tcp"
-            switch network {
-            case "ws":
-                return ["http/1.1"]
-            case "grpc":
-                return ["h2"]
-            default:
-                return ["h2", "http/1.1"]
-            }
+            return type == "trojan" ? ["h2", "http/1.1"] : []
         }
     }
 
@@ -995,58 +985,44 @@ enum NCConnector {
         return false
     }
 
-    /// Dial TCP and run the hand-rolled TLS 1.3 / 1.2 handshake over it with parity parameters.
+    /// Dial TCP and run the hand-rolled TLS 1.3 / 1.2 handshake over it with parity parameters
+    /// (ECH config resolved first: static or DNS, see resolveECHConfigList).
     static func dialNativeTLS(proxy: NCProxy, server: String, port: Int,
                               serverName: String? = nil,
                               defaultALPN: [String]? = nil,
                               queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let serverName = serverName ?? (proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server)
-        let allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
-        let alpn = parseALPN(proxy) ?? defaultALPN ?? self.defaultALPN(for: proxy)
-        let profile = NCClientHelloProfile.named(parseClientFingerprint(proxy))
-        let pin = parsePinnedCertSHA256(proxy)
-
-        let echConfig: Data?
-        do {
-            echConfig = try resolveECHConfigList(proxy)
-        } catch {
-            queue.async { completion(nil, error) }
-            return
-        }
-
-        var cfg = NCTLSClientStream.Config(serverName: serverName)
-        cfg.alpn = alpn
-        cfg.allowInsecure = allowInsecure
-        cfg.pinnedCertSHA256 = pin
-        cfg.profile = profile
-        cfg.echConfigList = echConfig
-        if let outer = echOpts(proxy)?["outer-sni"]?.string ?? echOpts(proxy)?["public-name"]?.string {
-            cfg.outerServerName = outer
-        }
-        if let ncv = proxy.fields["name-cert-verify"]?.string, !ncv.isEmpty {
-            cfg.certVerifyName = ncv
-        }
-        cfg.rawDialer = { retryCompletion in
-            let retryRaw = NCStream(to: server, port: port, queue: queue)
-            retryRaw.start { err in
-                if let err {
-                    retryCompletion(nil, err)
-                } else {
-                    retryCompletion(retryRaw, nil)
+        resolveECHConfigList(proxy, serverName: serverName, queue: queue) { echConfig, echErr in
+            if let echErr { completion(nil, echErr); return }
+            var cfg = NCTLSClientStream.Config(serverName: serverName)
+            cfg.alpn = parseALPN(proxy) ?? defaultALPN ?? self.defaultALPN(for: proxy)
+            cfg.allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
+            cfg.pinnedCertSHA256 = parsePinnedCertSHA256(proxy)
+            cfg.profile = NCClientHelloProfile.named(parseClientFingerprint(proxy))
+            cfg.echConfigList = echConfig
+            if let ncv = proxy.fields["name-cert-verify"]?.string, !ncv.isEmpty {
+                cfg.certVerifyName = ncv
+            }
+            if echConfig != nil {
+                // Single retry with the server's retry_configs (RFC 9849 §6.1.6) needs a fresh socket.
+                cfg.rawDialer = { retryCompletion in
+                    let retryRaw = NCStream(to: server, port: port, queue: queue)
+                    retryRaw.start { err in
+                        if let err { retryRaw.cancel(); retryCompletion(nil, err) } else { retryCompletion(retryRaw, nil) }
+                    }
                 }
             }
-        }
-
-        let raw = NCStream(to: server, port: port, queue: queue)
-        raw.start { err in
-            guard err == nil else { completion(nil, err); return }
-            let tls = NCTLSClientStream(raw: raw, config: cfg, queue: queue)
-            tls.startHandshake { herr in
-                if let herr {
-                    tls.cancel()
-                    completion(nil, herr)
-                } else {
-                    completion(tls, nil)
+            let raw = NCStream(to: server, port: port, queue: queue)
+            raw.start { err in
+                if let err { raw.cancel(); completion(nil, err); return }
+                let tls = NCTLSClientStream(raw: raw, config: cfg, queue: queue)
+                tls.startHandshake { herr in
+                    if let herr {
+                        tls.cancel()
+                        completion(nil, herr)
+                    } else {
+                        completion(tls, nil)
+                    }
                 }
             }
         }
