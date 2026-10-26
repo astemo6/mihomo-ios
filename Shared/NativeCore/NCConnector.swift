@@ -1119,7 +1119,8 @@ enum NCConnector {
         anytlsLock.lock(); let anytls = anytlsRegistry.count; anytlsLock.unlock()
         hy2Lock.lock(); let hy2 = hy2Registry.count; hy2Lock.unlock()
         return ["mux": mux, "anytls": anytls, "hy2": hy2,
-                "hy1": hy1SessionCount, "tuic": tuicSessionCount, "juicity": juicitySessionCount, "ssh": sshSessionCount]
+                "hy1": hy1SessionCount, "tuic": tuicSessionCount, "juicity": juicitySessionCount, "ssh": sshSessionCount,
+                "kcptun": NCKcptunSessionPool.shared.count]
     }
 
     /// Tunnel stop: drain every shared-session registry and close what it
@@ -1145,7 +1146,7 @@ enum NCConnector {
         for s in anytls { s.close() }
         for c in hy2 { c.close() }
         let closed = ["mux": mux.count, "anytls": anytls.count, "hy2": hy2.count,
-                      "hy1": closeAllHy1Sessions(), "tuic": closeAllTUICSessions(),
+                      "hy1": closeAllHy1Sessions(), "tuic": closeAllTUICSessions(), "kcptun": NCKcptunSessionPool.shared.reset(),
                       "juicity": closeAllJuicitySessions(),
                       "ssh": closeAllSSHSessions(),
                       "brook": NCBrookQUICPool.shared.closeAll()] // feat/nc-brook: pooled quicserver connections

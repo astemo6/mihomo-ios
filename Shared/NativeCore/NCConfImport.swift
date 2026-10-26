@@ -159,6 +159,48 @@ enum NCConfImport {
         fields["plugin-opts"] = .object(opts)
     }
 
+    /// Shadowsocks cloak and kcptun plugin options in conf lines
+    static func applySSPlugin(kv: [String: String], consumed: inout Set<String>,
+                              fields: inout [String: NCJSONValue]) {
+        guard let rawPlugin = kv["plugin"] else { return }
+        consumed.insert("plugin")
+        let plugin = rawPlugin.lowercased()
+        if plugin.contains("cloak") || plugin.contains("ck-client") {
+            fields["plugin"] = .string("cloak")
+            var opts: [String: NCJSONValue] = [:]
+            let cloakKeys: Set<String> = [
+                "servername", "publickey", "uid", "browsersig", "encryptionmethod",
+                "transport", "numconn", "streamtimeout", "alternativenames",
+                "cdnoriginhost", "cdnwsurlpath", "host", "path"
+            ]
+            for (k, v) in kv {
+                let norm = k.lowercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+                if cloakKeys.contains(norm) {
+                    consumed.insert(k)
+                    opts[k] = coerce(v)
+                }
+            }
+            if !opts.isEmpty { fields["plugin-opts"] = .object(opts) }
+        } else if plugin.contains("kcptun") {
+            fields["plugin"] = .string("kcptun")
+            var opts: [String: NCJSONValue] = [:]
+            let kcptunKeys: Set<String> = [
+                "key", "crypt", "mode", "conn", "autoexpire", "scavengettl", "mtu",
+                "sndwnd", "rcvwnd", "datashard", "parityshard", "dscp", "nocomp",
+                "acknodelay", "nodelay", "interval", "resend", "nc", "nocongestion",
+                "sockbuf", "smuxver", "smuxbuf", "framesize", "streambuf", "keepalive"
+            ]
+            for (k, v) in kv {
+                let norm = k.lowercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+                if kcptunKeys.contains(norm) {
+                    consumed.insert(k)
+                    opts[k] = coerce(v)
+                }
+            }
+            if !opts.isEmpty { fields["plugin-opts"] = .object(opts) }
+        }
+    }
+
     /// Parse a Surge `ws-headers` value ("Host:cdn.example.com", several
     /// headers separated by '|') into a header map.
     static func parseWSHeaders(_ value: String) -> [String: String] {
@@ -295,6 +337,7 @@ enum NCConfImport {
             if let c = take("encrypt-method") ?? take("method") { fields["cipher"] = .string(c) }
             if let p = take("password") { fields["password"] = .string(p) }
             applySimpleObfs(kv: kv, consumed: &consumed, fields: &fields)
+            applySSPlugin(kv: kv, consumed: &consumed, fields: &fields)
         case "vmess":
             // Surge/Loon spell the UUID `username`.
             if let u = take("username") ?? take("uuid") { fields["uuid"] = .string(u) }
