@@ -34,7 +34,7 @@ struct ChainPickerView: View {
             } footer: {
                 Text(kind == "group"
                      ? "策略组的前置代理会加到组内每个节点（以及组引用的节点集）上：连接这些节点时先经过所选的节点或策略组。会形成循环的成员自动跳过。"
-                     : "连接这个节点时先经过所选的节点或策略组（mihomo dialer-proxy，相当于 Surge 的 underlying-proxy）。会形成循环的选项不会列出。")
+                     : "连接这个节点时先经过所选的节点或策略组（Clash dialer-proxy，相当于 Surge 的 underlying-proxy）。会形成循环的选项不会列出。")
             }
             .listRowBackground(Theme.card)
             if loading {
@@ -238,7 +238,7 @@ struct SubscriptionExportSheet: View {
                         .scaledFont(10, design: .monospaced)
                         .textSelection(.enabled)
                 } header: { Text("订阅内容（Base64，\(count) 个节点）") } footer: {
-                    Text("这是通用的 Base64 订阅格式（每行一个分享链接），Shadowrocket、v2rayN、mihomo 等都能导入。把它放到任意可访问的地址，即可作为订阅链接使用。")
+                    Text("这是通用的 Base64 订阅格式（每行一个分享链接），Shadowrocket、v2rayN、Clash 等都能导入。把它放到任意可访问的地址，即可作为订阅链接使用。")
                 }
                 .listRowBackground(Theme.card)
                 Section {

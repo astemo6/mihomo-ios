@@ -458,7 +458,7 @@ struct NCGostPluginOptions: Equatable {
     static func parse(_ opts: [String: NCJSONValue]) -> (NCGostPluginOptions?, String?) {
         let mode = opts["mode"]?.string ?? ""
         guard mode == "websocket" else {
-            return (nil, "gost-plugin mode \(mode.isEmpty ? "(空)" : mode)（mihomo 仅支持 websocket，tls/mux 为开关）")
+            return (nil, "gost-plugin mode \(mode.isEmpty ? "(空)" : mode)（仅支持 websocket，tls/mux 为开关）")
         }
         var headers: [String: String] = [:]
         var hostHeader: String?

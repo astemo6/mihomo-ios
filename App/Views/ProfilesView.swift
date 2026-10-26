@@ -29,7 +29,7 @@ struct ProfilesView: View {
                 if store.profiles.isEmpty {
                     Section {
                         EmptyStateRow(icon: "doc.badge.plus", title: "还没有配置",
-                                      message: "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 mihomo（Clash Meta）YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。") {
+                                      message: "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 Clash / Clash Meta YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。") {
                             Button { showSample = true } label: { Label("看看示例配置", systemImage: "text.book.closed") }
                                 .font(.footnote.weight(.semibold)).buttonStyle(.borderless)
                                 .accessibilityIdentifier("profiles.empty.sample")
@@ -408,7 +408,7 @@ struct AddRemoteSheet: View {
                 Section("选项") {
                     Picker("User-Agent", selection: $ua) {
                         Text("clash.meta").tag("clash.meta")
-                        Text("mihomo").tag("mihomo")
+                        Text(verbatim: "mihomo").tag("mihomo")
                         Text("clash-verge/v2").tag("clash-verge/v2")
                     }
                     Picker("自动更新", selection: $interval) {
@@ -494,7 +494,7 @@ struct YAMLEditorView: View {
     var readOnly: Bool { profile?.kind == .remote }
 
     static let template = """
-    # mihomo 配置示例（请替换为你自己的节点）
+    # Clash 配置示例（请替换为你自己的节点）
     mode: rule
     proxies: []
     proxy-groups:

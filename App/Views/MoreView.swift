@@ -555,18 +555,11 @@ struct SettingsView: View {
             .listRowBackground(Theme.card)
 
             Section {
-                Stepper(value: $o.memoryLimitMB, in: CoreOverrides.memoryLimitRange, step: 1) {
-                    HStack {
-                        Text("内核内存上限")
-                        Spacer()
-                        Text("\(o.memoryLimitMB) MB").monospacedDigit().foregroundStyle(.secondary)
-                    }
-                }
                 Picker("隧道 MTU", selection: $o.tunMTU) {
                     ForEach(CoreOverrides.mtuChoices, id: \.self) { Text(String($0)).tag($0) }
                 }
             } header: { Text("性能") } footer: {
-                Text("iOS 限制网络扩展约 50 MB 内存。内存上限是 Go 运行时的软上限（默认 \(CoreOverrides.defaultMemoryLimitMB) MB）：调低更稳但更费电，调高可容纳更多连接。接近系统上限时扩展会先释放内存，再关闭连接。MTU 默认 4064，遇到个别网络异常可改为 1500。两项都在重新连接后生效。")
+                Text("iOS 限制网络扩展约 50 MB 内存，接近上限时扩展会先释放内存，再关闭连接。MTU 默认 4064，遇到个别网络异常可改为 1500，重新连接后生效。")
             }
             .listRowBackground(Theme.card)
 

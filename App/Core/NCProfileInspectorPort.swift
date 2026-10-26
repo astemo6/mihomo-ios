@@ -88,7 +88,7 @@ enum NCProfileInspectorPort {
         }
 
         // Groups
-        let probeGroup = "MIHOMO-PROBE"
+        let probeGroup = "TERN-PROBE"
         if let gl = raw["proxy-groups"]?.array {
             for x in gl {
                 guard let m = x.object else { continue }

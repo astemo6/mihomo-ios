@@ -188,7 +188,7 @@ enum NCSSHKey {
                 }
                 priv = out
             default:
-                return (nil, "OpenSSH 私钥加密 \(cipher) 不支持（仅 aes256-ctr / aes256-cbc，与 mihomo 一致）")
+                return (nil, "OpenSSH 私钥加密 \(cipher) 不支持（仅 aes256-ctr / aes256-cbc）")
             }
         }
         var p = NCSSHWire.Reader(priv)

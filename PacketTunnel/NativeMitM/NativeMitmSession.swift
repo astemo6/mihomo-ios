@@ -6,7 +6,7 @@
 //   TLS lane terminates TLS → acceptHandler → NativeMitmSession:
 //     HTTPCodec parses the request head → MitmFlowDriving.requestPhase (Go decides: rewrite / reject / redirect /
 //     map local / request script / admission — nothing is decided here) → [request body pushed to Go when asked]
-//     → forward via MitmUpstreamConnecting (Go relay → mihomo rules/proxies) → response head → responsePhase
+//     → forward via MitmUpstreamConnecting (Go relay → Tern rules/proxies) → response head → responsePhase
 //     (Go: header/body rewrites, response scripts, body lane) → body from upstream / Go pipe / NativeBodyStore
 //     → client. Keep-alive loop; pipelined bytes stay in the client buffer.
 //

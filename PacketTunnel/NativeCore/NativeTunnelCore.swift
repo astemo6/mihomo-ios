@@ -15,7 +15,7 @@ final class NativeTunnelCore {
     private var _plane: NCDataPlane?
     private var _controller: NCController?
     private var _localProxy: NCLocalProxy?
-    /// fix/nc-e2e-gaps: loopback `listeners` with a fixed policy (节点探测 MIHOMO-PROBE on 127.0.0.1:7899).
+    /// fix/nc-e2e-gaps: loopback `listeners` with a fixed policy (节点探测 TERN-PROBE on 127.0.0.1:7899).
     private var _probeProxies: [NCProbeProxy] = []
     var engine: NativeCoreEngine? { lock.lock(); defer { lock.unlock() }; return _engine }
     var plane: NCDataPlane? { lock.lock(); defer { lock.unlock() }; return _plane }

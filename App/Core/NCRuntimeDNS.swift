@@ -339,7 +339,7 @@ extension NCRuntimeSteps {
         "shadowsocks", "vmess", "vless", "trojan", "tuic",
         "hysteria2", "anytls", "sudoku", "mieru",
     ]
-    static let probeListener = "mihomo-ios-probe"
+    static let probeListener = "tern-probe"
 
     /// bridge loopbackListen.
     static func loopbackListen(_ a0: String) -> Bool {

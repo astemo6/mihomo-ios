@@ -3,12 +3,12 @@ import SwiftUI
 
 /// v0.8 节点探测: HTTP(S) requests from the main app through one chosen policy (node or group).
 ///
-/// The runtime config (bridge/probe.go) carries a hidden select group `MIHOMO-PROBE` and a loopback-only
+/// The runtime config (bridge/probe.go) carries a hidden select group `TERN-PROBE` and a loopback-only
 /// mixed listener whose traffic always goes to that group. A probe selects the policy in the group over the
 /// controller, then sends ordinary URLSession requests through 127.0.0.1:<probePort>. Nothing extra runs
 /// in the extension; probes are serialised because the group has one selection at a time.
 enum PolicyProbe {
-    static let group = "MIHOMO-PROBE"
+    static let group = "TERN-PROBE"
     private static let lock = ProbeLock()
 
     enum ProbeError: LocalizedError {

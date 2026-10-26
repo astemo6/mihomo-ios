@@ -45,7 +45,7 @@ struct RegionFilter: Codable, Hashable, Identifiable {
 
     var hasSources: Bool { includeLocal || allSubscriptions || !subscriptions.isEmpty }
 
-    /// Sources → mihomo keys: all + local = include-all; all only = include-all-providers; chosen providers =
+    /// Sources → Tern keys: all + local = include-all; all only = include-all-providers; chosen providers =
     /// use (+ include-all-proxies with local). Never include-all when only some subscriptions are chosen.
     func applySources(to spec: inout GroupSpec) {
         spec.filter = filter

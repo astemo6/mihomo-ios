@@ -227,11 +227,11 @@ public final class NCCAManager {
         \t<array>
         \t\t<dict>
         \t\t\t<key>PayloadCertificateFileName</key>
-        \t\t\t<string>mihomo-ca.cer</string>
+        \t\t\t<string>tern-ca.cer</string>
         \t\t\t<key>PayloadContent</key>
         \t\t\t<data>\(b64)</data>
         \t\t\t<key>PayloadDescription</key>
-        \t\t\t<string>Mihomo MitM 根证书</string>
+        \t\t\t<string>Tern MitM 根证书</string>
         \t\t\t<key>PayloadDisplayName</key>
         \t\t\t<string>\(escapedName)</string>
         \t\t\t<key>PayloadIdentifier</key>
@@ -329,7 +329,7 @@ public final class NCCAManager {
     public static func trustChain(home: String) -> (leafDER: Data, caDER: Data, hostname: String)? {
         guard let (caCert, caKey) = loadCA(home: home) else { return nil }
         let caDER = SecCertificateCopyData(caCert) as Data
-        let host = "mitm-trust-check.mihomo.local"
+        let host = "mitm-trust-check.tern.local"
         do {
             let issuer = try LeafCertIssuer(caCertificate: caCert, caPrivateKey: caKey)
             let leaf = try issuer.issueLeafCertificate(for: host)

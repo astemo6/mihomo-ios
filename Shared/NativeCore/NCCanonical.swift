@@ -267,7 +267,7 @@ struct NCImportReport: Equatable {
 }
 
 struct NCCanonicalConfig: Equatable {
-    var sourceFormat: String // "mihomo" | "surge" | "loon" | "quantumultx"
+    var sourceFormat: String // "clash" | "surge" | "loon" | "quantumultx"
     var mode: String = "rule"
     var logLevel: String = "info"
     var ipv6: Bool = false
@@ -324,8 +324,8 @@ struct NCCanonicalConfig: Equatable {
 // MARK: - mihomo importer (NCConfig → canonical)
 
 extension NCCanonicalConfig {
-    static func from(mihomo cfg: NCConfig) -> NCCanonicalConfig {
-        var out = NCCanonicalConfig(sourceFormat: "mihomo")
+    static func from(clash cfg: NCConfig) -> NCCanonicalConfig {
+        var out = NCCanonicalConfig(sourceFormat: "clash")
         out.mode = cfg.mode
         out.logLevel = cfg.logLevel
         out.ipv6 = cfg.ipv6

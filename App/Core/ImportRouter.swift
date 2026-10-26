@@ -305,7 +305,7 @@ final class ImportRouter: ObservableObject {
         default:
             if let a = route(text: text, name: name) { return a }
             if ext == "snippet" { return .moduleText(name: name, text: text, source: "Quantumult X") }
-            return .unsupported(String(localized: "无法识别「\(url.lastPathComponent)」的内容：支持 mihomo 配置、Surge / QX 配置、模块、规则列表和节点链接"))
+            return .unsupported(String(localized: "无法识别「\(url.lastPathComponent)」的内容：支持 Clash 配置、Surge / QX 配置、模块、规则列表和节点链接"))
         }
     }
 

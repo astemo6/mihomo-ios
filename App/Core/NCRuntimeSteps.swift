@@ -500,7 +500,7 @@ enum NCRuntimeSteps {
     // MARK: - Manual nodes + node subscriptions (diag.go / nodesubs.go)
 
     static let manualGroupName = "手动节点"
-    static let probeGroup = "MIHOMO-PROBE"
+    static let probeGroup = "TERN-PROBE"
 
     /// bridge mergeManualNodes.
     static func mergeManualNodes(_ raw: inout [String: NCJSONValue], manualPath: String) {

@@ -455,7 +455,7 @@ struct StorageView: View {
         } message: {
             if pending?.id == "providers" { Text("下次连接或更新资源时会重新下载仍需要的文件。") }
             if pending?.id == "stats" { Text("每日流量和连接分析的历史会被删除，无法恢复。") }
-            if pending?.id == "other" { Text("只删除中断后留下的临时文件、旧 Go 内核的缓存和系统缓存，不影响配置与设置。") }
+            if pending?.id == "other" { Text("只删除中断后留下的临时文件、旧版内核的缓存和系统缓存，不影响配置与设置。") }
         }
         .confirmationDialog(pendingPath.map { String(localized: "清除 \($0.path)？") } ?? "", isPresented: Binding(get: { pendingPath != nil }, set: { if !$0 { pendingPath = nil } }), titleVisibility: .visible) {
             Button("清除", role: .destructive) {
@@ -463,7 +463,7 @@ struct StorageView: View {
                 pendingPath = nil
             }
         } message: {
-            Text("只删除中断后留下的临时文件、旧 Go 内核的缓存和系统缓存，不影响配置与设置。")
+            Text("只删除中断后留下的临时文件、旧版内核的缓存和系统缓存，不影响配置与设置。")
         }
         .alert("存储空间", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好") { message = nil }

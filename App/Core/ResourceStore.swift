@@ -120,7 +120,7 @@ final class ResourceStore: ObservableObject {
         guard it.isRemote else { return false }
         busy.insert(it.key)
         defer { busy.remove(it.key) }
-        let ua = it.kind == "script" ? "Surge iOS/3000" : "Surge iOS/3000 Mihomo-iOS"
+        let ua = it.kind == "script" ? "Surge iOS/3000" : "Surge iOS/3000 Tern"
         let r = await Self.fetchAndStore(home: home, key: it.key, url: it.url, userAgent: ua)
         if r.ok, it.kind == "module" {
             let es = EngineStore.shared

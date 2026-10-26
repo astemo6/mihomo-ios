@@ -7567,36 +7567,36 @@
       },
       "extractionState": "manual"
     },
-    "iOS 限制网络扩展约 50 MB 内存。内存上限是 Go 运行时的软上限（默认 %lld MB）：调低更稳但更费电，调高可容纳更多连接。接近系统上限时扩展会先释放内存，再关闭连接。MTU 默认 4064，遇到个别网络异常可改为 1500。两项都在重新连接后生效。": {
+    "iOS 限制网络扩展约 50 MB 内存，接近上限时扩展会先释放内存，再关闭连接。MTU 默认 4064，遇到个别网络异常可改为 1500，重新连接后生效。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS limits network extensions to about 50 MB of memory. The memory limit is the Go runtime's soft limit (default %lld MB): lower is more stable but uses more battery, higher allows more connections. Near the system limit the extension frees memory first, then closes connections. MTU defaults to 4064; try 1500 if a network misbehaves. Both apply after reconnecting."
+            "value": "iOS limits network extensions to about 50 MB of memory; near that limit the extension frees memory first, then closes connections. MTU defaults to 4064; try 1500 if a network misbehaves. Applies after reconnecting."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 限制網路延伸功能約 50 MB 記憶體。記憶體上限是 Go 執行時的軟上限（預設 %lld MB）：調低更穩但更費電，調高可容納更多連線。接近系統上限時延伸功能會先釋放記憶體，再關閉連線。MTU 預設 4064，遇到個別網路異常可改為 1500。兩項都在重新連線後生效。"
+            "value": "iOS 限制網路延伸功能約 50 MB 記憶體，接近上限時延伸功能會先釋放記憶體，再關閉連線。MTU 預設 4064，遇到個別網路異常可改為 1500，重新連線後生效。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS はネットワーク拡張のメモリを約 50 MB に制限しています。メモリ上限は Go ランタイムのソフトリミット（デフォルト %lld MB）です。低いほど安定しますが電池を多く使い、高いほど多くの接続を扱えます。システム上限に近づくと拡張はまずメモリを解放し、次に接続を閉じます。MTU のデフォルトは 4064 で、ネットワークの調子が悪いときは 1500 を試してください。どちらも再接続後に反映されます。"
+            "value": "iOS はネットワーク拡張のメモリを約 50 MB に制限しています。上限に近づくと拡張はまずメモリを解放し、次に接続を閉じます。MTU のデフォルトは 4064 で、ネットワークの調子が悪いときは 1500 を試してください。再接続後に反映されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS는 네트워크 확장의 메모리를 약 50 MB로 제한합니다. 메모리 한도는 Go 런타임의 소프트 한도(기본 %lld MB)입니다. 낮을수록 안정적이지만 배터리를 더 쓰고, 높을수록 더 많은 연결을 처리합니다. 시스템 한도에 가까워지면 확장은 먼저 메모리를 해제하고 그다음 연결을 닫습니다. MTU 기본값은 4064이며 네트워크가 불안정하면 1500을 시도하세요. 둘 다 다시 연결한 후 적용됩니다."
+            "value": "iOS는 네트워크 확장의 메모리를 약 50 MB로 제한합니다. 한도에 가까워지면 확장은 먼저 메모리를 해제하고 그다음 연결을 닫습니다. MTU 기본값은 4064이며 네트워크가 불안정하면 1500을 시도하세요. 다시 연결한 후 적용됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS ограничивает память сетевых расширений примерно 50 МБ. Предел памяти — мягкий лимит среды Go (по умолчанию %lld МБ): чем ниже, тем стабильнее, но выше расход батареи; чем выше, тем больше соединений. У системного предела расширение сначала освобождает память, затем закрывает соединения. MTU по умолчанию 4064; если сеть работает плохо, попробуйте 1500. Оба параметра применяются после переподключения."
+            "value": "iOS ограничивает память сетевых расширений примерно 50 МБ; у этого предела расширение сначала освобождает память, затем закрывает соединения. MTU по умолчанию 4064; если сеть работает плохо, попробуйте 1500. Применяется после переподключения."
           }
         }
       }
@@ -7631,40 +7631,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "max-size"
-          }
-        }
-      }
-    },
-    "mihomo": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mihomo"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mihomo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mihomo"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mihomo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mihomo"
           }
         }
       }
@@ -8183,36 +8149,36 @@
         }
       }
     },
-    "→ mihomo": {
+    "→ Tern": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "→ mihomo"
+            "value": "→ Tern"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "→ mihomo"
+            "value": "→ Tern"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "→ mihomo"
+            "value": "→ Tern"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "→ mihomo"
+            "value": "→ Tern"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "→ mihomo"
+            "value": "→ Tern"
           }
         }
       }
@@ -10109,36 +10075,36 @@
         }
       }
     },
-    "不拦截 QUIC（mihomo 原生行为）：规则选中的节点不支持 UDP 时，QUIC 会改为直连，绕过你的规则。": {
+    "不拦截 QUIC（Clash 原生行为）：规则选中的节点不支持 UDP 时，QUIC 会改为直连，绕过你的规则。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不攔截 QUIC（mihomo 原生行為）：規則選中的節點不支援 UDP 時，QUIC 會改為直連，繞過你的規則。"
+            "value": "不攔截 QUIC（Clash 原生行為）：規則選中的節點不支援 UDP 時，QUIC 會改為直連，繞過你的規則。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "QUIC is not blocked (mihomo's own behaviour): when the node your rules chose has no UDP, QUIC goes direct and bypasses your rules."
+            "value": "QUIC is not blocked (Clash's own behaviour): when the node your rules chose has no UDP, QUIC goes direct and bypasses your rules."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QUIC をブロックしません（mihomo 本来の動作）：ルールで選んだノードが UDP 非対応だと、QUIC は直接接続になりルールを迂回します。"
+            "value": "QUIC をブロックしません（Clash 本来の動作）：ルールで選んだノードが UDP 非対応だと、QUIC は直接接続になりルールを迂回します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "QUIC을 차단하지 않습니다(mihomo 기본 동작): 규칙이 고른 노드가 UDP를 지원하지 않으면 QUIC이 직접 연결되어 규칙을 우회합니다."
+            "value": "QUIC을 차단하지 않습니다(Clash 기본 동작): 규칙이 고른 노드가 UDP를 지원하지 않으면 QUIC이 직접 연결되어 규칙을 우회합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "QUIC не блокируется (поведение mihomo): если выбранный правилами узел не поддерживает UDP, QUIC идёт напрямую в обход правил."
+            "value": "QUIC не блокируется (поведение Clash): если выбранный правилами узел не поддерживает UDP, QUIC идёт напрямую в обход правил."
           }
         }
       }
@@ -10418,36 +10384,36 @@
         }
       }
     },
-    "只删除中断后留下的临时文件、旧 Go 内核的缓存和系统缓存，不影响配置与设置。": {
+    "只删除中断后留下的临时文件、旧版内核的缓存和系统缓存，不影响配置与设置。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Only removes temporary files left by interrupted operations, caches of the old Go core and system caches. Profiles and settings are not affected."
+            "value": "Only removes temporary files left by interrupted operations, caches of the old core and system caches. Profiles and settings are not affected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "中断で残った一時ファイル、旧 Go コアのキャッシュ、システムキャッシュだけを削除します。プロファイルと設定には影響しません。"
+            "value": "中断で残った一時ファイル、旧コアのキャッシュ、システムキャッシュだけを削除します。プロファイルと設定には影響しません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "중단 후 남은 임시 파일, 이전 Go 코어의 캐시와 시스템 캐시만 삭제합니다. 프로파일과 설정에는 영향이 없습니다."
+            "value": "중단 후 남은 임시 파일, 이전 코어의 캐시와 시스템 캐시만 삭제합니다. 프로파일과 설정에는 영향이 없습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удаляются только временные файлы прерванных операций, кэш старого ядра Go и системный кэш. Профили и настройки не затрагиваются."
+            "value": "Удаляются только временные файлы прерванных операций, кэш старого ядра и системный кэш. Профили и настройки не затрагиваются."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "只刪除中斷後留下的暫存檔案、舊 Go 核心的快取和系統快取，不影響配置與設定。"
+            "value": "只刪除中斷後留下的暫存檔案、舊版核心的快取和系統快取，不影響配置與設定。"
           }
         }
       }
@@ -20565,36 +20531,36 @@
       },
       "extractionState": "manual"
     },
-    "同名节点会自动加序号。节点集（proxy-providers）只应用过滤和重命名（mihomo 原生 filter / override），旗帜、去重、排序只作用于配置里直接列出的节点。": {
+    "同名节点会自动加序号。节点集（proxy-providers）只应用过滤和重命名（Clash 原生 filter / override），旗帜、去重、排序只作用于配置里直接列出的节点。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Duplicate names get a number appended. Node providers (proxy-providers) only get filtering and renaming (mihomo's native filter / override); flags, dedupe and sorting apply to nodes listed directly in the profile."
+            "value": "Duplicate names get a number appended. Node providers (proxy-providers) only get filtering and renaming (Clash's native filter / override); flags, dedupe and sorting apply to nodes listed directly in the profile."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "同名節點會自動加序號。節點集（proxy-providers）只應用過濾和重新命名（mihomo 原生 filter / override），旗幟、去重、排序只作用於配置裡直接列出的節點。"
+            "value": "同名節點會自動加序號。節點集（proxy-providers）只應用過濾和重新命名（Clash 原生 filter / override），旗幟、去重、排序只作用於配置裡直接列出的節點。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "重複した名前には番号が付きます。ノードプロバイダー（proxy-providers）はフィルターと名前変更のみ（mihomo ネイティブの filter / override）。国旗、重複削除、並べ替えはプロファイルに直接書かれたノードに適用されます。"
+            "value": "重複した名前には番号が付きます。ノードプロバイダー（proxy-providers）はフィルターと名前変更のみ（Clash ネイティブの filter / override）。国旗、重複削除、並べ替えはプロファイルに直接書かれたノードに適用されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이름이 겹치면 번호가 붙습니다. 노드 제공자(proxy-providers)는 필터와 이름 변경만 적용됩니다(mihomo 기본 filter / override). 국기, 중복 제거, 정렬은 프로파일에 직접 나열된 노드에 적용됩니다."
+            "value": "이름이 겹치면 번호가 붙습니다. 노드 제공자(proxy-providers)는 필터와 이름 변경만 적용됩니다(Clash 기본 filter / override). 국기, 중복 제거, 정렬은 프로파일에 직접 나열된 노드에 적용됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "К одинаковым именам добавляется номер. Для провайдеров узлов (proxy-providers) доступны только фильтр и переименование (родные filter / override mihomo); флаги, удаление дублей и сортировка применяются к узлам, перечисленным прямо в профиле."
+            "value": "К одинаковым именам добавляется номер. Для провайдеров узлов (proxy-providers) доступны только фильтр и переименование (родные filter / override Clash); флаги, удаление дублей и сортировка применяются к узлам, перечисленным прямо в профиле."
           }
         }
       }
@@ -29171,36 +29137,36 @@
         }
       }
     },
-    "开启后按近期延迟与失败记录综合评分，自动固定到最稳的节点；节点失效时 mihomo 会立即切走。": {
+    "开启后按近期延迟与失败记录综合评分，自动固定到最稳的节点；节点失效时会立即切走。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟後按近期延遲與失敗記錄綜合評分，自動固定到最穩的節點；節點失效時 mihomo 會立即切走。"
+            "value": "開啟後按近期延遲與失敗記錄綜合評分，自動固定到最穩的節點；節點失效時會立即切走。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When on, members are scored by recent latency and failures and the group is pinned to the most reliable node; if that node fails, mihomo switches away immediately."
+            "value": "When on, members are scored by recent latency and failures and the group is pinned to the most reliable node; if that node fails, it switches away immediately."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オンにすると、最近の遅延と失敗の記録から総合評価し、最も安定したノードに自動で固定します。ノードが落ちると mihomo がすぐに切り替えます。"
+            "value": "オンにすると、最近の遅延と失敗の記録から総合評価し、最も安定したノードに自動で固定します。ノードが落ちると すぐに切り替えます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "켜면 최근 지연과 실패 기록으로 종합 점수를 매겨 가장 안정적인 노드에 자동으로 고정합니다. 노드가 실패하면 mihomo가 즉시 전환합니다."
+            "value": "켜면 최근 지연과 실패 기록으로 종합 점수를 매겨 가장 안정적인 노드에 자동으로 고정합니다. 노드가 실패하면 즉시 전환합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Если включено, узлы оцениваются по недавней задержке и сбоям, и группа закрепляется за самым надёжным; если он отказывает, mihomo сразу переключается."
+            "value": "Если включено, узлы оцениваются по недавней задержке и сбоям, и группа закрепляется за самым надёжным; если он отказывает, сразу переключается."
           }
         }
       }
@@ -35401,36 +35367,36 @@
         }
       }
     },
-    "无法识别「%@」的内容：支持 mihomo 配置、Surge / QX 配置、模块、规则列表和节点链接": {
+    "无法识别「%@」的内容：支持 Clash 配置、Surge / QX 配置、模块、规则列表和节点链接": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法識別「%@」的內容：支援 mihomo 配置、Surge / QX 配置、模組、規則列表和節點連結"
+            "value": "無法識別「%@」的內容：支援 Clash 配置、Surge / QX 配置、模組、規則列表和節點連結"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't recognise “%@”: supported are mihomo profiles, Surge / QX configs, modules, rule lists and node links"
+            "value": "Can't recognise “%@”: supported are Clash profiles, Surge / QX configs, modules, rule lists and node links"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」の内容を認識できません：mihomo プロファイル、Surge / QX 設定、モジュール、ルールリスト、ノードリンクに対応"
+            "value": "「%@」の内容を認識できません：Clash プロファイル、Surge / QX 設定、モジュール、ルールリスト、ノードリンクに対応"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」의 내용을 인식할 수 없습니다: mihomo 프로파일, Surge / QX 설정, 모듈, 규칙 목록, 노드 링크를 지원합니다"
+            "value": "「%@」의 내용을 인식할 수 없습니다: Clash 프로파일, Surge / QX 설정, 모듈, 규칙 목록, 노드 링크를 지원합니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось распознать «%@»: поддерживаются профили mihomo, конфиги Surge / QX, модули, списки правил и ссылки узлов"
+            "value": "Не удалось распознать «%@»: поддерживаются профили Clash, конфиги Surge / QX, модули, списки правил и ссылки узлов"
           }
         }
       }
@@ -44698,36 +44664,36 @@
         }
       }
     },
-    "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 mihomo（Clash Meta）YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。": {
+    "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 Clash / Clash Meta YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap + to add a subscription URL, or import a mihomo (Clash Meta) YAML profile from a file or the clipboard. Lists of ss/vmess/vless/trojan/hysteria2/tuic share links work too."
+            "value": "Tap + to add a subscription URL, or import a Clash / Clash Meta YAML profile from a file or the clipboard. Lists of ss/vmess/vless/trojan/hysteria2/tuic share links work too."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "點右上角 + 新增訂閱連結，或從檔案 / 剪貼簿匯入 mihomo（Clash Meta）YAML 配置。也支援 ss/vmess/vless/trojan/hysteria2/tuic 分享連結列表。"
+            "value": "點右上角 + 新增訂閱連結，或從檔案 / 剪貼簿匯入 Clash / Clash Meta YAML 配置。也支援 ss/vmess/vless/trojan/hysteria2/tuic 分享連結列表。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "+ をタップして購読 URL を追加するか、ファイルやクリップボードから mihomo（Clash Meta）の YAML プロファイルを読み込みます。ss/vmess/vless/trojan/hysteria2/tuic の共有リンクのリストも使えます。"
+            "value": "+ をタップして購読 URL を追加するか、ファイルやクリップボードから Clash / Clash Meta の YAML プロファイルを読み込みます。ss/vmess/vless/trojan/hysteria2/tuic の共有リンクのリストも使えます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "+를 탭해 구독 URL을 추가하거나 파일이나 클립보드에서 mihomo(Clash Meta) YAML 프로파일을 가져오세요. ss/vmess/vless/trojan/hysteria2/tuic 공유 링크 목록도 사용할 수 있습니다."
+            "value": "+를 탭해 구독 URL을 추가하거나 파일이나 클립보드에서 Clash / Clash Meta YAML 프로파일을 가져오세요. ss/vmess/vless/trojan/hysteria2/tuic 공유 링크 목록도 사용할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите +, чтобы добавить URL подписки или импортировать YAML-профиль mihomo (Clash Meta) из файла или буфера обмена. Подходят и списки ссылок ss/vmess/vless/trojan/hysteria2/tuic."
+            "value": "Нажмите +, чтобы добавить URL подписки или импортировать YAML-профиль Clash / Clash Meta из файла или буфера обмена. Подходят и списки ссылок ss/vmess/vless/trojan/hysteria2/tuic."
           }
         }
       }
@@ -46819,36 +46785,36 @@
         }
       }
     },
-    "策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 mihomo 规则集；QX filter_remote 没有 force-policy 时整份列表走 proxy（第一个手动选择组）。": {
+    "策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 Clash 规则集；QX filter_remote 没有 force-policy 时整份列表走 proxy（第一个手动选择组）。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Policy names map to groups of the current profile; when missing, the first manual select group is used and highlighted. Remote lists are downloaded by the core and converted to mihomo rule sets; a QX filter_remote without force-policy sends the whole list to proxy (the first manual select group)."
+            "value": "Policy names map to groups of the current profile; when missing, the first manual select group is used and highlighted. Remote lists are downloaded by the core and converted to Clash rule sets; a QX filter_remote without force-policy sends the whole list to proxy (the first manual select group)."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "策略名會對應到當前配置的策略組；找不到時使用第一個手動選擇組並標黃。遠端列表透過核心下載並轉換為 mihomo 規則集；QX filter_remote 沒有 force-policy 時整份列表走 proxy（第一個手動選擇組）。"
+            "value": "策略名會對應到當前配置的策略組；找不到時使用第一個手動選擇組並標黃。遠端列表透過核心下載並轉換為 Clash 規則集；QX filter_remote 沒有 force-policy 時整份列表走 proxy（第一個手動選擇組）。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポリシー名は現在のプロファイルのグループに対応します。見つからない場合は最初の手動選択グループを使い、強調表示します。リモートリストはコアがダウンロードして mihomo のルールセットに変換します。force-policy のない QX filter_remote はリスト全体を proxy（最初の手動選択グループ）に送ります。"
+            "value": "ポリシー名は現在のプロファイルのグループに対応します。見つからない場合は最初の手動選択グループを使い、強調表示します。リモートリストはコアがダウンロードして Clash のルールセットに変換します。force-policy のない QX filter_remote はリスト全体を proxy（最初の手動選択グループ）に送ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정책 이름은 현재 프로파일의 그룹에 대응합니다. 없으면 첫 번째 수동 선택 그룹을 사용하고 강조 표시합니다. 원격 목록은 코어가 다운로드해 mihomo 규칙 세트로 변환합니다. force-policy가 없는 QX filter_remote는 목록 전체를 proxy(첫 번째 수동 선택 그룹)로 보냅니다."
+            "value": "정책 이름은 현재 프로파일의 그룹에 대응합니다. 없으면 첫 번째 수동 선택 그룹을 사용하고 강조 표시합니다. 원격 목록은 코어가 다운로드해 Clash 규칙 세트로 변환합니다. force-policy가 없는 QX filter_remote는 목록 전체를 proxy(첫 번째 수동 선택 그룹)로 보냅니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Имена политик сопоставляются с группами текущего профиля; если группы нет, используется первая группа с ручным выбором (с пометкой). Удалённые списки загружает ядро и превращает в наборы правил mihomo; QX filter_remote без force-policy отправляет весь список в proxy (первую группу с ручным выбором)."
+            "value": "Имена политик сопоставляются с группами текущего профиля; если группы нет, используется первая группа с ручным выбором (с пометкой). Удалённые списки загружает ядро и превращает в наборы правил Clash; QX filter_remote без force-policy отправляет весь список в proxy (первую группу с ручным выбором)."
           }
         }
       }
@@ -55073,36 +55039,36 @@
         }
       }
     },
-    "输入时实时校验：显示转换后的 mihomo 规则和对应的策略组。": {
+    "输入时实时校验：显示转换后的规则和对应的策略组。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Validated as you type: shows the converted mihomo rule and its policy group."
+            "value": "Validated as you type: shows the converted rule and its policy group."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "輸入時實時校驗：顯示轉換後的 mihomo 規則和對應的策略組。"
+            "value": "輸入時實時校驗：顯示轉換後的規則和對應的策略組。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "入力中に検証し、変換後の mihomo ルールとポリシーグループを表示します。"
+            "value": "入力中に検証し、変換後のルールとポリシーグループを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "입력하는 동안 확인하여 변환된 mihomo 규칙과 정책 그룹을 표시합니다."
+            "value": "입력하는 동안 확인하여 변환된 규칙과 정책 그룹을 표시합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Проверяется при вводе: показывает преобразованное правило mihomo и его группу политик."
+            "value": "Проверяется при вводе: показывает преобразованное правило и его группу политик."
           }
         }
       }
@@ -56304,36 +56270,36 @@
         }
       }
     },
-    "这是通用的 Base64 订阅格式（每行一个分享链接），Shadowrocket、v2rayN、mihomo 等都能导入。把它放到任意可访问的地址，即可作为订阅链接使用。": {
+    "这是通用的 Base64 订阅格式（每行一个分享链接），Shadowrocket、v2rayN、Clash 等都能导入。把它放到任意可访问的地址，即可作为订阅链接使用。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這是通用的 Base64 訂閱格式（每行一個分享連結），Shadowrocket、v2rayN、mihomo 等都能匯入。把它放到任意可訪問的地址，即可作為訂閱連結使用。"
+            "value": "這是通用的 Base64 訂閱格式（每行一個分享連結），Shadowrocket、v2rayN、Clash 等都能匯入。把它放到任意可訪問的地址，即可作為訂閱連結使用。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is the common Base64 subscription format (one share link per line) that Shadowrocket, v2rayN, mihomo and others import. Host it at any reachable URL to use it as a subscription link."
+            "value": "This is the common Base64 subscription format (one share link per line) that Shadowrocket, v2rayN, Clash and others import. Host it at any reachable URL to use it as a subscription link."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一般的な Base64 購読形式（1 行に 1 つの共有リンク）で、Shadowrocket、v2rayN、mihomo などで読み込めます。アクセスできる場所に置けば購読リンクとして使えます。"
+            "value": "一般的な Base64 購読形式（1 行に 1 つの共有リンク）で、Shadowrocket、v2rayN、Clash などで読み込めます。アクセスできる場所に置けば購読リンクとして使えます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일반적인 Base64 구독 형식(한 줄에 공유 링크 하나)으로 Shadowrocket, v2rayN, mihomo 등에서 가져올 수 있습니다. 접근 가능한 주소에 올려 두면 구독 링크로 사용할 수 있습니다."
+            "value": "일반적인 Base64 구독 형식(한 줄에 공유 링크 하나)으로 Shadowrocket, v2rayN, Clash 등에서 가져올 수 있습니다. 접근 가능한 주소에 올려 두면 구독 링크로 사용할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Это распространённый формат подписки Base64 (по одной ссылке в строке), его импортируют Shadowrocket, v2rayN, mihomo и другие. Разместите его по любому доступному адресу, чтобы использовать как ссылку подписки."
+            "value": "Это распространённый формат подписки Base64 (по одной ссылке в строке), его импортируют Shadowrocket, v2rayN, Clash и другие. Разместите его по любому доступному адресу, чтобы использовать как ссылку подписки."
           }
         }
       }
@@ -57506,36 +57472,36 @@
         }
       }
     },
-    "连接这个节点时先经过所选的节点或策略组（mihomo dialer-proxy，相当于 Surge 的 underlying-proxy）。会形成循环的选项不会列出。": {
+    "连接这个节点时先经过所选的节点或策略组（Clash dialer-proxy，相当于 Surge 的 underlying-proxy）。会形成循环的选项不会列出。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連線這個節點時先經過所選的節點或策略組（mihomo dialer-proxy，相當於 Surge 的 underlying-proxy）。會形成迴圈的選項不會列出。"
+            "value": "連線這個節點時先經過所選的節點或策略組（Clash dialer-proxy，相當於 Surge 的 underlying-proxy）。會形成迴圈的選項不會列出。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This node is reached through the chosen node or group first (mihomo dialer-proxy, like Surge's underlying-proxy). Options that would form a loop are not listed."
+            "value": "This node is reached through the chosen node or group first (Clash dialer-proxy, like Surge's underlying-proxy). Options that would form a loop are not listed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このノードへは選んだノードやグループを先に経由して接続します（mihomo の dialer-proxy、Surge の underlying-proxy に相当）。ループになる選択肢は表示されません。"
+            "value": "このノードへは選んだノードやグループを先に経由して接続します（Clash の dialer-proxy、Surge の underlying-proxy に相当）。ループになる選択肢は表示されません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 노드에 연결할 때 선택한 노드나 그룹을 먼저 거칩니다(mihomo dialer-proxy, Surge의 underlying-proxy와 같음). 순환이 생기는 항목은 표시되지 않습니다."
+            "value": "이 노드에 연결할 때 선택한 노드나 그룹을 먼저 거칩니다(Clash dialer-proxy, Surge의 underlying-proxy와 같음). 순환이 생기는 항목은 표시되지 않습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "К этому узлу сначала подключаются через выбранный узел или группу (mihomo dialer-proxy, аналог underlying-proxy в Surge). Варианты, создающие цикл, не показываются."
+            "value": "К этому узлу сначала подключаются через выбранный узел или группу (Clash dialer-proxy, аналог underlying-proxy в Surge). Варианты, создающие цикл, не показываются."
           }
         }
       }
@@ -61580,37 +61546,37 @@
         }
       }
     },
-    "Quantumult X 不支持的协议，由 mihomo 内核直接提供。": {
+    "Quantumult X 不支持的协议，由 Tern 内核直接提供。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quantumult X 不支援的協議，由 mihomo 核心直接提供。"
+            "value": "Quantumult X 不支援的協議，由 Tern 核心直接提供。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protocols Quantumult X doesn't support, provided directly by the mihomo core."
+            "value": "Protocols Quantumult X doesn't support, provided directly by the Tern core."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quantumult X が対応していないプロトコル。mihomo コアが直接提供します。"
+            "value": "Quantumult X が対応していないプロトコル。Tern コアが直接提供します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quantumult X가 지원하지 않는 프로토콜로, mihomo 코어가 직접 제공합니다."
+            "value": "Quantumult X가 지원하지 않는 프로토콜로, Tern 코어가 직접 제공합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Протоколы, которых нет в Quantumult X, — напрямую из ядра mihomo."
+            "value": "Протоколы, которых нет в Quantumult X, — напрямую из ядра Tern."
           }
         }
       }
@@ -62245,36 +62211,36 @@
         }
       }
     },
-    "协议由 mihomo 内核 %@ 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。": {
+    "协议由 Tern 内核 %@ 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「本地節點」中；在 工具 → 節點與訂閱 → 本地 開啟「把本地節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
+            "value": "協議由 Tern 核心 %@ 提供。節點儲存在「本地節點」中；在 工具 → 節點與訂閱 → 本地 開啟「把本地節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Local Nodes\"; turn on \"Add local nodes to every profile\" in Tools → Nodes & subscriptions → Local to pick them in any subscription's policies."
+            "value": "Protocols are provided by the Tern core %@. Nodes are saved in \"Local Nodes\"; turn on \"Add local nodes to every profile\" in Tools → Nodes & subscriptions → Local to pick them in any subscription's policies."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「ローカルノード」に保存されます。ツール → ノードと購読 → ローカルで「ローカルノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
+            "value": "プロトコルは Tern コア %@ が提供します。ノードは「ローカルノード」に保存されます。ツール → ノードと購読 → ローカルで「ローカルノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '로컬 노드'에 저장되며, 도구 → 노드 및 구독 → 로컬에서 '로컬 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
+            "value": "프로토콜은 Tern 코어 %@가 제공합니다. 노드는 '로컬 노드'에 저장되며, 도구 → 노드 및 구독 → 로컬에서 '로컬 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Локальных узлах»; включите «Добавлять локальные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально», чтобы выбирать их в политиках любой подписки."
+            "value": "Протоколы предоставляет ядро Tern %@. Узлы сохраняются в «Локальных узлах»; включите «Добавлять локальные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально», чтобы выбирать их в политиках любой подписки."
           }
         }
       },
@@ -71745,40 +71711,6 @@
         }
       }
     },
-    "Go 堆 / 向系统申请": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go heap / from system"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go ヒープ / システムから確保"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go 힙 / 시스템에서 할당"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Куча Go / получено у системы"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go 堆 / 向系統申請"
-          }
-        }
-      }
-    },
     "连接数": {
       "localizations": {
         "en": {
@@ -80721,36 +80653,36 @@
         }
       }
     },
-    "可以粘贴 Surge / QX / Clash 规则；切回表单时会填入各个字段。输入时实时校验：显示转换后的 mihomo 规则和对应的策略组。": {
+    "可以粘贴 Surge / QX / Clash 规则；切回表单时会填入各个字段。输入时实时校验：显示转换后的规则和对应的策略组。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paste a Surge / QX / Clash rule; switching back to the form fills in the fields. Checked as you type: shows the converted mihomo rule and its policy group."
+            "value": "Paste a Surge / QX / Clash rule; switching back to the form fills in the fields. Checked as you type: shows the converted rule and its policy group."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge / QX / Clash のルールを貼り付けられます。フォームに戻すと各項目に入ります。入力中に検証し、変換後の mihomo ルールと対応するグループを表示します。"
+            "value": "Surge / QX / Clash のルールを貼り付けられます。フォームに戻すと各項目に入ります。入力中に検証し、変換後のルールと対応するグループを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge / QX / Clash 규칙을 붙여 넣을 수 있으며, 양식으로 돌아가면 각 항목이 채워집니다. 입력하는 동안 검사해 변환된 mihomo 규칙과 정책 그룹을 보여 줍니다."
+            "value": "Surge / QX / Clash 규칙을 붙여 넣을 수 있으며, 양식으로 돌아가면 각 항목이 채워집니다. 입력하는 동안 검사해 변환된 규칙과 정책 그룹을 보여 줍니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Можно вставить правило Surge / QX / Clash; при возврате к форме поля заполнятся. Проверка при вводе: показывает правило mihomo и его группу."
+            "value": "Можно вставить правило Surge / QX / Clash; при возврате к форме поля заполнятся. Проверка при вводе: показывает правило и его группу."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "可以貼上 Surge / QX / Clash 規則；切回表單時會填入各個欄位。輸入時實時校驗：顯示轉換後的 mihomo 規則和對應的策略組。"
+            "value": "可以貼上 Surge / QX / Clash 規則；切回表單時會填入各個欄位。輸入時實時校驗：顯示轉換後的規則和對應的策略組。"
           }
         }
       }
@@ -80959,36 +80891,36 @@
         }
       }
     },
-    "实时校验：显示转换后的 mihomo 规则和对应的策略组。": {
+    "实时校验：显示转换后的规则和对应的策略组。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checked live: shows the converted mihomo rule and its policy group."
+            "value": "Checked live: shows the converted rule and its policy group."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リアルタイムで検証し、変換後の mihomo ルールと対応するグループを表示します。"
+            "value": "リアルタイムで検証し、変換後のルールと対応するグループを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "실시간으로 검사해 변환된 mihomo 규칙과 정책 그룹을 보여 줍니다."
+            "value": "실시간으로 검사해 변환된 규칙과 정책 그룹을 보여 줍니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Проверка на лету: показывает правило mihomo и его группу."
+            "value": "Проверка на лету: показывает правило и его группу."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "實時校驗：顯示轉換後的 mihomo 規則和對應的策略組。"
+            "value": "實時校驗：顯示轉換後的規則和對應的策略組。"
           }
         }
       }
@@ -95883,36 +95815,36 @@
         }
       }
     },
-    "点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法；远程规则列表在上一页的「订阅」里添加。": {
+    "点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / Clash 写法；远程规则列表在上一页的「订阅」里添加。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "點右上角 + 新增。自訂規則排在設定規則之前，可以直接貼上 Surge / Quantumult X / Loon / mihomo 寫法；遠端規則列表在上一頁的「訂閱」裡新增。"
+            "value": "點右上角 + 新增。自訂規則排在設定規則之前，可以直接貼上 Surge / Quantumult X / Loon / Clash 寫法；遠端規則列表在上一頁的「訂閱」裡新增。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap + to add. Custom rules come before the profile's rules; paste Surge / Quantumult X / Loon / mihomo syntax. Remote rule lists are added under Subscriptions on the previous page."
+            "value": "Tap + to add. Custom rules come before the profile's rules; paste Surge / Quantumult X / Loon / Clash syntax. Remote rule lists are added under Subscriptions on the previous page."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右上の + で追加します。カスタムルールはプロファイルのルールより先に評価され、Surge / Quantumult X / Loon / mihomo の書き方をそのまま貼り付けられます。リモートのルールリストは前のページの「購読」で追加します。"
+            "value": "右上の + で追加します。カスタムルールはプロファイルのルールより先に評価され、Surge / Quantumult X / Loon / Clash の書き方をそのまま貼り付けられます。リモートのルールリストは前のページの「購読」で追加します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 위 + 로 추가합니다. 사용자 규칙은 프로파일 규칙보다 먼저 적용되며 Surge / Quantumult X / Loon / mihomo 문법을 그대로 붙여 넣을 수 있습니다. 원격 규칙 목록은 이전 페이지의 「구독」에서 추가합니다."
+            "value": "오른쪽 위 + 로 추가합니다. 사용자 규칙은 프로파일 규칙보다 먼저 적용되며 Surge / Quantumult X / Loon / Clash 문법을 그대로 붙여 넣을 수 있습니다. 원격 규칙 목록은 이전 페이지의 「구독」에서 추가합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите +, чтобы добавить. Свои правила идут перед правилами профиля; можно вставить синтаксис Surge / Quantumult X / Loon / mihomo. Удалённые списки правил добавляются в «Подписках» на предыдущей странице."
+            "value": "Нажмите +, чтобы добавить. Свои правила идут перед правилами профиля; можно вставить синтаксис Surge / Quantumult X / Loon / Clash. Удалённые списки правил добавляются в «Подписках» на предыдущей странице."
           }
         }
       }
@@ -97617,37 +97549,37 @@
         }
       }
     },
-    "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，这些 UDP 改走直连（mihomo 默认）。": {
+    "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，这些 UDP 改走直连（Clash 默认）。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "UDP 回落：規則選中的節點不支援 UDP、後面也沒有別的規則接住時，這些 UDP 改走直連（mihomo 預設）。"
+            "value": "UDP 回落：規則選中的節點不支援 UDP、後面也沒有別的規則接住時，這些 UDP 改走直連（Clash 預設）。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "UDP Fallback: when the node chosen by the rules doesn't support UDP and no later rule takes the traffic, that UDP goes direct (mihomo default)."
+            "value": "UDP Fallback: when the node chosen by the rules doesn't support UDP and no later rule takes the traffic, that UDP goes direct (Clash default)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "UDP フォールバック：ルールで選ばれたノードが UDP に対応しておらず、後続のルールにも一致しない場合、その UDP は直接接続になります（mihomo の既定）。"
+            "value": "UDP フォールバック：ルールで選ばれたノードが UDP に対応しておらず、後続のルールにも一致しない場合、その UDP は直接接続になります（Clash の既定）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "UDP 폴백: 규칙이 선택한 노드가 UDP를 지원하지 않고 이후 다른 규칙에도 해당하지 않으면 해당 UDP는 직접 연결됩니다(mihomo 기본값)."
+            "value": "UDP 폴백: 규칙이 선택한 노드가 UDP를 지원하지 않고 이후 다른 규칙에도 해당하지 않으면 해당 UDP는 직접 연결됩니다(Clash 기본값)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Резерв для UDP: если выбранный правилами узел не поддерживает UDP и никакое последующее правило не подходит, такой UDP-трафик идёт напрямую (по умолчанию в mihomo)."
+            "value": "Резерв для UDP: если выбранный правилами узел не поддерживает UDP и никакое последующее правило не подходит, такой UDP-трафик идёт напрямую (по умолчанию в Clash)."
           }
         }
       }

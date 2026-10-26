@@ -58,7 +58,7 @@ enum NCScriptSource {
     static func fetch(home: String, url u: String) -> Result<Data, NCOverrideOutput.InputError> {
         guard let url = URL(string: u) else { return .failure(.init(message: "下载 \(clip(u, 80)) 失败：链接无效")) }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        req.setValue("Surge iOS/3000 Mihomo-iOS", forHTTPHeaderField: "User-Agent")
+        req.setValue("Surge iOS/3000 Tern", forHTTPHeaderField: "User-Agent")
         let sem = DispatchSemaphore(value: 0)
         var out: Result<Data, NCOverrideOutput.InputError> = .failure(.init(message: "下载 \(clip(u, 80)) 失败"))
         let task = URLSession.shared.dataTask(with: req) { data, resp, err in

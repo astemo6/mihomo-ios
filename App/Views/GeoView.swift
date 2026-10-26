@@ -182,7 +182,7 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         defer { progress[kind] = nil }
         do {
             var req = URLRequest(url: url)
-            req.setValue("mihomo-ios", forHTTPHeaderField: "User-Agent")
+            req.setValue("Tern", forHTTPHeaderField: "User-Agent")
             let tmp = try await download(req, kind: kind)
             if let result = await Self.install(home: home, kind: kind, file: tmp) { errors[kind] = result; return }
             refresh()
@@ -372,7 +372,7 @@ enum GeoAutoUpdate {
     private static func download(kind: String, overrides: CoreOverrides, home: String) async -> String? {
         guard let url = URL(string: GeoModel.effectiveURL(kind, overrides)) else { return String(localized: "地址无效") }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        req.setValue("mihomo-ios", forHTTPHeaderField: "User-Agent")
+        req.setValue("Tern", forHTTPHeaderField: "User-Agent")
         do {
             let (tmp, resp) = try await URLSession.shared.download(for: req)
             if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {

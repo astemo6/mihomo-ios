@@ -4,7 +4,7 @@ import Combine
 
 extension Notification.Name {
     /// Posted when the egress may have changed (connect/disconnect, node switch, mode change).
-    static let egressMayHaveChanged = Notification.Name("MihomoEgressMayHaveChanged")
+    static let egressMayHaveChanged = Notification.Name("TernEgressMayHaveChanged")
 }
 
 @MainActor

@@ -174,7 +174,7 @@ final class NativeCoreEngine {
         for line in cfg.rules {
             if let rule = NCRule.parse(line) { parsed.append(rule) } else { unparsed.append(line) }
         }
-        let canonical = loaded.canonical ?? NCCanonicalConfig.from(mihomo: cfg)
+        let canonical = loaded.canonical ?? NCCanonicalConfig.from(clash: cfg)
         let preStore = NCRuleProviderStore(dir: URL(fileURLWithPath: home)
             .appendingPathComponent("nativecore-rulesets"))
         let preProviders = NCRuleProviderStore.providers(from: cfg)

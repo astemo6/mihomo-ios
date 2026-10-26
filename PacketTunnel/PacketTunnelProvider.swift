@@ -482,7 +482,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     static func error(_ msg: String) -> NSError {
-        NSError(domain: "Mihomo.PacketTunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
+        NSError(domain: "Tern.PacketTunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
     }
 }
 

@@ -128,7 +128,7 @@ protocol MitmUpstreamLease: AnyObject {
     func release(reusable: Bool)
 }
 
-/// The upstream lane: origin connections through the Go relay (loopback CONNECT → mihomo rules/proxies), TLS
+/// The upstream lane: origin connections through the Go relay (loopback CONNECT → Tern rules/proxies), TLS
 /// to the origin with system trust, bounded reuse pool. Raw bytes only (no URLSession).
 protocol MitmUpstreamConnecting: AnyObject {
     func open(host: String, port: Int, tls: Bool, completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void)

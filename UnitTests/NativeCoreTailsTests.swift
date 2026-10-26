@@ -66,21 +66,21 @@ final class NativeCoreTailsTests: XCTestCase {
     }
 
     func testProbeListenerFlowUsesListenerPolicy() throws {
-        // MIHOMO-PROBE on 127.0.0.1:7899: fixed policy, no rule; the dialed node is the chain head.
+        // TERN-PROBE on 127.0.0.1:7899: fixed policy, no rule; the dialed node is the chain head.
         let r = NCStatsRecorder(now: Date(timeIntervalSince1970: 1_700_000_000))
         var f = NCListenerFlowStats()
-        f.open(rule: "", policy: "MIHOMO-PROBE", chain: "JP 02", host: "ip-api.com", recorder: r)
+        f.open(rule: "", policy: "TERN-PROBE", chain: "JP 02", host: "ip-api.com", recorder: r)
         f.count(up: 120, down: 300)
         f.close(id: "probe1", type: "HTTP", srcIP: "127.0.0.1", srcPort: 0, dstIP: "", dstPort: 80,
                 remote: "ip-api.com", start: Date(), recorder: r)
         let s = stats(r)
         XCTAssertNotNil(row(s["hosts"], "ip-api.com"))
-        XCTAssertNotNil(row(s["policies"], "MIHOMO-PROBE"))
+        XCTAssertNotNil(row(s["policies"], "TERN-PROBE"))
         let rules = try XCTUnwrap(s["rules"] as? [[String: Any]])
         XCTAssertEqual(rules.first?["rule"] as? String, "—")
-        XCTAssertEqual(rules.first?["policy"] as? String, "MIHOMO-PROBE")
+        XCTAssertEqual(rules.first?["policy"] as? String, "TERN-PROBE")
         let c = try XCTUnwrap((s["closed"] as? [[String: Any]])?.first)
-        XCTAssertEqual(c["chains"] as? [String], ["JP 02", "MIHOMO-PROBE"])
+        XCTAssertEqual(c["chains"] as? [String], ["JP 02", "TERN-PROBE"])
         XCTAssertEqual((c["metadata"] as? [String: Any])?["sourcePort"] as? String, "")
     }
 

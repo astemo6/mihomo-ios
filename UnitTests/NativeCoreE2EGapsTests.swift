@@ -116,18 +116,18 @@ final class NativeCoreE2EGapsTests: XCTestCase {
         XCTAssertEqual((o["seconds"] as? [[Int64]])?.first?.first, Int64(1_700_000_030))
     }
 
-    // MARK: probe listener (节点探测 127.0.0.1:7899 → MIHOMO-PROBE)
+    // MARK: probe listener (节点探测 127.0.0.1:7899 → TERN-PROBE)
 
     func testProbeListenerSpecs() {
         let raw: [String: NCJSONValue] = ["listeners": .array([
-            .object(["name": .string("mihomo-ios-probe"), "type": .string("mixed"), "listen": .string("127.0.0.1"),
-                     "port": .number(7899), "udp": .bool(false), "proxy": .string("MIHOMO-PROBE")]),
+            .object(["name": .string("tern-probe"), "type": .string("mixed"), "listen": .string("127.0.0.1"),
+                     "port": .number(7899), "udp": .bool(false), "proxy": .string("TERN-PROBE")]),
             .object(["name": .string("lan"), "type": .string("mixed"), "listen": .string("0.0.0.0"), "port": .number(7000),
                      "proxy": .string("X")]),
             .object(["name": .string("noproxy"), "type": .string("mixed"), "port": .number(7001)]),
             .object(["name": .string("tun"), "type": .string("tun"), "proxy": .string("X"), "port": .number(7002)]),
         ])]
-        XCTAssertEqual(NCProbeListener.specs(raw), [.init(name: "mihomo-ios-probe", port: 7899, policy: "MIHOMO-PROBE")])
+        XCTAssertEqual(NCProbeListener.specs(raw), [.init(name: "tern-probe", port: 7899, policy: "TERN-PROBE")])
         XCTAssertEqual(NCProbeListener.specs(nil), [])
     }
 

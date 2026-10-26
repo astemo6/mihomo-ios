@@ -168,7 +168,7 @@ final class NativeCoreLanShareTests: XCTestCase {
 
     // MARK: runtime config (what the app writes) ⇄ app settings
 
-    func testFromRawParsesMihomoKeys() {
+    func testFromRawParsesClashKeys() {
         let raw: [String: NCJSONValue] = [
             "allow-lan": .string("true"),
             "bind-address": .string("*"),

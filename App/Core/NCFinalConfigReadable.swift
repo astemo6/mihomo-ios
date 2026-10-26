@@ -170,7 +170,7 @@ enum NCFinalConfigReadable {
     }
 
     static func writeHeader(_ out: inout String, profile: String, version: String, time: Date, notes: [String]) {
-        out += "# Tern 导出的最终配置（mihomo 格式）\n"
+        out += "# Tern 导出的最终配置（Clash 格式）\n"
         let v = oneLine(version)
         if !v.isEmpty { out += "# Tern 版本：" + v + "\n" }
         let p = oneLine(profile)
@@ -339,7 +339,7 @@ enum NCFinalConfigReadable {
         }
         dropNamed("proxy-groups", NCProfileCheck.probeGroup)
         if root["listeners"] != nil {
-            dropNamed("listeners", "mihomo-ios-probe")
+            dropNamed("listeners", NCRuntimeDNS.probeListener)
             if case .array(let a)? = root["listeners"], a.isEmpty { root["listeners"] = nil }
         }
         var notes: [String] = []

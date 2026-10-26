@@ -14,7 +14,7 @@ final class NativeCoreCloakTests: XCTestCase {
                        "e3be8fdd8beca2e3ea8ef9475b29a6e7003951e1097a5c38d23b7a5fad9f6844")
     }
 
-    func testParseShadowrocketAndMihomoKeys() {
+    func testParseShadowrocketAndClashKeys() {
         let a = NCCloakPluginOptions.parse(["UID": .string(uid), "PublicKey": .string(pub),
                                             "ServerName": .string("www.bing.com"), "EncryptionMethod": .string("aes-gcm")])
         XCTAssertNil(a.1)

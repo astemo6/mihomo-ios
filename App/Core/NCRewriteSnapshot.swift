@@ -624,7 +624,7 @@ final class NCResources {
             throw e
         }
         var req = URLRequest(url: url, timeoutInterval: fetchTimeout)
-        req.setValue("Surge iOS/3000 Mihomo-iOS", forHTTPHeaderField: "User-Agent")
+        req.setValue("Surge iOS/3000 Tern", forHTTPHeaderField: "User-Agent")
         var resultData: Data?
         var resultError: Error?
         let sem = DispatchSemaphore(value: 0)
@@ -2359,14 +2359,14 @@ private func snapBody(_ sr: inout NCSnapRule, _ r: NCEngineRule, res: NCResource
         }
         if src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             why = "jq file"
-            NSLog("[Mihomo] WARN jq rule %@: filter file %@ not available, bodies pass through", r.pattern, r.data)
+            NSLog("[Tern] WARN jq rule %@: filter file %@ not available, bodies pass through", r.pattern, r.data)
             break
         }
         do {
             _ = try NativeJQ.compile(src)
         } catch {
             why = "jq: \(error)"
-            NSLog("[Mihomo] WARN jq rule %@ does not compile (%@), bodies pass through", r.pattern, "\(error)")
+            NSLog("[Tern] WARN jq rule %@ does not compile (%@), bodies pass through", r.pattern, "\(error)")
             break
         }
         sr.jqx = src

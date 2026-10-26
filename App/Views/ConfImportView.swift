@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Surge / Quantumult X .conf → mihomo profile (+ a module for its rewrite / MitM / script sections).
+// Surge / Quantumult X .conf → Tern profile (+ a module for its rewrite / MitM / script sections).
 // Translation happens once, at import (bridge/confimport.go); afterwards it is an ordinary profile.
 
 struct ConfImportResult: Decodable {
@@ -178,7 +178,7 @@ struct ConfReportSection: View {
                             Label(LocalizedStringKey(rep.format == "qx" ? "Quantumult X 配置" : "Surge 配置"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
                                 .font(.headline)
                             Spacer()
-                            Text("→ mihomo").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
+                            Text("→ Tern").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
                         }
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                             stat("节点", rep.proxies ?? 0)

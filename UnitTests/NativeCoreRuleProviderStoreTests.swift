@@ -344,7 +344,7 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
             ]),
             "rules": .array([.string("MATCH,全部")]),
         ])
-        let canonical = NCCanonicalConfig.from(mihomo: cfg)
+        let canonical = NCCanonicalConfig.from(clash: cfg)
         XCTAssertEqual(Set(canonical.subscriptions.map { $0.name }), ["订阅", "Air", "Inl"])
 
         let store = NCNodeSubscriptionStore(dir: home.appendingPathComponent("nativecore-nodesubs"), home: home)

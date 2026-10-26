@@ -59,7 +59,7 @@ final class NativeCoreE2EReplayTests: XCTestCase {
                 }
             case .profileText(let name, let text):
                 _ = try await ProfileStore.shared.addLocal(name: name, text: text)
-                importDetail = "mihomo profile"
+                importDetail = "clash profile"
             default:
                 r.record("import", .fail, "unsupported import action \(action.id)")
                 XCTFail("import action"); return

@@ -824,7 +824,7 @@ enum NCConfImportPort {
         func addPolicy(_ d: String, _ v: String) {
             let k = qxPolicyDomain(d)
             guard qxWildcardOK(k) else {
-                rep.notes.append("[dns] 通配写法 mihomo 不支持，已跳过：" + d)
+                rep.notes.append("[dns] 通配写法不支持，已跳过：" + d)
                 return
             }
             if policy[k] == nil {
@@ -902,7 +902,7 @@ enum NCConfImportPort {
                     if qxWildcardOK(hd) {
                         hosts[hd] = vDomain
                     } else {
-                        rep.notes.append("[dns] 通配写法 mihomo 不支持，已跳过：" + d)
+                        rep.notes.append("[dns] 通配写法不支持，已跳过：" + d)
                     }
                 }
             default:

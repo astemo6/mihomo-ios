@@ -83,8 +83,8 @@ enum NCRuleValidator {
     ]
 
     static let unsupportedTypes: [String: String] = [
-        "USER-AGENT": "mihomo 不支持 USER-AGENT 规则（可用 MitM 重写代替）",
-        "URL-REGEX": "mihomo 规则不匹配 URL；REJECT 类策略会转为 MitM URL 重写",
+        "USER-AGENT": "不支持 USER-AGENT 规则（可用 MitM 重写代替）",
+        "URL-REGEX": "分流规则不匹配 URL；REJECT 类策略会转为 MitM URL 重写",
         "CELLULAR-RADIO": "iOS 扩展内无法获取蜂窝制式",
         "DEVICE-NAME": "不支持",
         "SUBNET": "不支持（Surge 网络条件规则）",

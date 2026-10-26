@@ -83,7 +83,7 @@ final class NativeCoreSSPluginGostTests: XCTestCase {
 
     // MARK: - plugin-opts decode (mihomo gostObfsOption)
 
-    func testWebsocketDefaultsMirrorMihomo() {
+    func testWebsocketDefaultsMirrorUpstream() {
         let (o, why) = NCGostPluginOptions.parse(["mode": .string("websocket")])
         XCTAssertNil(why)
         XCTAssertEqual(o?.host, "bing.com")    // preset Host
@@ -93,7 +93,7 @@ final class NativeCoreSSPluginGostTests: XCTestCase {
         XCTAssertNil(NCSupport.unsupportedReason(ss("gost-plugin", ["mode": .string("websocket")])))
     }
 
-    func testAllFourMihomoShapesSupported() {
+    func testAllFourClashShapesSupported() {
         for tls in [false, true] {
             for mux in [false, true] {
                 let p = ss("gost-plugin", ["mode": .string("websocket"), "tls": .bool(tls), "mux": .bool(mux),
@@ -106,7 +106,7 @@ final class NativeCoreSSPluginGostTests: XCTestCase {
         }
     }
 
-    func testNonWebsocketModesRejectedLikeMihomo() {
+    func testNonWebsocketModesRejectedLikeUpstream() {
         // mihomo: `if opts.Mode != "websocket" { obfs mode error }` — gost binary modes are not reachable.
         for mode in ["", "tls", "mws", "wss", "quic", "grpc", "kcp", "Websocket"] {
             var opts: [String: NCJSONValue] = [:]

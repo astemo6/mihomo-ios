@@ -593,7 +593,7 @@ enum NCShareLink {
 
         // feat/nc-integrate: was LibmihomoImportConf (Go). This file is in Shared/, which the Go-free PacketTunnel
         // compiles too, so it must not import Libmihomo. Swift path: the NativeCore importers (NCQXImport /
-        // NCConfImport, the same ones the tunnel uses) → NCConfig → mihomo YAML via NCYAMLEmitter.
+        // NCConfImport, the same ones the tunnel uses) → NCConfig → Tern YAML via NCYAMLEmitter.
         // Covers proxies, proxy groups, rules, rule-providers and DNS servers; Surge/QX MitM / rewrite / script
         // sections are not part of a share-link conversion.
         let lower = text.lowercased()

@@ -22,7 +22,7 @@ final class NativeCoreCanonicalTests: XCTestCase {
         XCTAssertEqual(v6.host, "2001:4860:4860::8888"); XCTAssertEqual(v6.port, 53)
     }
 
-    func testMihomoMapping() {
+    func testClashMapping() {
         let root: [String: NCJSONValue] = [
             "mode": .string("rule"),
             "ipv6": .bool(true),
@@ -57,9 +57,9 @@ final class NativeCoreCanonicalTests: XCTestCase {
                 "interval": .number(7200)])]),
         ]
         let cfg = NCConfig.decode(root: root)
-        let c = NCCanonicalConfig.from(mihomo: cfg)
+        let c = NCCanonicalConfig.from(clash: cfg)
 
-        XCTAssertEqual(c.sourceFormat, "mihomo")
+        XCTAssertEqual(c.sourceFormat, "clash")
         XCTAssertEqual(c.nodes.count, 1)
         XCTAssertEqual(c.groups.count, 1)
         XCTAssertEqual(c.groups[0].kind, .urlTest)
