@@ -29,6 +29,15 @@ enum NCHy2UDP {
     /// DNS-sized packets echoed, 3000-byte fragmented ones never did). 1100 leaves room for the
     /// worst-case short header (20-byte CID + 4-byte PN) and the frame overhead. The connection
     /// still lowers it if a send fails with EMSGSIZE.
+    ///
+    /// FRAGMENTED Hy2 UDP IS LOSSY on Network.framework QUIC datagrams (feat/nc-hy2-frag
+    /// experiment, proto-loopback runs 40262220512 + 40265834496): single-shot fragmented
+    /// packets were lost under EVERY sending strategy tried — burst, completion-gated,
+    /// gated +1 ms, one NWConnection.batch per packet, fixed 10/20/50/1000 ms gaps, a primer
+    /// packet, ×5 duplication — with zero send errors surfaced and zero datagrams reaching
+    /// the relay (backend counters), i.e. the loss is silent and on the send leg. No budget
+    /// was reliable either: 1100 lost at least as often as 1197. Treat any UDP packet larger
+    /// than one datagram as best-effort; do not build on fragmented Hy2 UDP delivery.
     static let maxDatagramSize = 1100
 
     /// Fixed part of the header: session ID (4) + packet ID (2) + frag ID (1) + frag count (1).

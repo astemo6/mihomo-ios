@@ -82,6 +82,11 @@ self-signed cert the start script generates into the runtime dir
   each, and prints one `HY2FRAG` line. Each round diffs the echo backend's
   per-source counters (control `stats`) against the client's receive and
   send-error counters, so a lost packet has a direction instead of a shrug.
+  **Verdict (runs 40262220512 + 40265834496): fragmented Hy2 UDP over
+  Network.framework QUIC datagrams is lossy under every sending strategy
+  tried — the loss is silent (no send error) and on the send leg (the
+  backend sees nothing); no budget (1100 / 1197) is reliable. See the
+  `maxDatagramSize` note in `Shared/NativeCore/NCHysteria2UDPCodec.swift`.**
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.
