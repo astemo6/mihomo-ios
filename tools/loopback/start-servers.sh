@@ -180,7 +180,30 @@ do_start() {
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
+    start_hy2_ref_client "$sb"
     log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082"
+}
+
+# hy2-frag: sing-box's own hysteria2 client as a reference (socks :19080 -> hy2-in), probed by
+# hy2_ref_probe.py at start and at stop. NC_LOOPBACK_HY2REF=0 disables.
+start_hy2_ref_client() {
+    [ "${NC_LOOPBACK_HY2REF:-1}" = 1 ] || return 0
+    cat > "$RUN/hy2-ref-client.json" <<JSON
+{"log":{"level":"warn"},"inbounds":[{"type":"socks","tag":"s","listen":"127.0.0.1","listen_port":19080}],
+ "outbounds":[{"type":"hysteria2","tag":"hy","server":"127.0.0.1","server_port":18006,"password":"nc-loop-hy2-pw",
+   "tls":{"enabled":true,"server_name":"localhost","insecure":true}}],"route":{"final":"hy"}}
+JSON
+    nohup "$1" run -c "$RUN/hy2-ref-client.json" >"$RUN/hy2-ref-client.log" 2>&1 &
+    echo $! > "$RUN/hy2ref.pid"
+    sleep 1
+    python3 "$DIR/hy2_ref_probe.py" >&2 || true
+}
+
+stop_hy2_ref_client() {
+    [ -f "$RUN/hy2ref.pid" ] || return 0
+    python3 "$DIR/hy2_ref_probe.py" >&2 || true
+    kill "$(cat "$RUN/hy2ref.pid")" 2>/dev/null || true
+    rm -f "$RUN/hy2ref.pid"
 }
 
 quic_debug_summary() {
@@ -210,6 +233,7 @@ quic_debug_summary() {
 
 do_stop() {
     local f
+    stop_hy2_ref_client
     stop_wire_capture
     quic_debug_summary
     for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
