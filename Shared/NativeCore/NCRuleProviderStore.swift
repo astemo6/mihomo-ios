@@ -98,7 +98,7 @@ final class NCRuleProviderStore {
     /// (urlString, completion) — completion gets the body or nil on failure.
     var fetcher: (String, @escaping (Data?) -> Void) -> Void = { urlString, done in
         guard let url = URL(string: urlString) else { done(nil); return }
-        URLSession.shared.dataTask(with: url) { data, resp, err in
+        NCRuleProviderStore.session.dataTask(with: url) { data, resp, err in
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard err == nil, (200..<300).contains(code), let data, !data.isEmpty else {
                 StartupLog.write("rule set: fetch failed \(NCRuleProviderStore.logName(urlString)) — " +
@@ -109,6 +109,20 @@ final class NCRuleProviderStore {
             done(data)
         }.resume()
     }
+
+    /// fix/nc-mem-providers: rule-list downloads skip URLSession.shared's in-memory URLCache (a cached copy of every
+    /// list body next to the parsed index) and complete on one serial queue, so at most one body is being parsed at
+    /// a time. The on-disk cache file (cacheFile) is the only copy kept.
+    static let session: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.urlCache = nil
+        c.requestCachePolicy = .reloadIgnoringLocalCacheData
+        c.httpMaximumConnectionsPerHost = 4
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 1
+        q.name = "nc.ruleprovider.fetch"
+        return URLSession(configuration: c, delegate: nil, delegateQueue: q)
+    }()
 
     /// Go-era configs point remote QX/Surge/Loon rule lists at the bridge's own converter
     /// (http://127.0.0.1:<port>/rules/convert?url=<src>&kind=<kind>). NativeCore has no converter:
@@ -218,12 +232,12 @@ final class NCRuleProviderStore {
         }
         if provider.isMRS || NCMRS.isMRS(data: data) {
             try idx.addMRS(data: data, behavior: provider.behavior)
-        } else if let text = String(data: data, encoding: .utf8) {
-            idx.addText(text, flavor: provider.flavor)
-        } else {
+        } else if !idx.addData(data, flavor: provider.flavor) {
+            // fix/nc-mem-providers: streamed line by line out of the body (no whole-body String copy)
             throw NCMRSError.corrupted("rule provider '\(provider.name)' payload is neither UTF-8 text nor recognized MRS binary format")
         }
         try checkEntryGate(idx, provider: provider)
+        idx.finalize()
     }
 
     /// The single entry-count gate. Every load path — populateIndex (network
@@ -252,6 +266,7 @@ final class NCRuleProviderStore {
             var loaded = false
             if !p.inlinePayload.isEmpty {
                 for line in p.inlinePayload { idx.addLine(line, flavor: p.flavor) }
+                idx.finalize()
                 // Inline payloads have no Data body for populateIndex; they
                 // go through the same entry gate function it uses.
                 do {

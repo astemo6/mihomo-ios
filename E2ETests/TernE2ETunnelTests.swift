@@ -181,23 +181,18 @@ final class TernE2ETunnelTests: XCTestCase {
         guard let cfg = engine.config else { return }
         let list = NCRuleProviderStore.providers(from: cfg)
         if list.isEmpty { r.record("rule-sets", .info, "the config has no rule providers"); return }
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("e2e-rulesets-\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let store = NCRuleProviderStore(dir: dir)
-        let pending = E2EHarness.Flag()
-        var remaining = list.filter { $0.url != nil }.count
-        let lock = NSLock()
-        for p in list where p.url != nil {
-            store.refresh(p) { lock.lock(); remaining -= 1; let done = remaining == 0; lock.unlock(); if done { pending.set(1) } }
-        }
-        _ = E2ENet.waitUntil(30) { pending.get() == 1 || list.allSatisfy { $0.url == nil } }
+        // fix/nc-mem-providers: judge the core's own store (cache-first load + the background refresh it started at
+        // core start), as on a device. Run 40290997704 built a second NCRuleProviderStore here that downloaded and
+        // indexed all 29 lists again in this process, inside the memory-footprint window.
+        let remote = list.filter { $0.url != nil }
+        _ = E2ENet.waitUntil(30) { remote.allSatisfy { engine.ruleProviderIsLoaded($0.name) } }
         for p in list {
             guard let u = p.url else {
                 r.record("rule-set:\(p.name)", .info, "local (\(p.filePath != nil ? "file" : "inline")) — loaded with the config")
                 continue
             }
-            if store.isLoaded(name: p.name) {
-                r.record("rule-set:\(p.name)", .pass, "fetched + parsed (\(p.behavior)/\(p.format))")
+            if engine.ruleProviderIsLoaded(p.name) {
+                r.record("rule-set:\(p.name)", .pass, "loaded by the core (\(p.behavior)/\(p.format))")
             } else if let url = URL(string: NCRuleProviderStore.unwrapLoopbackConvert(u)), let host = url.host, !host.hasPrefix("127."),
                       !E2EHarness.tcpReachable(host: host, port: url.port ?? (url.scheme == "https" ? 443 : 80)) {
                 r.record("rule-set:\(p.name)", .skip, "host not reachable from this runner")
