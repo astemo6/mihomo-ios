@@ -116,6 +116,8 @@ enum NCECHError: Error, Equatable, CustomStringConvertible {
     case aliasHopLimitExceeded(chain: [String])
     case malformedResponse
     case cancelled
+    /// More than 64 callers already wait on the same in-flight query.
+    case tooManyWaiters
 
     var description: String {
         switch self {
@@ -128,6 +130,7 @@ enum NCECHError: Error, Equatable, CustomStringConvertible {
         case .aliasHopLimitExceeded(let chain): return "HTTPS AliasMode hop limit exceeded: \(chain.joined(separator: " -> "))"
         case .malformedResponse: return "Malformed DNS response"
         case .cancelled: return "DNS query was cancelled"
+        case .tooManyWaiters: return "Too many concurrent ECH lookups for the same name"
         }
     }
 }
@@ -151,9 +154,9 @@ final class NCECHResolver {
     typealias QueryForwarder = (_ query: Data, _ upstream: NCDNSUpstream, _ completion: @escaping (Data?) -> Void) -> Void
 
     /// Named constant for overall ECH resolution deadline (covering all upstream attempts and alias hops).
-    /// Default: 6.0 seconds. Bounded tight to avoid stalling TLS handshakes while leaving
+    /// Default: 3.0 seconds (review #148 item 6; was 6). Bounded tight to avoid stalling TLS handshakes while leaving
     /// sufficient margin for sequential fallback / alias hops over mobile connections.
-    static let overallTimeout: TimeInterval = 6.0
+    static let overallTimeout: TimeInterval = 3.0
     static let defaultTimeout: TimeInterval = overallTimeout
 
     /// Cache key combining normalized query name and DNS type.
@@ -180,8 +183,6 @@ final class NCECHResolver {
             self.completion = completion
         }
     }
-
-    static let shared = NCECHResolver()
 
     private let queue: DispatchQueue
     private let forwarder: NCDNSForwarder
@@ -217,14 +218,16 @@ final class NCECHResolver {
     ///   - queryServerName: Optional override for the DNS query name (per ech-opts query-server-name).
     ///   - type: DNS RR type (defaults to TYPE 65 HTTPS; TYPE 64 SVCB also supported).
     ///   - timeout: Overall timeout for the resolution covering all upstreams and alias hops.
-    ///   - callerQueue: Queue on which `completion` is called (defaults to main).
+    ///   - callerQueue: Queue on which `completion` is called (nil = the resolver's own queue; never main by
+    ///     default — this runs in the tunnel extension). Do not call the `queue.sync` helpers from that queue.
     ///   - completion: Callback returning `Result<NCECHResolution, NCECHError>`.
     func resolveECH(for host: String,
                     queryServerName: String? = nil,
                     type: UInt16 = NCDNSMessage.typeHTTPS,
                     timeout: TimeInterval = NCECHResolver.defaultTimeout,
-                    callerQueue: DispatchQueue = .main,
+                    callerQueue: DispatchQueue? = nil,
                     completion: @escaping (Result<NCECHResolution, NCECHError>) -> Void) {
+        let callerQueue = callerQueue ?? queue
         let rawTarget: String
         if let qsn = queryServerName?.trimmingCharacters(in: .whitespaces), !qsn.isEmpty {
             rawTarget = qsn
@@ -299,7 +302,7 @@ final class NCECHResolver {
             } else {
                 timerItem.cancel()
                 waiter.isSettled = true
-                callerQueue.async { completion(.failure(.timeout)) }
+                callerQueue.async { completion(.failure(.tooManyWaiters)) }
             }
             return
         }
