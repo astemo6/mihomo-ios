@@ -423,12 +423,9 @@ enum NCConnector {
         }
         // sing-mux (h2mux) interception: vmess/vless flows ride a shared
         // session whose own proxy connection targets the mux destination.
+        // fix/nc-silent-fail: smux / yamux (not implemented) dial without multiplexing — see smuxUsable.
         if allowMux, transport == nil, proxy.type == "vmess" || proxy.type == "vless",
-           smuxEnabled(proxy), target != NCMux.destination {
-            guard smuxProtocol(proxy) == "h2mux" else {
-                queue.async { completion(nil, Failure.unsupported("smux protocol \(smuxProtocol(proxy)) (h2mux only)")) }
-                return
-            }
+           smuxUsable(proxy), target != NCMux.destination {
             muxSession(proxy: proxy, server: server, port: port, queue: queue) { session, err in
                 guard let session else { completion(nil, err); return }
                 completion(session.openStream(target: target, callerQueue: queue), nil)
@@ -542,8 +539,13 @@ enum NCConnector {
             }
             let version = proxy.fields["version"]?.int ?? 1
             let psk = Data(password.utf8)
-            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
-                guard let raw else { completion(nil, err); return }
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw0, err in
+                guard var raw = raw0 else { completion(nil, err); return }
+                // fix/nc-silent-fail: obfs-opts http / tls (simple-obfs) wraps the whole Snell stream (mihomo
+                // Snell.streamConnContext); other modes are gated in NCSupport.snellUnsupported.
+                if let obfs = snellObfsOptions(proxy) {
+                    raw = NCSSPluginStream(raw: raw, options: obfs, serverPort: String(port))
+                }
                 if version >= 4 {
                     completion(NCSnellV4Relay(raw: raw, psk: psk, target: target), nil)
                 } else {
@@ -579,6 +581,15 @@ enum NCConnector {
                                    allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                                    alpn: ["h2"], queue: queue)
                 raw.start { err in finish(err == nil ? raw : nil, err) }
+                return
+            }
+            if trojanUsesTransport(proxy) {
+                // fix/nc-silent-fail: trojan-go ws / trojan-grpc / h2 — the transport carries the Trojan head.
+                trojanTransportBase(proxy: proxy, server: server, port: port, queue: queue) { base, err in
+                    guard let base else { completion(nil, err); return }
+                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    completion(base, nil)
+                }
                 return
             }
             if realityParams(proxy) != nil {
@@ -685,10 +696,20 @@ enum NCConnector {
                     return
                 }
                 if isVision, useTLS, let uuidBytes = NCVLESS.uuidBytes(uuid) {
-                    let tls = NCTLSClientStream(raw: raw, config: .init(
+                    // fix/nc-silent-fail: uTLS shape from client-fingerprint; `fingerprint` pins the certificate.
+                    var config = NCTLSClientStream.Config(
                         serverName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                         allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                        profile: NCClientHelloProfile.named(proxy.fields["fingerprint"]?.string ?? proxy.fields["client-fingerprint"]?.string)), queue: queue)
+                        profile: utlsProfile(proxy))
+                    switch certPin(proxy) {
+                    case .absent: break
+                    case .pin(let pin): config.pinnedCertSHA256 = pin
+                    case .invalid:
+                        raw.cancel()
+                        completion(nil, Failure.handshake("fingerprint: need a SHA-256 certificate fingerprint (use client-fingerprint for the browser)"))
+                        return
+                    }
+                    let tls = NCTLSClientStream(raw: raw, config: config, queue: queue)
                     tls.startHandshake { herr in
                         guard herr == nil else { completion(nil, herr); return }
                         let vision = NCVisionStream(tls: tls, uuid: uuidBytes)
@@ -819,7 +840,7 @@ enum NCConnector {
             var config = NCTLSClientStream.Config(
                 serverName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                 reality: reality,
-                profile: NCClientHelloProfile.named(proxy.fields["fingerprint"]?.string ?? proxy.fields["client-fingerprint"]?.string))
+                profile: utlsProfile(proxy))
             if let alpn { config.alpn = alpn }
             let tls = NCTLSClientStream(raw: raw, config: config, queue: queue)
             tls.startHandshake { herr in
@@ -853,10 +874,11 @@ enum NCConnector {
         }
         switch network {
         case "ws":
-            let (path, headers) = wsOptions(proxy)
-            let host = headers.first { $0.key.caseInsensitiveCompare("Host") == .orderedSame && !$0.value.isEmpty }?.value ?? server
-            let ws = NCWebSocketStream(raw: raw, hostHeader: host, path: path, headers: headers)
-            ws.startHandshake { err in
+            // fix/nc-silent-fail: every ws-opts mode — early data (max-early-data / ?ed=), v2ray-http-upgrade
+            // (+ fast-open). Trojan's default Host is its sni (mihomo trojan.go).
+            let defaultHost = proxy.type == "trojan" ? (proxy.fields["sni"]?.string ?? server) : server
+            let ws = NCV2RayWSStream(raw: raw, options: NCWSTransportOptions.parse(proxy, defaultHost: defaultHost))
+            ws.start { err in
                 completion(err == nil ? ws : nil, err)
             }
         case "grpc":
@@ -876,7 +898,10 @@ enum NCConnector {
             }
         case "xhttp":
             xhttpStream(raw: raw, proxy: proxy, queue: queue, completion: completion)
-        case "h2", "http":
+        case "http":
+            // fix/nc-silent-fail: mihomo http-opts is an HTTP/1.1 request disguise over the (TLS) stream, not h2.
+            completion(NCHTTPObfsStream(raw: raw, options: NCHTTPObfsOptions.parse(proxy, server: server)), nil)
+        case "h2":
             let opts = proxy.fields["h2-opts"]?.object
             let path = opts?["path"]?.string ?? "/"
             let authority = opts?["host"]?.array?.first?.string

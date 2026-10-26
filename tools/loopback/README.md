@@ -49,6 +49,10 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18015 | sing-box Trojan inbound with ECH — `nc-loop-trojan-pw`, TLS + ECH (`outer.localhost` / `localhost`) |
 | 18040 | sing-box naive inbound, TCP (HTTP/2 CONNECT + naive padding) — `nc-loop` / `nc-loop-naive-pw`, self-signed TLS |
 | 18041 | sing-box naive inbound, UDP (HTTP/3 over QUIC, ALPN h3) — same user |
+| 18060 | sing-box Trojan inbound over WebSocket `/tj` — same password, self-signed TLS (fix/nc-silent-fail) |
+| 18061 | sing-box VLESS inbound over HTTPUpgrade `/up` (v2ray-http-upgrade) |
+| 18062 | sing-box VLESS inbound over WebSocket `/ed`, max_early_data 2048 in `Sec-WebSocket-Protocol` |
+| 18063 | sing-box Trojan inbound over gRPC (service `TunSvc`), self-signed TLS |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
