@@ -549,6 +549,39 @@ public enum NCTrustTunnelWire {
         ]
     }
 
+    /// QPACK field section for TrustTunnel HTTP/3 CONNECT request (RFC 9204 / RFC 9220)
+    public static func qpackConnectHeaders(
+        authority: String,
+        username: String,
+        password: String,
+        userAgent: String? = nil
+    ) -> Data {
+        let creds = Data("\(username):\(password)".utf8).base64EncodedString()
+        let ua: String
+        if let userAgent {
+            ua = userAgent
+        } else if authority == udpPseudoHost {
+            ua = "iOS _udp2"
+        } else if authority == icmpPseudoHost {
+            ua = "iOS _icmp"
+        } else {
+            ua = "iOS TrustTunnel"
+        }
+        var out = Data([0x00, 0x00]) // Required Insert Count = 0, Base = 0
+        // :method CONNECT -> QPACK static index 15: 1 T=1 index(6) -> 0xC0 | 15 = 0xCF
+        out.append(NCHy2.qpackEncodeInteger(15, prefixBits: 6, flags: 0xC0))
+        // :authority <authority> -> Literal with static name ref 0: 0 1 N=0 T=1 index(4) -> 0x50 | 0 = 0x50
+        out.append(NCHy2.qpackEncodeInteger(0, prefixBits: 4, flags: 0x50))
+        out.append(NCHy2.qpackEncodeString(authority))
+        // proxy-authorization: Basic <creds> -> Literal with literal name: 0 0 1 N=0 H=0 nameLen(3) -> 0x20
+        out.append(NCHy2.qpackEncodeString("proxy-authorization", prefixBits: 3, flags: 0x20))
+        out.append(NCHy2.qpackEncodeString("Basic \(creds)"))
+        // user-agent: <ua> -> Literal with static name ref 94:
+        out.append(NCHy2.qpackEncodeInteger(94, prefixBits: 4, flags: 0x50))
+        out.append(NCHy2.qpackEncodeString(ua))
+        return out
+    }
+
     /// Padded IP Address encoding per TrustTunnel spec §11.2:
     /// - IPv4: zero-padded to 16 bytes (12 zero bytes + 4 bytes IPv4)
     /// - IPv6: 16 bytes

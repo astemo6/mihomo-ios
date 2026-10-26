@@ -103,13 +103,13 @@ final class NCH2MuxCore {
     }
 
     /// Open a CONNECT stream; returns its id and the HEADERS frame bytes.
-    func openStream() -> (Int, Data) {
+    func openStream(headers: [(String, String)]? = nil) -> (Int, Data) {
         let id = nextStreamID
         nextStreamID += 2
         streamWindows[id] = peerInitialWindow
-        let headers: [(String, String)] = [(":method", "CONNECT"), (":authority", "localhost")]
+        let h = headers ?? [(":method", "CONNECT"), (":authority", "localhost")]
         let frame = NCH2ClientCore.frame(type: 0x1, flags: 0x4, streamID: id,
-                                         payload: NCHPACK.encodeHeaders(headers))
+                                         payload: NCHPACK.encodeHeaders(h))
         return (id, frame)
     }
 

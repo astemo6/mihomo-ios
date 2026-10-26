@@ -17,13 +17,18 @@ final class NCStream {
         conn = NWConnection(to: Self.endpoint(host, port: port), using: NCOutboundBinding.params(tls ? .tls : .tcp, host: host))
     }
 
-    /// TLS with proxy-protocol options: explicit SNI (servername) and optional
-    /// skip-cert-verify, as Trojan/VLESS/VMess configs carry them.
-    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, queue: DispatchQueue) {
+    /// TLS with proxy-protocol options: explicit SNI (servername), optional
+    /// skip-cert-verify, and optional ALPN list, as Trojan/VLESS/VMess/TrustTunnel configs carry them.
+    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, alpn: [String]? = nil, queue: DispatchQueue) {
         self.queue = queue
         let tlsOptions = NWProtocolTLS.Options()
         if let sni = tlsServerName, !sni.isEmpty {
             sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, sni)
+        }
+        if let alpn {
+            for proto in alpn {
+                sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, proto)
+            }
         }
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, complete in
