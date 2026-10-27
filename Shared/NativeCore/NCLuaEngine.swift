@@ -86,9 +86,9 @@ final class NCLuaEngine {
         }
         guard rc == LUA_OK else {
             initError = String(cString: nc_lua_get_error(L))
-            nc_lua_close(L)
-            tracker.deinitialize(count: 1)
-            tracker.deallocate()
+            // Every stored property is initialised here, so returning nil runs deinit, which closes the
+            // state and frees the tracker. Closing here too was a double lua_close (SIGSEGV in
+            // testEngineLoadFailureIsClean, CI 40450028930).
             return nil
         }
         nc_lua_set_deadline(L, 5)
@@ -96,9 +96,9 @@ final class NCLuaEngine {
         nc_lua_set_deadline(L, 0)
         guard runRC == LUA_OK else {
             initError = String(cString: nc_lua_get_error(L))
-            nc_lua_close(L)
-            tracker.deinitialize(count: 1)
-            tracker.deallocate()
+            // Every stored property is initialised here, so returning nil runs deinit, which closes the
+            // state and frees the tracker. Closing here too was a double lua_close (SIGSEGV in
+            // testEngineLoadFailureIsClean, CI 40450028930).
             return nil
         }
     }
