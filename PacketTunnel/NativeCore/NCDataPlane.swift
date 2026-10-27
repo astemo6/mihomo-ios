@@ -219,7 +219,15 @@ final class NCDataPlane {
         self.engine = engine
         self.flow = flow
         self.mtu = mtu
+        self.localTunnel = NCLocalDeviceTunnelState.active
     }
+
+    /// 本机隧道 (LocalDevVPN compatible), copied once: packets to its peer are reflected before lwIP.
+    private let localTunnel: NCLocalDeviceTunnel?
+    /// Reflected packets waiting for the end-of-turn writePackets (kept separate from lwIP's output batch so they
+    /// are never counted or traced). Capacity is kept between turns; empty when the feature is off.
+    private var reflectBatch: [Data] = []
+    private var reflectFamilies: [NSNumber] = []
 
     func start() throws {
         stack.onOutput = { [weak self] packet in
@@ -352,13 +360,32 @@ final class NCDataPlane {
             self.queue.async {
                 // rv2-life: a stopped plane stops reading (a restarted core's new plane owns the flow now)
                 guard self.isRunning else { return }
+                // 本机隧道: reflect packets for the peer straight back to the TUN — before lwIP, the rules, the
+                // packet trace and the counters (a 4-byte compare per packet; nothing at all when off).
+                var reflected = 0
+                if let local = self.localTunnel {
+                    for p in packets where local.matches(p) {
+                        var r = p
+                        NCLocalDeviceTunnel.reflect(&r)
+                        self.reflectBatch.append(r)
+                        self.reflectFamilies.append(Self.familyV4)
+                        reflected += 1
+                    }
+                    if reflected > 0, let flow = self.flow {
+                        flow.writePackets(self.reflectBatch, withProtocols: self.reflectFamilies)
+                        self.reflectBatch.removeAll(keepingCapacity: true)
+                        self.reflectFamilies.removeAll(keepingCapacity: true)
+                    }
+                    if reflected == packets.count { self.readLoop(); return }
+                }
                 if !self.tickFast { self.setTickFast(true) }
-                self.packetsIn &+= packets.count
+                self.packetsIn &+= packets.count - reflected
                 if !self.loggedFirstPacket {
                     self.loggedFirstPacket = true
                     StartupLog.write("data plane: first packet processed on the lwIP queue (\(Self.describe(packets.first ?? Data())))")
                 }
                 for p in packets {
+                    if reflected > 0, let local = self.localTunnel, local.matches(p) { continue }
                     if self.tracedIn < Self.traceInLimit {
                         self.tracedIn += 1
                         StartupLog.write("pkt in #\(self.tracedIn): \(NCPacketTrace.summary(p))", mirror: false)
