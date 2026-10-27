@@ -10,6 +10,9 @@
 # against local servers (tools/e2e/start-e2e.sh). Node hosts / passwords / URLs / the MitM passphrase are masked
 # (::add-mask::), redacted in every result line and scrubbed from every uploaded file.
 #
+# ci/speedup: the TernE2E products come from a build-for-testing job (.github/workflows/build-for-testing.yml) — this
+# workflow's own `build` job, or, when Self-test calls it with prebuilt=true (extras e2e), the caller's build-e2e job.
+#
 # Stages (two test bundles, one simulator, one app container):
 #   1. TernUnitTests/NativeCoreE2EReplayTests — import + runtime generation (App module)
 #   2. TernE2ETunnelTests/TernE2ETunnelTests    — NativeCore in-process (PacketTunnel sources)
@@ -36,6 +39,16 @@ on:
         type: string
         required: false
         default: auto
+      prebuilt:
+        description: The caller's run already has the tern-products-TernE2E artifact (no build job here)
+        type: boolean
+        required: false
+        default: false
+      xcode:
+        description: Xcode.app path of that build
+        type: string
+        required: false
+        default: ""
     secrets:
       TERN_E2E_KEY:
         required: false
@@ -52,21 +65,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build:
+    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt
+    uses: ./.github/workflows/build-for-testing.yml
+    with:
+      ref: ${{ inputs.ref }}
+      scheme: TernE2E
+
   replay:
-    if: github.repository == 'astemo6/mihomo-ios'
+    needs: build
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && (needs.build.result == 'success' || (inputs.prebuilt && needs.build.result == 'skipped')) }}
     runs-on: macos-15
-    timeout-minutes: 80
+    timeout-minutes: 50
     env:
       OUT: ${{ github.workspace }}/e2e-out
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
-      - name: Select latest Xcode
-        run: |
-          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
       - name: Fixture
         env:
           TERN_E2E_KEY: ${{ secrets.TERN_E2E_KEY }}
@@ -94,74 +110,18 @@ jobs:
           curl -sS -m 10 -o /dev/null https://httpbin.org/get && NETOK=1 || true
           echo "PUBLIC_DNS=$DNS" >> "$GITHUB_ENV"; echo "INTERNET=$NETOK" >> "$GITHUB_ENV"
           echo "public DNS (localtest.me → 127.0.0.1): $DNS, internet: $NETOK"
-      - name: Generate project
-        run: |
-          brew install xcodegen
-          xcodegen generate --spec project-uitests.yml
-      - name: Pick simulator
-        run: |
-          DEV=$(xcrun simctl list devices available -j | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)['devices']
-          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
-          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
-          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
-              m=[(r,x) for r,x in devs if x['name']==want]
-              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
-          ")
-          test -n "$DEV"
-          echo "DEV=$DEV" >> "$GITHUB_ENV"
-          xcrun simctl boot "$DEV" || true
-      - name: Build for testing
-        run: |
-          set -o pipefail
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/e2e \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            build-for-testing 2>&1 | tee build-e2e.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
-          grep -q "TEST BUILD SUCCEEDED" build-e2e.log || { grep -E "error:" build-e2e.log | head -n 80; tail -n 120 build-e2e.log; exit 1; }
-      # fix/nc-mem-4: no Thread Performance Checker (libRPAC) in the test host. Its priority-inversion report (JSCThread,
-      # timing-dependent) made XCTest symbolicate the ~100 MB Debug test bundle on the main thread with CoreSymbolication:
-      # +55 MB for ~2 s, the whole kernel peak of the memory gate (runs 40419441795 / 40422441193 / 40431543693). The
-      # scheme flag alone (project-uitests.yml) did not keep it out of every run, so strip it from the generated xctestrun
-      # that test-without-building reads. A device / Release build never loads the checker.
+      # Same Xcode as the build, simulator boot started, products unpacked ($TERN_PRODUCTS, $XCTESTRUN, $DEV).
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode || needs.build.outputs.xcode }}
+      # fix/nc-mem-4: no Thread Performance Checker (libRPAC) in the test host — see scripts/ci/strip-tpc.py.
       - name: Disable Thread Performance Checker
-        run: |
-          python3 - <<'PY'
-          import glob, plistlib
-          for f in glob.glob("build/e2e/Build/Products/*.xctestrun"):
-              with open(f, "rb") as fh:
-                  d = plistlib.load(fh)
-              n = 0
-              def fix(env):
-                  global n
-                  if not isinstance(env, dict):
-                      return
-                  for k in list(env):
-                      if k.startswith("PERFC_"):
-                          del env[k]; n += 1
-                  v = env.get("DYLD_INSERT_LIBRARIES")
-                  if isinstance(v, str) and "RPAC" in v:
-                      env["DYLD_INSERT_LIBRARIES"] = ":".join(x for x in v.split(":") if "RPAC" not in x); n += 1
-              def walk(o):
-                  if isinstance(o, dict):
-                      for k, v in o.items():
-                          if k in ("EnvironmentVariables", "TestingEnvironmentVariables"):
-                              fix(v)
-                          else:
-                              walk(v)
-                  elif isinstance(o, list):
-                      for x in o:
-                          walk(x)
-              walk(d)
-              with open(f, "wb") as fh:
-                  plistlib.dump(d, fh)
-              print(f"{f}: {n} Thread Performance Checker setting(s) removed")
-          PY
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
       - name: Stage fixture into the app container
         run: |
           xcrun simctl bootstatus "$DEV" -b
-          APP=$(find build/e2e/Build/Products -maxdepth 2 -name Tern.app -type d | head -n1)
+          APP=$(find "$TERN_PRODUCTS" -maxdepth 2 -name Tern.app -type d | head -n1)
           xcrun simctl install "$DEV" "$APP"
           C=$(xcrun simctl get_app_container "$DEV" com.astemo6.tern data)
           mkdir -p "$C/Documents/tern-e2e"
@@ -174,8 +134,7 @@ jobs:
           TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_STATE="$RUNNER_TEMP/e2e-state" TEST_RUNNER_TERN_E2E_FIXTURE="$RUNNER_TEMP/fixture.conf" \
           TEST_RUNNER_TERN_E2E_SAMPLE="$SAMPLE" TEST_RUNNER_TERN_E2E_PUBLIC_DNS="$PUBLIC_DNS" TEST_RUNNER_TERN_E2E_INTERNET="$INTERNET" \
           TEST_RUNNER_JSC_useJIT=false \
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/e2e -resultBundlePath "$RUNNER_TEMP/stage1.xcresult" \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath "$RUNNER_TEMP/stage1.xcresult" \
             -only-testing:TernUnitTests/NativeCoreE2EReplayTests test-without-building > stage1.log 2>&1
           echo "stage 1 exit $?"
           grep -E "E2E-RESULT|Test Case|error:|Executed" stage1.log | tail -n 60
@@ -185,8 +144,7 @@ jobs:
           set +e
           TEST_RUNNER_TERN_E2E=1 TEST_RUNNER_TERN_E2E_OUT="$OUT" TEST_RUNNER_TERN_E2E_STATE="$RUNNER_TEMP/e2e-state" TEST_RUNNER_TERN_E2E_SAMPLE="$SAMPLE" \
           TEST_RUNNER_TERN_E2E_PUBLIC_DNS="$PUBLIC_DNS" TEST_RUNNER_TERN_E2E_INTERNET="$INTERNET" TEST_RUNNER_JSC_useJIT=false \
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/e2e -resultBundlePath "$RUNNER_TEMP/stage2.xcresult" \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath "$RUNNER_TEMP/stage2.xcresult" \
             -only-testing:TernE2ETunnelTests/TernE2ETunnelTests test-without-building > stage2.log 2>&1
           echo "stage 2 exit $?"
           grep -E "E2E-RESULT|Test Case|error:|Executed|Fatal|crash" stage2.log | tail -n 120
@@ -203,7 +161,7 @@ jobs:
           python3 tools/e2e/summarize.py "$OUT/summary.md" --known tools/e2e/known-gaps.txt --title "E2E replay ($FIXTURE_KIND fixture)" --expect-stages app,tunnel $INPUTS
           echo "RC=$?" >> "$GITHUB_ENV"
           # Never upload a secret: scrub every file (and refuse what still matches).
-          python3 tools/e2e/mask.py scrub "$RUNNER_TEMP/fixture.conf" "$OUT"/* stage1.log stage2.log build-e2e.log
+          python3 tools/e2e/mask.py scrub "$RUNNER_TEMP/fixture.conf" "$OUT"/* stage1.log stage2.log
           python3 tools/e2e/mask.py check "$RUNNER_TEMP/fixture.conf" "$OUT"/* stage1.log stage2.log || { echo "::error::a secret survived scrubbing; logs not uploaded"; rm -f stage1.log stage2.log; }
           cp stage1.log stage2.log "$OUT/" 2>/dev/null
           rm -f "$OUT/handoff.json"

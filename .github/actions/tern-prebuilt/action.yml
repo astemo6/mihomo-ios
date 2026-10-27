@@ -1,0 +1,70 @@
+# ci/speedup: set a test job up on the products of the run's build-for-testing job (.github/workflows/build-for-testing.yml)
+# instead of building again. After it: $DEV (booting simulator), $TERN_PRODUCTS (Build/Products copy) and $XCTESTRUN
+# (the scheme's .xctestrun) are in the job environment; run
+#   xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" … test-without-building
+# Needs actions/checkout first (scripts/ci/pick-sim.sh).
+name: Tern prebuilt products
+description: Same Xcode as the build job, simulator boot started, products downloaded and unpacked
+inputs:
+  scheme:
+    description: TernUITests (app + TernUnitTests + TernUITests) or TernE2E (app + TernUnitTests + TernE2ETunnelTests)
+    required: true
+  xcode:
+    description: Xcode.app path the products were built with (build job output); empty = latest non-beta
+    required: false
+    default: ""
+  boot:
+    description: Pick and boot a simulator (false for jobs that only need the files)
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Select the build job's Xcode
+      shell: bash
+      env:
+        WANT: ${{ inputs.xcode }}
+      run: |
+        if [ -n "$WANT" ] && [ -d "$WANT" ]; then XC=$WANT
+        else
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          [ -z "$WANT" ] || echo "::warning::build used $WANT, not on this runner image — using $XC (test-without-building may refuse the products)"
+        fi
+        sudo xcode-select -s "$XC/Contents/Developer"
+        xcodebuild -version
+    - name: Start simulator boot (overlaps the download)
+      if: inputs.boot == 'true'
+      shell: bash
+      run: |
+        ( "$GITHUB_WORKSPACE/scripts/ci/pick-sim.sh" > "$RUNNER_TEMP/tern-dev.txt" 2> "$RUNNER_TEMP/tern-dev.err"; echo $? > "$RUNNER_TEMP/tern-dev.rc" ) &
+    - uses: actions/download-artifact@v5
+      with:
+        name: tern-products-${{ inputs.scheme }}
+        path: ${{ runner.temp }}/tern-products-dl
+    - name: Unpack products
+      shell: bash
+      run: |
+        set -euo pipefail
+        P="$GITHUB_WORKSPACE/build/products"
+        rm -rf "$P"; mkdir -p "$P"
+        A=$(ls "$RUNNER_TEMP"/tern-products-dl/products.tar.* | head -n1)
+        case "$A" in
+          *.zst) zstd -dc -T0 "$A" | tar -xf - -C "$P" ;;
+          *) tar -xzf "$A" -C "$P" ;;
+        esac
+        rm -rf "$RUNNER_TEMP/tern-products-dl"
+        cat "$P/ci-build-info.txt" 2>/dev/null || true
+        X=$(ls "$P"/${{ inputs.scheme }}_*.xctestrun | head -n1)
+        test -f "$X"
+        du -sh "$P"
+        { echo "TERN_PRODUCTS=$P"; echo "XCTESTRUN=$X"; } >> "$GITHUB_ENV"
+    - name: Simulator
+      if: inputs.boot == 'true'
+      shell: bash
+      run: |
+        for _ in $(seq 1 300); do [ -f "$RUNNER_TEMP/tern-dev.rc" ] && break; sleep 1; done
+        cat "$RUNNER_TEMP/tern-dev.err" || true
+        test "$(cat "$RUNNER_TEMP/tern-dev.rc" 2>/dev/null)" = 0
+        DEV=$(tail -n1 "$RUNNER_TEMP/tern-dev.txt")
+        test -n "$DEV"
+        echo "DEV=$DEV" >> "$GITHUB_ENV"

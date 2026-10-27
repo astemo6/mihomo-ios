@@ -1,0 +1,138 @@
+# ci/speedup (2026-10-27): ONE simulator build-for-testing per scheme per workflow run. The test jobs (UI shards, unit,
+# E2E replay, proto loopback) download its products and run `xcodebuild -xctestrun … test-without-building` via
+# .github/actions/tern-prebuilt — before this, every macOS job built the app and test bundles itself (6–15 min each,
+# up to 16 builds for one full CI).
+#
+#   scheme TernUITests → app + TernUnitTests + TernUITests       (UI shards, unit tests, sing-box loopback)
+#   scheme TernE2E     → app + TernUnitTests + TernE2ETunnelTests (E2E replay, OpenConnect / CONNECT-IP / WARP loopback)
+# Same schemes, configuration and build settings as the jobs used before (Debug, iphonesimulator, arm64, no signing),
+# so each xctestrun is the one those jobs generated; only the destination is generic instead of one booted simulator.
+# Index-while-building is off (nothing reads the index on CI).
+#
+# Artifact: tern-products-<scheme> = products.tar.zst (Build/Products incl. the .xctestrun, file modes kept — the
+# artifact zip would drop the executable bits) + ci-build-info.txt. Kept 3 days.
+#
+# Compile cache (input compilation_cache, default on): Xcode 26 compilation caching (COMPILATION_CACHE_ENABLE_CACHING,
+# content-addressed, so a fresh checkout's mtimes / inodes do not matter) with its CAS and the module caches in
+# actions/cache, key = scheme + Xcode version + hash of the XcodeGen specs + hash of every compiled source.
+# Restore falls back to the newest entry for the same scheme / Xcode / specs. GitHub caches are per branch (plus the
+# default branch), so the first run on a new test/** ref builds cold and later runs on that ref reuse it.
+name: Build for testing
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit / ref to build (empty = the triggering commit)
+        type: string
+        required: false
+        default: ""
+      scheme:
+        description: TernUITests or TernE2E
+        type: string
+        required: true
+      compilation_cache:
+        type: boolean
+        required: false
+        default: true
+    outputs:
+      xcode:
+        description: Xcode.app path the products were built with (test jobs select the same one)
+        value: ${{ jobs.build.outputs.xcode }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ inputs.scheme }})
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      xcode: ${{ steps.xcode.outputs.path }}
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Select latest Xcode
+        id: xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+          V=$(xcodebuild -version | tr '\n' ' ' | sed -E 's/Xcode ([0-9.]+) Build version ([0-9A-Za-z]+).*/\1-\2/')
+          { echo "path=$XC"; echo "version=$V"; } >> "$GITHUB_OUTPUT"
+      - name: Generate project (with test targets)
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate --spec project-uitests.yml
+      - name: Restore compile cache
+        id: cache
+        if: inputs.compilation_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/dd/CompilationCache.noindex
+            build/dd/ModuleCache.noindex
+          key: tern-cas-v1-${{ inputs.scheme }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('project.yml', 'project-uitests.yml') }}-${{ hashFiles('App/**', 'Shared/**', 'PacketTunnel/**', 'Widget/**', 'UnitTests/**', 'UITests/**', 'AppTests/**', 'E2ETests/**', 'Config/**', 'Geo/**') }}
+          restore-keys: |
+            tern-cas-v1-${{ inputs.scheme }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('project.yml', 'project-uitests.yml') }}-
+            tern-cas-v1-${{ inputs.scheme }}-${{ steps.xcode.outputs.version }}-
+      - name: Build for testing
+        env:
+          CACHE: ${{ inputs.compilation_cache }}
+        run: |
+          set -o pipefail
+          EXTRA=()
+          if [ "$CACHE" = true ]; then EXTRA=(COMPILATION_CACHE_ENABLE_CACHING=YES); fi
+          du -sh build/dd/CompilationCache.noindex 2>/dev/null || true
+          START=$(date +%s)
+          xcodebuild -project Tern.xcodeproj -scheme "${{ inputs.scheme }}" -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build/dd \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            COMPILER_INDEX_STORE_ENABLE=NO "${EXTRA[@]}" \
+            build-for-testing 2>&1 | tee build-${{ inputs.scheme }}.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
+          grep -q "TEST BUILD SUCCEEDED" build-${{ inputs.scheme }}.log || { grep -E "error:" build-${{ inputs.scheme }}.log | head -n 80; tail -n 150 build-${{ inputs.scheme }}.log; exit 1; }
+          echo "build-for-testing $(( $(date +%s) - START )) s"
+          echo "### build-for-testing (${{ inputs.scheme }}): $(( $(date +%s) - START )) s, compile cache: ${{ steps.cache.outputs.cache-matched-key || 'none' }}" >> "$GITHUB_STEP_SUMMARY"
+          du -sh build/dd/CompilationCache.noindex build/dd/ModuleCache.noindex 2>/dev/null || true
+      - name: Package products
+        run: |
+          set -euo pipefail
+          P=build/dd/Build/Products
+          ls "$P"
+          { echo "scheme=${{ inputs.scheme }}"; echo "commit=$(git rev-parse HEAD)"; echo "xcode=${{ steps.xcode.outputs.path }}"; xcodebuild -version; } > "$P/ci-build-info.txt"
+          # Module interfaces are not needed to run tests.
+          if command -v zstd >/dev/null; then
+            tar -C "$P" --exclude='*.swiftmodule' -cf - . | zstd -T0 -3 -q -o products.tar.zst
+          else
+            tar -C "$P" --exclude='*.swiftmodule' -czf products.tar.gz .
+          fi
+          du -sh "$P" products.tar.*
+      - uses: actions/upload-artifact@v6
+        with:
+          name: tern-products-${{ inputs.scheme }}
+          path: products.tar.*
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: build-log-${{ inputs.scheme }}
+          path: build-${{ inputs.scheme }}.log
+          if-no-files-found: ignore
+          retention-days: 7
+      # After the upload: the test jobs only start when this job ends, so the save is on the critical path —
+      # skipped when the exact key was restored (nothing new to store).
+      - name: Save compile cache
+        if: inputs.compilation_cache && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/dd/CompilationCache.noindex
+            build/dd/ModuleCache.noindex
+          key: ${{ steps.cache.outputs.cache-primary-key }}
