@@ -1,12 +1,12 @@
-# Tern（NativeCore 原生内核的 iOS 客户端，原名 Mihomo iOS）
+# Tern（NativeCore 原生内核的 iOS 客户端）
 
-内核为自研 **NativeCore**（纯 Swift，协议 / 规则 / DNS 语义对标 [mihomo](https://github.com/MetaCubeX/mihomo) 与 Surge / Loon / Quantumult X）的个人 iOS 代理客户端：卡片界面（深色 / 浅色），五个标签页——首页、策略、请求、工具、更多；首页只放最常用的东西，功能页在「工具」，设置在「更多」，进阶选项收在「更多 → 高级设置」。
+内核为自研 **NativeCore**（纯 Swift，协议 / 规则 / DNS 语义对标 [Clash.Meta](https://github.com/MetaCubeX/mihomo) 与 Surge / Loon / Quantumult X）的个人 iOS 代理客户端：卡片界面（深色 / 浅色），五个标签页——首页、策略、请求、工具、更多；首页只放最常用的东西，功能页在「工具」，设置在「更多」，进阶选项收在「更多 → 高级设置」。
 
 > 本项目以 **GPL-3.0** 发布（见 `LICENSE` 与 `NOTICE`）。仓库里没有任何节点、证书或密钥。
 
 ## 设计原则
 
-1. **一个内部模型**：任何来源格式（mihomo YAML、Surge / Quantumult X / Loon / Stash / Egern 的 .conf 与模块）只在导入边缘翻译一次为规范模型（见 `docs/native-config-model.md`），引擎只消费规范模型，不存在第二套运行逻辑；覆写 / 模块存储是我们自己的。
+1. **一个内部模型**：任何来源格式（Clash.Meta YAML、Surge / Quantumult X / Loon / Stash / Egern 的 .conf 与模块）只在导入边缘翻译一次为规范模型（见 `docs/native-config-model.md`），引擎只消费规范模型，不存在第二套运行逻辑；覆写 / 模块存储是我们自己的。
 2. **一种设计语言**：项目自己的深色卡片（`Theme` / `Card`），新页面不照搬其他客户端的布局。
 3. **首页极简**：连接开关、出站模式、IP 卡片、流量和可选的首页面板。功能页是「工具」里的卡片（节点与订阅、规则、模块、重写、脚本、任务、HTTPS 解密、DNS、日志、网络工具）；「更多」放配置、统计、备份和 App 设置，连接方式 / 内核 / 测速等进阶项在「更多 → 高级设置」。
 4. **模块只有一个入口**：所有格式的模块和远程资源（规则集、脚本）都在「工具 → 模块」，用角标标出来源格式。
@@ -21,13 +21,13 @@
 | 策略 | 已连接：实时策略组、点选切换、组测速；长按策略组：测速、置顶、换图标、编辑；拖动或「编辑排序」调整策略组顺序；自动 / 故障转移组可开「智能选择」；任意策略组可设**前置代理**并显示策略链。**未连接：「未连接 · 来自配置文件」离线策略页**——读取当前配置（含节点集缓存、合并的手动节点），可以选节点（按配置保存，下次连接时自动应用）、直接测速 |
 | 请求 | 实时连接、最近关闭、MitM 解密的 HTTP 请求（头部 / 内容查看、**复制为 cURL、重放、编辑后重放**、导出 HAR）、请求时间线 |
 | 工具 → 节点与订阅 | 配置订阅与节点订阅分开管理：流量 / 到期（`subscription-userinfo`）、左右滑（更新、复制链接）、长按（编辑、停用、图标、节点处理、删除）；全部节点、手动节点（添加 / 编辑 / 分享 / 凭据查看）、节点集（停用 / 删除 / 编辑）、筛选节点（按地区 / 关键词生成策略组）、离线测速 |
-| 工具 → 分流规则 | 规则（实时或离线，命中计数）+ **自定义规则**（Surge / QX / Loon / mihomo 写法，表单或文本模式，实时校验并显示转换结果与策略组；远程 RULE-SET / DOMAIN-SET / QX filter_remote；拖动排序） |
+| 工具 → 分流规则 | 规则（实时或离线，命中计数）+ **自定义规则**（Surge / QX / Loon / Clash.Meta 写法，表单或文本模式，实时校验并显示转换结果与策略组；远程 RULE-SET / DOMAIN-SET / QX filter_remote；拖动排序） |
 | 工具 → 模块 / 重写 / 脚本 / 定时任务 / HTTPS 解密 | **模块**（全部格式一个入口，格式角标；远程规则集 / 重写集 / 脚本各自的更新间隔、开关、错误、全部更新；一键添加 BoxJS；**模块库**浏览 / 搜索 / 预览；Loon `[Argument]` 参数；**策略映射**）、**本地模块**（重写规则 + MitM 主机名：表单编辑、拖动排序、文本模式）、**脚本调试台**、定时（cron）与通用脚本任务、HTTPS 解密（CA 证书、主机名、QUIC 选项） |
 | 工具 → DNS / 日志 / 网络 | DNS（国内 / 国外分流、引导 DNS、nameserver-policy、Fake-IP 过滤、本地映射）、运行日志、DNS 日志、连接分析（按天保存）、网络工具（Ping / TCP / DNS，经过内核规则并显示策略链）、网速测试（带宽 / NAT 类型）、**解锁检测**（按策略 / 节点）、内网 IP 与路由器 |
 | 更多 | 配置（**配置编辑器**：YAML 高亮、内核实时校验并标出错误行列；订阅配置只读，可「复制为本地配置」；**节点处理**：过滤、重命名、旗帜、去重、排序 + 实时预览；**覆写脚本**；订阅 / 本地 YAML / 剪贴板 / 文件；**Surge / Quantumult X / Loon / Clash `.conf` 导入**先显示转换报告）、流量统计（Swift Charts，按天保存约 120 天）、配置快照、**备份与恢复**（文件 / 分享 / iCloud、WebDAV 多版本可加密、iCloud 云盘同步文件夹）、更新资源、存储空间、深色与浅色、App 图标、开始标签页、首页流量统计范围、新手引导、诊断与反馈（**一键导出诊断包**、App Group 与候选组、扩展 ID、启动日志、隧道内存）、关于 |
 | 更多 → 高级设置 | 连接方式（全局隧道 / 混合 / 仅代理、路由、跳过代理、阻止 QUIC、阻止 WebRTC、IPv6、**局域网共享**与多用户、按需连接：始终 / 仅 Wi-Fi / 仅蜂窝，App 内手动断开会暂停按需连接）、隧道（包含所有网络 / 本地网络 / APNs / 蜂窝网络服务 / 设备通信、兼容性增强模式、FaceTime 走代理）、地理数据库（GeoIP MMDB、GEOIP dat、GEOSITE、GeoLite2-ASN：状态、默认 / 自定义地址、国内镜像、下载进度与错误）、内核设置（内存上限、隧道 MTU、手动节点合并进每个配置、日志、控制器、切换节点时断开连接、网络变化时清空 DNS 缓存）、测速设置、出口信息来源 |
 | 快捷指令 | 连接、断开、切换连接、切换出站模式、切换节点、**查询状态、切换配置、开关模块、更新订阅、运行脚本**（App Intents）；主屏幕长按图标：连接 / 断开、规则 / 全局 / 直连 |
-| 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Tern 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本 |
+| 导入链接 | 只注册自己的 `tern://`（`tern://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Tern 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本 |
 | 小组件 / 实时活动（`-widget` IPA） | 主屏幕 / 锁屏小组件、控制中心开关、灵动岛与锁屏实时活动（速度、节点、累计流量） |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
 
@@ -42,7 +42,7 @@
 │ VPNManager（NETunnelProviderManager + 按需连接）        │
 │ ControllerClient ──HTTP/WebSocket──► 127.0.0.1:9090     │
 │ ProfileStore / ProfileInspector（离线解析配置）         │
-│ ImportRouter（mihomo:// + 外部链接 + 文档）、App Intents │
+│ ImportRouter（tern:// + 外部链接 + 文档）、App Intents │
 │ Shared/NativeCore（校验、转换、离线解析、地理库）       │
 └──────────────────────────────┬─────────────────────────┘
                                │ App Group（运行时从描述文件解析）
@@ -56,8 +56,9 @@
 ```
 
 - 内核 **NativeCore**（纯 Swift）：共享层 `Shared/NativeCore/` 放配置规范模型、导入器、规则、DNS、协议与控制器协议，App 与隧道共用；`PacketTunnel/NativeCore/` 放数据面（lwIP）、拨号与引擎生命周期。隧道启动时由 `NativeCoreEngine` 加载经导入器归一的配置。
-- 设置文件（App Group 容器 `mihomo/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
+- 设置文件（App Group 容器 `tern/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
+- 改名（2026-10-27）：Bundle ID `com.astemo6.tern`（`.tunnel` / `.widget`）、App Group `group.com.astemo6.tern`、URL scheme `tern://`、容器目录 `tern/`。这是一个新 App，旧版的数据不会自动带过来：在旧版里导出备份（文件 / WebDAV / 同步文件夹 / 完整导出），在 Tern 里「更多 → 备份与恢复」导入即可，旧格式的备份照常识别（`App/Core/LegacyImport.swift`）。
 
 ### 编程语言分工（现状）
 
@@ -83,7 +84,7 @@ NativeCore（纯 Swift）实现的出站协议：Shadowsocks（含 2022，以及
 | 格式 | 示例 |
 | --- | --- |
 | 分享链接 | `ss://` `ssr://` `vmess://`（v2rayN JSON）`vless://` `trojan://` `hysteria://` `hysteria2://` `hy2://` `tuic://` `wireguard://` `wg://` `snell://` `anytls://` `mierus://` `socks5://` `socks://` `http(s)://user:pass@host:port` |
-| 订阅 | base64 编码的链接列表；mihomo / Clash YAML |
+| 订阅 | base64 编码的链接列表；Clash.Meta / Clash YAML |
 | Surge / Egern | `名称 = ss, host, 8388, encrypt-method=aes-128-gcm, password=…`（ss / vmess / trojan / snell / http / https / socks5 / socks5-tls / hysteria2 / tuic / anytls / ssh） |
 | Quantumult X | `shadowsocks=host:port, method=…, password=…, tag=名称`（shadowsocks / vmess / vless / trojan / http / socks5） |
 
@@ -91,7 +92,7 @@ NativeCore（纯 Swift）实现的出站协议：Shadowsocks（含 2022，以及
 
 ## 内核
 
-NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/NativeCore/`），随 App 一起构建发布，没有上游内核版本与自动升级流程——原 mihomo 内核与 `core-update.yml` 已随 Go-zero 一并移除。协议 / 规则 / DNS 语义对标 mihomo 与 Surge / Loon / QX，差异以仓库测试为准。
+NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/NativeCore/`），随 App 一起构建发布，没有上游内核版本与自动升级流程。协议 / 规则 / DNS 语义对标 Clash.Meta 与 Surge / Loon / QX，差异以仓库测试为准。
 
 ## CI
 
@@ -102,21 +103,21 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 
 `.github/workflows/ui-tests.yml`（Self-test，push 到 `test/**` 或手动运行）：模拟器 UI / 单元测试，不发布。UI 部分先由 `plan` job 选路径：
 
-- **冒烟（smoke）**：分支相对 `origin/main` 的 merge-base（分支就在 main 上时，相对最近的发布标签 `v*-build*`）没有改动任何影响界面或文案的文件时，只跑一个组合（zh-Hans 浅色）：`test01_TabsAndHome`、`test03_MoreEveryPage`、`test04_NodeManager` + 全部 `MihomoUnitTests`；App 与测试包照常完整编译。
+- **冒烟（smoke）**：分支相对 `origin/main` 的 merge-base（分支就在 main 上时，相对最近的发布标签 `v*-build*`）没有改动任何影响界面或文案的文件时，只跑一个组合（zh-Hans 浅色）：`test01_TabsAndHome`、`test03_MoreEveryPage`、`test04_NodeManager` + 全部 `TernUnitTests`；App 与测试包照常完整编译。
 - **完整（full）**：改到 `App/**`、`Shared/**`、`Widget/**`、`UITests/**`、`project-uitests.yml`、任意 `*.xcstrings` / `*.strings` / `*.lproj` / `*.xcassets`，或 `project.yml` 里涉及 App/Shared/Widget 路径、字符串目录、资源、Info.plist、产品名、图标的行时，按原来的矩阵跑。
 - 提交信息标记：`[shard:all]` 本仓库跑全部 8 个组合；`[shard:smoke]` 强制冒烟；`[shard:full]` 强制完整矩阵；`[only:<测试>]` / `[unit:<类>]` 只跑指定测试；`[skip-ui]` 跳过 UI。手动运行的 `shard` 输入对应 auto / full / smoke / all。完整规则见该 workflow 文件头部注释。
 
-另外：`checks.yml`（Checks）在 main / `test/**` / `core/**` 推送与 PR 上跑术语审计（`scripts/term_audit.py`）；`unit-tests.yml`（Unit tests）在目标为 `main` 的 PR 上跑整个 `MihomoUnitTests` 包。触发与去重的现行规则见 `CI.md`。
+另外：`checks.yml`（Checks）在 main / `test/**` / `core/**` 推送与 PR 上跑术语审计（`scripts/term_audit.py`）；`unit-tests.yml`（Unit tests）在目标为 `main` 的 PR 上跑整个 `TernUnitTests` 包。触发与去重的现行规则见 `CI.md`。
 
 ## 获取可安装的签名版本
 
 需要付费的 Apple Developer 账号（个人免费账号无法使用 Network Extension 能力）。
 
 1. **注册 App ID**（Certificates, Identifiers & Profiles → Identifiers → +，App IDs）：
-   - `com.astemo6.mihomo`：勾选 **App Groups** 和 **Network Extensions**。
-   - `com.astemo6.mihomo.tunnel`：同样勾选 **App Groups** 和 **Network Extensions**。
+   - `com.astemo6.tern`：勾选 **App Groups** 和 **Network Extensions**。
+   - `com.astemo6.tern.tunnel`：同样勾选 **App Groups** 和 **Network Extensions**。
    - 如果用自己的前缀，改 `project.yml` 顶部的 `APP_BUNDLE_ID` / `TUNNEL_BUNDLE_ID` / `APP_GROUP_ID`。
-2. **注册 App Group**：Identifiers → 右上角切到 App Groups → +，`group.com.astemo6.mihomo`。然后回到两个 App ID，在 App Groups 能力里 Configure，勾选这个组。
+2. **注册 App Group**：Identifiers → 右上角切到 App Groups → +，`group.com.astemo6.tern`。然后回到两个 App ID，在 App Groups 能力里 Configure，勾选这个组。
 3. **证书**：Apple Development（development 方式）或 Apple Distribution（ad-hoc 方式）。在钥匙串里导出为 `.p12`（带密码）。
 4. **注册设备**（Devices → +，填 iPhone 的 UDID）。
 5. **描述文件**（Profiles → +）：类型选 iOS App Development（或 Ad Hoc），分别给两个 App ID 各建一个，选上证书和设备，下载两个 `.mobileprovision`。
@@ -139,7 +140,7 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 下载 `*-unsigned.ipa`，用 Sideloadly / ESign / 爱思等工具，配合**开启了 Network Extension + App Groups 能力**的证书和描述文件重签。注意：
 
 - 两个 target 都必须带 `com.apple.developer.networking.networkextension = [packet-tunnel-provider]` 和 `com.apple.security.application-groups`；
-- App Group 在运行时自动解析：App、扩展和小组件各自读取包内 `embedded.mobileprovision` 中的 `com.apple.security.application-groups`；第一次按字母序取第一个系统认可的组（都不可用时再回退到 Info.plist 中的值和 `group.com.astemo6.mihomo`）并记住，之后优先用记住的组，其次是已有配置的组，描述文件续期后组列表变了也不会换到空容器，所以保持原 Bundle ID、用任意第三方购买的描述文件重签也能共享配置；隧道扩展 ID 从包内 PlugIns 的 packet-tunnel 扩展读取（回退为 `主程序 ID + .tunnel`），已保存的旧 VPN 配置会自动改指向新 ID；
+- App Group 在运行时自动解析：App、扩展和小组件各自读取包内 `embedded.mobileprovision` 中的 `com.apple.security.application-groups`；第一次按字母序取第一个系统认可的组（都不可用时再回退到 Info.plist 中的值和 `group.com.astemo6.tern`）并记住，之后优先用记住的组，其次是已有配置的组，描述文件续期后组列表变了也不会换到空容器，所以保持原 Bundle ID、用任意第三方购买的描述文件重签也能共享配置；隧道扩展 ID 从包内 PlugIns 的 packet-tunnel 扩展读取（回退为 `主程序 ID + .tunnel`），已保存的旧 VPN 配置会自动改指向新 ID；
 - 连接失败时首页会弹窗显示原因；更多 → 诊断与反馈 显示解析出的 App Group、候选组、扩展 ID 和共享容器是否可用，组可能不对时会给出提示；
 - 免费 Apple ID 证书不包含 Network Extension 能力，连接会失败。
 
@@ -165,7 +166,7 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 
 ### 安装并信任证书（手机上操作）
 
-1. 工具 → HTTPS 解密 → 生成 CA 证书（ECDSA P-256，10 年；私钥只保存在本机 App Group 容器的 `mihomo/engine/ca/`，不进钥匙串、不上传、不在仓库里）。
+1. 工具 → HTTPS 解密 → 生成 CA 证书（ECDSA P-256，10 年；私钥只保存在本机 App Group 容器的 `tern/engine/ca/`，不进钥匙串、不上传、不在仓库里）。
 2. 点「安装证书（通过 Safari）」，在 Safari 弹窗中选「允许」下载描述文件；也可以用「分享 / 存储描述文件」存到“文件”App 后点开。
 3. 设置 → 已下载描述文件（或 通用 → VPN 与设备管理）→ 安装。
 4. 设置 → 通用 → 关于本机 → **证书信任设置** → 打开「Tern MitM CA xxxxxx」的完全信任。

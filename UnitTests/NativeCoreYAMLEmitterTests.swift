@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-e2e-real: NCYAMLEmitter wrote every key after the first of a nested mapping at column 0, so a QX / Surge
 /// import with a ws node kept only its first node (E2E replay 40268229079: 1 / 1 / 3 runtime proxies / groups / rules

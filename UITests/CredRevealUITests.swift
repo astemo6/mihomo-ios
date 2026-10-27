@@ -3,7 +3,7 @@ import XCTest
 /// hotfix/node-cred-reveal (device 2026-10-21 「这里长按uuid需要可显示」 / 「选中订阅里的某个节点时，增加一个添加到本地节点的选项」):
 /// node detail credentials are hidden until 显示 (long press or the eye), and a subscription node can be copied
 /// into the local (manual) nodes. Demo data: subscription node 🇰🇷 Seoul Sub 02 (vless, fake uuid).
-extension MihomoUITests {
+extension TernUITests {
 
     static let credSubNode = "🇰🇷 Seoul Sub 02"
     static let credUUID = "00000000-0000-4000-8000-000000000011"

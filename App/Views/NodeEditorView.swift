@@ -314,7 +314,7 @@ enum NodeProtocols {
         case "tailscale":
             return [
                 FieldSpec(key: "auth-key", label: "Auth Key", kind: .secure, placeholder: "tskey-auth-…"),
-                FieldSpec(key: "hostname", label: "设备名", placeholder: "mihomo-ios"),
+                FieldSpec(key: "hostname", label: "设备名", placeholder: "tern"),
                 FieldSpec(key: "control-url", label: "控制服务器（Headscale）", placeholder: "https://controlplane.tailscale.com"),
                 FieldSpec(key: "state-dir", label: "状态目录", placeholder: "留空为 tailscale/节点名"),
                 FieldSpec(key: "ephemeral", label: "临时设备（Ephemeral）", kind: .bool),

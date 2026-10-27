@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // nc-lifecycle REWORK — the 20-reload evidence PR #135 was missing.
 //

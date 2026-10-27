@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-c-followup: fixture tests for the behaviour changes PR #139
 /// (fix/nc-callsite-audit) landed without parity tests — NCSubscription D1

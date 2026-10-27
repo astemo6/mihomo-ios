@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/policy-chain: the 策略 card subtitle is the whole path down to the final node (Egern 策略).
 @MainActor

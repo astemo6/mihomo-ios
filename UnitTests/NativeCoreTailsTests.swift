@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-tails: (1) connections through the local listeners (mixed port / probe listener) in /app/stats;
 /// (2) the build433 DNS SERVFAIL burst — upstream exchanges the race gave up on held the coordinator's slots for the

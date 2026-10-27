@@ -380,7 +380,7 @@ proxies:
   # - name: "🧪 Tailscale 示例"
   #   type: tailscale
   #   auth-key: tskey-auth-xxxx          # 在 Tailscale 后台生成；不填时登录链接显示在 诊断 页
-  #   hostname: mihomo-ios
+  #   hostname: tern
   #   # control-url: https://headscale.example.com   # 自建 Headscale
   #   # state-dir: tailscale/my-node                  # 留空 = tailscale/<节点名>，始终在 App Group 内
   #   ephemeral: false

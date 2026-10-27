@@ -4,7 +4,7 @@ import XCTest
 /// switch = 启用 / 关闭, swipe right 更新, swipe left 删除 (asks first), tap = the shared edit sheet (订阅地址 editable,
 /// saving re-downloads and shows the result), long press 更新 · 编辑 · 复制地址 · 启用/关闭 · 删除. And the QX-style
 /// 重写 page: one 工具 card for subscriptions (modules) + local rules + script tools.
-extension MihomoUITests {
+extension TernUITests {
 
     static let subMenu = ["更新", "编辑", "复制地址", "关闭", "删除"]
 

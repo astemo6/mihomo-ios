@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-@testable import Mihomo
+@testable import Tern
 
 // v0.19.14: renders the Live Activity views (Shared/LiveActivityViews.swift) with ImageRenderer in every
 // shipped language, light and dark, with long node names, large Dynamic Type and the stale / disconnected

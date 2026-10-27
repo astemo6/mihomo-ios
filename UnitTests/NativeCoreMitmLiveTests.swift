@@ -2,7 +2,7 @@ import CommonCrypto
 import Network
 import Security
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-mitm-live (build 404 device: 「重写脚本一个都用不了」, 脚本日志 empty, stale fake-ip dropped): the TUN MitM
 /// decision (NCMitmGate, independent of the sniffer), the host list matching it consults (wildcards, exclusions,

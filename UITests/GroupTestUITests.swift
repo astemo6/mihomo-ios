@@ -5,7 +5,7 @@ import XCTest
 /// group's delay and current node; a group with nothing to dial says so; GLOBAL in 全局 does the same.
 /// Seed: -UITestGroupsOnly (UITestSeed.groupsOnlyYAML; nodes on 192.0.2.x never answer, so results are timeouts —
 /// real measurements, not 「—」).
-extension MihomoUITests {
+extension TernUITests {
 
     private func memberDelay(_ group: String, _ member: String) -> XCUIElement {
         app.element(id: "policy.member.\(group).\(member).delay")

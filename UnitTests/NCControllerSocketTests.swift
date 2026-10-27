@@ -1,6 +1,6 @@
 import Darwin
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-ctrl-bsd (build 395 device report: NWListener .ready but accepted 0, self-probe /version timed out):
 /// the controller's BSD loopback listener + connection (NCLoopbackListener / NCLoopbackConn), driven by a real

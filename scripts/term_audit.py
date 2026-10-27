@@ -8,7 +8,13 @@ are a different concept and are skipped. Exit code 1 when anything is inconsiste
 r7 brand check: the app is Tern. A user-visible "mihomo" in any spelling (the old app / core name) in the string
 catalog (keys and every translation), in an Info.plist display name / usage description, or in a UI string literal of
 the Swift sources fails the audit (gate round 1, 10-27: lowercase included — the config format is called Clash in
-UI text). Legal attributions (GPL notices, MetaCubeX) and the kept host name / repo name "mihomo-ios" are allowed.
+UI text). Legal attributions (GPL notices, MetaCubeX) and the repository URL astemo6/mihomo-ios are allowed.
+
+Rename check (2026-10-27, the app is a new app with com.astemo6.tern ids): "mihomo" in any spelling in ANY tracked
+text file fails the audit unless the line is on the allow-list below — upstream attribution (MetaCubeX / GPL), the
+repository URL, the subscription User-Agent option value (servers pick the format by UA), the IPA guards that assert the
+retired core framework is not bundled — or the file is the one legacy-import spot (App/Core/LegacyImport.swift, which
+reads backups written by the pre-rename app) or this script.
 
 Usage: scripts/term_audit.py [-q]
 """
@@ -34,7 +40,14 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 SKIP_PATH_PREFIXES = ("UITests", "UnitTests")
 BRAND = re.compile(r"\bmihomo\b", re.I)
 # Attribution and legal text that may keep the upstream name.
-BRAND_OK = re.compile(r"MetaCubeX|General Public License|GPL|mihomo-ios", re.I)
+BRAND_OK = re.compile(r"MetaCubeX|General Public License|GPL|astemo6+/mihomo-ios", re.I)
+# Repository-wide rename check (any tracked text file, code, comments and docs alike).
+REPO_BRAND = re.compile(r"mihomo", re.I)
+REPO_OK_FILES = {"App/Core/LegacyImport.swift", "scripts/term_audit.py"}
+REPO_OK_LINE = re.compile(r"MetaCubeX|General Public License|\bGPL\b|astemo6+/mihomo-ios|SubscriptionUA|metaCore")
+# The IPA guards (retired core framework must not be bundled) keep the framework name, in these files only.
+REPO_OK_GUARD = {".github/workflows/ios.yml": re.compile(r"Libmihomo"), "scripts/ipa_size.py": re.compile(r"Libmihomo")}
+BINARY_EXT = (".dat", ".png", ".mmdb", ".jpeg", ".jpg", ".metadb", ".mrs", ".p12", ".cer", ".der", ".zip", ".gz", ".br", ".ipa")
 # Swift UI string literals: Text("…"), String(localized: "…"), Label / Button / Section / TextField titles,
 # navigationTitle, prompt: / placeholder: arguments.
 UI_LITERAL = re.compile(r'(?:\bText|\bLabel|\bButton|\bSection|\bTextField|\bSecureField|\bToggle|navigationTitle|'
@@ -77,6 +90,30 @@ def brand_hits():
     return hits
 
 
+def repo_hits():
+    """Tracked text files with "mihomo" outside the allow-list, as (file:line, text)."""
+    import subprocess
+    try:
+        files = subprocess.check_output(["git", "-C", ROOT, "ls-files"], text=True).split("\n")
+    except Exception:
+        files = [os.path.relpath(os.path.join(d, f), ROOT) for d, _, fs in os.walk(ROOT) if "/.git" not in d for f in fs]
+    hits = []
+    for rel in files:
+        if not rel or rel in REPO_OK_FILES or rel.lower().endswith(BINARY_EXT):
+            continue
+        try:
+            text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        if not REPO_BRAND.search(text):
+            continue
+        guard = REPO_OK_GUARD.get(rel)
+        for n, line in enumerate(text.split("\n"), 1):
+            if REPO_BRAND.search(line) and not REPO_OK_LINE.search(line) and not (guard and guard.search(line)):
+                hits.append((f"{rel}:{n}", line.strip()))
+    return hits
+
+
 def main():
     s = json.load(open(CAT, encoding="utf-8"))["strings"]
     bad = 0
@@ -96,7 +133,11 @@ def main():
         if "-q" not in sys.argv:
             print(f"brand\t{where}\t{text[:80]!r}")
     print("brand leftovers (\"mihomo\"):", len(brand))
-    sys.exit(1 if bad or brand else 0)
+    repo = repo_hits()
+    for where, text in repo:
+        print(f"rename\t{where}\t{text[:100]!r}")
+    print("old name outside the allow-list (\"mihomo\", whole repository):", len(repo))
+    sys.exit(1 if bad or brand or repo else 0)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ import XCTest
 /// feat/policy-chain (Egern 策略): each 策略 card's subtitle is the whole path down to the final node, the final node
 /// with its flag — 「日本节点 › 🇯🇵 东京 AZ JP01」; DIRECT / REJECT plainly; a new selection updates every card on the
 /// path at once. Seed: -UITestPolicyChain (UITestSeed.policyChainYAML, offline — servers on 192.0.2.x).
-extension MihomoUITests {
+extension TernUITests {
 
     private func chainLabel(_ group: String) -> String {
         let e = app.element(id: "policy.chain." + group)

@@ -48,7 +48,7 @@ Pieces and where they live:
    4 zero bytes ‖ counter LE64), XChaCha20-Poly1305 for cookies (HChaCha20 + ChaChaPoly), BLAKE2s-256 + keyed
    BLAKE2s/HMAC-BLAKE2s (new, ~120 lines), TAI64N timestamps.
 2. **Noise_IKpsk2 handshake + timers (~400 lines)**: initiation / response / cookie reply, rekey after 120 s or
-   2^60 messages, keepalive (`persistent-keepalive`), replay window (2048-bit bitmap), `reserved` bytes (mihomo's
+   2^60 messages, keepalive (`persistent-keepalive`), replay window (2048-bit bitmap), `reserved` bytes (Clash.Meta's
    `reserved: [a,b,c]` for Cloudflare WARP) written into bytes 1–3 of every message. One `NWConnection` UDP socket
    per peer; `amnezia-wg-option` (junk packets / header obfuscation) as a later extension.
 3. **IP stack for the tunnel side**: WireGuard carries IP packets, so TCP/UDP flows from NativeCore must be

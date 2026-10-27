@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Deterministic tests for the xtls-rprx-vision padding state machines
 /// (NCVision.swift), ported from Clash.Meta's transport/vless/vision. Randomness

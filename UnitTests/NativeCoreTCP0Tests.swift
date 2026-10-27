@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-tcp0 (build419 device report: packets in ~70/min, tcp accepted 0, Home 「正在查询…」 forever).
 /// The C fixes (nc_udp_send checksums, IPv6 peek byte order, ip6_input_accept patch) are covered by

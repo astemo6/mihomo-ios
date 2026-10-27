@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// One entry point for everything that arrives from outside: our own mihomo:// links, pasted links of
+/// One entry point for everything that arrives from outside: our own tern:// links, pasted links of
 /// other clients (loon:// stash:// surge:/// quantumult-x:/// — recognised, never registered as URL
 /// schemes), and opened documents (.yaml .sgmodule .plugin .stoverride .conf .list).
 /// Everything ends up in the one internal model: a Clash.Meta profile, or a module in the module store.
@@ -148,7 +148,7 @@ final class ImportRouter: ObservableObject {
         let action = path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
 
         switch scheme {
-        case "mihomo", "clash", "clash-meta":
+        case "tern", "clash", "clash-meta":
             switch action {
             case "connect", "start": return .connect
             case "disconnect", "stop": return .disconnect
@@ -156,7 +156,7 @@ final class ImportRouter: ObservableObject {
             case "install-config", "install-profile", "import-profile", "subscribe":
                 if let u = query(comps, ["url"]) { return .profileURL(url: u, name: query(comps, ["name"]) ?? "") }
             case "install-module", "install-plugin", "install-override", "import-module":
-                if let u = query(comps, ["url"]) { return .moduleURL(url: u, source: "mihomo") }
+                if let u = query(comps, ["url"]) { return .moduleURL(url: u, source: "Tern") }
             default: break
             }
             return .unsupported(s)

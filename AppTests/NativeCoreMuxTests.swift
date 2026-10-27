@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// sing-mux h2mux: preamble/stream-request bytes and the multi-stream
 /// HTTP/2 core exercised with fixtures.

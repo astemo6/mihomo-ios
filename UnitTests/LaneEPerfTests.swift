@@ -1,6 +1,6 @@
 import XCTest
 import Darwin
-@testable import Mihomo
+@testable import Tern
 
 /// E 线 (tunnel performance): utun framing with sendmsg (#2) and the off-main load of the 连接分析
 /// history (#3).

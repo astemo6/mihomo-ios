@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// QUIC SNI sniffing (packet built independently with the old core x/crypto per
 /// RFC 9001; intermediate keys cross-checked against RFC 9001 App. A),

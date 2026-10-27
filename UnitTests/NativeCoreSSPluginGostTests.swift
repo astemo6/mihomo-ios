@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/nc-ss-plugins2: Shadowsocks gost-plugin (Clash.Meta v1.19.33 adapter/outbound/shadowsocks.go
 /// gostObfsOption + transport/gost/websocket.go NewGostWebsocket) and the kcptun gate.

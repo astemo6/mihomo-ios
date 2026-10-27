@@ -1,6 +1,6 @@
 import XCTest
 import Darwin
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-mem-providers: the compact rule-set index (NCDomainTable + IP-ASN set + streamed body parse) answers
 /// exactly what the old Set<String> + label-trie index did, and retains a fraction of its heap.

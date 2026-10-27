@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/kelee-hub 「接入可莉插件中心」: hub.kelee.one/list.json read by the generic JSON index reader.
 final class KeleeHubTests: XCTestCase {

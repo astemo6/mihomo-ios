@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/loon-menu-notify: 更多 → 通知 kinds (App Group switches shared with the tunnel) and the catalog keys the
 /// tunnel's notifications use (localized by iOS from the app bundle when shown).

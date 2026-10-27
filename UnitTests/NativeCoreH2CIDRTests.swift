@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-h2-cidr:
 /// - NCH2ClientCore / NCH2MuxCore read SETTINGS_INITIAL_WINDOW_SIZE from id 0x3 (MAX_CONCURRENT_STREAMS), so a

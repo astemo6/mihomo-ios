@@ -2,7 +2,7 @@ import XCTest
 
 /// feat/surge-ui (user 「现在的感觉有点专业工具风」): screenshots of the calmer 更多 / 高级设置 / 开始标签页 and the
 /// friendly empty states, VPN off (rows that need the tunnel are greyed with 「需开启 VPN」).
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 57. Surge-inspired 更多 + empty states
 

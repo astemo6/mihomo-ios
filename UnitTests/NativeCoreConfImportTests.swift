@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Fixture-driven tests for the .conf importers (Surge / Loon / QX →
 /// canonical model). One representative config per ecosystem; assertions

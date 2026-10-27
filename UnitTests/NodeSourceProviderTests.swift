@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Review 7 R7A-4: node detail lookups (credentials, 添加到本地节点, offline / live delay, share link) go to the
 /// node's own source: "" for the profile's proxies, else the runtime provider name.

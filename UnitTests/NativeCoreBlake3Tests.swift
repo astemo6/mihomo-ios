@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Vectors generated with github.com/metacubex/blake3 (the library Clash.Meta
 /// itself uses), over the standard i % 251 input pattern.

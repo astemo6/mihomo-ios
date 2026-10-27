@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-followup-c: numeric-boundary sweep of PacketTunnel/**. Only the group delay round's timeout is in the
 /// app (unit-test) target; the other fixes of the sweep (controller Content-Length, script $httpClient chunk size,

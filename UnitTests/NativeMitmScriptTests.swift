@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Lane s3-script helpers. native-only (nc-integrate): the old-core-vs-native differential runs over the old core script engine
 /// (MitmScriptTestStart / MitmFlowDriverAdapter, testNativeScriptDispatchMatchesGo /

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // fix/nc-vpn-start-crash (build #374): tapping 连接 with a QX / Surge / Loon module trapped in
 // rx2TranslateUncached (`for s in 1...0` on a capture-free regex) while preparing the runtime, and the

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // Vectors ported from the old core test suite deleted in 81de91b ("native-only").
 // Sources are the pre-deletion files at 81de91b^:

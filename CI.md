@@ -17,7 +17,7 @@
 
 ### 合并到 main 需要测试通过
 
-- `unit-tests.yml` 在每个目标为 `main` 的 PR 上跑 `MihomoUnitTests` 整个包（`UnitTests/` + `AppTests/`，宿主为 App，模拟器，**不跑 UI 测试**）。
+- `unit-tests.yml` 在每个目标为 `main` 的 PR 上跑 `TernUnitTests` 整个包（`UnitTests/` + `AppTests/`，宿主为 App，模拟器，**不跑 UI 测试**）。
 - 要让「必须测试通过才能合并」真正生效，需要维护者在仓库 Settings → Branches → `main` 的保护规则里把
   **`Unit tests / unit`** 设为 required status check（workflow 只负责跑，强制在分支保护里配置）。
 - 直接推 `main`（不经 PR）不会跑 Unit tests；发版前应先走 PR，或手动派发一次。
@@ -63,4 +63,13 @@ gh run view <run-id> -R astemo6/mihomo-ios                  # 看哪些作业失
 
 - runner 基础设施问题（如 “Test crashed with signal kill while preparing to run tests”）、明显的偶发失败 → `--failed`。
 - 只有一个 UI 测试失败、想验证修复 → 推修复到**另一个** `test/**` 分支并带 `[only:testName]`，
-  或手动派发 Self-test：`gh workflow run ui-tests.yml -R astemo6/mihomo-ios --ref test/xxx -f only=MihomoUITests/MihomoUITests/testNN_Name`。
+  或手动派发 Self-test：`gh workflow run ui-tests.yml -R astemo6/mihomo-ios --ref test/xxx -f only=TernUITests/TernUITests/testNN_Name`。
+
+## 签名（ios.yml）
+
+`ios.yml` 读取 secrets `BUILD_CERTIFICATE_BASE64`、`P12_PASSWORD`、`APP_PROFILE_BASE64`、`TUNNEL_PROFILE_BASE64`、
+`WIDGET_PROFILE_BASE64`、`TEAM_ID`、`KEYCHAIN_PASSWORD`、`EXPORT_METHOD`。四个关键的（证书、App / 隧道描述文件、Team ID）
+都在时导出已签名 IPA，否则输出未签名 IPA（目前发布的都是未签名版，由用户自签）。
+Bundle ID 与 App Group 取自 `project.yml`：`com.astemo6.tern`、`com.astemo6.tern.tunnel`、`com.astemo6.tern.widget`、
+`group.com.astemo6.tern`（2026-10-27 改名）。配置签名 secrets 时，三个描述文件必须对应这三个 App ID，并包含
+Network Extensions（packet-tunnel-provider）与这个 App Group 能力；为旧 ID 生成的描述文件不能用。

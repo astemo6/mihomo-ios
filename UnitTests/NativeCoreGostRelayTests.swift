@@ -1,6 +1,6 @@
 import XCTest
 import Network
-@testable import Mihomo
+@testable import Tern
 
 /// feat/nc-gost-relay: GOST v3 relay outbound (Clash.Meta `gost-relay`, NCGostRelay.swift).
 /// Request vectors were produced by running Clash.Meta v1.19.33's own transport/gost writeRelayRequest

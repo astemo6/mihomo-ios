@@ -121,7 +121,7 @@ final class SnapshotStore: ObservableObject {
         let name = (path as NSString).lastPathComponent.lowercased()
         if name == "runtime-groups.json" || name.hasSuffix(".log") || name.contains("cache") { return true }
         if path.contains("/logs/") || path.hasPrefix("logs/") { return true }
-        return path == "mihomo/engine/store.json"
+        return path == "tern/engine/store.json"
     }
 
     /// JSON keys that are timestamps or counters, not configuration.
@@ -286,25 +286,25 @@ final class SnapshotStore: ObservableObject {
         }
         let known: [String: String] = [
             "profiles.json": String(localized: "配置列表"),
-            "mihomo/overrides.json": String(localized: "内核设置"),
-            "mihomo/dns.json": "DNS",
-            "mihomo/localdns.json": String(localized: "本地 DNS 映射"),
-            "mihomo/group-icons.json": String(localized: "策略组图标"),
-            "mihomo/rules.json": String(localized: "自定义规则"),
-            "mihomo/subscriptions.json": String(localized: "订阅处理"),
-            "mihomo/groups.json": String(localized: "智能选择"),
-            "mihomo/netpolicy.json": String(localized: "按网络切换策略"),
-            "mihomo/node-subscriptions.json": String(localized: "节点订阅"),
-            "mihomo/group-edits.json": String(localized: "策略组编辑"),
-            "mihomo/provider-overrides.json": String(localized: "节点集设置"),
-            "mihomo/engine/engine.json": String(localized: "MitM / 重写设置"),
-            "mihomo/engine/store.json": String(localized: "脚本存储"),
-            "mihomo/secrets.json": String(localized: "密钥与密码"), // r7 B01
-            "mihomo/node-settings.json": String(localized: "节点设置"), // r7 R7A-11
+            "tern/overrides.json": String(localized: "内核设置"),
+            "tern/dns.json": "DNS",
+            "tern/localdns.json": String(localized: "本地 DNS 映射"),
+            "tern/group-icons.json": String(localized: "策略组图标"),
+            "tern/rules.json": String(localized: "自定义规则"),
+            "tern/subscriptions.json": String(localized: "订阅处理"),
+            "tern/groups.json": String(localized: "智能选择"),
+            "tern/netpolicy.json": String(localized: "按网络切换策略"),
+            "tern/node-subscriptions.json": String(localized: "节点订阅"),
+            "tern/group-edits.json": String(localized: "策略组编辑"),
+            "tern/provider-overrides.json": String(localized: "节点集设置"),
+            "tern/engine/engine.json": String(localized: "MitM / 重写设置"),
+            "tern/engine/store.json": String(localized: "脚本存储"),
+            "tern/secrets.json": String(localized: "密钥与密码"), // r7 B01
+            "tern/node-settings.json": String(localized: "节点设置"), // r7 R7A-11
         ]
         if let k = known[path] { return k }
-        if path.hasPrefix("mihomo/engine/modules/") { return String(localized: "模块 \((path as NSString).lastPathComponent)") }
-        if path.hasPrefix("mihomo/engine/scripts/") { return String(localized: "脚本 \((path as NSString).lastPathComponent)") }
+        if path.hasPrefix("tern/engine/modules/") { return String(localized: "模块 \((path as NSString).lastPathComponent)") }
+        if path.hasPrefix("tern/engine/scripts/") { return String(localized: "脚本 \((path as NSString).lastPathComponent)") }
         return path
     }
 
@@ -416,25 +416,25 @@ final class SnapshotStore: ObservableObject {
     static let reloadCoverage: [String: String] = [
         "profiles.json": "ProfileStore.load",
         "profiles": "ProfileStore.load (files read on use)",
-        "mihomo/overrides.json": "read on use (CoreOverrides.load) + tunnel scope sync",
-        "mihomo/secrets.json": "read on use (CoreOverrides.load)",
-        "mihomo/dns.json": "read on use (DNS page loads on appear)",
-        "mihomo/localdns.json": "read on use (DNS page loads on appear)",
-        "mihomo/group-icons.json": "GroupIconStore.reload",
-        "mihomo/rules.json": "CustomRulesStore.load",
-        "mihomo/subscriptions.json": "read on use",
-        "mihomo/groups.json": "SmartGroups.load",
-        "mihomo/netpolicy.json": "read on use (NetworkPolicyStore.loadAll)",
-        "mihomo/node-subscriptions.json": "NodeSubStore.load",
-        "mihomo/node-settings.json": "NodeSettingsStore.reload",
-        "mihomo/group-edits.json": "read on use",
-        "mihomo/provider-overrides.json": "ProviderOverrideStore.reload",
-        "mihomo/engine/engine.json": "EngineStore.config",
-        "mihomo/engine/store.json": "read on use",
-        "mihomo/engine/modules": "EngineStore.reparseModules",
-        "mihomo/engine/scripts": "read on use",
-        "mihomo/override-scripts": "OverrideScriptStore.load",
-        "mihomo/engine/ca": "read on use",
+        "tern/overrides.json": "read on use (CoreOverrides.load) + tunnel scope sync",
+        "tern/secrets.json": "read on use (CoreOverrides.load)",
+        "tern/dns.json": "read on use (DNS page loads on appear)",
+        "tern/localdns.json": "read on use (DNS page loads on appear)",
+        "tern/group-icons.json": "GroupIconStore.reload",
+        "tern/rules.json": "CustomRulesStore.load",
+        "tern/subscriptions.json": "read on use",
+        "tern/groups.json": "SmartGroups.load",
+        "tern/netpolicy.json": "read on use (NetworkPolicyStore.loadAll)",
+        "tern/node-subscriptions.json": "NodeSubStore.load",
+        "tern/node-settings.json": "NodeSettingsStore.reload",
+        "tern/group-edits.json": "read on use",
+        "tern/provider-overrides.json": "ProviderOverrideStore.reload",
+        "tern/engine/engine.json": "EngineStore.config",
+        "tern/engine/store.json": "read on use",
+        "tern/engine/modules": "EngineStore.reparseModules",
+        "tern/engine/scripts": "read on use",
+        "tern/override-scripts": "OverrideScriptStore.load",
+        "tern/engine/ca": "read on use",
         "traffic-history.json": "read on use (TrafficHistory.load)",
     ]
 

@@ -1,6 +1,6 @@
 import CryptoKit
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/native-mitm stage 1: NativeBodyStore (the native body lane) must decode exactly like the old path. The
 /// corpus NativeBodyFixtures.json is written by the old core, every "ok" case

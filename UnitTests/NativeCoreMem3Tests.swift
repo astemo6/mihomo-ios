@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-mem-3: the cold rule-set refresh no longer holds whole bodies / bridged per-line strings.
 /// - native whitespace trim == Foundation `trimmingCharacters(in: .whitespaces)`

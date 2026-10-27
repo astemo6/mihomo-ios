@@ -57,14 +57,14 @@ struct NCJSEnv: Codable, Equatable {
     var surgeBuild: String
     var language: String
     var system: String
-    var mihomoIOS: Bool
+    var tern: Bool
 
     enum CodingKeys: String, CodingKey {
         case surgeVersion = "surge-version"
         case surgeBuild = "surge-build"
         case language
         case system
-        case mihomoIOS = "mihomo-ios"
+        case tern
     }
 }
 
@@ -227,7 +227,7 @@ enum NCScriptManifest {
             surgeBuild: "3000",
             language: cfg?.scriptLanguage ?? "zh-Hans",
             system: "iOS",
-            mihomoIOS: true
+            tern: true
         )
         let setup = NCJSSetup(
             name: sc.name,

@@ -2,7 +2,7 @@ import XCTest
 
 /// feat/more-search: a Settings-app style search field at the top of 更多 (static feature index, grouped results
 /// with breadcrumbs, tap → page), and 外观 → 实时活动与灵动岛 as its own row (user couldn't find the switch).
-extension MihomoUITests {
+extension TernUITests {
 
     var moreSearchField: XCUIElement { app.searchFields.firstMatch }
 

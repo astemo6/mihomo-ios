@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// hotfix/home-isp (device 2026-10-21 「首页最上方也显示运营商信息的 比如xtom」): the Home header's small line shows
 /// 运营商 · ASN · IP by default, chosen in 出口信息来源 → 首页副标题显示, and every built-in endpoint fills `org`.

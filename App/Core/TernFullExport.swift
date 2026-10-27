@@ -43,25 +43,25 @@ enum TernFullExport {
     static let localModuleURL = "tern-local"
 
     /// Container-relative settings files carried verbatim in [tern_data] (the restore whitelist).
-    static let dataFiles = ["mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json",
-                            "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json",
-                            "mihomo/group-edits.json", "mihomo/provider-overrides.json", "mihomo/node-settings.json"]
+    static let dataFiles = ["tern/overrides.json", "tern/dns.json", "tern/localdns.json", "tern/group-icons.json",
+                            "tern/rules.json", "tern/subscriptions.json", "tern/groups.json", "tern/netpolicy.json",
+                            "tern/group-edits.json", "tern/provider-overrides.json", "tern/node-settings.json"]
     /// Opt-in only (完整导出（含脚本数据与密码）): script cookies / tokens and controller + LAN passwords.
-    static let sensitiveDataFiles = ["mihomo/engine/store.json", "mihomo/secrets.json"]
+    static let sensitiveDataFiles = ["tern/engine/store.json", "tern/secrets.json"]
     /// Import whitelist: whatever of these the file carries is restored.
     static var allDataFiles: [String] { dataFiles + sensitiveDataFiles }
 
     // Container-relative locations (the same layout as AppShared / EnginePaths / OverrideScriptStore).
     static let profilesIndexRel = "profiles.json"
     static func profileRel(_ id: String) -> String { "profiles/\(id).yaml" }
-    static let engineRel = "mihomo/engine/engine.json"
-    static func moduleRel(_ id: String) -> String { "mihomo/engine/modules/\(EnginePaths.safe(id)).txt" }
-    static let scriptsRel = "mihomo/engine/scripts"
-    static let overrideIndexRel = "mihomo/override-scripts/index.json"
-    static func overrideContentRel(_ id: String) -> String { "mihomo/override-scripts/\(id).js" }
-    static let nodeSubsRel = "mihomo/node-subscriptions.json"
-    static let caPemRel = "mihomo/engine/ca/ca.pem"
-    static let caKeyRel = "mihomo/engine/ca/ca.key"
+    static let engineRel = "tern/engine/engine.json"
+    static func moduleRel(_ id: String) -> String { "tern/engine/modules/\(EnginePaths.safe(id)).txt" }
+    static let scriptsRel = "tern/engine/scripts"
+    static let overrideIndexRel = "tern/override-scripts/index.json"
+    static func overrideContentRel(_ id: String) -> String { "tern/override-scripts/\(id).js" }
+    static let nodeSubsRel = "tern/node-subscriptions.json"
+    static let caPemRel = "tern/engine/ca/ca.pem"
+    static let caKeyRel = "tern/engine/ca/ca.key"
 
     enum ExportError: LocalizedError, Equatable {
         case notAnExport
@@ -338,7 +338,7 @@ enum TernFullExport {
         if let c = engine.captureBodies { kv("capture-bodies", String(c)) }
         if let q = engine.quic { kv("quic", oneLine(q)) }
         if let q = engine.quicAllow { kv("quic-allow", q.map(oneLine).joined(separator: ", ")) }
-        let home = root.appendingPathComponent("mihomo").path
+        let home = root.appendingPathComponent("tern").path
         if NCCAManager.loadCA(home: home) != nil {
             let p12: Data
             do { p12 = try NCCAManager.exportP12(home: home, password: passphrase) } catch {
@@ -676,7 +676,7 @@ enum TernFullExport {
 
         // [tern_data]
         for (k, v) in keyValues("tern_data") {
-            let rel = unesc(k)
+            let rel = LegacyImport.mapPath(unesc(k)) // exports of the pre-rename app use the old storage dir
             guard allDataFiles.contains(rel) else { continue } // unknown paths are never written
             p.dataFiles[rel] = try b64(v, "[tern_data] \(rel)")
         }
@@ -868,7 +868,7 @@ enum TernFullExport {
                     // Remember the top-most directory this import creates, so a rollback removes it again.
                     var top = parent
                     while !fm.fileExists(atPath: top.deletingLastPathComponent().path) { top = top.deletingLastPathComponent() }
-                    let attrs: [FileAttributeKey: Any]? = wr.rel.hasPrefix("mihomo/engine/ca/") ? [.posixPermissions: 0o700] : nil
+                    let attrs: [FileAttributeKey: Any]? = wr.rel.hasPrefix("tern/engine/ca/") ? [.posixPermissions: 0o700] : nil
                     try fm.createDirectory(at: parent, withIntermediateDirectories: true, attributes: attrs)
                     createdDirs.append(top)
                 }

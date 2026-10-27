@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Unit tests covering NCECHOpts models, sing-box TLS ECH configuration import,
 /// default enable behaviour, and share link encoding/decoding parity across three ECH forms.

@@ -132,7 +132,7 @@ struct NCRuntimeSettings {
 
     /// the retired bridge manualNodesPath:
     /// filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml").
-    /// home is <container>/mihomo; the App writes the manual profile to
+    /// home is <container>/tern; the App writes the manual profile to
     /// AppShared.profileURL(id: "manual-nodes") = <container>/profiles/manual-nodes.yaml,
     /// so the store lives beside home, not under it (review R-1).
     static func manualNodesPath(home: String) -> String {

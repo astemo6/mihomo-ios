@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-e2e-gaps: /app/stats recorder (shape the App decodes), the probe listener spec / request parse, and the
 /// plain-HTTP rewrite gate's literal-host extraction.

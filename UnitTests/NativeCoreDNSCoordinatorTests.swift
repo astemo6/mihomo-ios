@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // Coverage for the #117 upstream-DNS machinery itself — the coalescing
 // coordinator and the DoT/DoH connection pools. #126 could only pin the

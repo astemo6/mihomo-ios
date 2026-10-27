@@ -2,9 +2,9 @@
 
 状态：已落地（2026-10-24 设计，2026-10-25 按代码核对）。规范模型见
 `Shared/NativeCore/NCCanonical.swift`，四个导入器均已接通，隧道加载配置全程 Swift。
-用户拍板：原生内核**不受限于 mihomo**——
+用户拍板：原生内核**不受限于 Clash.Meta**——
 内部模型按 Quantumult X / Loon / Surge 三家语义的并集自有设计，
-mihomo YAML 降为导入格式之一，与 Surge / Loon / QX 的 .conf 平级。
+Clash.Meta YAML 降为导入格式之一，与 Surge / Loon / QX 的 .conf 平级。
 
 ## 1. 原则
 
@@ -25,7 +25,7 @@ struct NCCanonicalConfig {
     var dns: NCDNSModel              // §3
     var hosts: [NCHostEntry]         // 静态映射/通配/别名 + 按域名指定 DNS
     var nodes: [NCNode]              // 单个代理节点（原 NCProxy 的演进：type + 参数袋）
-    var subscriptions: [NCNodeSubscription]  // 节点订阅（QX server_remote / Loon remote proxy / mihomo proxy-provider / Surge policy-path 外部节点）
+    var subscriptions: [NCNodeSubscription]  // 节点订阅（QX server_remote / Loon remote proxy / Clash.Meta proxy-provider / Surge policy-path 外部节点）
     var groups: [NCGroup]           // §4
     var ruleSets: [NCRuleSetRef]     // 规则订阅（四家方言，见规则订阅设计）
     var rules: [NCRuleEntry]         // 已解析规则（原 [String] 演进为结构化，保留原文备查）
@@ -43,12 +43,12 @@ struct NCCanonicalConfig {
 struct NCDNSModel {
     var mode: enum { fakeIP, redirHost, normal }        // Surge 无 fake-ip；QX/Loon 有 dns 劫持+fake 语义
     var fakeIPRange4: CIDR; var fakeIPRange6: CIDR?     // v6 fake（QX/Surge 均支持 v6 场景）
-    var alwaysRealIP: [String]                          // Surge always-real-ip ∪ mihomo fake-ip-filter ∪ Loon 排除名单
+    var alwaysRealIP: [String]                          // Surge always-real-ip ∪ Clash.Meta fake-ip-filter ∪ Loon 排除名单
     var defaultServers: [NCDNSServer]                   // 明文 UDP/TCP
     var encryptedServers: [NCDNSServer]                 // DoH / DoT / DoQ（server 地址串统一解析：https://、tls://、quic://、域名#/接口 等修饰）
-    var domainServers: [(domainSuffix, NCDNSServer)]    // 按域名指定上游：QX `server=/d/s`、Surge/Loon [Host] `d = server:x`、mihomo nameserver-policy 归一至此
-    var fallback: [NCDNSServer]; var fallbackFilter: NCFallbackFilter  // mihomo 语义（geosite/ipcidr 判定走 fallback）
-    var respectRules: Bool                              // DNS 查询本身是否走规则分流（mihomo respect-rules / Surge 行为）
+    var domainServers: [(domainSuffix, NCDNSServer)]    // 按域名指定上游：QX `server=/d/s`、Surge/Loon [Host] `d = server:x`、Clash.Meta nameserver-policy 归一至此
+    var fallback: [NCDNSServer]; var fallbackFilter: NCFallbackFilter  // Clash.Meta 语义（geosite/ipcidr 判定走 fallback）
+    var respectRules: Bool                              // DNS 查询本身是否走规则分流（Clash.Meta respect-rules / Surge 行为）
 }
 ```
 
@@ -71,7 +71,7 @@ struct NCGroup {
 
 语义决定：显式选择（select 组用户点选）在所有组类型中优先——沿用现有
 NCGroupEngine 已验证行为；load-balance 支持 round-robin 与 consistent-hashing
-两种（mihomo 有、Surge 无 → 取并集，源格式没有的导入时不生成）。
+两种（Clash.Meta 有、Surge 无 → 取并集，源格式没有的导入时不生成）。
 
 ## 5. 规则模型
 
@@ -85,7 +85,7 @@ options：`no-resolve`、规则集引用时的 `extended` 标记等。
 
 ## 6. 四个导入器映射要点
 
-| 概念 | mihomo YAML | Surge .conf | Loon .conf | QX .conf |
+| 概念 | Clash.Meta YAML | Surge .conf | Loon .conf | QX .conf |
 |---|---|---|---|---|
 | 节点 | proxies[] | [Proxy] 行 | [Proxy] 行 | [server_local] 行（`ss=…, tag=`） |
 | 节点订阅 | proxy-providers | 外部策略 policy-path | [Remote Proxy] | [server_remote]（带 filter 正则） |
@@ -97,12 +97,12 @@ options：`no-resolve`、规则集引用时的 `extended` 标记等。
 
 节点行语法：Surge/Loon 为 `名 = 类型, 服务器, 端口, k=v…`；QX 为
 `类型=服务器:端口, k=v…, tag=名`。协议名归一在导入器内完成，词汇以引擎现有
-开关为准（如 SS 的规范名是 `ss`，与 NCConnector 的 case 及 mihomo 导入器一致）。
+开关为准（如 SS 的规范名是 `ss`，与 NCConnector 的 case 及 Clash.Meta 导入器一致）。
 
 ## 7. 与现有代码的关系
 
-- `NCConfig`（mihomo JSON 形）保留为 **mihomo 导入器的中间产物**，随后映射到规范模型；
+- `NCConfig`（Clash.Meta JSON 形）保留为 **Clash.Meta 导入器的中间产物**，随后映射到规范模型；
   `NativeCoreEngine` 改为消费规范模型。现有 `NCGroupEngine` / `NCRuleMatcher` /
   `NCFakeIPPool` / DNS 转发等按解析后结构工作的代码基本保留，改造集中在配置层。
-- Go 侧 `LibmihomoNativeConfigJSON` 已随 `bridge/` 一并删除（Go-zero）；
-  YAML 导入器（NCYAML）与 Surge / Loon / QX 导入器均已接通，隧道加载配置不再依赖 Go。
+- 旧内核侧的配置 JSON 导出已随旧桥接层一并删除；
+  YAML 导入器（NCYAML）与 Surge / Loon / QX 导入器均已接通，隧道加载配置只依赖原生代码。

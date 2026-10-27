@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // NativeCore batch 1 (docs/native-core-design.md): config decode, rule engine,
 // fake-IP pool, group resolution, SOCKS/HTTP builders, Shadowsocks AEAD.

@@ -1,6 +1,6 @@
 import Foundation
 
-// Tern E2E replay (feat/nc-e2e): the result sink both replay stages share. Compiled into MihomoUnitTests
+// Tern E2E replay (feat/nc-e2e): the result sink both replay stages share. Compiled into TernUnitTests
 // (stage 1, app import → runtime generation) and TernE2ETunnelTests (stage 2, NativeCore in-process), so it only
 // uses Foundation.
 //
@@ -23,7 +23,7 @@ final class E2EReport {
     /// The replay only runs when the workflow asks for it (TEST_RUNNER_TERN_E2E=1); the normal unit-test runs skip.
     static var enabled: Bool { env("TERN_E2E") == "1" }
 
-    /// <Documents>/tern-e2e in the host app's container: both stages are hosted in Mihomo.app, so they share it
+    /// <Documents>/tern-e2e in the host app's container: both stages are hosted in Tern.app, so they share it
     /// (handoff.json, fixture copy).
     static let workDir: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// BLAKE2b and Argon2id vectors generated with golang.org/x/crypto
 /// (the exact library Clash.Meta's Snell KDF uses).

@@ -19,9 +19,9 @@ unit-tests.yml):
 
 ```sh
 xcodegen generate --spec project-uitests.yml
-TEST_RUNNER_NC_LOOPBACK=1 xcodebuild -project Mihomo.xcodeproj \
-  -scheme MihomoUITests -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-  -only-testing:MihomoUnitTests/NativeCoreLoopbackTests test
+TEST_RUNNER_NC_LOOPBACK=1 xcodebuild -project Tern.xcodeproj \
+  -scheme TernUITests -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+  -only-testing:TernUnitTests/NativeCoreLoopbackTests test
 ```
 
 Without the env var the tests probe the SS port and run if the servers are

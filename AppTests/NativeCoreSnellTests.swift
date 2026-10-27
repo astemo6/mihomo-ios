@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Snell: KDF is the old-core-verified Argon2id output truncated; framing is
 /// validated by round-trips anchored on that key.

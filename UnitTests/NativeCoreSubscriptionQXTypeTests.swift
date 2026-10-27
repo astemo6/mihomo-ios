@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-followup-b task 2: QX `ss=` / `snell=` / `tuic=` lines in plain-text subscriptions go to the QX
 /// builder; a Surge line whose NAME is such a word still goes to the Surge parser.

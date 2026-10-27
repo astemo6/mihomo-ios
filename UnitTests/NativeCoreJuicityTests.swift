@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Juicity wire codecs (Shared/NativeCore/NCJuicity.swift) against daeuniverse/outbound protocol/juicity +
 /// protocol/trojanc (the code the juicity server runs): trojanc ATYP 1/3/4, network byte 1 = TCP / 3 = UDP,

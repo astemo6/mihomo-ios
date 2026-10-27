@@ -1,7 +1,7 @@
 import Network
 import Security
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/s2-tls (native MitM stage 2, B7): leaf identity cache + PKCS#12 import + the loopback TLS server.
 /// NativeMitmTLSFixtures.json: PKCS#12 blobs written by the old core exactly like Engine.LeafIdentity (pkcs12.Legacy, password

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // Coverage for PR #117 (fix/nc-dns), fake-IP persistence half: the snapshot
 // format went to v2 (version field + IPv6 offset pairs), restore is bounded

@@ -54,7 +54,7 @@
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>mihomo</string>
+				<string>tern</string>
 			</array>
 		</dict>
 	</array>
@@ -69,13 +69,13 @@
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.astemo6.mihomo.sgmodule</string>
-				<string>com.astemo6.mihomo.plugin</string>
-				<string>com.astemo6.mihomo.stoverride</string>
-				<string>com.astemo6.mihomo.conf</string>
-				<string>com.astemo6.mihomo.list</string>
-				<string>com.astemo6.mihomo.module</string>
-				<string>com.astemo6.mihomo.snippet</string>
+				<string>com.astemo6.tern.sgmodule</string>
+				<string>com.astemo6.tern.plugin</string>
+				<string>com.astemo6.tern.stoverride</string>
+				<string>com.astemo6.tern.conf</string>
+				<string>com.astemo6.tern.list</string>
+				<string>com.astemo6.tern.module</string>
+				<string>com.astemo6.tern.snippet</string>
 				<string>public.yaml</string>
 			</array>
 		</dict>
@@ -110,7 +110,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.module</string>
+			<string>com.astemo6.tern.module</string>
 			<key>UTTypeDescription</key>
 			<string>Surge 模块（.module）</string>
 			<key>UTTypeConformsTo</key>
@@ -127,7 +127,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.snippet</string>
+			<string>com.astemo6.tern.snippet</string>
 			<key>UTTypeDescription</key>
 			<string>Quantumult X 片段</string>
 			<key>UTTypeConformsTo</key>
@@ -144,7 +144,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.sgmodule</string>
+			<string>com.astemo6.tern.sgmodule</string>
 			<key>UTTypeDescription</key>
 			<string>Surge 模块</string>
 			<key>UTTypeConformsTo</key>
@@ -161,7 +161,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.plugin</string>
+			<string>com.astemo6.tern.plugin</string>
 			<key>UTTypeDescription</key>
 			<string>Loon 插件</string>
 			<key>UTTypeConformsTo</key>
@@ -178,7 +178,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.stoverride</string>
+			<string>com.astemo6.tern.stoverride</string>
 			<key>UTTypeDescription</key>
 			<string>Stash 覆写</string>
 			<key>UTTypeConformsTo</key>
@@ -195,7 +195,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.conf</string>
+			<string>com.astemo6.tern.conf</string>
 			<key>UTTypeDescription</key>
 			<string>Surge / Quantumult X 配置</string>
 			<key>UTTypeConformsTo</key>
@@ -212,7 +212,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.list</string>
+			<string>com.astemo6.tern.list</string>
 			<key>UTTypeDescription</key>
 			<string>规则 / 重写列表</string>
 			<key>UTTypeConformsTo</key>

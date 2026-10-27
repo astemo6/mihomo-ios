@@ -205,11 +205,11 @@ final class VPNManager: ObservableObject {
     }
 
     /// The VPN configuration's server address / name. r7 (user 2026-10-21 「不用刻意保留」): renamed from
-    /// "Mihomo"; existing configurations are matched by the tunnel bundle id (never by this name) and renamed in
+    /// the pre-rename name (LegacyImport.vpnNames); existing configurations are matched by the tunnel bundle id (never by this name) and renamed in
     /// place by fixStaleManager, so no second VPN profile appears and the widget / Control Center / intents
     /// (which match the bundle id too) keep finding it.
     static let serverAddress = "Tern"
-    static let legacyServerAddresses: Set<String> = ["Mihomo", "Tern"]
+    static let legacyServerAddresses: Set<String> = LegacyImport.vpnNames.union(["Tern"])
 
     /// This app's configuration: our tunnel bundle id first; then one carrying our (old or new) name, saved by a
     /// build with another tunnel bundle id (re-signing); then — NE only lists this app's own configurations —
@@ -223,7 +223,7 @@ final class VPNManager: ObservableObject {
 
     /// A manager saved by a build with another tunnel bundle id (e.g. before re-signing) would start a
     /// non-existent extension. Point it at the current one and save again. r7: also renames a configuration
-    /// still called "Mihomo" to "Tern" in place.
+    /// still carrying the pre-rename name to "Tern" in place.
     private func fixStaleManager(_ m: NETunnelProviderManager) async throws {
         guard let proto = m.protocolConfiguration as? NETunnelProviderProtocol else { return }
         let staleID = proto.providerBundleIdentifier != AppShared.tunnelBundleID

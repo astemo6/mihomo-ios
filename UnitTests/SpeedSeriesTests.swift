@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // fix/bg-chart + feat/traffic-scope: Home speed series and the scoped traffic numbers.
 final class SpeedSeriesTests: XCTestCase {

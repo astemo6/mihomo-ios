@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-mem-2: rule-set refreshes are bounded (NCRuleProviderStore.maxConcurrentFetches lists in flight), every
 /// list still lands, a failed / empty fetch does not stall the chain, and a store dropped by a reload stops its own

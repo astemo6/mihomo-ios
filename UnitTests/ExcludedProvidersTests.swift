@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// hotfix/sub-disabled-nodes: a 停用 节点集 / node subscription must not reach 全部节点 / 筛选节点 from a core that still
 /// serves it (reload pending or failed).

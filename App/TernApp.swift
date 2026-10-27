@@ -18,6 +18,8 @@ struct TernApp: App {
         EgernDensity.applyBars()
         // test/selftest: simulator UI tests only (-UITestSeed); wipes the demo container before any store loads.
         UITestSeed.resetIfNeeded()
+        // Rename (2026-10-27): a re-signed build that kept its App Group still has the old storage directory.
+        LegacyImport.migrateStorageDirIfNeeded()
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
         DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
         // fix/nc-storage-other: crashed-prepare staging dirs and orphaned atomic-write temp files (older than 10 min).

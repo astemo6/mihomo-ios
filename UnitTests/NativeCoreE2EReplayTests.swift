@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Tern E2E replay, stage 1 of 2 (feat/nc-e2e, .github/workflows/e2e-replay.yml): a real user config goes through
 /// the App's own import path — ImportRouter.route → ConfImport.save (QX .conf: profile + 「（重写）」 module +
@@ -216,7 +216,7 @@ final class NativeCoreE2EReplayTests: XCTestCase {
     private static func resetAppState() {
         let fm = FileManager.default
         let root = AppShared.containerURL
-        for name in ["profiles", "profiles.json", "mihomo"] {
+        for name in ["profiles", "profiles.json", "tern"] {
             try? fm.removeItem(at: root.appendingPathComponent(name))
         }
         AppShared.activeProfileID = nil

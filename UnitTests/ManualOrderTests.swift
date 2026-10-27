@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// 2026-10-23 「这个规则要能手动调顺序」「三个路径…也都要可以手动调顺序」: ManualOrder follows the bridge's
 /// mitm.ReorderSlots (saved names sorted among the slots they hold, everything else in place), and a drag inside a

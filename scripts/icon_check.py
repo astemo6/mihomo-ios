@@ -3,7 +3,7 @@
 
 usage: icon_check.py <ipa> [<ipa> ...]
 
-For each IPA, Payload/Mihomo.app must have:
+For each IPA, Payload/Tern.app must have:
   - Info.plist CFBundleIcons and CFBundleIcons~ipad with CFBundlePrimaryIcon AppIcon and CFBundleAlternateIcons
     containing every name in ALTERNATES (each entry's CFBundleIconName = its key), which is what
     UIApplication.setAlternateIconName looks up;
@@ -16,7 +16,7 @@ import sys
 import zipfile
 
 ALTERNATES = ["AppIcon-Night", "AppIcon-Sky"]
-APP = "Payload/Mihomo.app/"
+APP = "Payload/Tern.app/"
 
 
 def fail(path, msg):

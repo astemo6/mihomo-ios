@@ -408,7 +408,7 @@ struct AddRemoteSheet: View {
                 Section("选项") {
                     Picker("User-Agent", selection: $ua) {
                         Text("clash.meta").tag("clash.meta")
-                        Text(verbatim: "mihomo").tag("mihomo")
+                        Text(verbatim: "Clash.Meta (Meta core)").tag(SubscriptionUA.metaCore)
                         Text("clash-verge/v2").tag("clash-verge/v2")
                     }
                     Picker("自动更新", selection: $interval) {

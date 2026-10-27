@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-open-6-10: #6 rule-list trailing comments, #7 upstream DNS race (NCDNSRace), #9 script / UDP traffic in
 /// NCStatsRecorder.

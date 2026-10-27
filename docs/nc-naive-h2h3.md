@@ -1,6 +1,6 @@
 # NativeCore: NaïveProxy, HTTP/2 and HTTP/3 proxies (feat/nc-naive-h2h3)
 
-Pure Swift, no Go. Files (Shared/NativeCore unless noted — **Shared/NativeCore and PacketTunnel/NativeCore
+Pure Swift. Files (Shared/NativeCore unless noted — **Shared/NativeCore and PacketTunnel/NativeCore
 changes must be synced to feat/nc-kernel**):
 
 | File | What |
@@ -40,7 +40,7 @@ changes must be synced to feat/nc-kernel**):
 
 `http2`/`http3` are Shadowrocket's HTTP2 / HTTP3 types: plain HTTP CONNECT tunnelled in an HTTP/2 stream
 (TLS, ALPN h2) or an HTTP/3 request stream (QUIC, ALPN h3), Basic proxy authorization, no padding.
-mihomo has no naive / h2 / h3 proxy types; field names follow sing-box (snake_case → kebab-case) and the
+Clash.Meta has no naive / h2 / h3 proxy types; field names follow sing-box (snake_case → kebab-case) and the
 existing Clash conventions (`sni`, `skip-cert-verify`, `client-fingerprint`).
 
 ## Wire

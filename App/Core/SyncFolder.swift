@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // v0.10 同步文件夹: profiles, modules, overrides and the rest of a backup (no MitM CA) kept in one file,
-// Tern-sync.json (read falls back to the pre-rename Mihomo-sync.json), in a folder the user picks once in the Files picker — typically iCloud Drive. Works
+// Tern-sync.json (read falls back to the pre-rename name, LegacyImport.syncFileName), in a folder the user picks once in the Files picker — typically iCloud Drive. Works
 // without an iCloud container entitlement (re-signed builds have none): access goes through a
 // security-scoped bookmark. Optional: push automatically when the app goes to the background and the
 // configuration changed since the last push.
@@ -12,7 +12,7 @@ import UniformTypeIdentifiers
 private let syncFileName = "Tern-sync.json"
 /// r7: the name builds before the Tern rename wrote. Reads fall back to it so an existing sync folder (or another
 /// device still on an older build) keeps working; writes always go to Tern-sync.json.
-private let legacySyncFileName = "Mihomo-sync.json"
+private let legacySyncFileName = LegacyImport.syncFileName
 
 @MainActor
 final class SyncFolder: ObservableObject {
@@ -101,7 +101,7 @@ final class SyncFolder: ObservableObject {
         return try result.get()
     }
 
-    /// The file a read uses: Tern-sync.json, else the legacy Mihomo-sync.json; when both exist, the newer one
+    /// The file a read uses: Tern-sync.json, else the legacy pre-rename file; when both exist, the newer one
     /// (an older build on another device may still be pushing the legacy name). Call inside the folder's scope.
     nonisolated static func readFileName(folder: URL) -> String {
         let fm = FileManager.default

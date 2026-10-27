@@ -71,9 +71,9 @@ struct ProfileSubSheet: View {
             Section {
                 Picker("User-Agent", selection: $ua) {
                     Text(verbatim: "clash.meta").tag("clash.meta")
-                    Text(verbatim: "mihomo").tag("mihomo")
+                    Text(verbatim: "Clash.Meta (Meta core)").tag(SubscriptionUA.metaCore)
                     Text(verbatim: "clash-verge/v2").tag("clash-verge/v2")
-                    if !["clash.meta", "mihomo", "clash-verge/v2"].contains(ua) { Text(verbatim: ua).tag(ua) }
+                    if !["clash.meta", SubscriptionUA.metaCore, "clash-verge/v2"].contains(ua) { Text(verbatim: ua).tag(ua) }
                 }
                 if profile.id != store.activeID {
                     Button {
@@ -181,10 +181,10 @@ struct NodeSubSheet: View {
             Section {
                 Picker("User-Agent", selection: $ua) {
                     Text(verbatim: "clash.meta").tag("clash.meta")
-                    Text(verbatim: "mihomo").tag("mihomo")
+                    Text(verbatim: "Clash.Meta (Meta core)").tag(SubscriptionUA.metaCore)
                     Text(verbatim: "Quantumult X").tag("Quantumult%20X/1.5.2")
                     Text(verbatim: "Shadowrocket").tag("Shadowrocket/2070")
-                    if !["clash.meta", "mihomo", "Quantumult%20X/1.5.2", "Shadowrocket/2070"].contains(ua) { Text(verbatim: ua).tag(ua) }
+                    if !["clash.meta", SubscriptionUA.metaCore, "Quantumult%20X/1.5.2", "Shadowrocket/2070"].contains(ua) { Text(verbatim: ua).tag(ua) }
                 }
                 Button { pickingIcon = true } label: { Label("图标", systemImage: "photo") }
                 let src = model.source(subID: sub.id)
@@ -441,4 +441,10 @@ struct ModuleSubSheet: View {
         res.reload()
         return nil
     }
+}
+
+/// Subscription User-Agent option values. Servers pick the returned format by the UA, so the values are the ones
+/// Clash.Meta-family clients send (interop, not branding); the picker shows them as "Clash.Meta (Meta core)".
+enum SubscriptionUA {
+    static let metaCore = "mihomo"
 }
