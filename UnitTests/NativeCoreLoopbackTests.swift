@@ -973,12 +973,64 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
     // MARK: - TrustTunnel (#161, official trusttunnel_endpoint on 18013, HTTP/2 track)
 
-    private static func trustTunnelProxy(name: String, password: String) -> NCProxy {
+    private static func trustTunnelProxy(name: String, password: String, quic: Bool = false) -> NCProxy {
         Self.proxy(name: name, type: "trusttunnel", port: Self.trustTunnelPort, extra: [
             "username": .string(Self.trustTunnelUser), "password": .string(password),
-            "sni": .string("localhost"), "skip-cert-verify": .bool(true), "quic": .bool(false),
+            "sni": .string("localhost"), "skip-cert-verify": .bool(true), "quic": .bool(quic),
+            // H3 cases must prove HTTP/3 itself: no silent fallback to the H2 listener on the same port.
+            "h2-fallback": .bool(false),
         ])
     }
+
+    /// One `_udp2` stream (spec §6) to the UDP echo; DNS-sized and 1200-byte datagrams must come back byte-exact.
+    private func assertTrustTunnelUDPEcho(quic: Bool) throws {
+        let proxy = Self.trustTunnelProxy(name: quic ? "loop-trusttunnel-h3-udp" : "loop-trusttunnel-h2-udp",
+                                          password: Self.trustTunnelPassword, quic: quic)
+        let exp = self.expectation(description: "tt udp open")
+        let box = LockedBox<(NCRelayStream?, Error?)>((nil, nil))
+        NCTrustTunnelSessionManager.udpStream(proxy: proxy, target: NCTarget(host: Self.host, port: Self.udpEchoPort),
+                                              queue: DispatchQueue(label: "nc.loopback.tt.udp.\(quic)")) { s, e in
+            box.set((s, e)); exp.fulfill()
+        }
+        self.wait(for: [exp], timeout: 20)
+        let (s, e) = box.get()
+        if let e { throw e }
+        let stream = try XCTUnwrap(s, "tt udp: neither stream nor error")
+        defer { stream.cancel() }
+        for payload in [Self.dnsQuery, Data((0..<1200).map { UInt8(($0 * 7 + 3) & 0xff) })] {
+            let got = self.expectation(description: "tt udp echo")
+            let reply = LockedBox<Data?>(nil)
+            stream.receive { d, _ in reply.set(d); got.fulfill() }
+            stream.send(payload)
+            self.wait(for: [got], timeout: 10)
+            XCTAssertEqual(reply.get(), payload)
+        }
+    }
+
+    // MARK: - TrustTunnel HTTP/3 (fix/nc-trusttunnel-h3) against the official endpoint's QUIC listener
+
+    /// 8 KiB, then 1 MiB byte-exact through one H3 CONNECT stream, then a second stream on the same QUIC connection.
+    func testTrustTunnelH3TCPEcho() throws {
+        let proxy = Self.trustTunnelProxy(name: "loop-trusttunnel-h3", password: Self.trustTunnelPassword, quic: true)
+        let stream = try self.connect(proxy: proxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        try self.assertEcho(stream, payload: Data((0..<(1 << 20)).map { UInt8(($0 * 31 + 7) & 0xff) }), timeout: 60)
+        let second = try self.connect(proxy: proxy, target: Self.echoTarget)
+        defer { second.cancel() }
+        try self.assertEcho(second, payload: Self.payload)
+    }
+
+    func testTrustTunnelH3WrongPasswordRejected() {
+        let proxy = Self.trustTunnelProxy(name: "loop-trusttunnel-h3-badpw", password: "wrong-password", quic: true)
+        XCTAssertThrowsError(try self.connect(proxy: proxy, target: Self.echoTarget)) { err in
+            XCTAssertTrue("\(err)".contains("407"), "\(err)")
+        }
+    }
+
+    func testTrustTunnelH3UDPEcho() throws { try assertTrustTunnelUDPEcho(quic: true) }
+
+    func testTrustTunnelH2UDPEcho() throws { try assertTrustTunnelUDPEcho(quic: false) }
 
     /// 8 KiB echo plus a chunked echo: the endpoint announces MAX_CONCURRENT_STREAMS 1000 and a 128 KiB stream
     /// window — the #161 run stalled at exactly 1000 bytes because the old NCH2MuxCore read SETTINGS id 0x3 as

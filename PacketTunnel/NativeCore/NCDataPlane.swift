@@ -1420,6 +1420,9 @@ final class NCDataPlane {
         case .proxy(let proxy) where proxy.type == "masque":
             // fix/nc-proto-masque-int: RFC 9298 CONNECT-UDP, one request stream per flow (NCMASQUEUDP.swift).
             session = NCUDPMASQUESession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "trusttunnel" || proxy.type == "trust-tunnel":
+            // fix/nc-trusttunnel-h3: spec §6 _udp2 multiplexer stream (H2 or H3), one per flow (NCTrustTunnelUDP.swift).
+            session = NCUDPTrustTunnelSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "gost-relay":
             // feat/nc-gost-relay: CONNECT|UDP relay connection bound to this flow's target (NCGostRelayUDP.swift).
             session = NCUDPGostRelaySession(proxy: proxy, target: target, queue: queue)
