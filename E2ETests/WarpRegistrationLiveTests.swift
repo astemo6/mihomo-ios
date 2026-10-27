@@ -44,14 +44,15 @@ final class WarpRegistrationLiveTests: XCTestCase {
         var last: Error?
         for attempt in 1...3 {
             let got = expectation(description: "register \(attempt)")
-            var result: Result<WarpRegistration.Node, Error>?
+            final class Box: @unchecked Sendable { var result: Result<WarpRegistration.Node, Error>? }
+            let box = Box()
             let t0 = Date()
             Task {
-                do { result = .success(try await WarpRegistration.register(name: "tern-ci-register")) } catch { result = .failure(error) }
+                do { box.result = .success(try await WarpRegistration.register(name: "tern-ci-register")) } catch { box.result = .failure(error) }
                 got.fulfill()
             }
             wait(for: [got], timeout: 120)
-            switch result {
+            switch box.result {
             case .success(let n)?:
                 NSLog("[warp-register] registered in %.2f s: server=%@ server6=%@ port=%d ip=%@ ipv6 set=%d mtu=%d key=SEC1(%d b64) pin=SPKI(%d b64) account=%@",
                       Date().timeIntervalSince(t0), n.server, n.server6, n.port, n.ipv4, n.ipv6.isEmpty ? 0 : 1, n.mtu,

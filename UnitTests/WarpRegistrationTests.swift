@@ -316,7 +316,8 @@ final class WarpRegistrationTests: XCTestCase {
         let noneReqs = await rec.requests
         XCTAssertTrue(noneReqs.isEmpty)
         m.acceptedTerms = true
-        let node = try XCTUnwrap(await m.register())
+        let got = await m.register()
+        let node = try XCTUnwrap(got)
         XCTAssertEqual(node.name, "Cloudflare WARP 2")
         XCTAssertEqual(m.phase, .done("Cloudflare WARP 2"))
         XCTAssertEqual(saved.count, 1)
