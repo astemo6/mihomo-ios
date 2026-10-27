@@ -10,6 +10,8 @@
 # Pushes to feat/** / fix/** / test/** do NOT run it (Self-test on test/** already runs every unit test class in its
 # smoke combo and in light shard 2).
 # A [skip-unit] marker is deliberately not supported: a PR to main always runs the tests.
+# ci/speedup: `build` = .github/workflows/build-for-testing.yml (TernUITests scheme, as before); `unit` runs
+# test-without-building on its products (.github/actions/tern-prebuilt).
 name: Unit tests
 
 on:
@@ -33,46 +35,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  unit:
+  build:
     # Org mirror (astemo666/mihomo-ios) runs only its Self-test shard.
     if: github.repository == 'astemo6/mihomo-ios'
+    uses: ./.github/workflows/build-for-testing.yml
+    with:
+      ref: ${{ inputs.ref }}
+      scheme: TernUITests
+
+  unit:
+    needs: build
+    if: github.repository == 'astemo6/mihomo-ios'
     runs-on: macos-15
-    timeout-minutes: 75
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
-      - name: Select latest Xcode
-        run: |
-          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
-      - name: Generate project (with test targets)
-        run: |
-          brew install xcodegen
-          xcodegen generate --spec project-uitests.yml
-      - name: Pick simulator
-        run: |
-          DEV=$(xcrun simctl list devices available -j | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)['devices']
-          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
-          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
-          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
-              m=[(r,x) for r,x in devs if x['name']==want]
-              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
-          ")
-          test -n "$DEV"
-          echo "DEV=$DEV" >> "$GITHUB_ENV"
-          xcrun simctl boot "$DEV" || true
-      - name: Build for testing
-        run: |
-          set -o pipefail
-          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/ut \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            build-for-testing 2>&1 | tee build-ut.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
-          grep -q "TEST BUILD SUCCEEDED" build-ut.log || { tail -n 150 build-ut.log; exit 1; }
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernUITests
+          xcode: ${{ needs.build.outputs.xcode }}
       - name: Run unit tests
         run: |
           set +e
@@ -80,8 +63,7 @@ jobs:
           mkdir -p results
           # Same JSC setting as Self-test / a device: no JIT in the test host.
           TEST_RUNNER_JSC_useJIT=false \
-          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/ut -resultBundlePath results/unit.xcresult \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/unit.xcresult \
             -only-testing:TernUnitTests test-without-building 2>&1 | tee results/unit.log \
             | grep -E "Test Case .*(failed|passed)|error:|XCTAssert|Executed"
           RC=${PIPESTATUS[0]}
@@ -96,9 +78,7 @@ jobs:
         if: always()
         with:
           name: unit-results
-          path: |
-            results/unit.log
-            build-ut.log
+          path: results/unit.log
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@v6

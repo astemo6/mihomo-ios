@@ -2,12 +2,29 @@
 # must exist on the default branch before it can be dispatched) and by workflow_dispatch with run_tests=true
 # once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test ([unit:<Class>] adds a unit test class),
 # [skip-ui] skips the UI shards.
-# - plan: picks the UI path (smoke or full matrix, see "UI path" below). Ubuntu, ~20 s.
-# - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
-#   zh-Hans and en, light and dark. Screenshots and per-test reports are uploaded as artifacts only.
+# - dedupe + plan (ubuntu, seconds): identical-SHA dedupe, UI path (smoke / full matrix, see "UI path" below), extras.
+# - build-ui (macOS, once): build-for-testing of the TernUITests scheme → artifact (.github/workflows/build-for-testing.yml).
+# - ui (macOS matrix): every combo runs `test-without-building` on those products (.github/actions/tern-prebuilt) —
+#   XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile, zh-Hans and en,
+#   light and dark, plus one `unit` combo (the whole TernUnitTests bundle). Screenshots and per-test reports are
+#   uploaded as artifacts only.
 # The release workflow (ios.yml) and project.yml are not touched by this file.
+#
+# ci/speedup (2026-10-27, report work/nc/ci-speedup-report.md):
+# - one build per run instead of one per combo (each combo built for 6–15 min before);
+# - light tests split into 5 shards balanced on measured durations (~26 min of tests each; the old 3 shards ran
+#   29–61 min) — light:1–4 are fixed lists, light:5 is everything else in TernUITests (new tests land there);
+# - the unit tests run once, in their own `unit` combo, instead of inside light shard 2 of both languages (the en
+#   mirror's copy was the identical bundle on an identical simulator; UI_LANG / UI_STYLE are read by UI tests only);
+# - an explicit selection runs in `light:sel` (+ `dark:sel` unless it selects unit tests only) — no shard builds just
+#   to exit any more;
+# - extras (dispatch input `extras`): the rest of the full CI in the same run on the same build(s) —
+#   e2e (e2e-replay.yml, TernE2E products), proto (proto-loopback.yml: loopback + openconnect + masque-ip; or name
+#   jobs: loopback, openconnect, masque-ip, masque-warp), ipa (ios.yml build_only), checks (checks.yml), all = e2e,proto,ipa,checks.
+#   Full CI = astemo6: shard=full extras=e2e,ipa,checks  +  astemo666 mirror: shard=full extras=proto[,masque-warp].
+#
 # Org mirror sharding (doubles concurrent macOS runners; free plan = 5 macOS jobs per account/org):
-#   astemo6/mihomo-ios   → ui zh-Hans light/dark
+#   astemo6/mihomo-ios   → ui zh-Hans light/dark + unit
 #   astemo666/mihomo-ios → ui en light/dark
 #   any other repo       → everything
 # Full matrix in one repo: workflow_dispatch shard=all, or [shard:all] in the pushed commit message.
@@ -35,17 +52,18 @@
 #                       xcstrings, ASSETCATALOG, INFOPLIST, PRODUCT_NAME, AppIcon, AccentColor, DisplayName
 #   Everything else (PacketTunnel/**, Geo/**, Config/**, UnitTests/**, scripts/**, .github/**,
 #   docs) is not UI-affecting → smoke.
-#   smoke = one combo, zh-Hans light (astemo6 / other repos; the astemo666 en mirror runs no UI job):
-#     SMOKE_TESTS (launch + tab/page navigation + node manager) + every TernUnitTests class. The app,
-#     test bundle and framework are built in full, so a compile break still fails.
-#   full  = today's matrix (repository split above; light:1/2/3 + dark:0 per language).
+#   smoke = zh-Hans light SMOKE_TESTS (launch + tab/page navigation + node manager) + the `unit` combo
+#     (astemo6 / other repos; the astemo666 en mirror runs no UI job). The app, test bundle and framework are built
+#     in full, so a compile break still fails.
+#   full  = the repository split above: light:1–5 + dark:0 per language (+ unit on astemo6 / other repos).
 # Markers / inputs (commit message of the pushed head; dispatch input `shard`):
 #   [shard:all]   / shard=all    full matrix, both languages, in this repo (wins over everything)
 #   [shard:smoke] / shard=smoke  force smoke even when UI files changed
 #   [shard:full]  / shard=full   force the full repository-split matrix even when no UI file changed
 #   (none)        / shard=auto   the diff rule above
-#   [only:<test>] / [unit:<Class>] / inputs.only  explicit selection, unchanged: light shard 1 + dark:0 as
-#                 before (smoke: runs the selection in the one smoke combo when [shard:smoke] is also given)
+#   [only:<test>] / [unit:<Class>] / inputs.only  explicit selection: light:sel + dark:sel of the repository's
+#                 language (both languages with shard=all; only light:sel when the selection is unit tests only, or
+#                 with [shard:smoke] / shard=smoke)
 #   [skip-ui]  unchanged.
 name: Self-test
 
@@ -65,11 +83,16 @@ on:
         required: false
         default: ""
       shard:
-        description: "auto = smoke if no UI-affecting file changed (see header), else split by repository; full = split by repository; smoke = one zh-Hans light smoke combo; all = full matrix here"
+        description: "auto = smoke if no UI-affecting file changed (see header), else split by repository; full = split by repository; smoke = one zh-Hans light smoke combo + unit; all = full matrix here"
         type: choice
         options: [auto, full, smoke, all]
         required: false
         default: auto
+      extras:
+        description: "Also run on the same build(s): comma list of e2e, proto, loopback, openconnect, masque-ip, masque-warp, ipa, checks; all = e2e,proto,ipa,checks"
+        type: string
+        required: false
+        default: ""
   workflow_call:
     inputs:
       ref:
@@ -90,9 +113,17 @@ on:
         type: string
         required: false
         default: auto
+      extras:
+        type: string
+        required: false
+        default: ""
+    secrets:
+      TERN_E2E_KEY:
+        required: false
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: selftest-${{ inputs.ref || github.ref }}
@@ -100,7 +131,7 @@ concurrency:
 
 jobs:
   # Identical-SHA dedupe (push only): the same commit pushed to a second test/** branch while its first run is
-  # queued / running / green would take another 4 macOS runners for the same result.
+  # queued / running / green would take the macOS runners again for the same result.
   dedupe:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -129,12 +160,20 @@ jobs:
           fi
           echo "skip=$SKIP" | tee -a "$GITHUB_OUTPUT"
   plan:
-    # Picks the UI path: smoke (one combo) when the branch changes no UI-affecting file, else the full matrix.
+    # Picks the UI path (smoke / full / selection) and the combos, decides which builds the run needs, parses extras.
+    needs: dedupe
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       combos: ${{ steps.plan.outputs.combos }}
       mode: ${{ steps.plan.outputs.mode }}
+      ui: ${{ steps.plan.outputs.ui }}
+      build_ui: ${{ steps.plan.outputs.build_ui }}
+      build_e2e: ${{ steps.plan.outputs.build_e2e }}
+      e2e: ${{ steps.plan.outputs.e2e }}
+      loop_jobs: ${{ steps.plan.outputs.loop_jobs }}
+      ipa: ${{ steps.plan.outputs.ipa }}
+      checks: ${{ steps.plan.outputs.checks }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -148,7 +187,10 @@ jobs:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           SHARD_INPUT: ${{ inputs.shard }}
           ONLY_INPUT: ${{ inputs.only }}
+          EXTRAS: ${{ inputs.extras }}
           REPO: ${{ github.repository }}
+          DEDUPE_SKIP: ${{ needs.dedupe.outputs.skip }}
+          RUN_UI: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-ui]')) || inputs.run_tests }}
         run: |
           set -uo pipefail
           FORCE=""
@@ -165,7 +207,7 @@ jobs:
           if [ -n "$FORCE" ]; then
             MODE=$FORCE; REASON="forced ($FORCE)"
           elif [ "$SELECTION" = 1 ]; then
-            MODE=full; REASON="explicit [only:]/[unit:] selection (unchanged behaviour)"
+            MODE=selection; REASON="explicit [only:]/[unit:] selection"
           else
             MB=$(git merge-base HEAD origin/main 2>/dev/null || true)
             HEADSHA=$(git rev-parse HEAD)
@@ -196,43 +238,106 @@ jobs:
               if [ -n "$UI_FILES" ]; then MODE=full; REASON="UI-affecting files changed"; else MODE=smoke; REASON="no UI-affecting file changed"; fi
             fi
           fi
-          ALL='["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","en:light:1","en:light:2","en:light:3","zh-Hans:dark:0","en:dark:0"]'
-          case "$MODE" in
-            all) COMBOS=$ALL ;;
-            smoke) if [ "$REPO" = astemo666/mihomo-ios ]; then COMBOS='[]'; else COMBOS='["zh-Hans:light:smoke"]'; fi ;;
-            *) case "$REPO" in
-                 astemo666/mihomo-ios) COMBOS='["en:light:1","en:light:2","en:light:3","en:dark:0"]' ;;
-                 astemo6/mihomo-ios) COMBOS='["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","zh-Hans:dark:0"]' ;;
-                 *) COMBOS=$ALL ;;
-               esac ;;
-          esac
-          echo "mode=$MODE ($REASON) base=${BASE:-none} ${BASE_DESC} changed=$NCHANGED combos=$COMBOS"
-          { echo "mode=$MODE"; echo "combos=$COMBOS"; } >> "$GITHUB_OUTPUT"
+          # Combos "<lang>:<style>:<shard>" (shard 1–5 light, 0 dark, smoke, sel) and "unit" (TernUnitTests bundle).
+          L5='"LANG:light:1","LANG:light:2","LANG:light:3","LANG:light:4","LANG:light:5","LANG:dark:0"'
+          ZH=${L5//LANG/zh-Hans}; EN=${L5//LANG/en}
+          # Unit-only selection ([unit:] markers without [only:], or inputs.only naming TernUnitTests): no dark run.
+          UNIT_ONLY=0
+          if [ "$SELECTION" = 1 ]; then
+            UNIT_ONLY=1
+            [ -z "${ONLY_INPUT:-}" ] || case "$ONLY_INPUT" in TernUnitTests|TernUnitTests/*) ;; *) UNIT_ONLY=0 ;; esac
+            if printf '%s' "$COMMIT_MSG" | grep -qE '\[only:[A-Za-z0-9_]+\]'; then UNIT_ONLY=0; fi
+          fi
+          sel() { # lang list → selection combos
+            local out="" l
+            for l in "$@"; do
+              out="$out,\"$l:light:sel\""
+              [ "$UNIT_ONLY" = 1 ] || out="$out,\"$l:dark:sel\""
+            done
+            echo "[${out#,}]"
+          }
+          case "$REPO" in astemo666/mihomo-ios) MYLANG=en ;; astemo6/mihomo-ios) MYLANG=zh-Hans ;; *) MYLANG="zh-Hans en" ;; esac
+          if [ "$SELECTION" = 1 ]; then
+            case "$MODE" in
+              smoke) if [ "$REPO" = astemo666/mihomo-ios ]; then COMBOS='[]'; else COMBOS='["zh-Hans:light:sel"]'; fi ;;
+              all) COMBOS=$(sel zh-Hans en) ;;
+              *) COMBOS=$(sel $MYLANG) ;;
+            esac
+          else
+            case "$MODE" in
+              all) COMBOS="[$ZH,$EN,\"unit\"]" ;;
+              smoke) if [ "$REPO" = astemo666/mihomo-ios ]; then COMBOS='[]'; else COMBOS='["zh-Hans:light:smoke","unit"]'; fi ;;
+              *) case "$REPO" in
+                   astemo666/mihomo-ios) COMBOS="[$EN]" ;;
+                   astemo6/mihomo-ios) COMBOS="[$ZH,\"unit\"]" ;;
+                   *) COMBOS="[$ZH,$EN,\"unit\"]" ;;
+                 esac ;;
+            esac
+          fi
+          UI=false
+          if [ "$DEDUPE_SKIP" != true ] && [ "$RUN_UI" = true ] && [ "$COMBOS" != '[]' ]; then UI=true; fi
+          # Extras (dispatch / call input): the rest of the full CI on the same build(s).
+          E2E=false; IPA=false; CHK=false; LOOP=""
+          for x in $(printf '%s' "${EXTRAS:-}" | tr ',' ' '); do
+            case "$x" in
+              all) E2E=true; IPA=true; CHK=true; LOOP="$LOOP,loopback,openconnect,masque-ip" ;;
+              e2e) E2E=true ;;
+              ipa) IPA=true ;;
+              checks) CHK=true ;;
+              proto) LOOP="$LOOP,loopback,openconnect,masque-ip" ;;
+              loopback|openconnect|masque-ip|masque-warp) LOOP="$LOOP,$x" ;;
+              *) echo "::error::unknown extras entry '$x'"; exit 1 ;;
+            esac
+          done
+          LOOP=$(printf '%s' "$LOOP" | tr ',' '\n' | grep . | sort -u | paste -sd, - || true)
+          BUILD_UI=$UI; BUILD_E2E=$E2E
+          case ",$LOOP," in *,loopback,*) BUILD_UI=true ;; esac
+          case ",$LOOP," in *,openconnect,*|*,masque-ip,*|*,masque-warp,*) BUILD_E2E=true ;; esac
+          echo "mode=$MODE ($REASON) base=${BASE:-none} ${BASE_DESC} changed=$NCHANGED combos=$COMBOS ui=$UI extras: e2e=$E2E loop=$LOOP ipa=$IPA checks=$CHK"
+          {
+            echo "mode=$MODE"; echo "combos=$COMBOS"; echo "ui=$UI"; echo "build_ui=$BUILD_UI"; echo "build_e2e=$BUILD_E2E"
+            echo "e2e=$E2E"; echo "loop_jobs=$LOOP"; echo "ipa=$IPA"; echo "checks=$CHK"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "### UI path: $MODE"
             echo "- reason: $REASON"
             [ -n "$BASE" ] && echo "- base: \`${BASE:0:12}\` ($BASE_DESC), $NCHANGED changed file(s)"
-            echo "- combos: \`$COMBOS\`"
+            echo "- combos: \`$COMBOS\` (ui runs: $UI)"
+            [ -z "${EXTRAS:-}" ] || echo "- extras: e2e=$E2E proto-loopback=[${LOOP}] ipa=$IPA checks=$CHK"
             if [ -n "$UI_FILES" ]; then
               echo "- UI-affecting files:"
               printf '%s' "$UI_FILES" | head -n 30 | sed 's/^/  - /'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  build-ui:
+    needs: plan
+    if: needs.plan.outputs.build_ui == 'true'
+    uses: ./.github/workflows/build-for-testing.yml
+    with:
+      ref: ${{ inputs.ref }}
+      scheme: TernUITests
+
+  build-e2e:
+    needs: plan
+    if: needs.plan.outputs.build_e2e == 'true'
+    uses: ./.github/workflows/build-for-testing.yml
+    with:
+      ref: ${{ inputs.ref }}
+      scheme: TernE2E
+
   ui:
-    # [skip-ui] in the pushed commit message: the macOS UI shards are not run.
+    # [skip-ui] in the pushed commit message: the macOS UI shards are not run (plan output ui=false).
     # The plan job's combos are [] when nothing runs here (smoke on the astemo666 en mirror).
-    needs: [dedupe, plan]
-    if: ${{ needs.dedupe.outputs.skip != 'true' && ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-ui]')) || inputs.run_tests) && needs.plan.outputs.combos != '[]' }}
+    needs: [plan, build-ui]
+    if: needs.plan.outputs.ui == 'true'
     runs-on: macos-15
-    timeout-minutes: 120
+    timeout-minutes: 90
     strategy:
       fail-fast: false
+      # free plan: 5 macOS jobs per account; listed longest first so the long light shards start first.
+      max-parallel: 5
       matrix:
-        # Full path: shard by repository (see header); full list when shard=all, [shard:all], or an unknown repository.
-        # Review 6 OPT-1: light is split in two test shards (:1 = test01–test30 since r7, :2 = the rest + unit tests, so new
-        # tests land there automatically) — one light job took 72–80 min of the 120 min limit, now ~45 min each.
-        # From the plan job: smoke = ["zh-Hans:light:smoke"]; full = the repository split; all = all 8 combos.
         combo: ${{ fromJSON(needs.plan.outputs.combos) }}
     steps:
       - uses: actions/checkout@v5
@@ -241,125 +346,89 @@ jobs:
       - name: Combo
         run: |
           combo="${{ matrix.combo }}"
-          LANG_=${combo%%:*}; rest=${combo#*:}; STYLE=${rest%%:*}; SHARD=${rest#*:}
-          SHORT=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")-$STYLE$([ "$SHARD" = 0 ] || echo "-$SHARD")
-          { echo "LANG_=$LANG_"; echo "STYLE=$STYLE"; echo "SHARD=$SHARD"; echo "SHORT=$SHORT"; } >> "$GITHUB_ENV"
-      # r7 (backlog B16): an explicit selection ([only:] / [unit:] / inputs.only) runs in light shard 1 only. Shard 2
-      # used to build the framework, the project and the test bundle first and only then exit; it now skips them.
-      - name: Selection
-        env:
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
-          ONLY_INPUT: ${{ inputs.only }}
-        run: |
-          SKIP=0
-          if { [ "$SHARD" = 2 ] || [ "$SHARD" = 3 ]; } && { [ -n "$ONLY_INPUT" ] || printf '%s' "$COMMIT_MSG" | grep -qE '\[(only|unit):[A-Za-z0-9_]+\]'; }; then
-            SKIP=1
-            echo "only-testing selection runs in light shard 1; this shard skips build and tests"
+          if [ "$combo" = unit ]; then
+            LANG_=zh-Hans; STYLE=light; SHARD=unit; SHORT=unit
+          else
+            LANG_=${combo%%:*}; rest=${combo#*:}; STYLE=${rest%%:*}; SHARD=${rest#*:}
+            SHORT=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")-$STYLE$([ "$SHARD" = 0 ] || echo "-$SHARD")
           fi
-          echo "SKIP_SHARD=$SKIP" >> "$GITHUB_ENV"
-      - name: Select latest Xcode
-        if: env.SKIP_SHARD != '1'
-        run: |
-          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
-      - name: Generate project (with UI tests)
-        if: env.SKIP_SHARD != '1'
-        run: |
-          brew install xcodegen
-          xcodegen generate --spec project-uitests.yml
-      - name: Pick simulator
-        if: env.SKIP_SHARD != '1'
-        run: |
-          DEV=$(xcrun simctl list devices available -j | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)['devices']
-          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
-          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
-          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
-              m=[(r,x) for r,x in devs if x['name']==want]
-              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
-          ")
-          test -n "$DEV"
-          echo "DEV=$DEV" >> "$GITHUB_ENV"
-          # Review 6 OPT-4: boot only starts here; the wait (bootstatus, 1.8–3.5 min measured) overlaps the
-          # build-for-testing step and happens right before the tests.
-          xcrun simctl boot "$DEV" || true
-      - name: Build for testing
-        if: env.SKIP_SHARD != '1'
-        run: |
-          set -o pipefail
-          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/uit \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            build-for-testing 2>&1 | tee build-uit.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
-          # review 5 P2-10: no `| head` downstream of xcodebuild (SIGPIPE); full log in build-uit.log, tail on failure.
-          grep -q "TEST BUILD SUCCEEDED" build-uit.log || { tail -n 150 build-uit.log; exit 1; }
-      - name: Run UI tests
-        if: env.SKIP_SHARD != '1'
+          { echo "LANG_=$LANG_"; echo "STYLE=$STYLE"; echo "SHARD=$SHARD"; echo "SHORT=$SHORT"; } >> "$GITHUB_ENV"
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernUITests
+          xcode: ${{ needs.build-ui.outputs.xcode }}
+      - name: Run tests
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           ONLY_INPUT: ${{ inputs.only }}
+          # Light shards 1–4: fixed lists balanced on measured durations (runs 40478110763 zh / 40473451340 en,
+          # ~25.7 min of tests each). Shard 5 = every other test in TernUITests (UISmoothPerfUITests included), so new
+          # tests land there automatically. Rebalance when a shard grows past ~35 min.
+          SHARD1_TESTS: >-
+            test03_MoreEveryPage test06b_ImportSurge test10_ProfileNodeEdit test11_RegionFilters test12_FilterSources
+            test21_TileEditing test26_HomeTiles test28_WebDAV test33_RulesAndRewriteAddDelete test47_SnapshotMultiDelete
+            test57_GroupLongPressMenu test61_SubNodeAddToLocal test70_TrafficScope test76_MoreSearch test81_PausedIndicators
+            test91_RowHeightParity
+          SHARD2_TESTS: >-
+            test07_Editors test17_RequestsSummary test18_SSIDPermissions test19_RequestTimeline test34_URLSchemeLinks
+            test38_ProfileSwitch test49_SurgeUIShots test50_HomeExitSubtitle test56_ProfileSubscriptionSwipe
+            test58_SubsSplitProviderActions test63_MoreDedup test68_SubscriptionAddEdit test72_TabTopShots
+            test77_LiveActivityRow test90_HomeDrillDown test94_HomePanelWidth
+          SHARD3_TESTS: >-
+            test01_TabsAndHome test02_HomePolicyPicker test05_AddNodeAndEditor test06c_ImportClash test15_AllRewrites
+            test22_TailscaleNode test24_SampleProfile test25_OverrideScripts test29_UnlockServices test35_NodeEditUndo
+            test43_ModeGlobalVisibility test44_HomeUnlockTileAndScriptTasks test64_HomeAnalysis test65_EgernShots
+            test78_RewritePage test79_UnifiedSubscriptionRows
+          SHARD4_TESTS: >-
+            test04_NodeManager test09_AutoApplySettings test13_RuleChips test16_PolicyModeControl test31_GroupOrder
+            test36_LanguagesNoLeftovers test40_FilterRenameAndIcon test42_GroupReorderBothWays test45_RuleFormDefaults
+            test46_LogsNotEmptyOnFirstOpen test51_PolicyChainShots test60_NodeCredentialReveal test66_RulesDragMove
+            test67_HomeTileReorder test92_LaneDCopyAndPanelRefreshError test93_RuleSetOrderAndPolicyRow
+          DARK_TESTS: test01_TabsAndHome test03_MoreEveryPage test04_NodeManager test05_AddNodeAndEditor
+          SMOKE_TESTS: test01_TabsAndHome test03_MoreEveryPage test04_NodeManager
         run: |
           set +e
           xcrun simctl bootstatus "$DEV" -b
           xcrun simctl status_bar "$DEV" override --time "9:41" --batteryState charged --batteryLevel 100 || true
           mkdir -p shots results
-          ONLY=()
-          if [ -n "$ONLY_INPUT" ]; then ONLY=(-only-testing:"$ONLY_INPUT"); fi
-          for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[only:[A-Za-z0-9_]+\]' | sed -E 's/\[only:(.*)\]/\1/'); do
-            ONLY+=(-only-testing:"TernUITests/TernUITests/$t")
-          done
-          # [unit:<TestClass>] adds a unit test class (TernUnitTests) to an [only:] selection.
-          for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[unit:[A-Za-z0-9_]+\]' | sed -E 's/\[unit:(.*)\]/\1/'); do
-            ONLY+=(-only-testing:"TernUnitTests/$t")
-          done
-          DARK_ONLY=(-only-testing:TernUITests/TernUITests/test01_TabsAndHome -only-testing:TernUITests/TernUITests/test03_MoreEveryPage -only-testing:TernUITests/TernUITests/test04_NodeManager -only-testing:TernUITests/TernUITests/test05_AddNodeAndEditor)
-          # Review 6 OPT-1: light shard 1 = these tests, shard 2 = everything else (new tests land there).
-          # r7 (review7 R7A-9): test22–test30 (~8 min) moved to shard 1 — shard 2 had grown to ~61 min of tests with
-          # test56–test70 (39596801011: light:1 34.9 min, light:2 60.8 min).
-          SHARD1_TESTS="test01_TabsAndHome test02_HomePolicyPicker test03_MoreEveryPage test04_NodeManager test05_AddNodeAndEditor test06a_ImportQX test06b_ImportSurge test06c_ImportClash test06d_ImportLoon test06e_ImportLinks test07_Editors test08_ModulesAndPanels test09_AutoApplySettings test10_ProfileNodeEdit test11_RegionFilters test12_FilterSources test13_RuleChips test14_DNSLog test15_AllRewrites test16_PolicyModeControl test17_RequestsSummary test18_SSIDPermissions test19_RequestTimeline test20_NodeSettings test21_TileEditing test22_TailscaleNode test23_DiagnosticsMemory test24_SampleProfile test25_OverrideScripts test26_HomeTiles test27_LANDetail test28_WebDAV test29_UnlockServices test30_SettingsToggles"
-          # 2026-10-23: light shard 2 had grown to ~63 min of UI tests; test31–test58 (~28 min) run in shard 3 in
-          # parallel (4 macOS jobs per repo, free plan allows 5). Shard 2 keeps the rest + the unit tests.
-          SHARD3_TESTS="test31_GroupOrder test32_RouteEditorSlash test33_RulesAndRewriteAddDelete test34_URLSchemeLinks test35_NodeEditUndo test36_LanguagesNoLeftovers test37_SettingsPersistAcrossRelaunch test38_ProfileSwitch test39_BigProfileResponsive test40_FilterRenameAndIcon test42_GroupReorderBothWays test43_ModeGlobalVisibility test44_HomeUnlockTileAndScriptTasks test45_RuleFormDefaults test46_LogsNotEmptyOnFirstOpen test47_SnapshotMultiDelete test49_SurgeUIShots test50_HomeExitSubtitle test51_PolicyChainShots test56_ProfileSubscriptionSwipe test57_GroupLongPressMenu test58_SubsSplitProviderActions"
-          FAILED=""
-          SEL=("${ONLY[@]}")
-          if [ ${#SEL[@]} -gt 0 ] && { [ "$SHARD" = 2 ] || [ "$SHARD" = 3 ]; }; then
-            # An explicit [only:] / inputs.only selection runs once, in shard 1.
-            echo "only-testing selection runs in light shard 1; nothing to do here"
-            echo "FAILED=" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          if [ ${#SEL[@]} -eq 0 ] && [ "$STYLE" = dark ]; then SEL=("${DARK_ONLY[@]}"); fi
-          # Smoke path (no UI-affecting change, see header): launch + navigation UI tests and every unit test class.
-          SMOKE_TESTS="test01_TabsAndHome test03_MoreEveryPage test04_NodeManager"
-          if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = smoke ]; then
-            for t in $SMOKE_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done
-            SEL+=(-only-testing:TernUnitTests)
-          fi
-          if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 1 ]; then
-            for t in $SHARD1_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done
-          fi
-          if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 2 ]; then
-            for t in $SHARD1_TESTS $SHARD3_TESTS; do SEL+=(-skip-testing:"TernUITests/TernUITests/$t"); done
-          fi
-          if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 3 ]; then
-            for t in $SHARD3_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done
-          fi
+          SEL=()
+          case "$SHARD" in
+            sel)
+              # Explicit selection ([only:] / [unit:] markers, inputs.only).
+              if [ -n "$ONLY_INPUT" ]; then SEL=(-only-testing:"$ONLY_INPUT"); fi
+              for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[only:[A-Za-z0-9_]+\]' | sed -E 's/\[only:(.*)\]/\1/'); do
+                SEL+=(-only-testing:"TernUITests/TernUITests/$t")
+              done
+              for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[unit:[A-Za-z0-9_]+\]' | sed -E 's/\[unit:(.*)\]/\1/'); do
+                SEL+=(-only-testing:"TernUnitTests/$t")
+              done
+              if [ ${#SEL[@]} -eq 0 ]; then echo "::error::selection combo without a selection"; exit 1; fi ;;
+            unit) SEL=(-only-testing:TernUnitTests) ;;
+            smoke) for t in $SMOKE_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
+            0) for t in $DARK_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
+            1|2|3|4)
+              V="SHARD${SHARD}_TESTS"
+              for t in ${!V}; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
+            5)
+              SEL=(-only-testing:TernUITests)
+              for t in $SHARD1_TESTS $SHARD2_TESTS $SHARD3_TESTS $SHARD4_TESTS; do SEL+=(-skip-testing:"TernUITests/TernUITests/$t"); done ;;
+            *) echo "::error::unknown shard $SHARD"; exit 1 ;;
+          esac
           xcrun simctl ui "$DEV" appearance "$STYLE" || true
           # feat/jsc-engine: JavaScriptCore without JIT in the test host, as on a device (no JIT for apps and
           # extensions). Round 2 (8e86e33): with JIT the busy-loop case was never terminated by the time limit.
           TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" TEST_RUNNER_JSC_useJIT=false \
-          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$SHORT.xcresult" \
-            "${SEL[@]}" test-without-building 2>&1 | tee "results/$SHORT.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue"
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath "results/$SHORT.xcresult" \
+            "${SEL[@]}" test-without-building 2>&1 | tee "results/$SHORT.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue|Executed"
           RC=${PIPESTATUS[0]}
           # review 5 P2-10: grep reads to EOF (no `| head`), so SIGPIPE can no longer end the test run early.
           echo "$SHORT exit $RC"
           [ "$RC" = 0 ] || tail -n 120 "results/$SHORT.log"
-          [ "$RC" = 0 ] || FAILED="$FAILED $SHORT"
+          FAILED=""
+          [ "$RC" = 0 ] || FAILED=" $SHORT"
           {
-            echo "### UI self-test"
+            echo "### Self-test $SHORT"
+            echo "- passed $(grep -cE "^Test Case .* passed" "results/$SHORT.log"), failed $(grep -cE "^Test Case .* failed" "results/$SHORT.log"), skipped $(grep -cE "^Test Case .* skipped" "results/$SHORT.log")"
             for f in shots/*/report-*.md; do
               [ -f "$f" ] || continue
               n=$(sed -n '/^## issues/,/^## warnings/p' "$f" | grep -c '^\[' || true)
@@ -370,14 +439,14 @@ jobs:
           cat shots/*/report-*.md 2>/dev/null | grep -E "^\[|^# " | head -n 400
           echo "FAILED=$FAILED" >> "$GITHUB_ENV"
       - name: Crash logs
-        if: always() && env.SKIP_SHARD != '1'
+        if: always()
         run: |
           mkdir -p crashes
           cp ~/Library/Logs/DiagnosticReports/Tern* crashes/ 2>/dev/null || true
-          find "$HOME/Library/Developer/CoreSimulator/Devices/$DEV" -name "Tern*.ips" -exec cp {} crashes/ \; 2>/dev/null || true
+          [ -z "${DEV:-}" ] || find "$HOME/Library/Developer/CoreSimulator/Devices/$DEV" -name "Tern*.ips" -exec cp {} crashes/ \; 2>/dev/null || true
           ls -la crashes
       - uses: actions/upload-artifact@v6
-        if: always() && env.SKIP_SHARD != '1'
+        if: always()
         with:
           name: ui-screens-${{ env.SHORT }}
           path: |
@@ -386,16 +455,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@v6
-        if: always() && env.SKIP_SHARD != '1'
+        if: always()
         with:
           name: ui-results-${{ env.SHORT }}
-          path: |
-            results/*.log
-            build-uit.log
+          path: results/*.log
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@v6
-        if: always() && env.SKIP_SHARD != '1'
+        if: always()
         with:
           name: ui-xcresult-${{ env.SHORT }}
           path: results/*.xcresult
@@ -404,3 +471,43 @@ jobs:
       - name: Result
         run: |
           if [ -n "$FAILED" ]; then echo "UI tests failed:$FAILED"; exit 1; fi
+
+  # Extras: the rest of the full CI in this run, on the builds above.
+  e2e:
+    needs: [plan, build-e2e]
+    if: needs.plan.outputs.e2e == 'true'
+    uses: ./.github/workflows/e2e-replay.yml
+    with:
+      ref: ${{ inputs.ref }}
+      fixture: auto
+      prebuilt: true
+      xcode: ${{ needs.build-e2e.outputs.xcode }}
+    secrets: inherit
+
+  proto-loopback:
+    needs: [plan, build-ui, build-e2e]
+    if: ${{ !cancelled() && needs.plan.outputs.loop_jobs != '' && needs.build-ui.result != 'failure' && needs.build-e2e.result != 'failure' }}
+    uses: ./.github/workflows/proto-loopback.yml
+    with:
+      ref: ${{ inputs.ref }}
+      jobs: ${{ needs.plan.outputs.loop_jobs }}
+      prebuilt: true
+      xcode_ui: ${{ needs.build-ui.outputs.xcode }}
+      xcode_e2e: ${{ needs.build-e2e.outputs.xcode }}
+
+  ipa:
+    needs: plan
+    if: needs.plan.outputs.ipa == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/ios.yml
+    with:
+      ref: ${{ inputs.ref }}
+      build_only: true
+
+  checks:
+    needs: plan
+    if: needs.plan.outputs.checks == 'true'
+    uses: ./.github/workflows/checks.yml
+    with:
+      ref: ${{ inputs.ref }}

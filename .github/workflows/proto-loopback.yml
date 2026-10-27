@@ -24,6 +24,12 @@
 # on the runner via Cloudflare's public client API and enrolls a fresh P-256 key (nothing committed, no repo secret);
 # E2ETests/NCMASQUEWarpInteropTests then checks HTTPS GET, UDP DNS, 1 MiB download, reconnect, wrong private key and
 # wrong public key; the device is deleted at the end.
+#
+# ci/speedup: no job builds any more. `build-ui` (TernUITests scheme → loopback) and `build-e2e` (TernE2E scheme →
+# openconnect / masque-ip / masque-warp) build once (.github/workflows/build-for-testing.yml); the test jobs run
+# test-without-building on those products. When Self-test calls this workflow (extras proto / loopback / …) with
+# prebuilt=true, the caller's build jobs supply the products and the build jobs here are skipped. The ocserv /
+# CONNECT-IP VMs still boot in the background while the job downloads the products and the simulator boots.
 name: Proto loopback
 
 on:
@@ -31,6 +37,30 @@ on:
     inputs:
       jobs:
         description: "Jobs to run (comma list of loopback, openconnect, masque-ip, masque-warp). Empty = all except the opt-in masque-warp."
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ""
+      jobs:
+        description: "Comma list of loopback, openconnect, masque-ip, masque-warp (empty = all except masque-warp)"
+        type: string
+        required: false
+        default: ""
+      prebuilt:
+        description: The caller's run already has the tern-products-TernUITests / -TernE2E artifacts
+        type: boolean
+        required: false
+        default: false
+      xcode_ui:
+        type: string
+        required: false
+        default: ""
+      xcode_e2e:
+        type: string
         required: false
         default: ""
   push:
@@ -49,21 +79,33 @@ permissions:
   contents: read
 
 concurrency:
-  group: proto-loopback-${{ github.ref }}
+  group: proto-loopback-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  build-ui:
+    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && (!inputs.jobs || contains(inputs.jobs, 'loopback'))
+    uses: ./.github/workflows/build-for-testing.yml
+    with:
+      ref: ${{ inputs.ref }}
+      scheme: TernUITests
+
+  build-e2e:
+    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || contains(inputs.jobs, 'masque-warp'))
+    uses: ./.github/workflows/build-for-testing.yml
+    with:
+      ref: ${{ inputs.ref }}
+      scheme: TernE2E
+
   loopback:
-    if: github.repository == 'astemo6/mihomo-ios' && (!inputs.jobs || contains(inputs.jobs, 'loopback'))
+    needs: build-ui
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && (!inputs.jobs || contains(inputs.jobs, 'loopback')) && (needs.build-ui.result == 'success' || (inputs.prebuilt && needs.build-ui.result == 'skipped')) }}
     runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - name: Select latest Xcode
-        run: |
-          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
+        with:
+          ref: ${{ inputs.ref }}
       - name: Set up Go (masque-go loopback peer; official Sudoku server build)
         uses: actions/setup-go@v5
         with:
@@ -84,32 +126,11 @@ jobs:
         run: |
           tools/loopback/start-servers.sh start
           tools/loopback/start-servers.sh status
-      - name: Generate project (with test targets)
-        run: |
-          brew install xcodegen
-          xcodegen generate --spec project-uitests.yml
-      - name: Pick simulator
-        run: |
-          DEV=$(xcrun simctl list devices available -j | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)['devices']
-          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
-          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
-          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
-              m=[(r,x) for r,x in devs if x['name']==want]
-              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
-          ")
-          test -n "$DEV"
-          echo "DEV=$DEV" >> "$GITHUB_ENV"
-          xcrun simctl boot "$DEV" || true
-      - name: Build for testing
-        run: |
-          set -o pipefail
-          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/loop \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            build-for-testing 2>&1 | tee build-loop.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
-          grep -q "TEST BUILD SUCCEEDED" build-loop.log || { tail -n 150 build-loop.log; exit 1; }
+      # Same Xcode as the build, simulator boot started, products unpacked ($TERN_PRODUCTS, $XCTESTRUN, $DEV).
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernUITests
+          xcode: ${{ inputs.xcode_ui || needs.build-ui.outputs.xcode }}
       - name: Run loopback tests
         run: |
           set +e
@@ -117,8 +138,7 @@ jobs:
           mkdir -p results
           # NC_LOOPBACK=1: the tests must fail loudly here, not skip, if the servers died.
           TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_LOOPBACK=1 \
-          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/loop -resultBundlePath results/loopback.xcresult \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/loopback.xcresult \
             -only-testing:TernUnitTests/NativeCoreLoopbackTests test-without-building 2>&1 | tee results/loopback.log \
             | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed"
           RC=${PIPESTATUS[0]}
@@ -154,7 +174,6 @@ jobs:
             results/sing-box.log
             results/sudoku-*.log
             results/masque.log
-            build-loop.log
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@v6
@@ -166,53 +185,33 @@ jobs:
           retention-days: 7
 
   openconnect:
-    if: github.repository == 'astemo6/mihomo-ios' && (!inputs.jobs || contains(inputs.jobs, 'openconnect'))
+    needs: build-e2e
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && (!inputs.jobs || contains(inputs.jobs, 'openconnect')) && (needs.build-e2e.result == 'success' || (inputs.prebuilt && needs.build-e2e.result == 'skipped')) }}
     runs-on: macos-15
     timeout-minutes: 60
     env:
       OC_PORT: "18443"
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
       - name: Cache Alpine cloud image
         uses: actions/cache@v4
         with:
           path: /tmp/nc-ocserv/alpine.qcow2
           key: ocserv-alpine-3.22.4-aarch64-cloudinit
-      - name: Boot ocserv VM (background; overlaps the Xcode build)
+      - name: Boot ocserv VM (background; overlaps the products download + simulator boot)
         run: |
           brew install qemu
           tools/loopback/ocserv/start-ocserv-vm.sh start
-      - name: Select latest Xcode
-        run: |
-          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
-      - name: Generate project (with test targets)
-        run: |
-          brew install xcodegen
-          xcodegen generate --spec project-uitests.yml
-      - name: Pick simulator
-        run: |
-          DEV=$(xcrun simctl list devices available -j | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)['devices']
-          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
-          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
-          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
-              m=[(r,x) for r,x in devs if x['name']==want]
-              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
-          ")
-          test -n "$DEV"
-          echo "DEV=$DEV" >> "$GITHUB_ENV"
-          xcrun simctl boot "$DEV" || true
-      - name: Build for testing (TernE2E — compiles the PacketTunnel sources)
-        run: |
-          set -o pipefail
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/oc \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            build-for-testing 2>&1 | tee build-oc.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
-          grep -q "TEST BUILD SUCCEEDED" build-oc.log || { tail -n 150 build-oc.log; exit 1; }
+      # Same Xcode as the build, simulator boot started, products unpacked ($TERN_PRODUCTS, $XCTESTRUN, $DEV).
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode_e2e || needs.build-e2e.outputs.xcode }}
+      # As the TernE2E scheme's disableThreadPerformanceChecker did for these jobs (scripts/ci/strip-tpc.py).
+      - name: Disable Thread Performance Checker
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
       - name: Wait for ocserv
         run: tools/loopback/ocserv/start-ocserv-vm.sh wait 1200
       - name: Run OpenConnect loopback tests
@@ -222,8 +221,7 @@ jobs:
           mkdir -p results
           # NC_OC_LOOPBACK=1: the tests fail loudly (never skip) when ocserv is unreachable.
           TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_OC_LOOPBACK=1 TEST_RUNNER_NC_OC_PORT=$OC_PORT \
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/oc -resultBundlePath results/openconnect.xcresult \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/openconnect.xcresult \
             -only-testing:TernE2ETunnelTests/NCOpenConnectLoopbackTests test-without-building 2>&1 | tee results/openconnect.log \
             | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|oc-loopback|openconnect:"
           RC=${PIPESTATUS[0]}
@@ -251,18 +249,20 @@ jobs:
           path: |
             results/openconnect.log
             results/ocserv-console.log
-            build-oc.log
           if-no-files-found: warn
           retention-days: 14
 
   masque-ip:
-    if: github.repository == 'astemo6/mihomo-ios' && (!inputs.jobs || contains(inputs.jobs, 'masque-ip'))
+    needs: build-e2e
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) && (needs.build-e2e.result == 'success' || (inputs.prebuilt && needs.build-e2e.result == 'skipped')) }}
     runs-on: macos-15
     timeout-minutes: 60
     env:
       MQ_PORT: "18446"
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
       - name: Set up Go (builds the upstream CONNECT-IP proxy for the VM)
         uses: actions/setup-go@v5
         with:
@@ -273,42 +273,19 @@ jobs:
         with:
           path: /tmp/nc-mqip/alpine.qcow2
           key: mqip-alpine-3.22.4-aarch64-cloudinit
-      - name: Build proxy + boot CONNECT-IP VM (background; overlaps the Xcode build)
+      - name: Build proxy + boot CONNECT-IP VM (background; overlaps the products download + simulator boot)
         run: |
           brew install qemu
           tools/loopback/connectip/start-connectip-vm.sh build
           tools/loopback/connectip/start-connectip-vm.sh start
-      - name: Select latest Xcode
-        run: |
-          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
-      - name: Generate project (with test targets)
-        run: |
-          brew install xcodegen
-          xcodegen generate --spec project-uitests.yml
-      - name: Pick simulator
-        run: |
-          DEV=$(xcrun simctl list devices available -j | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)['devices']
-          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
-          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
-          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
-              m=[(r,x) for r,x in devs if x['name']==want]
-              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
-          ")
-          test -n "$DEV"
-          echo "DEV=$DEV" >> "$GITHUB_ENV"
-          xcrun simctl boot "$DEV" || true
-      - name: Build for testing (TernE2E — compiles the PacketTunnel sources)
-        run: |
-          set -o pipefail
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/mq \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            build-for-testing 2>&1 | tee build-mq.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
-          grep -q "TEST BUILD SUCCEEDED" build-mq.log || { tail -n 150 build-mq.log; exit 1; }
+      # Same Xcode as the build, simulator boot started, products unpacked ($TERN_PRODUCTS, $XCTESTRUN, $DEV).
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode_e2e || needs.build-e2e.outputs.xcode }}
+      # As the TernE2E scheme's disableThreadPerformanceChecker did for these jobs (scripts/ci/strip-tpc.py).
+      - name: Disable Thread Performance Checker
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
       - name: Wait for CONNECT-IP proxy
         run: tools/loopback/connectip/start-connectip-vm.sh wait 1200
       - name: Run MASQUE CONNECT-IP loopback tests
@@ -318,8 +295,7 @@ jobs:
           mkdir -p results
           # NC_MQIP_LOOPBACK=1: the tests fail loudly (never skip) when the proxy is unreachable.
           TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_MQIP_LOOPBACK=1 TEST_RUNNER_NC_MQIP_PORT=$MQ_PORT \
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/mq -resultBundlePath results/masque-ip.xcresult \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/masque-ip.xcresult \
             -only-testing:TernE2ETunnelTests/NCMASQUEIPLoopbackTests test-without-building 2>&1 | tee results/masque-ip.log \
             | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|mqip-loopback|masque-ip:"
           RC=${PIPESTATUS[0]}
@@ -346,47 +322,26 @@ jobs:
           path: |
             results/masque-ip.log
             results/mqip-console.log
-            build-mq.log
           if-no-files-found: warn
           retention-days: 14
 
   masque-warp:
-    if: github.repository == 'astemo6/mihomo-ios' && contains(inputs.jobs, 'masque-warp')
+    needs: build-e2e
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && contains(inputs.jobs, 'masque-warp') && (needs.build-e2e.result == 'success' || (inputs.prebuilt && needs.build-e2e.result == 'skipped')) }}
     runs-on: macos-15
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v5
-      - name: Select latest Xcode
-        run: |
-          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
-      - name: Generate project (with test targets)
-        run: |
-          brew install xcodegen
-          xcodegen generate --spec project-uitests.yml
-      - name: Pick simulator
-        run: |
-          DEV=$(xcrun simctl list devices available -j | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)['devices']
-          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
-          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
-          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
-              m=[(r,x) for r,x in devs if x['name']==want]
-              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
-          ")
-          test -n "$DEV"
-          echo "DEV=$DEV" >> "$GITHUB_ENV"
-          xcrun simctl boot "$DEV" || true
-      - name: Build for testing (TernE2E — compiles the PacketTunnel sources)
-        run: |
-          set -o pipefail
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/warp \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            build-for-testing 2>&1 | tee build-warp.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
-          grep -q "TEST BUILD SUCCEEDED" build-warp.log || { tail -n 150 build-warp.log; exit 1; }
+        with:
+          ref: ${{ inputs.ref }}
+      # Same Xcode as the build, simulator boot started, products unpacked ($TERN_PRODUCTS, $XCTESTRUN, $DEV).
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode_e2e || needs.build-e2e.outputs.xcode }}
+      # As the TernE2E scheme's disableThreadPerformanceChecker did for these jobs (scripts/ci/strip-tpc.py).
+      - name: Disable Thread Performance Checker
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
       - name: Register a throwaway WARP device (MASQUE P-256 key)
         run: |
           for i in 1 2 3; do
@@ -401,8 +356,7 @@ jobs:
           mkdir -p results
           set -a; . "$RUNNER_TEMP/warp.env"; set +a
           TEST_RUNNER_JSC_useJIT=false \
-          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/warp -resultBundlePath results/masque-warp.xcresult \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/masque-warp.xcresult \
             -only-testing:TernE2ETunnelTests/NCMASQUEWarpInteropTests test-without-building 2>&1 | tee results/masque-warp.log \
             | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|warp-interop|masque"
           RC=${PIPESTATUS[0]}
@@ -426,6 +380,5 @@ jobs:
           name: masque-warp-interop-results
           path: |
             results/masque-warp.log
-            build-warp.log
           if-no-files-found: warn
           retention-days: 14
