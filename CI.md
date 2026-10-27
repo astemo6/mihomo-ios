@@ -24,7 +24,7 @@
 - 要让「必须测试通过才能合并」真正生效，需要维护者在仓库 Settings → Branches → `main` 的保护规则里把
   **`Unit tests / unit`** 设为 required status check（workflow 只负责跑，强制在分支保护里配置）。
 - 直接推 `main`（不经 PR）不会跑 Unit tests；发版前应先走 PR，或手动派发一次。
-- Self-test 的冒烟路径和完整矩阵（astemo6）里的 `unit` 组合也会跑全部单元测试类；那是 `test/**` 上的完整自测，与 PR 上的 Unit tests 互不替代。
+- Self-test 的冒烟路径和完整矩阵（astemo6）里的 `unit` 作业也会跑全部单元测试类；那是 `test/**` 上的完整自测，与 PR 上的 Unit tests 互不替代。
 
 ## 一次构建，到处测试（ci/speedup，2026-10-27）
 
@@ -38,7 +38,7 @@
   按实测时长平衡（`scripts/ci/ui-shards.py` + `scripts/ci/ui-test-times.tsv`；测试从 `UITests/*.swift` 读出，新测试自动排进去，
   第 N 个作业的 light 部分 = TernUITests 里其余全部）。同一次运行里该仓库还要跑 unit / E2E / IPA / proto-loopback 时 N = 4
   （每个约 35 分钟测试），否则 N = 5（约 28 分钟）。某个作业明显超过估计时，用新一轮运行的时长更新 tsv。
-- 单元测试单独一个 `unit` 组合（只在 astemo6 / 其它仓库跑一次；en 镜像不再重复跑同一个单元测试包）。
+- 单元测试单独一个 `unit` 作业（只在 astemo6 / 其它仓库跑一次，本次运行有 IPA 时排在 IPA 之后；en 镜像不再重复跑同一个单元测试包）。
 - **全量 CI = 两次派发**（每个仓库一次，共用各自的构建）：
   ```bash
   gh workflow run ui-tests.yml -R astemo6/mihomo-ios --ref test/xxx -f shard=full -f extras=e2e,ipa,checks
@@ -54,7 +54,7 @@
 - `[unit:Class]`：再加一个单元测试类。
 - `[skip-ui]`：不跑 macOS UI 分片。
 - `[shard:all]`：一个仓库里跑两种语言的全部组合（2×5 个作业 + unit）。**别用**——占满 macOS 配额；失败只重跑失败的部分。
-- **冒烟路径（默认 auto）**：相对 main 的 merge-base（在 main 上则相对上一个 `v*-build*` 标签）没有改动界面相关文件（App/Views、xcstrings、UITests 等）时，UI 只跑一个 zh-Hans light 冒烟组合（test01/03/04；单元测试在并行的 `unit` 组合里），否则跑完整矩阵（每种语言 N 个 light+dark 作业，astemo6 再加 unit）；`[shard:smoke]` / `[shard:full]` 或 dispatch `shard=smoke|full` 强制。
+- **冒烟路径（默认 auto）**：相对 main 的 merge-base（在 main 上则相对上一个 `v*-build*` 标签）没有改动界面相关文件（App/Views、xcstrings、UITests 等）时，UI 只跑一个 zh-Hans light 冒烟组合（test01/03/04；单元测试在并行的 `unit` 作业里），否则跑完整矩阵（每种语言 N 个 light+dark 作业，astemo6 再加 unit）；`[shard:smoke]` / `[shard:full]` 或 dispatch `shard=smoke|full` 强制。
 
 ## 排队与去重
 
