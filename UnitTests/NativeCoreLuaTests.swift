@@ -263,7 +263,7 @@ final class NativeCoreLuaTests: XCTestCase {
             return XCTFail("encrypt failed")
         }
         let ciphertext = (first.out ?? Data()) + (second.out ?? Data())
-        XCTAssertEqual(ciphertext.count, 17)
+        XCTAssertEqual(ciphertext.count, 15) // "hello " + "lua world": CFB is length-preserving
         XCTAssertNotEqual(ciphertext, Data("hello lua world".utf8))
         guard case .success(let back) = engine.callRead(ciphertext) else {
             return XCTFail("decrypt failed")
