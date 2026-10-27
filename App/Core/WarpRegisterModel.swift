@@ -25,7 +25,7 @@ final class WarpRegisterModel: ObservableObject {
     var canRegister: Bool { acceptedTerms && phase != .working }
 
     /// "Cloudflare WARP", "Cloudflare WARP 2", … — a manual node with the same name would be replaced otherwise.
-    static func uniqueName(_ wanted: String, taken: Set<String>) -> String {
+    nonisolated static func uniqueName(_ wanted: String, taken: Set<String>) -> String {
         let base = wanted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? WarpRegistration.defaultName : wanted.trimmingCharacters(in: .whitespacesAndNewlines)
         if !taken.contains(base) { return base }
