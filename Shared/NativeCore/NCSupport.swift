@@ -24,6 +24,7 @@ enum NCSupport {
         "openconnect", "anyconnect",
         "trusttunnel", "trust-tunnel",
         "masque",
+        "sudoku",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -108,6 +109,9 @@ enum NCSupport {
         case "openconnect", "anyconnect":
             if let why = NCOpenConnect.unsupportedReason(p) { return why }
             return NCOpenConnect.dataPlaneUnavailable
+        case "sudoku":
+            if let why = sudokuUnsupported(p) { return why }
+            return NCSudoku.interopUnavailable
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
@@ -354,6 +358,11 @@ enum NCSupport {
             return "MASQUE h3-l4proxy 尚未接入"
         }
         return nil
+    }
+
+    /// Sudoku (NCSudoku, feat/nc-sudoku): validation and unsupported marker checks.
+    static func sudokuUnsupported(_ p: NCProxy) -> String? {
+        NCSudoku.unsupportedReason(p)
     }
 
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.

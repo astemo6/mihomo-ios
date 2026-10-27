@@ -296,6 +296,19 @@ enum NCQXImport {
         case "masque":
             report.warnings.append("quantumultx [server_local]: masque 协议在 Quantumult X 中无公开规范，已标记为不可用")
             fields["unsupported"] = .string("Quantumult X 不支持 MASQUE 协议")
+        case "sudoku":
+            type = "sudoku"
+            if let k = take("key") ?? take("password") {
+                fields["key"] = .string(k)
+                fields["password"] = .string(k)
+            }
+            if let a = take("aead-method") ?? take("aead") { fields["aead-method"] = .string(a) }
+            if let t = take("table-type") ?? take("ascii") { fields["table-type"] = .string(t) }
+            if let ct = take("custom-table") ?? take("table") { fields["custom-table"] = .string(ct) }
+            if let pmin = take("padding-min") ?? take("padding_min"), let n = Int(pmin) { fields["padding-min"] = .number(Double(n)) }
+            if let pmax = take("padding-max") ?? take("padding_max"), let n = Int(pmax) { fields["padding-max"] = .number(Double(n)) }
+            if let pd = take("enable-pure-downlink") ?? take("pure-downlink"), let b = NCConfImport.boolValue(pd) { fields["enable-pure-downlink"] = .bool(b) }
+            if let m = take("multiplex") { fields["multiplex"] = .string(m) }
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.
