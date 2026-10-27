@@ -42,15 +42,6 @@ final class TernE2ETunnelTests: XCTestCase {
         home = relocate(home: h, from: ho["container"] as? String)
         sample = E2EReport.env("TERN_E2E_SAMPLE") == "1"
         r.addSecrets(runtimeSecrets())
-        // fix/nc-mem-4: the XCTest main thread runs without a QoS class; the core start on it (JSC prelude / script
-        // load: JSCThread.sync) made the user-initiated JSC thread wait on it — Xcode's Thread Performance Checker
-        // reported that priority inversion, and XCTest then symbolicated the report on the main thread with
-        // CoreSymbolication, parsing the stabs of this ~100 MB Debug test bundle: +55 MB for ~2 s, the whole kernel
-        // peak of runs 40419441795 / 40422441193 (main-thread backtraces in stage2.log). The extension's provider
-        // threads always carry a QoS, so give the test thread the one startTunnel runs at.
-        let qosBefore = qos_class_self()
-        pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0)
-        r.note("test main thread QoS \(qosBefore.rawValue) → \(qos_class_self().rawValue) (user-initiated, as the provider's start)")
         let mem = E2EMemory()
         mem.start()
         let stacks = E2EStackWatch() // fix/nc-mem-4 diagnostic
