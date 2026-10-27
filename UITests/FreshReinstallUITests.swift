@@ -141,7 +141,12 @@ extension TernUITests {
         // Dragged downwards on purpose: the cards sit low on the page, so their long-press menu opens above them, and
         // a drag upwards slides over that menu instead of starting (rel 0.20.2 CI: it ended on 从首页移除).
         uptime.press(forDuration: 1.2)
-        XCTAssertTrue(tapIfExists(app.button(L("全宽显示")), timeout: 4), "全宽显示")
+        // The menu item exists before it is hittable while the menu is still animating in (CI 40603265589 zh dark:
+        // found after 1 s, not hittable → tapIfExists gave up); wait for hittable, then tap.
+        let full = app.button(L("全宽显示"))
+        XCTAssertTrue(full.waitForExistence(timeout: 4), "全宽显示")
+        for _ in 0..<15 where !full.isHittable { usleep(200_000) }
+        XCTAssertTrue(tapIfExists(full, timeout: 1), "全宽显示 hittable")
         usleep(900_000)
         XCTAssertTrue(scrollTo(uptime), "运行时长 full width")
         XCTAssertTrue(memory.exists, "内存 above it")
