@@ -60,6 +60,24 @@ Date: 2026-10-27. Baseline: feat/nc-integrate @ 6fd4bab. S1 verdict: ACCEPTABLE
   multi-message AEAD protocols need one cipher object per message, which
   the script controls.
 
-## CI
-(to be filled with the ios.yml build_only and proto-loopback run links and
-conclusions for this branch, then the PR link.)
+## CI (final head, 2026-10-27)
+- ios.yml build_only: **SUCCESS** —
+  https://github.com/astemo6/mihomo-ios/actions/runs/40433908129
+- ios.yml full (build + all unit tests, incl. NativeCoreLuaTests and the
+  in-memory NCLuaSession end-to-end test): **SUCCESS** —
+  https://github.com/astemo6/mihomo-ios/actions/runs/40428220950
+- proto-loopback (13 tests, incl. testLuaCustomBackendEcho over real TCP
+  against the XOR mock peer): **SUCCESS** —
+  https://github.com/astemo6/mihomo-ios/actions/runs/40432893089
+
+### Failure history during bring-up (all fixed on this branch)
+1. `NCQXImport.quantumultX` typo in the S1-era QX test (the real entry
+   point is `quantumultx`); S1 never compiled its tests under CI, so it
+   surfaced only at S2's first build-for-testing.
+2. `testLuaCustomBackendEcho` connect hang: `NCLuaSession` was retained
+   by nothing during its async handshake (receive handler and timeout
+   capture it weakly), so it deallocated mid-handshake over real
+   transports — no stream, no error, not even the 15 s timeout. The
+   session now retains itself until the connect outcome is delivered.
+   The in-memory unit test could not see this (synchronous delivery
+   completed the handshake before the session could deallocate).
