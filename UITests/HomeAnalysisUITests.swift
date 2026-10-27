@@ -73,13 +73,14 @@ extension TernUITests {
             usleep(500_000)
         }
         XCTAssertTrue(app.navigationBars[L("编辑首页面板")].exists, "editor still open after the last analysis card was removed")
-        let connSwitch = app.switches["homepanels.analysis.connections"].firstMatch
-        if scrollTo(connSwitch) {
-            connSwitch.tap(); usleep(500_000)
-            XCTAssertTrue(app.navigationBars[L("编辑首页面板")].exists, "editor still open after hiding 连接数")
-            connSwitch.tap(); usleep(300_000)
+        // feat/fresh-reinstall: 连接数 has the same −/+ button as the other cards (no show / hide switch any more).
+        let connButton = app.element(id: "homepanels.analysis.connections")
+        if scrollTo(connButton) {
+            connButton.tap(); usleep(500_000)
+            XCTAssertTrue(app.navigationBars[L("编辑首页面板")].exists, "editor still open after removing 连接数")
+            connButton.tap(); usleep(300_000)
         } else {
-            issues.append("[\(Env.tag)] 连接数 switch not found in 编辑首页面板")
+            issues.append("[\(Env.tag)] 连接数 button not found in 编辑首页面板")
         }
         snap("home-analysis-editor-kept")
         closeSheet()

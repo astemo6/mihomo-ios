@@ -57,7 +57,8 @@ enum InstallMarker {
     /// an update from a build without the marker, not a reinstall.
     static func sandboxHasTernState(_ standardDomain: [String: Any]?) -> Bool {
         guard let d = standardDomain else { return false }
-        return d.keys.contains { $0.hasPrefix("tern.") || $0 == "onboardingDone.v1" || DefaultsMigration.movedKeys.contains($0) }
+        return d.keys.contains { $0.hasPrefix("tern.") || $0 == "onboardingDone.v1" || $0 == HomePanelStore.legacyHiddenKey
+            || DefaultsMigration.movedKeys.contains($0) }
     }
 
     /// Read first thing in TernApp.init, before AppShared (which records its App Group choice in standard defaults).
@@ -249,8 +250,8 @@ enum DefaultsMigration {
     static let flagKey = "tern.defaultsMovedToGroup.v1"
 
     static let movedKeys: [String] = [
-        // 编辑首页 (HomePanelStore / PanelsModel)
-        "panels.home.hidden", "panels.home.tasks", "panels.home.names", "panels.pinned",
+        // 编辑首页 (HomePanelStore / PanelsModel; the retired panels.home.hidden is consumed by dropLegacyHidden instead)
+        "panels.home.tasks", "panels.home.names", "panels.pinned",
         // 首页 分析 cards
         "home.analysis.hidden", "home.analysis.added", "home.analysis.collapsed",
         // 外观 / 开始标签页

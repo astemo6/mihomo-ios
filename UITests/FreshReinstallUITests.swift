@@ -57,4 +57,75 @@ extension TernUITests {
         app.element(id: "reset.quit").tap()
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 10) || app.state == .runningBackground, "退出 Tern leaves the app (state \(app.state.rawValue))")
     }
+
+    // MARK: 96. Home: long-press-and-drag reorder (half- and full-width cards), persisted across a relaunch
+
+    func test96_HomeDragReorder() {
+        launch()
+        tab(0)
+        let add = app.element(id: "home.addTiles")
+        XCTAssertTrue(scrollTo(add), "添加首页卡片")
+        add.tap()
+        XCTAssertTrue(app.navigationBars[L("编辑首页面板")].waitForExistence(timeout: 6), "editor")
+        for t in ["uptime", "memory"] {
+            let b = app.element(id: "homepanels.add." + t)
+            if scrollTo(b, fail: false) { b.tap(); usleep(400_000) }
+        }
+        XCTAssertTrue(tapIfExists(app.navigationBars.buttons[L("完成")].firstMatch, timeout: 4), "完成")
+        usleep(800_000)
+
+        func tile(_ t: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.tile." + t)).firstMatch
+        }
+        func order() -> [String] {
+            let e = app.element(id: "home.panels.order")
+            return ((e.value as? String) ?? "").split(separator: ",").map(String.init)
+        }
+        func before(_ a: String, _ b: String) -> Bool {
+            let o = order()
+            guard let i = o.firstIndex(of: a), let j = o.firstIndex(of: b) else { return false }
+            return i < j
+        }
+        let uptime = tile("uptime"), memory = tile("memory")
+        XCTAssertTrue(scrollTo(uptime), "运行时长 tile")
+        XCTAssertTrue(memory.exists, "内存 tile")
+        XCTAssertTrue(app.element(id: "home.panels.order").exists, "order probe (Debug UI tests)")
+        XCTAssertTrue(before("uptime", "memory"), "pinned in that order: \(order())")
+        XCTAssertLessThan(uptime.frame.midX, memory.frame.midX, "half tiles: 运行时长 left of 内存")
+
+        // Half width: drag 内存 onto 运行时长 → 内存 first.
+        memory.press(forDuration: 1.0, thenDragTo: uptime)
+        usleep(1_500_000) // drop + 0.6 s save
+        snap("home-drag-half")
+        XCTAssertTrue(before("memory", "uptime"), "drag reordered (half): \(order())")
+        XCTAssertTrue(scrollTo(uptime), "运行时长 tile after the drag")
+        XCTAssertLessThan(memory.frame.midX, uptime.frame.midX, "内存 drawn first")
+
+        // Full width: 内存 full, then drag 运行时长 onto it → 运行时长 first again.
+        memory.press(forDuration: 1.2)
+        XCTAssertTrue(tapIfExists(app.button(L("全宽显示")), timeout: 4), "全宽显示")
+        usleep(900_000)
+        XCTAssertTrue(scrollTo(memory), "内存 full width")
+        uptime.press(forDuration: 1.0, thenDragTo: memory)
+        usleep(1_500_000)
+        snap("home-drag-full")
+        XCTAssertTrue(before("uptime", "memory"), "drag reordered (full): \(order())")
+        // The long-press menu no longer offers 在首页隐藏; removal is 从首页移除.
+        uptime.press(forDuration: 1.2)
+        XCTAssertTrue(app.button(L("从首页移除")).waitForExistence(timeout: 4), "从首页移除 in the long-press menu")
+        XCTAssertFalse(app.button(L("在首页隐藏")).exists, "no 在首页隐藏")
+        XCTAssertFalse(app.button(L("取消固定")).exists, "取消固定 renamed")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap() // close the menu (tap above it)
+        usleep(600_000)
+        let saved = order()
+
+        // Persisted: relaunch keeping the data.
+        app.terminate()
+        launch(["-UITestKeepData"])
+        tab(0)
+        XCTAssertTrue(scrollTo(tile("uptime")), "运行时长 tile after relaunch")
+        XCTAssertEqual(order(), saved, "order survived the relaunch")
+        XCTAssertTrue(before("uptime", "memory"), "relaunch order: \(order())")
+        assertAlive("home drag reorder")
+    }
 }

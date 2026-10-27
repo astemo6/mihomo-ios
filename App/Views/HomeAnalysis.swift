@@ -47,8 +47,8 @@ enum HomeAnalysisCard: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Hidden (编辑首页面板 / context menu) and collapsed cards, stored as comma-separated raw values.
-    /// `hiddenKey` applies to 连接数 only (shown by default).
+    /// Removed (编辑首页面板 / context menu 「从首页移除」) and collapsed cards, stored as comma-separated raw values.
+    /// `hiddenKey` applies to 连接数 only (on Home by default).
     static let hiddenKey = "home.analysis.hidden"
     /// feat/egern-style (user 2026-10-21 20:02 「首页新添加的那些显示做成可添加的面板 选择了才有」): 策略 / 规则 / 主机名
     /// are opt-in panels — off until added in 添加首页卡片, removed from their long-press menu or the editor.
@@ -291,11 +291,12 @@ private struct AnalysisMenu: ViewModifier {
                     withAnimation { addedRaw = HomeAnalysisCard.raw(s) }
                 } label: { Label("从首页移除", systemImage: "minus.circle") }
             } else {
-                Button {
+                // feat/fresh-reinstall: no 「在首页隐藏」 any more — 连接数 is removed (and added back in 编辑首页面板).
+                Button(role: .destructive) {
                     var s = HomeAnalysisCard.set(hiddenRaw)
                     s.insert(card)
-                    hiddenRaw = HomeAnalysisCard.raw(s)
-                } label: { Label("在首页隐藏", systemImage: "eye.slash") }
+                    withAnimation { hiddenRaw = HomeAnalysisCard.raw(s) }
+                } label: { Label("从首页移除", systemImage: "minus.circle") }
             }
             Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
         }
@@ -627,8 +628,8 @@ struct HomeTopHostsCard: View {
 
 // MARK: - 编辑首页面板 section
 
-/// 添加首页卡片 → 流量分析: 连接数 is a show / hide switch (on by default); 策略 / 规则 / 主机名 are opt-in panels with
-/// an add (+) or remove (−) button.
+/// 添加首页卡片 → 流量分析: every card has an add (+) / remove (−) button; 连接数 is on Home by default, 策略 / 规则 /
+/// 主机名 / DNS are opt-in.
 struct HomeAnalysisEditorSection: View {
     @AppStorage(HomeAnalysisCard.hiddenKey, store: AppShared.defaults) private var hiddenRaw = ""
     @AppStorage(HomeAnalysisCard.addedKey, store: AppShared.defaults) private var addedRaw = ""
@@ -643,31 +644,27 @@ struct HomeAnalysisEditorSection: View {
                         Text(verbatim: c.caption).font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 6)
-                    if c.isOptIn {
-                        let on = HomeAnalysisCard.set(addedRaw).contains(c)
-                        Button {
+                    // feat/fresh-reinstall: one add (+) / remove (−) button for every card. 连接数 is on Home unless
+                    // removed (home.analysis.hidden); the others are opt-in (home.analysis.added).
+                    let on = c.isOptIn ? HomeAnalysisCard.set(addedRaw).contains(c) : !HomeAnalysisCard.set(hiddenRaw).contains(c)
+                    Button {
+                        if c.isOptIn {
                             var s = HomeAnalysisCard.set(addedRaw)
                             if on { s.remove(c) } else { s.insert(c) }
                             addedRaw = HomeAnalysisCard.raw(s)
-                        } label: {
-                            Image(systemName: on ? "minus.circle.fill" : "plus.circle.fill")
-                                .font(.title3)
-                                .foregroundStyle(on ? Theme.bad : Theme.good)
+                        } else {
+                            var s = HomeAnalysisCard.set(hiddenRaw)
+                            if on { s.insert(c) } else { s.remove(c) }
+                            hiddenRaw = HomeAnalysisCard.raw(s)
                         }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(Text(on ? "从首页移除" : "添加"))
-                        .accessibilityIdentifier("homepanels.analysis.\(c.rawValue)")
-                    } else {
-                        Toggle("在首页显示", isOn: Binding(
-                            get: { !HomeAnalysisCard.set(hiddenRaw).contains(c) },
-                            set: { on in
-                                var s = HomeAnalysisCard.set(hiddenRaw)
-                                if on { s.remove(c) } else { s.insert(c) }
-                                hiddenRaw = HomeAnalysisCard.raw(s)
-                            }))
-                            .labelsHidden()
-                            .accessibilityIdentifier("homepanels.analysis.\(c.rawValue)")
+                    } label: {
+                        Image(systemName: on ? "minus.circle.fill" : "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(on ? Theme.bad : Theme.good)
                     }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(Text(on ? "从首页移除" : "添加"))
+                    .accessibilityIdentifier("homepanels.analysis.\(c.rawValue)")
                 }
             }
         } header: {

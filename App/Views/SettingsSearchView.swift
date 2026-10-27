@@ -28,6 +28,7 @@ extension SearchDestination: Identifiable {
         case .advanced: AdvancedSettingsView()
         case .connection: ConnectionView()
         case .tunnel: TunnelSettingsView()
+        case .faceTime: FaceTimeSettingsView()
         case .tailscale: TailscaleSettingsView()
         case .networkPolicy: NetworkPolicyView()
         case .geo: GeoView()

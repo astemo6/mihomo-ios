@@ -100,6 +100,7 @@ final class DataResetTests: XCTestCase {
         XCTAssertTrue(InstallMarker.sandboxHasTernState([AppShared.rememberedGroupKey: "group.com.astemo6.tern"]))
         XCTAssertTrue(InstallMarker.sandboxHasTernState(["onboardingDone.v1": true]))
         XCTAssertTrue(InstallMarker.sandboxHasTernState(["panels.pinned": ["speed"]]))
+        XCTAssertTrue(InstallMarker.sandboxHasTernState(["panels.home.hidden": ["speed"]]))
         XCTAssertFalse(InstallMarker.sandboxHasTernState(nil))
         XCTAssertFalse(InstallMarker.sandboxHasTernState(["AppleLanguages": ["zh-Hans"], "NSInterfaceStyle": "x"]), "system keys only")
         let sandbox = try dir("sb-update"), group = try dir("group-update")
@@ -214,7 +215,6 @@ final class DataResetTests: XCTestCase {
         let grp = try XCTUnwrap(UserDefaults(suiteName: grpName))
         defer { std.removePersistentDomain(forName: stdName); grp.removePersistentDomain(forName: grpName) }
         std.set(["speed", "memory"], forKey: "panels.pinned")
-        std.set(["memory"], forKey: "panels.home.hidden")
         std.set(Data("[]".utf8), forKey: "panels.home.tasks")
         std.set(["speed": "网速"], forKey: "panels.home.names")
         std.set("dark", forKey: "appearance")
@@ -227,10 +227,9 @@ final class DataResetTests: XCTestCase {
         grp.set("custom", forKey: "policy.sort")             // the group already has it: group wins
 
         let moved = DefaultsMigration.run(standard: std, standardDomain: stdName, group: grp, groupDomain: grpName)
-        XCTAssertEqual(Set(moved), ["panels.pinned", "panels.home.hidden", "panels.home.tasks", "panels.home.names",
+        XCTAssertEqual(Set(moved), ["panels.pinned", "panels.home.tasks", "panels.home.names",
                                     "appearance", "ui.launchTab", "webdav.settings", "unlock.services"])
         XCTAssertEqual(grp.stringArray(forKey: "panels.pinned"), ["speed", "memory"])
-        XCTAssertEqual(grp.stringArray(forKey: "panels.home.hidden"), ["memory"])
         XCTAssertEqual(grp.data(forKey: "panels.home.tasks"), Data("[]".utf8))
         XCTAssertEqual(grp.dictionary(forKey: "panels.home.names") as? [String: String], ["speed": "网速"])
         XCTAssertEqual(grp.string(forKey: "appearance"), "dark")
@@ -248,6 +247,28 @@ final class DataResetTests: XCTestCase {
         XCTAssertEqual(grp.string(forKey: "appearance"), "dark")
         // Same object for both (no App Group): nothing is moved or dropped.
         XCTAssertEqual(DefaultsMigration.run(standard: grp, standardDomain: grpName, group: grp, groupDomain: grpName), [])
+    }
+
+    /// 「在首页隐藏」 retired: hidden ids are unpinned (from either store's hidden list), the key is gone from both.
+    @MainActor
+    func testDropLegacyHiddenUnpinsHiddenIDs() throws {
+        let stdName = "com.astemo6.tern.unittests.hid-std-\(UUID().uuidString)"
+        let grpName = "com.astemo6.tern.unittests.hid-grp-\(UUID().uuidString)"
+        let std = try XCTUnwrap(UserDefaults(suiteName: stdName))
+        let grp = try XCTUnwrap(UserDefaults(suiteName: grpName))
+        defer { std.removePersistentDomain(forName: stdName); grp.removePersistentDomain(forName: grpName) }
+        grp.set(["speed", "memory", "task-abc", "uptime", "panel-x"], forKey: "panels.pinned")
+        grp.set(["memory", "task-abc"], forKey: HomePanelStore.legacyHiddenKey)
+        std.set(["panel-x", "gone"], forKey: HomePanelStore.legacyHiddenKey) // pre-move copy left in standard
+        XCTAssertFalse(DefaultsMigration.movedKeys.contains(HomePanelStore.legacyHiddenKey), "not moved to the group")
+
+        let removed = HomePanelStore.dropLegacyHidden(group: grp, standard: std)
+        XCTAssertEqual(Set(removed), ["memory", "task-abc", "panel-x"])
+        XCTAssertEqual(grp.stringArray(forKey: "panels.pinned"), ["speed", "uptime"], "order of the rest kept")
+        XCTAssertNil(grp.object(forKey: HomePanelStore.legacyHiddenKey))
+        XCTAssertNil(std.object(forKey: HomePanelStore.legacyHiddenKey))
+        XCTAssertEqual(HomePanelStore.dropLegacyHidden(group: grp, standard: std), [], "second run: nothing")
+        XCTAssertEqual(grp.stringArray(forKey: "panels.pinned"), ["speed", "uptime"])
     }
 
     func testMovedKeysCoverEveryBackedUpStandardSetting() {

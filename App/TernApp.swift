@@ -26,6 +26,8 @@ struct TernApp: App {
         // with leftover data the launch tasks wait for 保留 (全部清除 exits the app instead).
         // feat/fresh-reinstall: user settings that were in UserDefaults.standard move to the App Group defaults (once).
         DefaultsMigration.run()
+        // 「在首页隐藏」 retired: ids that were hidden are unpinned, the key is dropped.
+        HomePanelStore.dropLegacyHidden()
         DataResetCoordinator.shared.evaluateLaunch(sandboxHadState: sandboxHadState, launchTasks: Self.launchTasks)
         // feat/jsc-engine: `-TernJSCSelfTest` runs one the old JS engine-vs-JavaScriptCore conformance case and logs it.
         JSCScriptEngine.selfTestIfRequested()

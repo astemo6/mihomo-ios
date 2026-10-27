@@ -14,7 +14,7 @@ enum SearchDestination: String, CaseIterable, Hashable {
     // 更多
     case profiles, sampleProfile, stats, snapshots, backup, webdav, syncFolder, storage, notifications
     case appearance, liveActivity, appIcon, launchTab, trafficScope
-    case advanced, connection, tunnel, tailscale, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
+    case advanced, connection, tunnel, faceTime, tailscale, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
     case onboarding, diagnostics, about, systemLanguage
     // 工具
     case nodes, proxyChains, rules, modules, moduleGallery, allRewrites, scriptList, rewrites, scripts, scriptWorkbench, scriptLogs, scriptNotices, scriptStore
@@ -126,7 +126,8 @@ enum SettingsSearchIndex {
           ["设备通信", "设备间通信", "USB", "AirDrop", "CarPlay", "excludeDeviceCommunication", "device communication"]),
         e("enforceRoutes", "兼容性增强模式", tun, "house.and.flag", .blue, .tunnel,
           ["兼容性", "拆分路由", "HomeKit", "家庭", "摄像头", "实时视频", "enforceRoutes", "enforce routes", "split routes", "compatibility"]),
-        e("faceTimeProxy", "FaceTime 走代理", tun, "video", .blue, .tunnel,
+        // feat/fresh-reinstall: its own page, 高级设置 → 网络 → FaceTime (was on 隧道).
+        e("faceTimeProxy", "FaceTime 走代理", adv, "video", .blue, .faceTime,
           ["FaceTime", "视频通话", "通话", "facetime proxy", "call"]),
         e("routes", "路由", conn, "arrow.triangle.turn.up.right.diamond", .blue, .connection, ["路由表", "不作为默认路由", "默认路由", "DNS 劫持", "dns-hijack", "隐藏 VPN 图标", "route", "routes", "CIDR", "default route", "hijack"]),
         e("ipv6", "IPv6", conn, "6.circle", .blue, .connection, ["ipv6", "v6"]),

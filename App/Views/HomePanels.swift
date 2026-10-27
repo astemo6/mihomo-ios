@@ -1,7 +1,9 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // feat/panels: script panels on Home.
-// - Order = PanelsModel.pinned ("panels.pinned"); hidden ids stay pinned but are not shown on Home.
+// - Order = PanelsModel.pinned ("panels.pinned"); every pinned id is shown (feat/fresh-reinstall: 「在首页隐藏」 removed,
+//   「从首页移除」 unpins). Long-press-and-drag a card on Home to reorder (HomeReorderDrop); 编辑排序 stays as the fallback.
 // - QX / Surge generic and interaction scripts can be pinned too: the engine turns each into a panel
 //   with the id "task-<task id>" (home-panels.json / PUT /mitm/panels-home).
 // - While disconnected, Home shows the last result of each panel from panel-cache.json (written by the
@@ -29,11 +31,11 @@ struct TaskPanelPin: Codable, Hashable {
 final class HomePanelStore: ObservableObject {
     static let shared = HomePanelStore()
     static let taskPrefix = "task-"
-    private static let hiddenKey = "panels.home.hidden"
+    /// The retired 「在首页隐藏」 set; read once by `dropLegacyHidden` (its ids are unpinned), then deleted.
+    static let legacyHiddenKey = "panels.home.hidden"
     private static let tasksKey = "panels.home.tasks"
     private static let namesKey = "panels.home.names"
 
-    @Published var hidden: Set<String> = Set(AppShared.defaults.stringArray(forKey: HomePanelStore.hiddenKey) ?? [])
     @Published var tasks: [TaskPanelPin] = {
         guard let d = AppShared.defaults.data(forKey: HomePanelStore.tasksKey) else { return [] }
         return (try? JSONDecoder().decode([TaskPanelPin].self, from: d)) ?? []
@@ -51,7 +53,54 @@ final class HomePanelStore: ObservableObject {
     static var homeURL: URL { EnginePaths.dir.appendingPathComponent("home-panels.json") }
     static var cacheURL: URL { EnginePaths.dir.appendingPathComponent("panel-cache.json") }
 
-    var visibleIDs: [String] { model.pinned.filter { !hidden.contains($0) } }
+    var visibleIDs: [String] { model.pinned }
+
+    /// feat/fresh-reinstall: 「在首页隐藏」 is gone. Ids that were hidden are unpinned (they were not on Home anyway) and
+    /// the hidden key is removed from both stores. TernApp.init, after DefaultsMigration, before PanelsModel loads.
+    /// Returns the unpinned ids.
+    @discardableResult
+    static func dropLegacyHidden(group: UserDefaults = AppShared.defaults, standard: UserDefaults = .standard) -> [String] {
+        let hidden = Set((group.stringArray(forKey: legacyHiddenKey) ?? []) + (standard.stringArray(forKey: legacyHiddenKey) ?? []))
+        if group.object(forKey: legacyHiddenKey) != nil { group.removeObject(forKey: legacyHiddenKey) }
+        if standard.object(forKey: legacyHiddenKey) != nil { standard.removeObject(forKey: legacyHiddenKey) }
+        guard !hidden.isEmpty, var pinned = group.stringArray(forKey: "panels.pinned") else { return [] }
+        let removed = pinned.filter { hidden.contains($0) }
+        guard !removed.isEmpty else { return [] }
+        pinned.removeAll { hidden.contains($0) }
+        group.set(pinned, forKey: "panels.pinned")
+        return removed
+    }
+
+    // MARK: drag reorder on Home
+
+    /// The id being dragged on Home (nil when no drag is in flight).
+    @Published var dragging: String?
+    private var commitWork: DispatchWorkItem?
+
+    /// Live reorder while a dragged card hovers `target`: the dragged id takes the target's place in the pinned order.
+    /// Saved shortly after the last move (and at the drop), so hovering over many cards writes once.
+    func dragMove(_ id: String, over target: String) {
+        guard id != target, let from = model.pinned.firstIndex(of: id), let to = model.pinned.firstIndex(of: target) else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            model.pinned.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        }
+        scheduleCommit()
+    }
+
+    func scheduleCommit() {
+        commitWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.commitDrag() }
+        commitWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: w)
+    }
+
+    func commitDrag() {
+        commitWork?.cancel()
+        commitWork = nil
+        dragging = nil
+        savePinned()
+        orderChanged()
+    }
 
     func loadCache() {
         guard let d = try? Data(contentsOf: Self.cacheURL), let l = try? JSONDecoder().decode([PanelItem].self, from: d) else { return }
@@ -104,18 +153,12 @@ final class HomePanelStore: ObservableObject {
     /// v0.19 首页卡片: built-in tiles live in the same pinned list.
     func pinBuiltin(_ t: BuiltinTile) {
         if !model.pinned.contains(t.id) { model.pinned.append(t.id) }
-        hidden.remove(t.id)
         savePinned()
     }
 
     func unpin(_ id: String) {
         model.pinned.removeAll { $0 == id }
         savePinned()
-    }
-
-    func setHidden(_ id: String, _ on: Bool) {
-        if on { hidden.insert(id) } else { hidden.remove(id) }
-        sync()
     }
 
     func move(from: IndexSet, to: Int) {
@@ -158,12 +201,9 @@ final class HomePanelStore: ObservableObject {
     /// Saves the Home configuration (UserDefaults + home-panels.json for the next connect) and, while
     /// connected, hands it to the running engine.
     func sync() {
-        // drop pins / hidden ids that are no longer pinned
+        // drop task pins that are no longer pinned
         // r7: assign only on a real change — a no-op publish here landed in the same update as the List's onMove.
         if tasks.contains(where: { !model.pinned.contains($0.panelID) }) { tasks.removeAll { !model.pinned.contains($0.panelID) } }
-        let keptHidden = hidden.filter { model.pinned.contains($0) }
-        if keptHidden != hidden { hidden = keptHidden }
-        AppShared.defaults.set(Array(hidden), forKey: Self.hiddenKey)
         if let d = try? JSONEncoder().encode(tasks) { AppShared.defaults.set(d, forKey: Self.tasksKey) }
         let body: [String: Any] = [
             "visible": visibleIDs.filter { !BuiltinTile.isBuiltin($0) }, // v0.19 tiles are app-drawn
@@ -236,6 +276,10 @@ struct HomePanelsSection: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if UITestSeed.enabled { // Debug UI tests only: the saved order, for the drag-reorder test
+                Text(verbatim: home.orderToken).font(.system(size: 1)).opacity(0.02).frame(height: 1)
+                    .accessibilityIdentifier("home.panels.order").accessibilityValue(Text(verbatim: home.orderToken))
+            }
             // feat/egern-style: always offered — the analysis panels (策略 / 规则 / 主机名) are opt-in and added here.
             Group {
                 Button { HomeEditorRouter.shared.open(.panels) } label: {
@@ -261,6 +305,8 @@ struct HomePanelsSection: View {
                 .buttonStyle(.plain)
             }
         }
+        // A drop anywhere in the section (between cards, on the header) ends the drag and saves the order.
+        .onDrop(of: [.plainText], delegate: HomeReorderDrop(target: nil, home: home))
         .sheet(item: $editPanel) { p in PanelEditSheet(p: p) }
         .task(id: vpn.isConnected) {
             home.loadCache()
@@ -294,11 +340,11 @@ extension HomePanelsSection {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .contextMenu {
                 arrangeItems(e.item.id)
-                Button { home.setHidden(e.item.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
                 Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
                 PanelEditButton { editPanel = e.item }
-                Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("取消固定", systemImage: "pin.slash") }
+                Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("从首页移除", systemImage: "minus.circle") }
             }
+            .modifier(HomeReorderDrag(id: e.item.id))
         case .tile(let t):
             tile(t)
         }
@@ -308,10 +354,10 @@ extension HomePanelsSection {
         BuiltinTileView(tile: t)
             .contextMenu {
                 arrangeItems(t.id)
-                Button { home.setHidden(t.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
                 Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
-                Button(role: .destructive) { home.unpin(t.id) } label: { Label("取消固定", systemImage: "pin.slash") }
+                Button(role: .destructive) { home.unpin(t.id) } label: { Label("从首页移除", systemImage: "minus.circle") }
             }
+            .modifier(HomeReorderDrag(id: t.id))
     }
 
     /// fix/app-policy-ui #6 / #6a (user 2026-10-26 21:30 / 21:33): long-press on Home → 编辑排序 (the editor's drag /
@@ -356,7 +402,7 @@ struct HomePanelsEditor: View {
                 } header: {
                     Text("首页面板")
                 } footer: {
-                    Text("拖动或用右侧菜单调整顺序、切换半宽（两张半宽卡片并排）。关闭开关的面板保留固定，但不在首页显示，也不会在后台刷新。在首页长按卡片也可以编辑排序。")
+                    Text("拖动或用右侧菜单调整顺序、切换半宽（两张半宽卡片并排），左滑可从首页移除。在首页长按卡片并拖动也可以直接调整顺序。")
                         .modifier(UITestOrderValue(id: "homepanels.order", order: home.orderToken))
                 }
                 .listRowBackground(Theme.card)
@@ -451,8 +497,6 @@ struct HomePanelsEditor: View {
                 }
                 Spacer(minLength: 6)
                 moveMenu(id, tag: t.rawValue)
-                Toggle("在首页显示", isOn: Binding(get: { !home.hidden.contains(id) }, set: { home.setHidden(id, !$0) }))
-                    .labelsHidden()
             }
             .modifier(MoveActions(id: id))
         } else {
@@ -497,8 +541,6 @@ struct HomePanelsEditor: View {
             }
             Spacer(minLength: 6)
             moveMenu(id, tag: id)
-            Toggle("在首页显示", isOn: Binding(get: { !home.hidden.contains(id) }, set: { home.setHidden(id, !$0) }))
-                .labelsHidden()
         }
         .modifier(MoveActions(id: id))
     }
@@ -532,6 +574,45 @@ struct HomePanelsEditor: View {
         .buttonStyle(.borderless)
         .accessibilityLabel(Text("调整顺序"))
         .accessibilityIdentifier("homepanels.move.\(tag)")
+    }
+}
+
+/// feat/fresh-reinstall (user: reorder Home directly, like iOS widgets): long-press a card, then drag it — the context
+/// menu preview lifts and becomes the drag (iOS 16+); hovering another card moves the dragged one into its place
+/// (works for half- and full-width cards, the rows regroup as the order changes); the order is saved to
+/// panels.pinned at the drop, or 0.6 s after the last move if the drop lands outside Home.
+struct HomeReorderDrag: ViewModifier {
+    let id: String
+    @ObservedObject private var home = HomePanelStore.shared
+    func body(content: Content) -> some View {
+        content
+            .opacity(home.dragging == id ? 0.45 : 1)
+            .onDrag {
+                home.dragging = id
+                return NSItemProvider(object: id as NSString)
+            }
+            .onDrop(of: [.plainText], delegate: HomeReorderDrop(target: id, home: home))
+    }
+}
+
+struct HomeReorderDrop: DropDelegate {
+    /// The card under the finger; nil = the section itself (only ends the drag).
+    let target: String?
+    let home: HomePanelStore
+
+    func validateDrop(info: DropInfo) -> Bool { home.dragging != nil }
+
+    func dropEntered(info: DropInfo) {
+        guard let dragged = home.dragging, let target else { return }
+        home.dragMove(dragged, over: target)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard home.dragging != nil else { return false }
+        home.commitDrag()
+        return true
     }
 }
 

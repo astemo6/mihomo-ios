@@ -225,9 +225,12 @@ struct AdvancedSettingsView: View {
     // trailing text mid-push and the row re-laid out while sliding in. (ui-audit: the DNS label went with the DNS row,
     // which lives on 工具.)
     @State private var connLabel: String
+    /// feat/fresh-reinstall: FaceTime row's 开 / 关 (read with the connection label, refreshed on return).
+    @State private var faceTimeOn: Bool
 
     init() {
         _connLabel = State(initialValue: Self.connectionLabel())
+        _faceTimeOn = State(initialValue: CoreOverrides.load().faceTimeProxy)
     }
 
     static func connectionLabel() -> String {
@@ -239,6 +242,8 @@ struct AdvancedSettingsView: View {
     func refreshLabels() {
         let c = Self.connectionLabel()
         if connLabel != c { connLabel = c }
+        let f = CoreOverrides.load().faceTimeProxy
+        if faceTimeOn != f { faceTimeOn = f }
     }
 
     var body: some View {
@@ -247,9 +252,13 @@ struct AdvancedSettingsView: View {
                 NavigationLink { LazyDestination { ConnectionView() } } label: {
                     MoreRow(id: "连接方式", title: "连接方式", symbol: "point.3.filled.connected.trianglepath.dotted", tone: .blue, value: connLabel)
                 }
-                // feat/tunnel-include-options: 包含所有网络 / 本地网络 / APNs / 蜂窝 / 设备通信 / 兼容性增强模式 / FaceTime.
+                // feat/tunnel-include-options: 包含所有网络 / 本地网络 / APNs / 蜂窝 / 设备通信 / 兼容性增强模式.
                 NavigationLink { LazyDestination { TunnelSettingsView() } } label: {
                     MoreRow(id: "隧道", title: "隧道", symbol: "network.badge.shield.half.filled", tone: .blue)
+                }
+                // feat/fresh-reinstall (user): FaceTime 走代理 moved out of 隧道 into its own row.
+                NavigationLink { LazyDestination { FaceTimeSettingsView() } } label: {
+                    MoreRow(id: "FaceTime", title: "FaceTime", symbol: "video.fill", tone: .blue, value: faceTimeOn ? "开" : "关")
                 }
                 // Tailscale: unsupported by the native core (NCSupport) — the page says so and lists any configured nodes as unavailable.
                 NavigationLink { LazyDestination { TailscaleSettingsView() } } label: {

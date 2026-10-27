@@ -106685,6 +106685,40 @@
           }
         }
       }
+    },
+    "拖动或用右侧菜单调整顺序、切换半宽（两张半宽卡片并排），左滑可从首页移除。在首页长按卡片并拖动也可以直接调整顺序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag or use the menu on the right to reorder and switch to half width (two half-width cards share a row); swipe left to remove from Home. You can also long-press a card on Home and drag it to reorder."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖動或用右側選單調整順序、切換半寬（兩張半寬卡片並排），左滑可從首頁移除。在首頁長按卡片並拖動也可以直接調整順序。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグまたは右側のメニューで順序を変更し、半幅に切り替えます（半幅のカード 2 枚が横に並びます）。左にスワイプするとホームから削除します。ホームでカードを長押ししてドラッグしても並べ替えられます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그하거나 오른쪽 메뉴로 순서를 바꾸고 반폭으로 전환합니다(반폭 카드 두 장이 나란히 표시됨). 왼쪽으로 쓸어 홈에서 제거합니다. 홈에서 카드를 길게 누른 채 드래그해도 순서를 바꿀 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетаскивайте или используйте меню справа, чтобы менять порядок и включать половинную ширину (две такие карточки в одном ряду); смахните влево, чтобы убрать с главного экрана. Также можно нажать и удерживать карточку на главном экране и перетащить её."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
