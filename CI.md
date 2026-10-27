@@ -3,8 +3,11 @@
 | Workflow | 文件 | 什么时候跑 | runner |
 |---|---|---|---|
 | Checks | `checks.yml` | 推 `main` / `test/**` / `core/**`；PR；手动 | ubuntu（term-audit） |
-| Unit tests | `unit-tests.yml` | **PR 到 `main`**；手动（任意 ref）；`workflow_call` | macOS ×1 |
-| Self-test | `ui-tests.yml` | 推 `test/**`；手动（`only` / `shard`） | ubuntu（dedupe、plan）+ macOS UI 分片 |
+| Unit tests | `unit-tests.yml` | **PR 到 `main`**；手动（任意 ref）；`workflow_call` | macOS 构建 ×1 + 测试 ×1 |
+| Self-test | `ui-tests.yml` | 推 `test/**`；手动（`only` / `shard` / `extras`） | ubuntu（dedupe、plan）+ macOS 构建 ×1 + UI / unit 组合 |
+| E2E replay | `e2e-replay.yml` | 手动（`fixture`）；Self-test `extras=e2e` | macOS 构建 ×1 + 回放 ×1（仅 astemo6，需 secret） |
+| Proto loopback | `proto-loopback.yml` | 改动内核 / loopback 文件的推送；手动（`jobs`）；Self-test `extras=proto` | macOS 构建 ×1–2 + 每个作业 ×1 |
+| Build for testing | `build-for-testing.yml` | 只被上面几个调用（`workflow_call`） | macOS |
 | iOS IPA | `ios.yml` | 推 `main` = 发版；手动 `build_only` = 只编译 | macOS |
 
 内核为 NativeCore（纯 Swift）：早期的 `core-update.yml`（每日内核升级）、`core-release.yml`（候选发布审批）
@@ -21,15 +24,34 @@
 - 要让「必须测试通过才能合并」真正生效，需要维护者在仓库 Settings → Branches → `main` 的保护规则里把
   **`Unit tests / unit`** 设为 required status check（workflow 只负责跑，强制在分支保护里配置）。
 - 直接推 `main`（不经 PR）不会跑 Unit tests；发版前应先走 PR，或手动派发一次。
-- Self-test 的冒烟组合（zh-Hans light smoke）和完整矩阵的 light shard 2 也会跑全部单元测试类；那是 `test/**` 上的完整自测，与 PR 上的 Unit tests 互不替代。
+- Self-test 的冒烟路径和完整矩阵（astemo6）里的 `unit` 组合也会跑全部单元测试类；那是 `test/**` 上的完整自测，与 PR 上的 Unit tests 互不替代。
+
+## 一次构建，到处测试（ci/speedup，2026-10-27）
+
+- 每个 run 每个 scheme 只构建一次：`build-for-testing.yml` 做 `build-for-testing`（`TernUITests` = App + 单元测试 + UI 测试；
+  `TernE2E` = App + 单元测试 + E2E 隧道测试），把 `Build/Products`（含 `.xctestrun`）打成 `tern-products-<scheme>` artifact；
+  各测试作业用 `.github/actions/tern-prebuilt`（同一个 Xcode、模拟器提前启动、下载解包）后 `xcodebuild -xctestrun … test-without-building`。
+  以前每个 macOS 作业各自编译 6–15 分钟，一次全量 CI 要编译 16 次。
+- 编译缓存：Xcode 26 compilation caching（按内容寻址）+ actions/cache。GitHub 缓存按分支隔离（加上默认分支），
+  所以新的 `test/**` 分支第一次是冷编译，同一分支之后的运行才命中。
+- UI light 分 5 片（按实测时长平衡，每片约 26 分钟测试；1–4 是固定清单，5 = 其余全部，新测试自动落在 5），dark 1 片；
+  单元测试单独一个 `unit` 组合（只在 astemo6 / 其它仓库跑一次；en 镜像不再重复跑同一个单元测试包）。
+- **全量 CI = 两次派发**（每个仓库一次，共用各自的构建）：
+  ```bash
+  gh workflow run ui-tests.yml -R astemo6/mihomo-ios --ref test/xxx -f shard=full -f extras=e2e,ipa,checks
+  # 镜像（scripts 见 work 区 ci-mirror.sh 推 test ref）：
+  gh workflow run ui-tests.yml -R astemo666/mihomo-ios --ref test/xxx -f shard=full -f extras=proto,masque-warp
+  ```
+  `extras`：`e2e`、`proto`（= loopback,openconnect,masque-ip）或单独的 `loopback` / `openconnect` / `masque-ip` / `masque-warp`、
+  `ipa`（ios.yml build_only）、`checks`；`all` = e2e,proto,ipa,checks。单独派发 e2e-replay.yml / proto-loopback.yml / unit-tests.yml 照旧可用（它们自己构建一次）。
 
 ## 提交信息标记（Self-test）
 
-- `[only:testName]`：只跑这个 UI 测试（在 light 分片 1 里跑，其余分片跳过构建）；可写多个。
+- `[only:testName]`：只跑这个 UI 测试（`light:sel` 一个组合 + `dark:sel`；只选了单元测试时不跑 dark）；可写多个。
 - `[unit:Class]`：再加一个单元测试类。
 - `[skip-ui]`：不跑 macOS UI 分片。
-- `[shard:all]`：一个仓库里跑全部 8 个组合。**别用**——占满 macOS 配额；失败只重跑失败的部分。
-- **冒烟路径（默认 auto）**：相对 main 的 merge-base（在 main 上则相对上一个 `v*-build*` 标签）没有改动界面相关文件（App/Views、xcstrings、UITests 等）时，UI 只跑一个 zh-Hans light 冒烟组合（test01/03/04 + 全部单元测试），否则跑完整矩阵；`[shard:smoke]` / `[shard:full]` 或 dispatch `shard=smoke|full` 强制。
+- `[shard:all]`：一个仓库里跑两种语言的全部组合（2×(5 light + 1 dark) + unit）。**别用**——占满 macOS 配额；失败只重跑失败的部分。
+- **冒烟路径（默认 auto）**：相对 main 的 merge-base（在 main 上则相对上一个 `v*-build*` 标签）没有改动界面相关文件（App/Views、xcstrings、UITests 等）时，UI 只跑一个 zh-Hans light 冒烟组合（test01/03/04；单元测试在并行的 `unit` 组合里），否则跑完整矩阵（light:1–5 + dark:0，astemo6 再加 unit）；`[shard:smoke]` / `[shard:full]` 或 dispatch `shard=smoke|full` 强制。
 
 ## 排队与去重
 
