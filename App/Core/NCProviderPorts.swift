@@ -358,8 +358,9 @@ enum NCProviderPorts {
     /// home). Returns {"count": n, "error": "…"}.
     static func providerStore(home: String, kind: String, cachePath: String, convert: String, data: Data) -> String {
         func res(_ n: Int, _ e: String) -> String { ncJSONString(["count": n, "error": e]) }
-        let h = (home as NSString).standardizingPath, c = (cachePath as NSString).standardizingPath
-        if !(c == h || c.hasPrefix(h.hasSuffix("/") ? h : h + "/")) { return res(0, "路径不在内核目录内") }
+        // fix/nc-0.20.2: lexical containment (NSString.standardizingPath strips "/private" only for existing files, so a
+        // not-yet-downloaded cache under /private/var/… never matched the existing home → 「路径不在内核目录内」).
+        if !NCPathContainment.isInside(home: home, cachePath, allowHomeItself: false) { return res(0, "路径不在内核目录内") }
         if data.allSatisfy({ $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D || $0 == 0x0B || $0 == 0x0C }) {
             return res(0, "下载内容为空")
         }

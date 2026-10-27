@@ -101,6 +101,8 @@ enum NCRuntimeBuilder {
             }
         }
 
+        // fix/nc-0.20.2: provider paths saved by an older container (delete + reinstall, re-signed build) → home-relative.
+        NCProviderPathRebase.rebase(&raw, home: o.home)
         var editedRules: [String: String] = [:]
         if !o.home.isEmpty && !req.profileID.isEmpty {
             let (edited, _) = NCRuntimeSteps.applyProfileRuleOverrides(

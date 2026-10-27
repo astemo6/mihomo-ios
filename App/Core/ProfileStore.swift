@@ -98,10 +98,14 @@ final class ProfileStore: ObservableObject {
         }
         // v0.8.1: profiles converted by v0.8.0 and earlier get source URLs and readable provider names.
         let paths = profiles.filter { $0.kind == .local }.map { $0.fileURL.path }
+        let allPaths = profiles.map { $0.fileURL.path }
         Task.detached(priority: .utility) {
             // fix/nc-e2e-real: first re-convert imports the old YAML emitter cut short (from their .source.conf);
             // migrateProfileProviders re-emits the profile from what it parses, which would make the loss permanent.
             for path in paths { NCProfileYAMLRepair.repair(profilePath: path) }
+            // fix/nc-0.20.2: absolute provider paths into an old container become home-relative (idempotent).
+            let home = AppShared.homeURL.path
+            for path in allPaths { NCProviderPathRebase.migrateFile(path, home: home) }
             for path in paths { _ = NCProviderPorts.migrateProfileProviders(path) }
         }
     }

@@ -72,7 +72,7 @@ final class TernUITests: TernUITestCase {
 
         // Restore from 策略 → 排序 menu → 编辑首页策略 → 恢复默认.
         tab(1)
-        let sortMenu = app.button(L("排序"))
+        let sortMenu = app.button(L("节点排序"))
         XCTAssertTrue(sortMenu.waitForExistence(timeout: 8), "策略 sort menu")
         sortMenu.tap()
         XCTAssertTrue(tapIfExists(app.button(L("编辑首页策略"))), "menu entry 编辑首页策略")

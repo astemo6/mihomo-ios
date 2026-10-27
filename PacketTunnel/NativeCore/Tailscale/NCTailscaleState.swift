@@ -57,25 +57,25 @@ enum NCTailscalePath {
             throw NCTailscaleStateError.emptyStateDir
         }
 
-        let homeClean = (home as NSString).standardizingPath
+        let homeClean = NCPathContainment.clean(home)
         guard !homeClean.isEmpty else {
             throw NCTailscaleStateError.pathEscapesHome(stateDir: trimmedDir, home: home)
         }
 
         let resolvedURL: URL
         if (trimmedDir as NSString).isAbsolutePath {
-            let clean = (trimmedDir as NSString).standardizingPath
+            let clean = NCPathContainment.clean(trimmedDir)
             guard (clean + "/").hasPrefix(homeClean + "/") else {
                 throw NCTailscaleStateError.pathEscapesHome(stateDir: trimmedDir, home: homeClean)
             }
             resolvedURL = URL(fileURLWithPath: clean, isDirectory: true)
         } else {
-            let clean = (trimmedDir as NSString).standardizingPath
+            let clean = NCPathContainment.cleanRelative(trimmedDir)
             if clean == ".." || clean.hasPrefix("../") {
                 throw NCTailscaleStateError.pathEscapesHome(stateDir: trimmedDir, home: homeClean)
             }
             let candidate = URL(fileURLWithPath: homeClean, isDirectory: true).appendingPathComponent(clean, isDirectory: true)
-            let standardizedCandidate = (candidate.path as NSString).standardizingPath
+            let standardizedCandidate = NCPathContainment.clean(candidate.path)
             guard (standardizedCandidate + "/").hasPrefix(homeClean + "/") else {
                 throw NCTailscaleStateError.pathEscapesHome(stateDir: trimmedDir, home: homeClean)
             }

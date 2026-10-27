@@ -47,25 +47,25 @@ enum TailscaleStatePath {
         let dir = (stateDir ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveDir = dir.isEmpty ? NCRuntimeSteps.tailscaleStateDir(nodeName) : dir
 
-        let homeClean = (home as NSString).standardizingPath
+        let homeClean = NCPathContainment.clean(home)
         guard !homeClean.isEmpty else {
             throw TailscaleStatePathError.pathEscapesHome(stateDir: effectiveDir, home: home)
         }
 
         let resolvedURL: URL
         if (effectiveDir as NSString).isAbsolutePath {
-            let clean = (effectiveDir as NSString).standardizingPath
+            let clean = NCPathContainment.clean(effectiveDir)
             guard clean != homeClean, (clean + "/").hasPrefix(homeClean + "/") else {
                 throw TailscaleStatePathError.pathEscapesHome(stateDir: effectiveDir, home: homeClean)
             }
             resolvedURL = URL(fileURLWithPath: clean, isDirectory: true)
         } else {
-            let clean = (effectiveDir as NSString).standardizingPath
+            let clean = NCPathContainment.cleanRelative(effectiveDir)
             if clean == ".." || clean.hasPrefix("../") {
                 throw TailscaleStatePathError.pathEscapesHome(stateDir: effectiveDir, home: homeClean)
             }
             let candidate = URL(fileURLWithPath: homeClean, isDirectory: true).appendingPathComponent(clean, isDirectory: true)
-            let standardizedCandidate = (candidate.path as NSString).standardizingPath
+            let standardizedCandidate = NCPathContainment.clean(candidate.path)
             guard standardizedCandidate != homeClean, (standardizedCandidate + "/").hasPrefix(homeClean + "/") else {
                 throw TailscaleStatePathError.pathEscapesHome(stateDir: effectiveDir, home: homeClean)
             }
@@ -113,8 +113,8 @@ enum TailscaleStatePath {
     /// Safely deletes the node state directory after verifying boundary safety.
     /// Never deletes the root home container or directories outside home.
     static func deleteStateDir(at stateDirURL: URL, home: String) throws {
-        let homeClean = (home as NSString).standardizingPath
-        let clean = (stateDirURL.path as NSString).standardizingPath
+        let homeClean = NCPathContainment.clean(home)
+        let clean = NCPathContainment.clean(stateDirURL.path)
 
         guard !homeClean.isEmpty else {
             throw TailscaleStatePathError.deletionRefused("Home path is empty")

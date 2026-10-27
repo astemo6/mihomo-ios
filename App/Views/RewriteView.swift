@@ -55,6 +55,8 @@ struct RewriteView: View {
     @State private var newHost = ""
     @State private var editMode: EditMode = .inactive
     @State private var editingModule: EngineModule?
+    /// fix/nc-0.20.2: 编辑订阅 (URL / 名称 / 自动更新 / 启用) from the row's swipe / long-press 编辑.
+    @State private var editingSub: EngineModule?
     @State private var pendingDelete: EngineModule?
     @State private var addingURL = false
     @State private var url = ""
@@ -135,14 +137,18 @@ struct RewriteView: View {
                 ToolbarItem(placement: .navigationBarLeading) { Button("放弃修改") { rawMode = false; rawIssues = [] } }
                 ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { applyRaw() } }
             } else if editMode.isEditing {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { withAnimation { editMode = .inactive } } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    ReorderToolbarButton(isEditing: true, id: "rewrite.reorder") { withAnimation { editMode = .inactive } }
+                }
             } else {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     UpdateAllButton(busy: res.updatingAll, id: "rewrite.updateAll") { Task { await res.updateAll() } }
+                    // fix/nc-0.20.2: the shared 排序 button (was ⋯ → 调整顺序).
+                    ReorderToolbarButton(isEditing: false,
+                                         count: canReorderModules ? max(store.config.modules.count, store.config.rules.count, store.config.scripts.count) : 0,
+                                         id: "rewrite.reorder") { withAnimation { editMode = .active } }
                     Menu {
                         Button { rawText = Self.text(store.config); rawIssues = []; rawMode = true } label: { Label("以文本编辑本地规则", systemImage: "doc.plaintext") }
-                        Button { withAnimation { editMode = .active } } label: { Label("调整顺序", systemImage: "arrow.up.arrow.down") }
-                            .disabled(!canReorderModules)
                     } label: { Image(systemName: "ellipsis.circle") }
                         .accessibilityIdentifier("rewrite.more")
                     addMenu
@@ -156,7 +162,10 @@ struct RewriteView: View {
             ModuleSubSheet(module: m) { d in store.deleteModule(d); res.reload() }
         }
         .sheet(isPresented: $addingURL) {
-            ModuleURLSheet(url: $url) { u in Task { await store.addModule(url: u); res.reload() } }
+            ModuleSubscriptionSheet(initialURL: url) { f in Task { await store.addModule(fields: f); res.reload() } }
+        }
+        .sheet(item: $editingSub, onDismiss: { res.reload() }) { m in
+            ModuleSubscriptionSheet(editing: m) { f in Task { await store.editModuleSubscription(m.id, fields: f); res.reload() } }
         }
         .sheet(isPresented: $pasting, onDismiss: { res.reload() }) { PasteModuleSheet() }
         .sheet(isPresented: $addingScript) { ScriptFormSheet(item: nil) }
@@ -224,7 +233,7 @@ struct RewriteView: View {
         }
         .subscriptionActions(SubscriptionActions(
             update: remote && !busy ? { if let it = item { Task { await res.update(it) } } } : nil,
-            edit: { editingModule = m }, url: remote ? m.url : nil,
+            edit: { if remote { editingSub = m } else { editingModule = m } }, url: remote ? m.url : nil,
             enabled: m.enabled, setEnabled: { on in setModule(m, on) },
             delete: { pendingDelete = m }))
     }

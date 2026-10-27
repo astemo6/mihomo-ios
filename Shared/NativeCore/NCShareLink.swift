@@ -359,7 +359,8 @@ enum NCShareLink {
             let o = sMap(m, "obfs-opts")
             q.add("obfs", sStr(o, "mode"))
             q.add("obfs-host", sStr(o, "host"))
-            return "snell://\(escapePath(sStr(m, "psk")))@\(hostPort(m))\(q.queryString)#\(frag(name))"
+            let psk = sStr(m, "psk").isEmpty ? sStr(m, "password") : sStr(m, "psk") // fix/nc-0.20.2
+            return "snell://\(escapePath(psk))@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "mieru":
             // the old core: url.UserPassword(username, password) unconditionally.
