@@ -239,6 +239,9 @@ enum NCSupport {
         if (p.server ?? "").isEmpty || (p.port ?? 0) == 0 { return "Brook 缺少 server / port" }
         if (NCBrookOptions.string(p, "password") ?? "").isEmpty { return "Brook 缺少 password" }
         if let t = NCBrookOptions.string(p, "token"), !t.isEmpty { return "Brook token（用户系统）尚未接入" }
+        return nil
+    }
+
     /// TrustTunnel (NCTrustTunnel, feat/nc-trusttunnel): HTTP/2 and HTTP/3 tunnel proxy.
     static func trusttunnelUnsupported(_ p: NCProxy) -> String? {
         if (p.server ?? "").isEmpty { return "TrustTunnel 缺少 server" }
