@@ -1403,7 +1403,13 @@ final class NCDataPlane {
                 udpDropped += 1
                 return
             }
-            session = NCUDPWireGuardSession(proxy: proxy, queue: queue, acquire: { NCOCStack.shared.acquire($0) })
+            if let ip = NCIP(target.host), let dev = NCOCStack.shared.existing(proxy), dev.ready,
+               !dev.routesThroughTunnel(ip) {
+                // fix/nc-oc-dtls: outside the server's split-tunnel routes → direct (like TCP in openconnectStream).
+                session = NCUDPDirectSession(target: target, queue: queue)
+            } else {
+                session = NCUDPWireGuardSession(proxy: proxy, queue: queue, acquire: { NCOCStack.shared.acquire($0) })
+            }
         case .proxy(let proxy) where proxy.type == "snell":
             guard let sn = NCUDPSnellSession(proxy: proxy, queue: queue) else {
                 udpDropped += 1

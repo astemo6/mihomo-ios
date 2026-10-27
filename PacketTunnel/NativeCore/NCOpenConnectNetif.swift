@@ -52,6 +52,9 @@ final class NCOCStack {
         return (r.0, r.1)
     }
 
+    /// The live device for a node without creating one (UDP split decision, tests, diagnostics).
+    func existing(_ proxy: NCProxy) -> NCOCDevice? { debugExisting(proxy) }
+
     /// The live device for a node without creating one (tests / diagnostics).
     func debugExisting(_ proxy: NCProxy) -> NCOCDevice? {
         guard let d = devices[Self.identity(proxy)], d.alive else { return nil }
