@@ -55,6 +55,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18061 | sing-box VLESS inbound over HTTPUpgrade `/up` (v2ray-http-upgrade) |
 | 18062 | sing-box VLESS inbound over WebSocket `/ed`, max_early_data 2048 in `Sec-WebSocket-Protocol` |
 | 18063 | sing-box Trojan inbound over gRPC (service `TunSvc`), self-signed TLS |
+| 18013 | trusttunnel_endpoint — H2 (TCP) & H3 (UDP) inbound, Basic auth `nc-loop-tt-user`/`nc-loop-tt-pw` |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
@@ -92,6 +93,7 @@ These materials are strictly for loopback testing with self-signed TLS certifica
 - HTTP2 / HTTP3 proxies without naive padding: no sing-box inbound speaks plain h2/h3 CONNECT
   (the naive inbound insists on the `padding` header), so they are covered by the unit tests
   (NativeCoreNaiveH2H3Tests) and share the naive h2/h3 transport code exercised here.
+- TrustTunnel (official trusttunnel_endpoint): H2 TCP echo + wrong password → 407; H3 track not available yet.
 - Back-pressure (SS, VMess): against the blackhole. If an environment's
   buffers absorb everything sent, the lag never appears and the test skips
   with an explanation instead of failing — the property is then not

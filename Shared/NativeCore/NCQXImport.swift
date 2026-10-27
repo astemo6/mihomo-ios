@@ -188,6 +188,10 @@ enum NCQXImport {
             report.warnings.append("quantumultx [server_local]: custom= node skipped (legacy script-defined protocol): \(line)")
             return nil
         }
+        if rawTypeLower == "trusttunnel" || rawTypeLower == "trust-tunnel" {
+            report.warnings.append("quantumultx [server_local]: trusttunnel has no Quantumult X format specification; explicitly unavailable: \(line)")
+            return nil
+        }
         // Address: host:port, or [v6]:port.
         var host = address
         var port: Int? = nil

@@ -27,6 +27,9 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let trustTunnelPort = 18013
+    private static let trustTunnelUser = "nc-loop-tt-user"
+    private static let trustTunnelPassword = "nc-loop-tt-pw"
     private static let vlessEchPort = 18014
     private static let trojanEchPort = 18015
     private static let tcpEchoPort = 18080
@@ -966,6 +969,33 @@ final class NativeCoreLoopbackTests: XCTestCase {
         let stream = try self.connect(proxy: proxy, target: Self.echoTarget, timeout: 20)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    // MARK: - TrustTunnel (#161, official trusttunnel_endpoint on 18013, HTTP/2 track)
+
+    private static func trustTunnelProxy(name: String, password: String) -> NCProxy {
+        Self.proxy(name: name, type: "trusttunnel", port: Self.trustTunnelPort, extra: [
+            "username": .string(Self.trustTunnelUser), "password": .string(password),
+            "sni": .string("localhost"), "skip-cert-verify": .bool(true), "quic": .bool(false),
+        ])
+    }
+
+    /// 8 KiB echo plus a chunked echo: the endpoint announces MAX_CONCURRENT_STREAMS 1000 and a 128 KiB stream
+    /// window — the #161 run stalled at exactly 1000 bytes because the old NCH2MuxCore read SETTINGS id 0x3 as
+    /// INITIAL_WINDOW_SIZE (fixed on integrate by fix/nc-h2-cidr).
+    func testTrustTunnelH2TCPEcho() throws {
+        let stream = try self.connect(proxy: Self.trustTunnelProxy(name: "loop-trusttunnel-h2", password: Self.trustTunnelPassword),
+                                      target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        try self.assertEcho(stream, payload: Data((0..<200_000).map { UInt8(($0 * 13 + 5) & 0xff) }))
+    }
+
+    func testTrustTunnelWrongPasswordRejected() {
+        let proxy = Self.trustTunnelProxy(name: "loop-trusttunnel-badpw", password: "wrong-password")
+        XCTAssertThrowsError(try self.connect(proxy: proxy, target: Self.echoTarget)) { err in
+            XCTAssertTrue("\(err)".contains("407"), "\(err)")
+        }
     }
 }
 
