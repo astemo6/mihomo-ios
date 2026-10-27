@@ -26,6 +26,7 @@ enum E2EHarness {
         NCConnector.installWireGuardDialer()
         NCConnector.installTailscaleDialer()
         NCConnector.installOpenConnectDialer()
+        NCConnector.installMASQUEIPDialer()
     }
 
     static func freePort() -> Int {

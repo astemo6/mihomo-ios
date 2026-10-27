@@ -367,6 +367,10 @@ enum NCConnector {
     /// (PacketTunnel/NativeCore/NCOpenConnectNetif.swift), installed by the tunnel (installOpenConnectDialer()).
     /// Without it (the App's 延迟测试) the node reports NCOpenConnect.tunnelOnly. Set once before the first dial.
     static var openconnectDialer: ((NCProxy, NCTarget, DispatchQueue, @escaping (NCRelayStream?, Error?) -> Void) -> Void)?
+    /// fix/nc-masque-ip: MASQUE CONNECT-IP (RFC 9484) dials TCP through a lwIP netif fed by HTTP Datagrams
+    /// (PacketTunnel/NativeCore/NCMASQUEIPNetif.swift), installed by the tunnel (installMASQUEIPDialer()).
+    /// Without it (the App's 延迟测试) the node reports NCMASQUE.connectIPTunnelOnly. Set once before the first dial.
+    static var masqueIPDialer: ((NCProxy, NCTarget, DispatchQueue, @escaping (NCRelayStream?, Error?) -> Void) -> Void)?
 
     /// Tailscale dials through the tunnel's userspace lwIP stack and DERP relays.
     /// Set once before the first dial via NCConnector.installTailscaleDialer().
@@ -882,6 +886,19 @@ enum NCConnector {
         case "masque":
             if transport != nil {
                 queue.async { completion(nil, Failure.unsupported("masque over a chain transport")) }
+                return
+            }
+            // fix/nc-masque-ip: CONNECT-IP nodes carry TCP through the node's lwIP netif (tunnel only).
+            if let cfg = NCMASQUE.Config(proxy: proxy), cfg.mode == .connectIP {
+                if let why = NCSupport.masqueUnsupported(proxy) {
+                    queue.async { completion(nil, Failure.unsupported(why)) }
+                    return
+                }
+                guard let dial = masqueIPDialer else {
+                    queue.async { completion(nil, Failure.unsupported(NCMASQUE.connectIPTunnelOnly)) }
+                    return
+                }
+                dial(proxy, target, queue, completion)
                 return
             }
             // fix/nc-proto-masque-int: connect() carries TCP flows; a CONNECT-UDP stream would ship them as UDP

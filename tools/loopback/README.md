@@ -57,6 +57,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18063 | sing-box Trojan inbound over gRPC (service `TunSvc`), self-signed TLS |
 | 18013 | trusttunnel_endpoint — H2 (TCP) & H3 (UDP) inbound, Basic auth `nc-loop-tt-user`/`nc-loop-tt-pw` |
 | 18012 | masque-proxy — RFC 9298 CONNECT-UDP (HTTP/3) / self-signed TLS (CN=localhost) |
+| 18446 | (UDP, job `masque-ip` only) RFC 9484 CONNECT-IP proxy — upstream connect-ip-go integration proxy in an Alpine VM (tools/loopback/connectip), template https://proxy:4433/vpn |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
@@ -118,6 +119,7 @@ These materials are strictly for loopback testing with self-signed TLS certifica
   RFC 9221 QUIC datagram flow — spec UDPMessages to the hy2 inbound → UDP echo
   backend; a 3000-byte packet exercises fragmentation and reassembly both ways.
 - **MASQUE**: RFC 9298 CONNECT-UDP echo against `masque-proxy` on port 18012
+- **MASQUE CONNECT-IP** (job `masque-ip`, E2ETests/NCMASQUEIPLoopbackTests): real RFC 9484 proxy in a QEMU VM; through the tunnel 10.89.1.1 TCP echo :9000 (1 MiB byte-exact), UDP echo :9001, DNS :53 (*.mq.test), HTTP :8080
   (QUIC / HTTP/3 Datagrams targeting UDP echo `:18081`).
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace

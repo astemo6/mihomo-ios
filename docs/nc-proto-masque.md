@@ -1,5 +1,28 @@
 # NativeCore: MASQUE (RFC 9298 / RFC 9484) — design note (feat/nc-masque, based on 6fd4bab)
 
+> **Status (fix/nc-masque-ip, 2026-10-27):** RFC 9484 **CONNECT-IP** over HTTP/3 is implemented as an L3 data plane:
+> `NCMASQUEIPTunnel` (Shared/NativeCore/NCMASQUEIP.swift — Extended CONNECT `:protocol = connect-ip`, ADDRESS_ASSIGN /
+> ROUTE_ADVERTISEMENT / DATAGRAM capsules, IP packets as HTTP Datagrams with context id 0) feeding a per-node lwIP netif
+> (`NCMQIPDevice`, PacketTunnel/NativeCore/NCMASQUEIPNetif.swift, `NCLwIPDevice` like WireGuard / OpenConnect). TCP flows go
+> through `NCConnector.masqueIPDialer` (NCWGTCPStream on the netif), UDP through `NCUDPWireGuardSession` with the CONNECT-IP
+> device, names through the node's `dns` over the tunnel. A generic node is `mode: connect-ip` + `uri` (absolute template;
+> `{target}` / `{ipproto}` expand to `*`; `:authority` comes from the template host), credentials optional.
+> Generic CONNECT-IP nodes are **available** (`NCMASQUE.connectIPVerified = true`) after the real loopback went green —
+> proto-loopback.yml job `masque-ip`, upstream connect-ip-go integration proxy in an Alpine VM under QEMU
+> (tools/loopback/connectip): 1 MiB TCP echo byte-exact, UDP echo, UDP DNS, tunnel DNS by name, HTTP 304000 B, routes,
+> redial, 404 refusal (8/8, mirror runs 40464266033 and 40468656765). Netif MTU ≤ 1193 (QUIC DATAGRAM room); nc_wg clamps
+> each connected PCB's MSS to its device MTU.
+> Still not wired: **Cloudflare WARP** profiles (key pair → Cloudflare's `cf-connect-ip` protocol + an mTLS client identity
+> built from the WARP private key + server-key pinning; shown as `NCMASQUE.warpUnavailable`), CONNECT-IP over HTTP/2,
+> CONNECT-TCP / `h3-l4proxy`, IP flow forwarding (scoped `{target}` templates), reconnect keeping flows (a lost tunnel tears
+> the netif down; the next flow redials).
+>
+> WARP profile format (for the follow-up; documented from public client implementations, not verified here): Clash-style
+> `type: masque` with `private-key` (base64 / PEM ECDSA P-256 — the client certificate key), `public-key` (Cloudflare's
+> endpoint P-256 key, pinned), `ip` / `ipv6` (addresses from WARP registration; the server does not need to assign),
+> `server` 162.159.198.x / `port` 443, `sni` consumer-masque.cloudflareclient.com, `uri` https://cloudflareaccess.com,
+> `mtu` 1280. The request uses `:protocol = cf-connect-ip` and HTTP/3 SETTINGS including H3_DATAGRAM_00 (0x276).
+
 > **Status (fix/nc-proto-masque-int, 2026-10-27):** RFC 9298 CONNECT-UDP over HTTP/3 is wired for **UDP flows**
 > (NCUDPMASQUESession) and loopback-verified against masque-go. TCP flows through a MASQUE node are refused
 > (CONNECT-UDP carries datagrams only); WARP / CONNECT-IP and h3-l4proxy nodes are parsed but shown unavailable.

@@ -1,0 +1,47 @@
+#!/bin/sh
+# fix/nc-masque-ip: cloud-init user-data for the CONNECT-IP loopback VM (start-connectip-vm.sh).
+# Upstream connect-ip-go integration proxy (RFC 9484, UDP 4433, template https://proxy:4433/vpn) + the services the
+# MASQUE CONNECT-IP loopback test reaches *through* the tunnel, in netns "srv" behind veth0 (10.89.1.2) <-> veth1 (10.89.1.1):
+#   10.89.1.1:9000 TCP echo, 10.89.1.1:9001 UDP echo, 10.89.1.1:53 DNS (*.mq.test -> 10.89.1.1),
+#   10.89.1.1:8080 HTTP (/hello.txt = "tern-masque-ip-ok\n", /big.txt = "tern-mq-0123456789\n" x N, 304000 bytes).
+# The proxy assigns 10.89.0.2/32 and advertises 10.89.1.0/24 (all protocols); it sends client packets with a raw
+# socket and captures the replies on veth0 (AF_PACKET). Constants mirrored in E2ETests/NCMASQUEIPLoopbackTests.swift.
+exec > /dev/console 2>&1
+set -x
+ok=0
+for i in 1 2 3; do
+  apk add --no-cache iproute2 ethtool socat dnsmasq openssl busybox-extras && { ok=1; break; }
+  sleep 5
+done
+[ $ok = 1 ] || { echo MQSETUP-FAIL apk; exit 1; }
+mkdir -p /opt/cip && cd /opt/cip
+wget -q -O cip-proxy http://10.0.2.2:18766/cip-proxy || { echo MQSETUP-FAIL fetch; exit 1; }
+chmod +x cip-proxy
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj /CN=proxy -keyout key.pem -out cert.pem
+sysctl -w net.ipv4.ip_forward=0
+ip netns add srv
+ip link add veth0 type veth peer name veth1
+ip link set veth1 netns srv
+ip addr add 10.89.1.2/24 dev veth0
+ip link set veth0 mtu 1280 up
+ip -n srv addr add 10.89.1.1/24 dev veth1
+ip -n srv link set lo up
+ip -n srv link set veth1 mtu 1280 up
+ip -n srv route add default via 10.89.1.2
+ip netns exec srv sysctl -w net.ipv4.conf.all.rp_filter=0 net.ipv4.conf.veth1.rp_filter=0
+ethtool -K veth0 tx off rx off || true
+ip netns exec srv ethtool -K veth1 tx off rx off || true
+mkdir -p /srv/www
+printf 'tern-masque-ip-ok\n' > /srv/www/hello.txt
+yes tern-mq-0123456789 | head -c 304000 > /srv/www/big.txt
+ip netns exec srv busybox-extras httpd -p 10.89.1.1:8080 -h /srv/www || { echo MQSETUP-FAIL httpd; exit 1; }
+ip netns exec srv socat TCP-LISTEN:9000,bind=10.89.1.1,fork,reuseaddr EXEC:cat &
+ip netns exec srv socat UDP-RECVFROM:9001,bind=10.89.1.1,fork EXEC:cat &
+ip netns exec srv dnsmasq --no-resolv --no-hosts --listen-address=10.89.1.1 --bind-interfaces -x /run/dnsmasq-srv.pid \
+  --address=/mq.test/10.89.1.1 --log-queries --log-facility=/dev/console
+SERVER_INTERFACE=veth0 PROXY_ADDR=0.0.0.0 PROXY_PORT=4433 ASSIGN_ADDR=10.89.0.2 ROUTE=10.89.1.0/24 FILTER_IP_PROTOCOL=0 \
+  ./cip-proxy > /dev/console 2>&1 &
+sleep 2
+kill -0 $! || { echo MQSETUP-FAIL proxy; exit 1; }
+ip netns exec srv ss -ltnu || true
+echo MQSETUP-READY

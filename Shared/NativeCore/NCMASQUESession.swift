@@ -262,6 +262,8 @@ final class NCMASQUEConnection {
 
     private var nextStreamID: UInt64 = 0
     private var streams: [UInt64: NCMASQUEUDPStream] = [:]
+    /// fix/nc-masque-ip: CONNECT-IP request streams (quarter stream id -> packet sink, called on `queue`).
+    private var ipSinks: [UInt64: (Data) -> Void] = [:]
     private var waiters: [(Error?) -> Void] = []
     private var startCompletion: ((Error?) -> Void)?
     private var handshakeOpened = false
@@ -482,8 +484,40 @@ final class NCMASQUEConnection {
         let qid = streamID / 4
         lock.lock()
         let stream = streams[qid]
+        let ipSink = stream == nil ? ipSinks[qid] : nil
         lock.unlock()
-        stream?.deliverPacket(payload)
+        if let stream { stream.deliverPacket(payload) } else { ipSink?(payload) }
+    }
+
+    // MARK: CONNECT-IP hooks (fix/nc-masque-ip, NCMASQUEIP.swift)
+
+    /// A new client bidirectional request stream on the QUIC connection (call on `queue`).
+    func extractRequestStream() -> NWConnection? {
+        guard isAlive, let group else { return nil }
+        return group.extract(connectionTo: nil, using: nil)
+    }
+
+    func registerIPSink(quarterStreamID: UInt64, _ sink: @escaping (Data) -> Void) {
+        lock.lock()
+        ipSinks[quarterStreamID] = sink
+        lock.unlock()
+    }
+
+    func removeIPSink(quarterStreamID: UInt64) {
+        lock.lock()
+        ipSinks.removeValue(forKey: quarterStreamID)
+        lock.unlock()
+    }
+
+    /// A ready-made HTTP/3 datagram (quarter stream id + context id + payload) on the DATAGRAM channel.
+    func sendRawDatagram(_ wire: Data, completion: @escaping () -> Void) {
+        ncOnSessionQueue(queue) {
+            guard self.isAlive, let channel = self.ensureDatagramChannel() else {
+                completion()
+                return
+            }
+            channel.send(wire, completion: completion)
+        }
     }
 
     func sendDatagram(quarterStreamID: UInt64, contextID: UInt64 = 0, payload: Data,
@@ -647,6 +681,7 @@ final class NCMASQUEConnection {
         state = .closed
         let allStreams = Array(streams.values)
         streams.removeAll()
+        ipSinks.removeAll()
         lock.unlock()
 
         for s in allStreams {
