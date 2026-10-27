@@ -15,8 +15,9 @@ import Network
 // full interface queue — TCP retransmits). 需同步 feat/nc-kernel.
 
 extension NCMASQUE {
-    /// Set to true only after the real CONNECT-IP loopback (proto-loopback.yml job `masque-ip`) is green.
-    static let connectIPVerified = false
+    /// Set to true only after the real CONNECT-IP loopback (proto-loopback.yml job `masque-ip`) is green:
+    /// mirror runs 40464266033 (cd18839) and 40468656765 (7f92c2a, MSS clamp) — 8/8 against the connect-ip-go proxy.
+    static let connectIPVerified = true
 
     /// Shown by NCSupport for a valid CONNECT-IP node while `connectIPVerified` is false.
     static let connectIPUnverified = "MASQUE CONNECT-IP 数据面验证中（真实 RFC 9484 服务端回环通过前暂不可用）"

@@ -7,8 +7,11 @@
 > through `NCConnector.masqueIPDialer` (NCWGTCPStream on the netif), UDP through `NCUDPWireGuardSession` with the CONNECT-IP
 > device, names through the node's `dns` over the tunnel. A generic node is `mode: connect-ip` + `uri` (absolute template;
 > `{target}` / `{ipproto}` expand to `*`; `:authority` comes from the template host), credentials optional.
-> The node stays **unavailable** (`NCMASQUE.connectIPVerified = false`) until the real loopback — proto-loopback.yml job
-> `masque-ip`, upstream connect-ip-go integration proxy in an Alpine VM under QEMU (tools/loopback/connectip) — is green.
+> Generic CONNECT-IP nodes are **available** (`NCMASQUE.connectIPVerified = true`) after the real loopback went green —
+> proto-loopback.yml job `masque-ip`, upstream connect-ip-go integration proxy in an Alpine VM under QEMU
+> (tools/loopback/connectip): 1 MiB TCP echo byte-exact, UDP echo, UDP DNS, tunnel DNS by name, HTTP 304000 B, routes,
+> redial, 404 refusal (8/8, mirror runs 40464266033 and 40468656765). Netif MTU ≤ 1193 (QUIC DATAGRAM room); nc_wg clamps
+> each connected PCB's MSS to its device MTU.
 > Still not wired: **Cloudflare WARP** profiles (key pair → Cloudflare's `cf-connect-ip` protocol + an mTLS client identity
 > built from the WARP private key + server-key pinning; shown as `NCMASQUE.warpUnavailable`), CONNECT-IP over HTTP/2,
 > CONNECT-TCP / `h3-l4proxy`, IP flow forwarding (scoped `{target}` templates), reconnect keeping flows (a lost tunnel tears
