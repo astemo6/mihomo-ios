@@ -247,6 +247,7 @@ enum NCTunnelDelayTester {
             return
         }
         let resolution = groups.resolve(name)
+        NCMemTrace.probe(1)
         // fix/nc-delay-2: cold phase and warm request have separate budgets (see coldBudgetMs).
         let coldBudget = coldBudgetMs(timeoutMs: timeoutMs, unified: unified)
         var expiredBudget = coldBudget
@@ -266,6 +267,7 @@ enum NCTunnelDelayTester {
             let cancel = toCancel
             toCancel = []
             lock.unlock()
+            NCMemTrace.probe(-1)
             cancel.forEach { $0.cancel() }
             var o = Outcome(ms: ms, failure: nil, stage: nil, error: nil, stages: "", unified: unified)
             if ms == nil {
@@ -634,6 +636,9 @@ final class NCHealthCheckScheduler {
 
         let testURL = g.url ?? "http://www.gstatic.com/generate_204"
         let timeoutMs = g.fields["timeout"]?.int ?? 5000
+        // fix/nc-mem-4: health-check rounds in the [nc-mem] trace (DEBUG builds).
+        NCMemTrace.event("hc> \(g.name) \(members.count)")
+        NCMemTrace.line("hc-round-start", "members=\(members.count) active=\(activeProbingGroups.count)")
 
         NCTunnelDelayTester.measureGroup(
             groupEngine: groupEngine,
@@ -646,6 +651,8 @@ final class NCHealthCheckScheduler {
         ) { [weak self] results in
             guard let self = self, self.isRunning else { return }
             self.activeProbingGroups.remove(g.name)
+            NCMemTrace.event("hc< \(g.name) \(results.count)")
+            NCMemTrace.line("hc-round-end", "results=\(results.count) active=\(self.activeProbingGroups.count)")
             self.lastCheckTime[g.name] = Date()
 
             if let engine = self.engine {

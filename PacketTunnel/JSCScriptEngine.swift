@@ -1,5 +1,6 @@
 import Foundation
 import JavaScriptCore
+import os
 
 /// feat/jsc-engine: MitM / rewrite / task scripts run in JavaScriptCore instead of the old JS engine (the old core).
 ///
@@ -87,22 +88,43 @@ final class JSCThread {
         var value: T?
     }
 
-    private let cond = NSCondition()
+    /// fix/nc-mem-4: the queue is guarded by an unfair lock (priority-donating, held only for an append / pop) and the
+    /// thread sleeps on a semaphore, never on a mutex a caller holds. The old NSCondition signalled inside the lock, so
+    /// the woken engine thread (user-initiated) re-took the mutex from a caller without a QoS class: the Thread
+    /// Performance Checker's priority-inversion report on every core start (JSCThread.loop), which in the E2E
+    /// replay made XCTest symbolicate the Debug test bundle on its main thread (+55 MB for ~2 s). One signal per job.
+    private let qlock: UnsafeMutablePointer<os_unfair_lock> = {
+        let p = UnsafeMutablePointer<os_unfair_lock>.allocate(capacity: 1)
+        p.initialize(to: os_unfair_lock())
+        return p
+    }()
     private var jobs: [Job?] = []
     private var head = 0
+    private let ready = DispatchSemaphore(value: 0)
+    /// Set once, before init returns.
     private var current: pthread_t?
 
     /// 1 MB of stack: JavaScriptCore derives its recursion limit from it (the old core's threads, which ran scripts before,
     /// have 512 KB).
     init(name: String, stackSize: Int = 1 << 20) {
-        let t = Thread { [unowned self] in self.loop() }
+        let started = DispatchSemaphore(value: 0)
+        let box = Box<pthread_t>()
+        let t = Thread { [unowned self] in
+            box.value = pthread_self()
+            started.signal()
+            self.loop()
+        }
         t.name = name
         t.stackSize = stackSize
         t.qualityOfService = .userInitiated
         t.start()
-        cond.lock()
-        while current == nil { cond.wait() }
-        cond.unlock()
+        started.wait()
+        current = box.value
+    }
+
+    deinit {
+        qlock.deinitialize(count: 1)
+        qlock.deallocate()
     }
 
     var isCurrent: Bool {
@@ -129,28 +151,24 @@ final class JSCThread {
     }
 
     private func enqueue(_ j: Job) {
-        cond.lock()
+        os_unfair_lock_lock(qlock)
         jobs.append(j)
-        cond.signal()
-        cond.unlock()
+        os_unfair_lock_unlock(qlock)
+        ready.signal() // outside the lock: one signal per job
     }
 
     private func loop() {
-        cond.lock()
-        current = pthread_self()
-        cond.broadcast()
-        cond.unlock()
         while true {
-            cond.lock()
-            while head == jobs.count { cond.wait() }
-            guard let j = jobs[head] else { fatalError("JSCThread: empty slot") }
+            ready.wait()
+            os_unfair_lock_lock(qlock)
+            guard head < jobs.count, let j = jobs[head] else { fatalError("JSCThread: empty slot") }
             jobs[head] = nil
             head += 1
             if head > 64 && head * 2 > jobs.count {
                 jobs.removeFirst(head)
                 head = 0
             }
-            cond.unlock()
+            os_unfair_lock_unlock(qlock)
             autoreleasepool {
                 j.work?()
                 j.work = nil // the closure and what it captured go away here, before the caller resumes
