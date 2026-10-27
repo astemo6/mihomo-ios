@@ -523,15 +523,26 @@ final class NCResources {
             if !known { todo.append(p) }
         }
         guard !todo.isEmpty else { return }
+        // selfreview-g2: a fixed pool of min(maxConcurrent, todo) workers pulling from a shared index, run at the
+        // caller's QoS. Was one block per URL parked on a semaphore — every waiting block held a GCD thread, and the
+        // workers ran on an unspecified-QoS queue while the (user-initiated) prepare blocked on them: a priority
+        // inversion the Thread Performance Checker reports, and up to N idle threads on a large module set.
         let group = DispatchGroup()
-        let gate = DispatchSemaphore(value: max(1, maxConcurrent))
-        let q = DispatchQueue(label: "nc.prep.prefetch", attributes: .concurrent)
-        for u in todo {
+        let qos = DispatchQoS.QoSClass(rawValue: qos_class_self()) ?? .utility
+        let q = DispatchQueue.global(qos: qos == .unspecified ? .utility : qos)
+        final class Cursor { let lock = NSLock(); var index = 0 }
+        let cur = Cursor()
+        for _ in 0..<min(max(1, maxConcurrent), todo.count) {
             group.enter()
             q.async {
-                gate.wait()
-                defer { gate.signal(); group.leave() }
-                _ = try? self.fetch(u)
+                defer { group.leave() }
+                while true {
+                    cur.lock.lock()
+                    guard cur.index < todo.count else { cur.lock.unlock(); return }
+                    let u = todo[cur.index]; cur.index += 1
+                    cur.lock.unlock()
+                    _ = try? self.fetch(u)
+                }
             }
         }
         _ = group.wait(timeout: .now() + deadline)
