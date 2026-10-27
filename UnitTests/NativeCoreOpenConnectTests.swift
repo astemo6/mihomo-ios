@@ -613,7 +613,7 @@ final class NativeCoreOpenConnectTests: XCTestCase {
 
     func testUnknownCSTPFrameLengthIsSkippable() {
         var unknown = Data(NCOpenConnect.cstpMagic)
-        unknown.append(contentsOf: [0x00, 0x02, 0x08, 0x00, 0xaa, 0xbb]) // type 0x08 compressed, 2-byte body
+        unknown.append(contentsOf: [0x00, 0x02, 0x0a, 0x00, 0xaa, 0xbb]) // type 0x0a (not a PayloadType), 2-byte body
         XCTAssertNil(NCOpenConnect.decodeCSTP(unknown))
         XCTAssertEqual(NCOpenConnect.completeFrameLength(unknown), 10)
         XCTAssertNil(NCOpenConnect.completeFrameLength(unknown.prefix(9)))

@@ -468,7 +468,8 @@ enum NCOpenConnect {
         guard let server = p.server, !server.isEmpty else {
             return "OpenConnect 缺少服务器地址"
         }
-        if let port = p.port, port <= 0 || port > 65535 {
+        // NCProxy.port maps out-of-range values to nil, so a present-but-nil port is invalid (70000 must not fall back to 443).
+        if f["port"] != nil, (p.port ?? 0) <= 0 {
             return "OpenConnect 端口无效"
         }
         let username = f["username"]?.string
