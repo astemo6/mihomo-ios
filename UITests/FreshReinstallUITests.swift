@@ -92,8 +92,9 @@ extension TernUITests {
             usleep(1_500_000) // drop + 0.6 s save
             if done() { return true }
             warnings.append("[\(Env.tag)] home drag retry")
-            e.press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)),
-                    withVelocity: .slow, thenHoldForDuration: 0.8)
+            e.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)),
+                       withVelocity: .slow, thenHoldForDuration: 0.8)
             usleep(1_500_000)
             return done()
         }
