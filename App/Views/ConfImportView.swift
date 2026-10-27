@@ -20,6 +20,9 @@ struct ConfImportResult: Decodable {
         var notes: [String]?
         /// v0.13.1: remote entries switched off in the original config (not failures).
         var disabled: [String]?
+        /// fix/nc-0.20.2: those entries are imported and then switched off (provider overrides).
+        var disabledProviders: [String]?
+        var disabledRuleSets: [String]?
     }
     var yaml: String?
     var module: String?
@@ -106,6 +109,13 @@ struct ConfImportResult: Decodable {
 }
 
 enum ConfImport {
+    /// fix/nc-0.20.2: switches off the imported entries the original config had disabled.
+    @MainActor static func applyDisabled(profileID: String, nodeSets: [String], ruleSets: [String]) {
+        let ov = ProviderOverrideStore.shared
+        for n in nodeSets { ov.update(profileID, n) { $0.disabled = true } }
+        for n in ruleSets { ov.update(profileID, ProviderOverride.ruleKey(n)) { $0.disabled = true } }
+    }
+
     /// Saves the converted profile (validated by the real core) and, if present, the module.
     static func save(text: String, name: String, result: ConfImportResult?, store: ProfileStore,
                      progress: @MainActor (String) -> Void = { _ in }) async throws -> String {
@@ -120,6 +130,12 @@ enum ConfImport {
         let sourcePath = p.fileURL.path
         let saveErr = await Task.detached(priority: .utility) { NCAppFilePorts.saveConfSource(profilePath: sourcePath, text: text) }.value
         if !saveErr.isEmpty { StartupLog.write("conf import: source not saved: \(saveErr)", tag: "app") }
+        // fix/nc-0.20.2: entries switched off in the original config are imported as 停用 node sets / rule sets —
+        // listed, never fetched or loaded until the user turns them on.
+        let offNodes = r.report?.disabledProviders ?? [], offRules = r.report?.disabledRuleSets ?? []
+        if !offNodes.isEmpty || !offRules.isEmpty {
+            await MainActor.run { ConfImport.applyDisabled(profileID: p.id, nodeSets: offNodes, ruleSets: offRules) }
+        }
         var msg = String(localized: "已导入配置「\(p.name)」")
         if let m = r.module, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await MainActor.run { EngineStore.shared.addModule(text: m, name: p.name + "（重写）") }
@@ -219,7 +235,7 @@ struct ConfReportSection: View {
                     }
                     if let off = rep.disabled, !off.isEmpty {
                         Section {
-                            DisclosureGroup("已禁用（原配置中关闭）\(off.count) 项", isExpanded: $showDisabled) {
+                            DisclosureGroup("将以禁用状态导入 \(off.count) 项", isExpanded: $showDisabled) {
                                 ForEach(off, id: \.self) { Text($0).scaledFont(10, design: .monospaced).foregroundStyle(.secondary) }
                             }
                         }

@@ -10,7 +10,11 @@ struct NodeSubscription: Codable, Identifiable, Hashable {
     var enabled: Bool = true
     /// Groups that get it through `use:`; nil = the default (select groups with nodes + url-test groups).
     var groups: [String]? = nil
-    var userAgent: String = "clash.meta"
+    /// fix/nc-0.20.2: SubscriptionUA.auto (new default) tries Clash.Meta → Quantumult X → Shadowrocket until the
+    /// response has nodes; any other value is sent as is.
+    var userAgent: String = SubscriptionUA.auto
+    /// The User-Agent that last returned nodes under 自动 (tried first next time).
+    var workingUA: String? = nil
     var updateIntervalHours: Int = 24
     var lastUpdated: Date? = nil
     var userInfo: SubscriptionUserInfo? = nil
@@ -35,7 +39,10 @@ final class NodeSubStore: ObservableObject {
     init() { load() }
 
     func load() {
-        if let d = try? Data(contentsOf: Self.url), let l = try? JSONDecoder().decode([NodeSubscription].self, from: d) { subs = l }
+        if let d = try? Data(contentsOf: Self.url), let l = try? JSONDecoder().decode([NodeSubscription].self, from: d) {
+            // fix/nc-0.20.2: the duplicate Clash.Meta choice folds into the kept one.
+            subs = l.map { var s = $0; s.userAgent = SubscriptionUA.migrated(s.userAgent); return s }
+        }
         // r7 R7A-1: reloaded after a restore; a restored state without the file has no node subscriptions.
         else if !FileManager.default.fileExists(atPath: Self.url.path) { subs = [] }
     }
@@ -54,7 +61,7 @@ final class NodeSubStore: ObservableObject {
     /// Adds and downloads a subscription; throws when the first download fails (nothing is kept then).
     func add(url: String, name: String, userAgent: String, intervalHours: Int, groups: [String]?) async throws -> NodeSubscription {
         var s = NodeSubscription(name: name.trimmingCharacters(in: .whitespaces), url: url.trimmingCharacters(in: .whitespacesAndNewlines),
-                                 groups: groups, userAgent: userAgent.isEmpty ? "clash.meta" : userAgent, updateIntervalHours: intervalHours)
+                                 groups: groups, userAgent: userAgent.isEmpty ? SubscriptionUA.auto : userAgent, updateIntervalHours: intervalHours)
         s = try await download(s)
         set(s)
         UsageAlerts.evaluate(id: s.id, name: s.name, info: s.userInfo)
@@ -106,6 +113,7 @@ final class NodeSubStore: ObservableObject {
             n.userInfo = d.userInfo
             n.lastUpdated = d.lastUpdated
             n.lastError = nil
+            n.workingUA = d.workingUA
             if n.name.isEmpty { n.name = d.name }
             set(n)
             UsageAlerts.evaluate(id: n.id, name: n.name, info: n.userInfo)
@@ -143,11 +151,30 @@ final class NodeSubStore: ObservableObject {
         return out
     }
 
+    /// fix/nc-0.20.2: 自动 — the Clash.Meta UA first (keeps groups + subscription-userinfo); a response with no usable
+    /// nodes is retried once with the Quantumult X, then the Shadowrocket UA. The UA that worked is remembered.
     private func download(_ input: NodeSubscription) async throws -> NodeSubscription {
+        let order = SubscriptionUA.attempts(input.userAgent, remembered: input.workingUA)
+        var lastError: Error = ProfileStore.StoreError.empty
+        for (i, ua) in order.enumerated() {
+            do {
+                var s = try await downloadOnce(input, ua: ua)
+                s.workingUA = input.userAgent == SubscriptionUA.auto ? ua : nil
+                return s
+            } catch {
+                lastError = error
+                // only "no nodes" falls through to the next UA; network / HTTP errors are final
+                guard i + 1 < order.count, SubscriptionUA.isNoNodes(error) else { throw error }
+            }
+        }
+        throw lastError
+    }
+
+    private func downloadOnce(_ input: NodeSubscription, ua: String) async throws -> NodeSubscription {
         var s = input
         guard let u = URL(string: s.url), u.scheme?.hasPrefix("http") == true else { throw ProfileStore.StoreError.badURL }
         var req = URLRequest(url: u, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        req.setValue(s.userAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
         let data: Data
         let http: HTTPURLResponse?
         if UITestSeed.enabled, u.host?.hasSuffix("uitest.invalid") == true {

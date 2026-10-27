@@ -27,6 +27,10 @@ enum NCConfImportPort {
         var notes: [String] = []
         var disabled: [String]? = nil
         var rulesSkipped: Int? = nil
+        /// fix/nc-0.20.2: [server_remote] / [filter_remote] lines with enabled=false are imported, then switched off
+        /// (provider overrides) after the profile is saved: these are the proxy-provider / rule-provider names.
+        var disabledProviders: [String]? = nil
+        var disabledRuleSets: [String]? = nil
     }
 
     struct RemoteModule: Codable, Hashable {
@@ -635,6 +639,14 @@ enum NCConfImportPort {
         return out
     }
 
+    /// fix/nc-0.20.2: the line without its `enabled=` option (a disabled line is imported, then switched off).
+    static func qxEnabledStripped(_ line: String) -> String {
+        line.split(separator: ",", omittingEmptySubsequences: false).filter { p in
+            let t = p.trimmingCharacters(in: .whitespaces).lowercased()
+            return !(t.hasPrefix("enabled=") || t.hasPrefix("enabled ="))
+        }.joined(separator: ",")
+    }
+
     static func qxLineDisabled(_ line: String) -> Bool {
         for p in line.split(separator: ",") {
             let trimmed = p.trimmingCharacters(in: .whitespaces)
@@ -1169,14 +1181,18 @@ enum NCConfImportPort {
         var asPolicy: [(String, String)] = []
         if isQX {
             for l in nonEmpty(secs["server_remote"]) {
-                let (sp, ok) = parseQXServerRemote(l)
+                var (sp, ok) = parseQXServerRemote(l)
+                var off = false
+                if !ok, qxLineDisabled(l) {
+                    // fix/nc-0.20.2: imported as a 停用 node set instead of dropped.
+                    if rep.disabled == nil { rep.disabled = [] }
+                    rep.disabled?.append("[server_remote] " + qxRemoteLabel(l))
+                    (sp, ok) = parseQXServerRemote(qxEnabledStripped(l))
+                    off = ok
+                    if !ok { continue }
+                }
                 if !ok {
-                    if qxLineDisabled(l) {
-                        if rep.disabled == nil { rep.disabled = [] }
-                        rep.disabled?.append("[server_remote] " + qxRemoteLabel(l))
-                    } else {
-                        skip("server_remote", l, "无效的订阅地址")
-                    }
+                    skip("server_remote", l, "无效的订阅地址")
                     continue
                 }
                 var name = sp.tag
@@ -1196,6 +1212,7 @@ enum NCConfImportPort {
                     "health-check": ["enable": true, "url": checkURL, "interval": 600, "lazy": true] as [String: Any]
                 ] as [String: Any]
                 providerTags.append(name)
+                if off { rep.disabledProviders = (rep.disabledProviders ?? []) + [name] }
                 if !sp.asPolicy.isEmpty {
                     asPolicy.append((name, sp.asPolicy))
                 }
@@ -1536,12 +1553,26 @@ enum NCConfImportPort {
 
         if isQX {
             var inserted: [String] = []
-            for l in nonEmpty(secs["filter_remote"]) {
-                let opts = qxLineOpts(l)
+            for l0 in nonEmpty(secs["filter_remote"]) {
+                var l = l0
+                var opts = qxLineOpts(l)
+                var off = false
                 if let v = opts["enabled"], !truthy(v) {
                     if rep.disabled == nil { rep.disabled = [] }
                     rep.disabled?.append("[filter_remote] " + qxRemoteLabel(l))
-                    continue
+                    // fix/nc-0.20.2: a remote list is imported as a 停用 rule set; FILTER_LAN / FILTER_REGION stay out.
+                    let h = String(l.split(separator: ",", maxSplits: 1).first ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+                    if h == "FILTER_LAN" || h == "FILTER_REGION" { continue }
+                    l = qxEnabledStripped(l)
+                    opts = qxLineOpts(l)
+                    off = true
+                }
+                let provBefore = Set(providers.keys)
+                defer {
+                    if off {
+                        let added = providers.keys.filter { !provBefore.contains($0) }.sorted()
+                        if !added.isEmpty { rep.disabledRuleSets = (rep.disabledRuleSets ?? []) + added }
+                    }
                 }
                 let before = rules.count
                 let head = String(l.split(separator: ",", maxSplits: 1).first ?? "").trimmingCharacters(in: .whitespaces).uppercased()

@@ -336,7 +336,7 @@ final class ProfileStore: ObservableObject {
         var p = input
         guard let s = p.url, let url = URL(string: s), url.scheme?.hasPrefix("http") == true else { throw StoreError.badURL }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        req.setValue(p.userAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue(SubscriptionUA.migrated(p.userAgent), forHTTPHeaderField: "User-Agent")
         let (data, resp) = try await URLSession.shared.data(for: req)
         let http = resp as? HTTPURLResponse
         if let code = http?.statusCode, !(200..<300).contains(code) { throw StoreError.http(code) }

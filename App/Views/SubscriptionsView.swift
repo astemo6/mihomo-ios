@@ -11,7 +11,7 @@ struct NodeSubEditor: View {
     @ObservedObject private var offline = ProfileInspector.shared
     @State private var url = ""
     @State private var name = ""
-    @State private var ua = "clash.meta"
+    @State private var ua = SubscriptionUA.auto
     @State private var interval = 24
     @State private var customGroups = false
     @State private var groups: Set<String> = []
@@ -34,12 +34,6 @@ struct NodeSubEditor: View {
                 }
                 .listRowBackground(Theme.card)
                 Section("选项") {
-                    Picker("User-Agent", selection: $ua) {
-                        Text("clash.meta").tag("clash.meta")
-                        Text(verbatim: "Clash.Meta (Meta core)").tag(SubscriptionUA.metaCore)
-                        Text("Quantumult X").tag("Quantumult%20X/1.5.2")
-                        Text("Shadowrocket").tag("Shadowrocket/2070")
-                    }
                     Picker("自动更新", selection: $interval) {
                         Text("关闭").tag(0)
                         Text("每 6 小时").tag(6)
@@ -69,6 +63,7 @@ struct NodeSubEditor: View {
                 }
                 .listRowBackground(Theme.card)
                 UsageAlertSection(rule: $alert)
+                SubscriptionUASection(ua: $ua)
                 if let error { Section { Text(error).foregroundStyle(Theme.bad).font(.footnote) }.listRowBackground(Theme.card) }
             }
             .scrollContentBackground(.hidden)
@@ -86,7 +81,7 @@ struct NodeSubEditor: View {
             }
             .onAppear {
                 if let s = sub {
-                    url = s.url; name = s.name; ua = s.userAgent; interval = s.updateIntervalHours
+                    url = s.url; name = s.name; ua = SubscriptionUA.migrated(s.userAgent); interval = s.updateIntervalHours
                     alert = UsageAlerts.rule(for: s.id)
                     if let g = s.groups, !g.isEmpty { customGroups = true; groups = Set(g) }
                 }
