@@ -169,9 +169,18 @@ final class NativeCoreE2EReplayTests: XCTestCase {
         if let rep = confReport {
             if counts.proxies < (rep.proxies ?? 0) { lost.append("proxies \(counts.proxies) < imported \(rep.proxies ?? 0)") }
             if counts.groups < (rep.groups ?? 0) { lost.append("groups \(counts.groups) < imported \(rep.groups ?? 0)") }
-            if counts.rules < (rep.rules ?? 0) { lost.append("rules \(counts.rules) < imported \(rep.rules ?? 0)") }
-            if counts.providers + counts.ruleProviders < (rep.providers ?? 0) {
-                lost.append("providers \(counts.providers)+\(counts.ruleProviders) < imported \(rep.providers ?? 0)")
+            // fix/nc-0.20.2: entries the fixture had switched off are imported 停用 (provider / profile-rule overrides)
+            // and are, by design, not in the runtime: one RULE-SET rule per 停用 rule set, each 停用 profile rule.
+            let offSets = rep.disabledRuleSets?.count ?? 0, offNodes = rep.disabledProviders?.count ?? 0
+            let offRules = rep.disabledRules?.count ?? 0
+            let wantRules = max(0, (rep.rules ?? 0) - offRules - offSets)
+            let wantProviders = max(0, (rep.providers ?? 0) - offSets - offNodes)
+            if offSets + offNodes + offRules > 0 {
+                r.note("imported 停用 (not in the runtime by design): \(offSets) rule set(s), \(offNodes) node set(s), \(offRules) rule(s)")
+            }
+            if counts.rules < wantRules { lost.append("rules \(counts.rules) < imported \(rep.rules ?? 0) − \(offRules + offSets) 停用") }
+            if counts.providers + counts.ruleProviders < wantProviders {
+                lost.append("providers \(counts.providers)+\(counts.ruleProviders) < imported \(rep.providers ?? 0) − \(offSets + offNodes) 停用")
             }
         }
         let rtOK = counts.proxies + counts.providers > 0 && counts.rules > 0 && lost.isEmpty
