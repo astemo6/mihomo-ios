@@ -441,7 +441,7 @@ final class NCJuicityTCPStream: NCRelayStream {
     private var open = false, closed = false
     private var failure: Error?
     private var outbox = Data()
-    private var inbox: [Data] = []
+    private var inbox: NCDeque<Data> = [] // F13
     private var inboxBytes = 0
     private var pending: ((Data?, Error?) -> Void)?
     private var outboxWaiters: [NCCallOnce] = []

@@ -1200,7 +1200,7 @@ final class NCHysteria2TCPStream: NCRelayStream {
     private var phase: Phase = .handshaking
     private var responseBuffer = Data()
     private var outbox = Data()
-    private var inbox: [Data] = []
+    private var inbox: NCDeque<Data> = [] // F13
     private var inboxBytes = 0
     private var pendingReceive: ((Data?, Error?) -> Void)?
     private var failure: Error?

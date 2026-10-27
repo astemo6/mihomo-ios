@@ -433,7 +433,7 @@ final class NCMieruStream: NCRelayStream {
     private var inbuf = [UInt8]()
     private var inOff = 0
     private var pendingMeta: (proto: UInt8, sid: UInt32, prefix: Int, payload: Int, suffix: Int)?
-    private var out: [Data] = []
+    private var out: NCDeque<Data> = [] // F13
     private var failure: Error?
     private var eof = false
     private var closed = false
@@ -846,12 +846,12 @@ final class NCMieruPacketStream: NCRelayStream {
     private var nextRecv: UInt32 = 0
     private var remoteWindow = 16
     private var sendBuf: [UInt32: Pending] = [:]
-    private var sendQueue: [(proto: UInt8, payload: Data, once: NCCallOnce?)] = []
+    private var sendQueue: NCDeque<(proto: UInt8, payload: Data, once: NCCallOnce?)> = [] // F13
     private var recvBuf: [UInt32: (proto: UInt8, payload: Data)] = [:]
     private var lastTxAt = Date()
 
-    private var out: [Data] = []
-    private var waiters: [(Data?, Error?) -> Void] = []
+    private var out: NCDeque<Data> = [] // F13
+    private var waiters: NCDeque<(Data?, Error?) -> Void> = [] // F13
     private var failure: Error?
     private var eof = false
     private var closed = false

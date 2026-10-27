@@ -26,7 +26,7 @@ final class NCH2TunnelStream: NCRelayStream {
     private var sendWaiters: [(end: Int, once: NCCallOnce)] = []
     private var sendAppended = 0
     private var sendConsumed = 0
-    private var payloadQueue: [Data] = []
+    private var payloadQueue: NCDeque<Data> = [] // F13
     private var queuedBytes = 0
     private var pendingHandler: ((Data?, Error?) -> Void)?
     private var grpcBuffer = Data()
