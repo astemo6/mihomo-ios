@@ -43,7 +43,7 @@ struct ProfileSubSheet: View {
         self.onDelete = onDelete
         _name = State(initialValue: profile.name)
         _url = State(initialValue: profile.url ?? "")
-        _ua = State(initialValue: profile.userAgent)
+        _ua = State(initialValue: SubscriptionUA.migrated(profile.userAgent))
         _interval = State(initialValue: profile.updateIntervalHours * 3600)
         _alert = State(initialValue: UsageAlerts.rule(for: profile.id))
     }
@@ -71,9 +71,8 @@ struct ProfileSubSheet: View {
             Section {
                 Picker("User-Agent", selection: $ua) {
                     Text(verbatim: "clash.meta").tag("clash.meta")
-                    Text(verbatim: "Clash.Meta (Meta core)").tag(SubscriptionUA.metaCore)
                     Text(verbatim: "clash-verge/v2").tag("clash-verge/v2")
-                    if !["clash.meta", SubscriptionUA.metaCore, "clash-verge/v2"].contains(ua) { Text(verbatim: ua).tag(ua) }
+                    if !["clash.meta", "clash-verge/v2"].contains(ua) { Text(verbatim: ua).tag(ua) }
                 }
                 if profile.id != store.activeID {
                     Button {
@@ -141,7 +140,7 @@ struct NodeSubSheet: View {
         self.onDelete = onDelete
         _name = State(initialValue: sub.name)
         _url = State(initialValue: sub.url)
-        _ua = State(initialValue: sub.userAgent)
+        _ua = State(initialValue: SubscriptionUA.migrated(sub.userAgent))
         _interval = State(initialValue: sub.updateIntervalHours * 3600)
         _customGroups = State(initialValue: !(sub.groups ?? []).isEmpty)
         _groups = State(initialValue: Set(sub.groups ?? []))
@@ -179,13 +178,6 @@ struct NodeSubSheet: View {
                           deleteMessage: Text("「\(sub.name)」的节点会从所有配置中移除，引用它的策略组改用其他节点。"),
                           delete: deleteAction) {
             Section {
-                Picker("User-Agent", selection: $ua) {
-                    Text(verbatim: "clash.meta").tag("clash.meta")
-                    Text(verbatim: "Clash.Meta (Meta core)").tag(SubscriptionUA.metaCore)
-                    Text(verbatim: "Quantumult X").tag("Quantumult%20X/1.5.2")
-                    Text(verbatim: "Shadowrocket").tag("Shadowrocket/2070")
-                    if !["clash.meta", SubscriptionUA.metaCore, "Quantumult%20X/1.5.2", "Shadowrocket/2070"].contains(ua) { Text(verbatim: ua).tag(ua) }
-                }
                 Button { pickingIcon = true } label: { Label("图标", systemImage: "photo") }
                 let src = model.source(subID: sub.id)
                 NavigationLink {
@@ -221,6 +213,7 @@ struct NodeSubSheet: View {
             }
             .listRowBackground(Theme.card)
             UsageAlertSection(rule: $alert)
+            SubscriptionUASection(ua: $ua)
         }
         .sheet(isPresented: $pickingIcon) {
             IconPickerSheet(title: sub.name, current: current.icon) { v in nodes.setIcon(sub.id, v?.isEmpty == true ? nil : v) }
@@ -446,5 +439,67 @@ struct ModuleSubSheet: View {
 /// Subscription User-Agent option values. Servers pick the returned format by the UA, so the values are the ones
 /// Clash.Meta-family clients send (interop, not branding); the picker shows them as "Clash.Meta (Meta core)".
 enum SubscriptionUA {
+    /// The old second Clash.Meta choice ("Clash.Meta (Meta core)"); folded into `clashMeta` on load.
     static let metaCore = "mihomo"
+    static let clashMeta = "clash.meta"
+    static let quantumultX = "Quantumult%20X/1.5.2"
+    static let shadowrocket = "Shadowrocket/2070"
+    /// fix/nc-0.20.2: 自动 (node subscriptions): Clash.Meta → Quantumult X → Shadowrocket until one returns nodes.
+    static let auto = "auto"
+    static let fallbackOrder = [clashMeta, quantumultX, shadowrocket]
+
+    static func migrated(_ ua: String) -> String { ua == metaCore ? clashMeta : ua }
+
+    /// The User-Agents to try, in order: 自动 → the remembered one first, then the fallback order; else just `ua`.
+    static func attempts(_ ua: String, remembered: String?) -> [String] {
+        guard ua == auto || ua.isEmpty else { return [migrated(ua)] }
+        var out = fallbackOrder
+        if let r = remembered, let i = out.firstIndex(of: r) { out.remove(at: i); out.insert(r, at: 0) }
+        return out
+    }
+
+    /// A response that parsed to zero usable nodes (worth another UA), as ProviderStore reports it.
+    static func isNoNodes(_ e: Error) -> Bool {
+        if case ProfileStore.StoreError.invalid(let m) = e { return m.contains("没有识别到节点") || m.contains("下载内容为空") }
+        if case ProfileStore.StoreError.empty = e { return true }
+        return false
+    }
+}
+
+/// fix/nc-0.20.2: User-Agent under a collapsed 「高级」: 自动 (default), Clash.Meta, Quantumult X, Shadowrocket, 自定义.
+struct SubscriptionUASection: View {
+    @Binding var ua: String
+    var allowAuto = true
+    @State private var expanded = false
+    @State private var custom = ""
+
+    private var presets: [String] { (allowAuto ? [SubscriptionUA.auto] : []) + SubscriptionUA.fallbackOrder }
+    private static let customTag = "\u{1}custom"
+
+    var body: some View {
+        Section {
+            DisclosureGroup("高级", isExpanded: $expanded) {
+                Picker("User-Agent", selection: Binding(
+                    get: { presets.contains(ua) ? ua : Self.customTag },
+                    set: { v in if v == Self.customTag { if presets.contains(ua) { ua = custom } } else { ua = v } })) {
+                    if allowAuto { Text("自动").tag(SubscriptionUA.auto) }
+                    Text(verbatim: "Clash.Meta").tag(SubscriptionUA.clashMeta)
+                    Text(verbatim: "Quantumult X").tag(SubscriptionUA.quantumultX)
+                    Text(verbatim: "Shadowrocket").tag(SubscriptionUA.shadowrocket)
+                    Text("自定义").tag(Self.customTag)
+                }
+                .accessibilityIdentifier("sub.ua")
+                if !presets.contains(ua) {
+                    TextField("User-Agent", text: $ua)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("sub.ua.custom")
+                }
+            }
+        } footer: {
+            if allowAuto && ua == SubscriptionUA.auto {
+                Text("自动：先用 Clash.Meta 请求（保留分组和流量信息），没有识别到节点时依次改用 Quantumult X、Shadowrocket，并记住可用的那个。")
+            }
+        }
+        .listRowBackground(Theme.card)
+    }
 }
