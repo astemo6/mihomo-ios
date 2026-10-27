@@ -180,7 +180,7 @@ enum NCTLS12 {
     /// RSA PKCS#1 v1.5, RSA-PSS (shared with the TLS 1.3 verifier).
     static func verifySignature(scheme: UInt16, cert: NCX509Certificate, content: Data, signature: Data) -> Bool {
         switch scheme {
-        case 0x0804, 0x0805, 0x0806, 0x0807:
+        case 0x0804, 0x0805, 0x0806, 0x0807, 0x0809, 0x080a, 0x080b:
             return NCTLSVerify.certificateVerify(scheme: scheme, cert: cert, signedContent: content, signature: signature)
         case 0x0203, 0x0403, 0x0503, 0x0603:
             return verifyECDSA(scheme: scheme, cert: cert, content: content, signature: signature)
@@ -221,6 +221,15 @@ enum NCTLS12 {
         case .ecP384:
             guard let pub = try? P384.Signing.PublicKey(x963Representation: cert.publicKeyBytes),
                   let sig = try? P384.Signing.ECDSASignature(derRepresentation: signature) else { return false }
+            switch scheme {
+            case 0x0203: return pub.isValidSignature(sig, for: Insecure.SHA1.hash(data: content))
+            case 0x0403: return pub.isValidSignature(sig, for: SHA256.hash(data: content))
+            case 0x0503: return pub.isValidSignature(sig, for: SHA384.hash(data: content))
+            default: return pub.isValidSignature(sig, for: SHA512.hash(data: content))
+            }
+        case .ecP521:
+            guard let pub = try? P521.Signing.PublicKey(x963Representation: cert.publicKeyBytes),
+                  let sig = try? P521.Signing.ECDSASignature(derRepresentation: signature) else { return false }
             switch scheme {
             case 0x0203: return pub.isValidSignature(sig, for: Insecure.SHA1.hash(data: content))
             case 0x0403: return pub.isValidSignature(sig, for: SHA256.hash(data: content))

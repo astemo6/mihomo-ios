@@ -637,7 +637,7 @@ enum NCConnector {
                 }
                 let raw = NCStream(to: server, port: port,
                                    tlsServerName: xhttpSNI,
-                                   allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                                   allowInsecure: proxy.skipCertVerify,
                                    alpn: ["h2"], queue: queue)
                 raw.start { err in finish(err == nil ? raw : nil, err) }
                 return
@@ -670,7 +670,7 @@ enum NCConnector {
             }
             let raw = NCStream(to: server, port: port,
                                tlsServerName: trojanSNI,
-                               allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                               allowInsecure: proxy.skipCertVerify,
                                queue: queue)
             raw.start { err in
                 guard err == nil else { completion(nil, err); return }
@@ -772,7 +772,7 @@ enum NCConnector {
             if useTLS && (!isVision || encVision) {
                 raw = NCStream(to: server, port: port,
                                tlsServerName: tlsSNI(proxy, server: server),
-                               allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                               allowInsecure: proxy.skipCertVerify,
                                alpn: streamALPN(proxy), queue: queue)
             } else {
                 // Vision needs the hand-rolled TLS client over a raw socket
@@ -794,7 +794,7 @@ enum NCConnector {
                     // fix/nc-silent-fail: uTLS shape from client-fingerprint; `fingerprint` pins the certificate.
                     var config = NCTLSClientStream.Config(
                         serverName: tlsSNI(proxy, server: server),
-                        allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                        allowInsecure: proxy.skipCertVerify,
                         profile: utlsProfile(proxy))
                     switch certPin(proxy) {
                     case .absent: break
@@ -1158,7 +1158,7 @@ enum NCConnector {
             if let echErr { completion(nil, echErr); return }
             var cfg = NCTLSClientStream.Config(serverName: serverName)
             cfg.alpn = parseALPN(proxy) ?? defaultALPN ?? self.defaultALPN(for: proxy)
-            cfg.allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
+            cfg.allowInsecure = proxy.skipCertVerify
             cfg.pinnedCertSHA256 = parsePinnedCertSHA256(proxy)
             cfg.profile = NCClientHelloProfile.named(parseClientFingerprint(proxy))
             cfg.echConfigList = echConfig
@@ -1506,7 +1506,7 @@ enum NCConnector {
         // nc-sessions: the base TLS connection runs on the session's own queue (see muxSession).
         let tls = NCStream(to: server, port: port,
                            tlsServerName: anytlsSNI,
-                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           allowInsecure: proxy.skipCertVerify,
                            queue: session.queue)
         tls.start { err in
             if err == nil {
@@ -1697,7 +1697,7 @@ enum NCConnector {
         if useTLS {
             raw = NCStream(to: server, port: port,
                            tlsServerName: tlsSNI(proxy, server: server),
-                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           allowInsecure: proxy.skipCertVerify,
                            alpn: streamALPN(proxy), queue: queue)
         } else {
             raw = NCStream(to: server, port: port, queue: queue)

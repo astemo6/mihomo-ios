@@ -636,7 +636,7 @@ final class NCUDPTrojanSession: NCUDPSession {
         } else {
             let raw = NCStream(to: server, port: port,
                                tlsServerName: proxy.fields["sni"]?.string ?? server,
-                               allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                               allowInsecure: proxy.skipCertVerify,
                                queue: queue)
             raw.start { err in ready(err == nil ? raw : nil, err) }
         }
@@ -735,7 +735,7 @@ final class NCUDPVMessSession: NCUDPSession {
         if proxy.fields["tls"]?.bool ?? false {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
                            tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? proxy.server ?? "",
-                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           allowInsecure: proxy.skipCertVerify,
                            queue: queue)
         } else {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)
@@ -852,7 +852,7 @@ final class NCUDPVLESSSession: NCUDPSession {
         if proxy.fields["tls"]?.bool ?? false {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
                            tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? proxy.server ?? "",
-                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           allowInsecure: proxy.skipCertVerify,
                            queue: queue)
         } else {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)

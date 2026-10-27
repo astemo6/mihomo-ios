@@ -141,7 +141,7 @@ final class NCTUICConnection {
         let disableSNI = proxy.fields["disable-sni"]?.bool ?? false
         sni = disableSNI ? nil : (proxy.fields["sni"]?.string ?? server)
         alpn = proxy.fields["alpn"]?.array?.compactMap { $0.string } ?? ["h3"]
-        allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
+        allowInsecure = proxy.skipCertVerify
         echEnabled = NCSupport.systemQUICECHEnabled(proxy)
         if echEnabled && NCSupport.hasStaticECHConfig(proxy) {
             StartupLog.write("tuic「\(proxy.name)」: 节点配置了静态 ech-opts.config，但系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 获取，静态配置不生效）")

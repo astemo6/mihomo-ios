@@ -1,11 +1,11 @@
 // native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
-// Native MitM stage 3, lane s3-script — what the native script dispatcher still asks the old core (the retired bridge,
-// the retired bridge). None of these calls carries a response body: admission (script slots, the
-// large-bundle lock and queue, the body budget incl. the small pool, the one-large-body lock, memory gates), the
-// program cache index (the JavaScriptCore context of a script is loaded / dropped by the old core), host APIs whose state is
-// the old core's ($persistentStore shared with the app, notifications, $httpAPI, geo, $httpClient through Clash.Meta routing), and
-// every log line / request-log note, formatted by the old path's own code.
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL).
+// Native MitM scripts — the host side the native script dispatcher (NativeScriptDispatcher / NativeScriptRun) calls.
+// None of these calls carries a response body: admission (script slots, the large-bundle lock and queue, the body
+// budget incl. the small pool, the one-large-body lock, memory gates), the program cache index (which scripts are
+// loaded into JavaScriptCore, prepare() / reload), host APIs whose state lives in the tunnel ($persistentStore shared
+// with the app, notifications, $httpAPI, geo, $httpClient through Tern's own rules and proxies), and every log line /
+// request-log note (脚本日志 via NativeLogRing, [SCRIPT] diagnostics lines, the startup log).
 //
 // ScriptHostAPI is a protocol so the unit tests can count calls; production is NativeScriptHost.
 
@@ -41,7 +41,7 @@ enum NativeScriptRuntime {
     }
 }
 
-// MARK: - Answers (JSON from the old core; field names = nativescript json tags)
+// MARK: - Answers (JSON; field names = the manifest / dispatcher contract)
 
 struct ScriptReserveAnswer: Decodable {
     var slot: Int64?
@@ -57,7 +57,7 @@ struct ScriptPrepared: Decodable {
     var name: String?
     var timeoutMs: Int64?
     var notNative: Bool?
-    /// The setup base (the old core's jsSetup without phase / req / resp), kept as JSON text.
+    /// The setup base (the script context without phase / req / resp), kept as JSON text.
     var setupJSON: String = "{}"
 
     enum CodingKeys: String, CodingKey { case ok, key, err, name, timeoutMs, notNative }
@@ -98,7 +98,7 @@ struct ScriptFail: Decodable {
     var msg: String?
 }
 
-/// A finished $httpClient download (the old core holds its body budget share until done()).
+/// A finished $httpClient download (the body budget share is held until done()).
 protocol ScriptFetch: AnyObject {
     var meta: String { get }
     var body: Data { get }
@@ -116,7 +116,7 @@ protocol ScriptHostAPI: AnyObject {
     func bodyLoaded(ticket: Int64, url: String, decoded: Int64) -> String
     func bodyFailed(ticket: Int64, url: String, kind: String, raw: Int64, detail: String) -> String
     func bodyRelease(ticket: Int64)
-    /// NativeCore: the streaming charge bodyAdmit opened for ticket (nil: none — the old core host, fakes).
+    /// NativeCore: the streaming charge bodyAdmit opened for ticket (nil: none — test fakes).
     func bodyCharge(ticket: Int64) -> NativeBodyCharge?
     func bodyCheck(gen: Int64, rule: Int, blen: Int64, limit: Int64) -> ScriptBodyCheck
     func skip(gen: Int64, rule: Int, why: String) -> String
@@ -197,7 +197,7 @@ final class NativeScriptHost: ScriptHostAPI {
     //
     // The app writes nativecore-scripts.json: per script rule its
     // rule index, the code file (BOM stripped, Egern adapted), the run timeout and __tern_begin's setup base. The
-    // prelude is the target's TernPrelude.js (= the old core's PreludeSource, TestNativePreludeBundleCurrent). prepare() loads
+    // prelude is the target's TernPrelude.js (bundled resource, checked by TestNativePreludeBundleCurrent). prepare() loads
     // a script into JavaScriptCore the first time it runs (and again after the engine dropped it: reload).
 
     struct ManifestEntry: Decodable {
@@ -231,6 +231,8 @@ final class NativeScriptHost: ScriptHostAPI {
     private var loadedKeys: Set<String> = []
     private var preludeState: String?   // nil: not tried; "": ready; else the error
     private var logLines = 0
+    /// Script rules that ran at least once since the last load (first run → info line in 脚本日志).
+    private var firedRules: Set<Int> = []
 
     /// The prelude handed to JavaScriptCore (bundled resource).
     static func bundledPrelude() -> String? {
@@ -275,10 +277,17 @@ final class NativeScriptHost: ScriptHostAPI {
         lock.lock()
         self.home = home
         manifest = entries
+        firedRules = []
         geoDBs = nil // ASN.mmdb may have been downloaded since
         let pState = preludeState ?? ""
         lock.unlock()
-        let bad = entries.values.filter { $0.err != nil }.count
+        let badEntries = entries.values.filter { $0.err != nil }.sorted { $0.i > $1.i }
+        let bad = badEntries.count
+        // fix/nc-tls-scripts: 脚本日志 stayed empty while the startup log said "N unloadable" — each script that cannot
+        // run is now named in the script console (error level) with the reason, once per load.
+        for e in badEntries {
+            NativeLogRing.shared.addScript(script: e.name, level: "error", msg: "脚本无法加载，不会运行：" + (e.err ?? "?"))
+        }
         let engine = JSCScriptEngine.shared.canInterrupt ? "interruptible" : "NOT interruptible (scripts off)"
         return "\(entries.count) script rule(s), \(bad) unloadable\(note); prelude \(pState.isEmpty ? "ok" : pState); JSC \(engine)"
     }
@@ -317,7 +326,7 @@ final class NativeScriptHost: ScriptHostAPI {
     static let maxScriptBody: Int64 = 4 << 20
     static let bodyHardMax: Int64 = 8 << 20
     static let bodyBudgetMin: Int64 = 256 << 10
-    /// Kept available (NativeCore 1.5 MB; the old core needed 3 MB for its GC headroom) — NativeScriptBodyBudget.Config.
+    /// Kept available (NativeCore 1.5 MB headroom) — NativeScriptBodyBudget.Config.
     static var largeBodyReserve: Int64 { NativeScriptBodyBudget.shared.config.reserve }
     /// request bodies (loaded whole before the script) and the limit note: the body + one JavaScriptCore copy
     static let bodyCopyFactor: Int64 = 2
@@ -535,7 +544,7 @@ final class NativeScriptHost: ScriptHostAPI {
         NCDiagLimiter.shared.line("[SCRIPT] \(name) error \(why)", level: "warning")
         var f = ScriptFail()
         if afterDone && stop == 0 {
-            f.ignored = true // an exception after $done: logged, the answer stands (the old core: Ignored, no note)
+            f.ignored = true // an exception after $done: logged, the answer stands (ignored, no request-log note)
             f.msg = why
         } else {
             f.note = "脚本错误：" + name + " — " + why
@@ -570,7 +579,7 @@ final class NativeScriptHost: ScriptHostAPI {
         case "sclear":
             return NCPersistentStore.shared.clear() ? "true" : "false"
         case "log":
-            // console.log & co (the old core's log ring is gone): the startup log, bounded per line.
+            // console.log & co → 脚本日志 (NativeLogRing) and the startup log, bounded per line.
             // gap C4: script log page (/mitm/logs) + live /logs stream through NativeLogRing; the startup log keeps
             // the first 500 lines per process as before.
             let nl = arg.firstIndex(of: "\n")
@@ -584,7 +593,14 @@ final class NativeScriptHost: ScriptHostAPI {
             // fix/nc-mitm-live: NativeScriptRun reports every finished run (ms in arg); nothing handled it, so a
             // script that ran fine left no trace anywhere.
             let name = entry(rule)?.name ?? "script #\(rule)"
-            if rule >= 0 { NativeLogRing.shared.addScript(script: name, level: "debug", msg: "执行完成，用时 \(arg) ms") }
+            // fix/nc-tls-scripts: 脚本日志 hides debug lines by default (v0.19.21, quiet like QX), so a script that ran
+            // but printed nothing left the console empty and looked like it never fired. The first run of each
+            // script per load is an info line; later runs stay debug.
+            if rule >= 0 {
+                lock.lock(); let first = firedRules.insert(rule).inserted; lock.unlock()
+                NativeLogRing.shared.addScript(script: name, level: first ? "info" : "debug",
+                                               msg: first ? "已触发并执行（本次加载首次），用时 \(arg) ms" : "执行完成，用时 \(arg) ms")
+            }
             NCDiagLimiter.shared.line("[SCRIPT] \(name) ok in \(arg) ms")
             return ""
         case "btoa":
@@ -644,7 +660,7 @@ final class NativeScriptHost: ScriptHostAPI {
         #endif
     }
 
-    // $utils.geoip / ipasn / ipaso (gap C3): country, ASN number and AS organisation, like the retired bridge
+    // $utils.geoip / ipasn / ipaso (gap C3): country, ASN number and AS organisation, from the bundled / downloaded MaxMind databases
     // geoLookup. The databases are mapped (not read into memory) on first use.
     private var geoDBs: (country: NCMMDB?, asn: NCMMDB?)?
 
@@ -713,7 +729,7 @@ final class NativeScriptHost: ScriptHostAPI {
         r.method = (req.method ?? "GET").isEmpty ? "GET" : (req.method ?? "GET")
         r.headers = (req.headers ?? []).compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }
         r.body = body
-        // the old core's fetchReq: 15 s unless the script asks (ms)
+        // $httpClient timeout: 15 s unless the script asks (ms)
         r.timeout = (req.timeout ?? 0) > 0 ? req.timeout! / 1000.0 : 15
         r.noRedirect = req.noRedirect ?? false
         r.policy = req.policy

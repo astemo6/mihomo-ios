@@ -201,10 +201,7 @@ final class NCJuicityConnection {
         let disableSNI = proxy.fields["disable-sni"]?.bool ?? proxy.fields["disable_sni"]?.bool ?? false
         self.sni = disableSNI ? nil : (proxy.fields["sni"]?.string ?? proxy.fields["peer"]?.string ?? server)
         self.alpn = proxy.fields["alpn"]?.array?.compactMap { $0.string } ?? ["h3"]
-        self.allowInsecure = proxy.fields["skip-cert-verify"]?.bool
-            ?? proxy.fields["allow-insecure"]?.bool
-            ?? proxy.fields["allowInsecure"]?.bool
-            ?? false
+        self.allowInsecure = proxy.skipCertVerify
 
         let pinStr = proxy.fields["pinned-certchain-sha256"]?.string
             ?? proxy.fields["pinned_certchain_sha256"]?.string

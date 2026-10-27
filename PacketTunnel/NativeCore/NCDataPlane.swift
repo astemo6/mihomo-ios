@@ -428,6 +428,13 @@ final class NCDataPlane {
         let now = Date()
         for s in sessions.values {
             if s.state == .deciding, now.timeIntervalSince(s.acceptedAt) > 1.5 {
+                if s.mitmPeek, let d = s.ruleDomain {
+                    // fix/nc-tls-scripts: a MitM-host flow that never completed its ClientHello was relayed silently
+                    // (device build506: ximalaya hosts showed only "[TCP] … reset by the app side").
+                    mitmPassthrough &+= 1
+                    connLog("[MITM] \(d):\(s.target.port) → passthrough(no complete ClientHello in 1.5 s, \(s.pending.count) B)", level: "warning")
+                    s.mitmPeek = false
+                }
                 connect(s) // server-first protocol or silent client: go by IP
             }
             if s.state == .open, s.frontAwaiting, let at = s.frontAt, now.timeIntervalSince(at) > Self.mitmFrontTimeout {
@@ -466,6 +473,16 @@ final class NCDataPlane {
     private func accept(_ conn: NCTunStack.TCPConn) -> Bool {
         let derefed = engine.derefFakeIP(conn.dst)
         let fakeDomain = derefed.host != conn.dst.host ? derefed.host : nil
+        // fix/nc-tls-scripts: a fake-ip destination nobody was given (stale DNS cache of an app, lost / evicted
+        // mapping) is refused at the SYN — false makes the C stack tcp_abort the new PCB (RST) — like Clash.Meta's
+        // "fake DNS record missing". Before, the flow was accepted and its SNI / Host sniffed, so a request carrying
+        // a Host header was served (自检: "无映射的 Fake-IP：HTTP/1.1 204", "fake-ip unmapped reset 0") and the app
+        // never re-resolved. NCFakeIPPool.refusesAtAccept is the same decision, unit-tested.
+        if fakeDomain == nil, let ip = conn.dst.ip, engine.isFakeAddress(ip) {
+            fakeUnmappedReset &+= 1
+            connLog("[TCP] \(conn.dst.host):\(conn.dst.port) refused: fake-ip without a domain mapping — RST to the SYN, the app re-resolves", level: "warning")
+            return false
+        }
         let s = TCPSession(conn: conn, target: derefed, ruleDomain: fakeDomain)
         if fakeDomain != nil { s.mappedIP = realDstIP(conn.dst.ip) }
         sessions[s.key] = s
@@ -551,6 +568,10 @@ final class NCDataPlane {
 
     private func tcpError(_ conn: NCTunStack.TCPConn) {
         guard let s = sessions.removeValue(forKey: UInt(bitPattern: conn.handle)) else { return }
+        if s.mitmPeek, s.state == .deciding {
+            // fix/nc-tls-scripts: say why a MitM candidate never reached the front.
+            connLog("[MITM] \(s.ruleDomain ?? s.target.host):\(s.target.port) → not decrypted: the app reset the connection before a complete ClientHello (\(s.pending.count) B)", level: "warning")
+        }
         logClose(s, "reset by the app side")
         recordClosed(s)
         s.state = .closed
@@ -589,6 +610,10 @@ final class NCDataPlane {
                 }
                 if case .tls(let sni, _) = NCSniffer.detect(s.pending), let sni, !sni.isEmpty, s.ruleDomain == nil || s.unmappedFake {
                     s.ruleDomain = sni.lowercased()
+                } else if s.ruleDomain == nil, reason.hasPrefix("no SNI") || reason.hasPrefix("unparsable") || reason.hasPrefix("ClientHello over") {
+                    // fix/nc-tls-scripts: bare-IP flows on a MitM port whose ClientHello carries no usable SNI
+                    // (HTTPDNS clients connecting by IP) — the destination IP was checked against the host list too.
+                    connLog("[MITM] \(s.target.host):\(s.target.port) → passthrough(\(reason))")
                 }
             }
         }
