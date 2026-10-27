@@ -79,7 +79,10 @@ extension TernUITests {
         }
         func order() -> [String] {
             let e = app.element(id: "home.panels.order")
-            return ((e.value as? String) ?? "").split(separator: ",").map(String.init)
+            // Saved tokens are "builtin.<id>"; compare on the bare id.
+            return ((e.value as? String) ?? "").split(separator: ",").map {
+                let t = String($0); return t.hasPrefix("builtin.") ? String(t.dropFirst(8)) : t
+            }
         }
         func before(_ a: String, _ b: String) -> Bool {
             let o = order()
@@ -92,6 +95,11 @@ extension TernUITests {
             usleep(1_500_000) // drop + 0.6 s save
             if done() { return true }
             warnings.append("[\(Env.tag)] home drag retry")
+            // A press that ended as a context menu must be closed first, or the retry lands on a menu item.
+            if app.button(L("从首页移除")).exists || app.button(L("全宽显示")).exists {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
+                usleep(700_000)
+            }
             e.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
                 .press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)),
                        withVelocity: .slow, thenHoldForDuration: 0.8)
