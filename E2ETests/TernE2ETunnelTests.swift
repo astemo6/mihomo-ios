@@ -1,4 +1,5 @@
 import XCTest
+import MachO
 
 /// Tern E2E replay, stage 2 of 2 (feat/nc-e2e): NativeCore started in-process on the runtime files stage 1
 /// (UnitTests/NativeCoreE2EReplayTests.swift) generated from the fixture through the App's import path — the same
