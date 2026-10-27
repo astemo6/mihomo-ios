@@ -250,15 +250,17 @@ final class NativeCoreE2EReplayTests: XCTestCase {
         let tasks = ProviderUpdater.plan(profilePath: p.fileURL.path)
         let res = await ProviderUpdater.shared.updateAll(profile: p)
         let errs = ProviderUpdater.shared.errors.filter { e in tasks.contains { $0.id == e.key } }
-        let env = errs.filter { e in
+        let envMarkers = ["http 4", "http 5", "timed out", "超时", "offline", "could not", "network", "网络"]
+        let env: [String: String] = errs.filter { e in
             let l = e.value.lowercased()
-            return l.contains("http 4") || l.contains("http 5") || l.contains("timed out") || l.contains("超时") || l.contains("offline")
-                || l.contains("could not") || l.contains("network") || l.contains("网络")
+            return envMarkers.contains { l.contains($0) }
         }
-        let real = errs.filter { env[$0.key] == nil }
-        let detail = "\(tasks.count) provider(s): ok \(res.ok), failed \(res.failed)"
-            + (env.isEmpty ? "" : "; environment (INFO): " + env.map { "\($0.key) \($0.value)" }.sorted().prefix(6).joined(separator: "; "))
-            + (real.isEmpty ? "" : "; ERRORS: " + real.map { "\($0.key) \($0.value)" }.sorted().prefix(8).joined(separator: "; "))
+        let real: [String: String] = errs.filter { env[$0.key] == nil }
+        let envLines: [String] = env.map { "\($0.key) \($0.value)" }.sorted()
+        let realLines: [String] = real.map { "\($0.key) \($0.value)" }.sorted()
+        var detail = "\(tasks.count) provider(s): ok \(res.ok), failed \(res.failed)"
+        if !envLines.isEmpty { detail += "; environment (INFO): " + envLines.prefix(6).joined(separator: "; ") }
+        if !realLines.isEmpty { detail += "; ERRORS: " + realLines.prefix(8).joined(separator: "; ") }
         r.record("reimport-provider-update", real.isEmpty && (tasks.isEmpty || res.ok > 0) ? .pass : .fail, detail)
 
         let err = await Task.detached(priority: .userInitiated) { NativeRuntimePrep.prepareSyncForReplay(home: home, profile: p.fileURL) }.value
