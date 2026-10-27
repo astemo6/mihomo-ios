@@ -23,7 +23,12 @@
 >   throwaway free WARP device on the runner (POST /reg, PATCH /reg/{id} with `key_type secp256r1`, `tunnel_type masque`),
 >   E2ETests/NCMASQUEWarpInteropTests runs HTTPS GET `/cdn-cgi/trace` (`warp=on`), UDP DNS to 1.1.1.1, 1 MiB HTTPS download,
 >   reconnect, unenrolled key refused, wrong `public-key` refused; the device is deleted afterwards. No key in the repo.
-> - Not done: in-app WARP registration / key enrollment (profiles come from external tools or share links), WARP over
+> - In-app registration (feat/nc-warp-register, not wired into the UI yet): App/Core/WarpRegistration.swift is the Swift
+>   port of register.py — CryptoKit P-256 key (SEC 1 DER), POST /reg + PATCH /reg/{id}, answer → canonical `type: masque`
+>   node (server / port 443 / private-key / public-key / ip / ipv6 / mtu 1280); WarpRegisterModel saves it as a manual
+>   node and the device id / token in the shared Keychain (`warp-account:<node>`); App/Views/WarpRegisterSheet.swift is the
+>   standalone sheet (strings in App/WarpRegister.xcstrings). Live check: proto-loopback.yml job `warp-register` (opt-in).
+> - Not done: WARP over
 >   HTTP/2, Zero Trust (`zt-masque`) accounts, CONNECT-TCP / h3-l4proxy, keeping flows across a reconnect (redial only).
 
 > **Status (fix/nc-masque-ip, 2026-10-27):** RFC 9484 **CONNECT-IP** over HTTP/3 is implemented as an L3 data plane:

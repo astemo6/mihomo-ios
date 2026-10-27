@@ -55,6 +55,9 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: E2ETests
+      # feat/nc-warp-register: the self-contained registration client (Foundation + CryptoKit + Shared/Keychain) for
+      # E2ETests/WarpRegistrationLiveTests; the rest of App/ stays out (this bundle never imports the app module).
+      - path: App/Core/WarpRegistration.swift
       - path: PacketTunnel
         excludes: ["**/*.entitlements", "Info.plist", "NativeMitM/Script/TernPrelude.js"]
       - path: Shared

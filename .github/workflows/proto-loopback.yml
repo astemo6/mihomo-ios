@@ -30,13 +30,17 @@
 # test-without-building on those products. When Self-test calls this workflow (extras proto / loopback / …) with
 # prebuilt=true, the caller's build jobs supply the products and the build jobs here are skipped. The ocserv /
 # CONNECT-IP VMs still boot in the background while the job downloads the products and the simulator boots.
+# Job `warp-register` (feat/nc-warp-register, OPT-IN: dispatch with jobs containing "warp-register"; never on push): the
+# in-app registration client App/Core/WarpRegistration.swift registers a throwaway free WARP device against the REAL
+# Cloudflare API (CryptoKit P-256 key, POST /reg + PATCH /reg/{id}), E2ETests/WarpRegistrationLiveTests dials the resulting
+# node through NativeCore MASQUE and fetches /cdn-cgi/trace (warp=on); the test deletes the device in tearDown.
 name: Proto loopback
 
 on:
   workflow_dispatch:
     inputs:
       jobs:
-        description: "Jobs to run (comma list of loopback, openconnect, masque-ip, masque-warp). Empty = all except the opt-in masque-warp."
+        description: "Jobs to run (comma list of loopback, openconnect, masque-ip, masque-warp, warp-register). Empty = all except the opt-in masque-warp / warp-register."
         required: false
         default: ""
   workflow_call:
@@ -46,7 +50,7 @@ on:
         required: false
         default: ""
       jobs:
-        description: "Comma list of loopback, openconnect, masque-ip, masque-warp (empty = all except masque-warp)"
+        description: "Comma list of loopback, openconnect, masque-ip, masque-warp, warp-register (empty = all except masque-warp / warp-register)"
         type: string
         required: false
         default: ""
@@ -382,3 +386,69 @@ jobs:
             results/masque-warp.log
           if-no-files-found: warn
           retention-days: 14
+
+  warp-register:
+    if: github.repository == 'astemo6/mihomo-ios' && contains(inputs.jobs, 'warp-register')
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+      - name: Generate project (with test targets)
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project-uitests.yml
+      - name: Pick simulator
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
+          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
+              m=[(r,x) for r,x in devs if x['name']==want]
+              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
+          ")
+          test -n "$DEV"
+          echo "DEV=$DEV" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEV" || true
+      - name: Build for testing (TernE2E — PacketTunnel sources + App/Core/WarpRegistration.swift)
+        run: |
+          set -o pipefail
+          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/warpreg \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            build-for-testing 2>&1 | tee build-warpreg.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
+          grep -q "TEST BUILD SUCCEEDED" build-warpreg.log || { tail -n 150 build-warpreg.log; exit 1; }
+      - name: Register in-app + trace through the new node (real Cloudflare API and endpoint)
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          TEST_RUNNER_NC_WARP_REGISTER_LIVE=1 TEST_RUNNER_JSC_useJIT=false \
+          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/warpreg -resultBundlePath results/warp-register.xcresult \
+            -only-testing:TernE2ETunnelTests/WarpRegistrationLiveTests test-without-building 2>&1 | tee results/warp-register.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|warp-register|masque"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/warp-register.log
+          if grep -q "skipped" results/warp-register.log && ! grep -q "passed" results/warp-register.log; then RC=1; echo "::error::WARP registration live test skipped"; fi
+          {
+            echo "### In-app WARP registration (real Cloudflare API + endpoint)"
+            grep -E "Executed [0-9]+ tests?" results/warp-register.log | tail -n 1 | sed 's/^/- /'
+            grep -E "Test Case .*(passed|failed)" results/warp-register.log | sed -E 's/.*-\[[^ ]+ ([^]]+)\]. (passed|failed).*/- \1: \2/'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: warp-register-live-results
+          path: |
+            results/warp-register.log
+            build-warpreg.log
+          if-no-files-found: warn
