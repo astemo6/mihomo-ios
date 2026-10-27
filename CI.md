@@ -48,6 +48,23 @@
   `extras`：`e2e`、`proto`（= loopback,openconnect,masque-ip）或单独的 `loopback` / `openconnect` / `masque-ip` / `masque-warp`、
   `ipa`（ios.yml build_only）、`checks`；`all` = e2e,proto,ipa,checks。单独派发 e2e-replay.yml / proto-loopback.yml / unit-tests.yml 照旧可用（它们自己构建一次）。
 
+### 定向一轮（lane，2026-10-27 新规：代码写完后只跑一轮定向 CI）
+
+每条都是一次构建（约 5 分钟，同一分支再次运行时命中编译缓存）+ 很少几个测试作业：
+
+```bash
+# 只跑几个单元测试类（1 个构建 + 1 个作业，不跑 dark）
+gh workflow run ui-tests.yml --ref test/<lane> -f shard=auto -f only=TernUnitTests/NativeCoreFooTests
+# 只跑一个 UI 测试（light:sel + dark:sel 两个作业；加 -f shard=smoke 只跑 light）
+gh workflow run ui-tests.yml --ref test/<lane> -f shard=auto -f only=TernUITests/TernUITests/test04_NodeManager
+# 冒烟：test01/03/04 + 全部单元测试（2 个作业）
+gh workflow run ui-tests.yml --ref test/<lane> -f shard=smoke
+# 协议：只跑相关 loopback 作业（jobs=loopback / openconnect / masque-ip / masque-warp，按需构建 1–2 次）
+gh workflow run proto-loopback.yml --ref test/<lane> -f jobs=loopback
+```
+在镜像上跑（推荐，省 astemo6 runner）：先用 work 区 `ci-mirror.sh` 把同一 SHA 推到镜像的 `test/<lane>`，命令加 `-R astemo666/mihomo-ios`。
+注意：镜像上 `shard=smoke` 不跑任何 UI / unit（en 镜像不跑冒烟）；单个单元测试类请用 `shard=auto` + `only=`。
+
 ## 提交信息标记（Self-test）
 
 - `[only:testName]`：只跑这个 UI 测试（`light:sel` 一个组合 + `dark:sel`；只选了单元测试时不跑 dark）；可写多个。
