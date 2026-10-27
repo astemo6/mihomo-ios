@@ -46785,36 +46785,36 @@
         }
       }
     },
-    "策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 Clash 规则集；QX filter_remote 没有 force-policy 时整份列表走 proxy（第一个手动选择组）。": {
+    "策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 Clash 规则集；QX filter_remote 没有 force-policy 时按列表内每行自己的策略分流，配置中不存在的策略自动创建为手动选择组。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Policy names map to groups of the current profile; when missing, the first manual select group is used and highlighted. Remote lists are downloaded by the core and converted to Clash rule sets; a QX filter_remote without force-policy sends the whole list to proxy (the first manual select group)."
+            "value": "Policy names map to groups of the current profile; when missing, the first manual select group is used and highlighted. Remote lists are downloaded by the core and converted to Clash rule sets; a QX filter_remote without force-policy routes each line of the list by its own policy, and policies missing from the profile are created as manual select groups."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "策略名會對應到當前配置的策略組；找不到時使用第一個手動選擇組並標黃。遠端列表透過核心下載並轉換為 Clash 規則集；QX filter_remote 沒有 force-policy 時整份列表走 proxy（第一個手動選擇組）。"
+            "value": "策略名會對應到當前配置的策略組；找不到時使用第一個手動選擇組並標黃。遠端列表透過核心下載並轉換為 Clash 規則集；QX filter_remote 沒有 force-policy 時按列表內每行自己的策略分流，配置中不存在的策略自動建立為手動選擇組。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポリシー名は現在のプロファイルのグループに対応します。見つからない場合は最初の手動選択グループを使い、強調表示します。リモートリストはコアがダウンロードして Clash のルールセットに変換します。force-policy のない QX filter_remote はリスト全体を proxy（最初の手動選択グループ）に送ります。"
+            "value": "ポリシー名は現在のプロファイルのグループに対応します。見つからない場合は最初の手動選択グループを使い、強調表示します。リモートリストはコアがダウンロードして Clash のルールセットに変換します。force-policy のない QX filter_remote はリストの各行をその行のポリシーで振り分け、プロファイルにないポリシーは手動選択グループとして自動作成します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정책 이름은 현재 프로파일의 그룹에 대응합니다. 없으면 첫 번째 수동 선택 그룹을 사용하고 강조 표시합니다. 원격 목록은 코어가 다운로드해 Clash 규칙 세트로 변환합니다. force-policy가 없는 QX filter_remote는 목록 전체를 proxy(첫 번째 수동 선택 그룹)로 보냅니다."
+            "value": "정책 이름은 현재 프로파일의 그룹에 대응합니다. 없으면 첫 번째 수동 선택 그룹을 사용하고 강조 표시합니다. 원격 목록은 코어가 다운로드해 Clash 규칙 세트로 변환합니다. force-policy가 없는 QX filter_remote는 목록의 각 줄을 그 줄의 정책으로 분류하며, 프로파일에 없는 정책은 수동 선택 그룹으로 자동 생성합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Имена политик сопоставляются с группами текущего профиля; если группы нет, используется первая группа с ручным выбором (с пометкой). Удалённые списки загружает ядро и превращает в наборы правил Clash; QX filter_remote без force-policy отправляет весь список в proxy (первую группу с ручным выбором)."
+            "value": "Имена политик сопоставляются с группами текущего профиля; если группы нет, используется первая группа с ручным выбором (с пометкой). Удалённые списки загружает ядро и превращает в наборы правил Clash; QX filter_remote без force-policy направляет каждую строку списка по её собственной политике, а отсутствующие в профиле политики создаются как группы с ручным выбором."
           }
         }
       }

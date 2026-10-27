@@ -529,11 +529,29 @@ enum NCQXImport {
         }
         if let e = kv["enabled"], NCConfImport.boolValue(e) == false { return }
         let name = kv["tag"] ?? NCConfImport.ruleSetName(for: url)
-        let forced = kv["force-policy"].map(canonicalPolicy)
+        let interval = kv["update-interval"].flatMap { Int($0) } ?? 86400
+        let fp = (kv["force-policy"] ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "'\"")).trimmingCharacters(in: .whitespaces)
+        if !fp.isEmpty {
+            let forced = canonicalPolicy(fp)
+            cfg.ruleSets.append(NCRuleSetRef(name: name, url: url, interval: interval, forcedPolicy: forced))
+            cfg.rules.append("RULE-SET,\(url),\(forced)")
+            return
+        }
+        // No force-policy: like Quantumult X, every line of the list keeps its own policy. Same provider shape as the
+        // App's QX import (NCConfImportPort kind "list-own"): the App download splits the list per policy
+        // (NCProviderPorts.splitOwnPolicyList, at most ownPolicyMaxParts) and NCRuntimeSteps.expandOwnPolicyProviders
+        // emits one RULE-SET per policy, creating a manual-select group for a policy the config lacks. The RULE-SET
+        // line itself targets QX `proxy` (the first static group) — what the list's `proxy` lines resolve to, and
+        // where the whole list goes until it has been downloaded and split.
+        let fallback = cfg.groups.first { $0.kind == .select }?.name ?? canonicalPolicy("proxy")
         cfg.ruleSets.append(NCRuleSetRef(
-            name: name, url: url,
-            interval: kv["update-interval"].flatMap { Int($0) } ?? 86400,
-            forcedPolicy: forced))
-        cfg.rules.append("RULE-SET,\(url),\(forced ?? name)")
+            name: name, url: url, interval: interval, forcedPolicy: nil,
+            fields: [
+                // No behavior: the tunnel's per-line dialect detection reads the raw QX list as well as the converted one.
+                "type": .string("http"), "format": .string("text"),
+                "path": .string("./ruleset/" + NCRuleValidator.providerNameFor(url: url, kind: "list-own") + ".txt"),
+                "x-convert": .string("list"), "x-own-policy": .bool(true),
+            ]))
+        cfg.rules.append("RULE-SET,\(name),\(fallback)")
     }
 }

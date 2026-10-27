@@ -423,7 +423,7 @@ struct ModuleSubSheet: View {
         case "qx": return String(localized: "QX 引用")
         case "stash": return String(localized: "Stash 覆写")
         case "egern": return String(localized: "Egern 模块")
-        case "list", "domainset": return String(localized: "规则列表")
+        case "list", "list-own", "domainset": return String(localized: "规则列表")
         default: return String(localized: "重写")
         }
     }

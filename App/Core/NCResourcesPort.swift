@@ -55,7 +55,7 @@ enum NCResourcesPort {
     static func remoteOfLine(_ line0: String) -> (url: String, kind: String, policy: String, interval: Int)? {
         let line = line0.trimmingCharacters(in: .whitespaces)
         if case let (sp, ok)? = NCRuleValidator.parseQXRemote(line), ok {
-            return (sp.url, "list", sp.policy, sp.interval)
+            return (sp.url, NCRuleValidator.qxRemoteKind(line), sp.policy, sp.interval)
         }
         let (c, err) = NCEngineRuleset.convertRuleLine(line)
         if err == nil && !c.remoteURL.isEmpty { return (c.remoteURL, c.remoteKind, c.policy, 0) }
@@ -156,7 +156,7 @@ enum NCResourcesPort {
             if n > 0 { detail += " · \(n) 条" }
             var it: [String: Any] = ["key": key, "kind": "ruleset", "name": listName(u), "url": u, "enabled": r.enabled,
                                      "interval": iv, "updatedAt": mtime(p), "detail": detail]
-            set(&it, "format", kind); set(&it, "listKind", kind); set(&it, "refId", r.id)
+            set(&it, "format", kind == "list-own" ? "list" : kind); set(&it, "listKind", kind); set(&it, "refId", r.id)
             if let o = moduleSets[key] { set(&it, "owner", o.owners.joined(separator: "、")) }
             add(it)
         }
@@ -248,9 +248,13 @@ enum NCResourcesPort {
         case "ruleset":
             guard let bar = rest.firstIndex(of: "|") else { throw StoreError(message: "无效的规则集") }
             let lk = String(rest[..<bar]), u = String(rest[rest.index(after: bar)...])
-            let r = NCProviderPorts.convertListText(data, kind: lk)
+            let own = lk == "list-own"
+            let r = NCProviderPorts.convertListText(data, kind: own ? "list" : lk)
             if r.ok == 0 { throw StoreError(message: "没有可用的规则（格式无法识别）") }
-            try write(ruleSetPath(home: home, url: u, kind: lk), Data(r.text.utf8))
+            let p = ruleSetPath(home: home, url: u, kind: lk)
+            try write(p, Data(r.text.utf8))
+            // QX list without force-policy: the per-policy parts + sidecar, as the provider download writes them.
+            if own { _ = try NCProviderPorts.splitOwnPolicyList(cachePath: p, data: data) }
             var msg = "\(r.ok) 条规则"
             if r.skipped > 0 { msg += "，\(r.skipped) 条不支持已跳过" }
             return msg

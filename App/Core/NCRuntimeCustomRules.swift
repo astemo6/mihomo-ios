@@ -91,7 +91,7 @@ extension NCRuntimeSteps {
             NCRuleValidator.prettyProviderName(u: sp.url, tag: sp.tag)
         ) { rp[$0] != nil }
         let behavior = sp.kind == "domainset" ? "domain" : "classical"
-        rp[name] = .object([
+        var m: [String: NCJSONValue] = [
             "type": .string("http"),
             "behavior": .string(behavior),
             "format": .string("text"),
@@ -101,7 +101,15 @@ extension NCRuntimeSteps {
             "path": .string(path),
             "interval": .number(Double(interval > 0 ? interval : 86400)),
             "x-source": .string(sp.url),
-        ])
+        ]
+        if sp.kind == "list-own" {
+            // QX filter_remote without force-policy: each line keeps its own policy — the same provider shape as the
+            // App's QX import (NCConfImportPort): the download splits the list per policy (providerPlan → list-split)
+            // and expandOwnPolicyProviders turns the parts into RULE-SETs on those policies.
+            m["x-convert"] = .string("list")
+            m["x-own-policy"] = .bool(true)
+        }
+        rp[name] = .object(m)
         raw["rule-providers"] = .object(rp)
         return "RULE-SET," + name
     }
@@ -124,7 +132,7 @@ extension NCRuntimeSteps {
                 var c = NCEngineRuleset.RuleConv()
                 c.type = "RULE-SET"
                 c.remoteURL = sp.url
-                c.remoteKind = "list"
+                c.remoteKind = NCRuleValidator.qxRemoteKind(line)
                 c.policy = sp.policy
                 conv = c
                 if interval == 0 { interval = sp.interval }
@@ -168,7 +176,30 @@ extension NCRuntimeSteps {
         if rules.isEmpty { return }
         let pre = convertCustom(&raw, o, rules: rules)
         if pre.isEmpty { return }
-        raw["rules"] = .array(pre.map { NCJSONValue.string($0) } + raw.list("rules"))
+        raw["rules"] = .array(expandOwnPolicyRules(&raw, o, pre.map { NCJSONValue.string($0) }) + raw.list("rules"))
+    }
+
+    /// Custom rules are applied after the profile's own-policy lists were expanded (NCRuntimeBuilder), so their QX
+    /// lists without force-policy (provider x-own-policy) are expanded here: only these rules, so a profile rule that
+    /// shares the provider is not split twice. Adds the parts' providers and any missing-policy group to raw.
+    static func expandOwnPolicyRules(
+        _ raw: inout [String: NCJSONValue],
+        _ o: NCRuntimeSettings,
+        _ rules: [NCJSONValue]
+    ) -> [NCJSONValue] {
+        if o.home.isEmpty { return rules }
+        let rp = raw.map("rule-providers")
+        let hasOwn = rp.values.contains { v in
+            if case .object(let m) = v { return truthy(m["x-own-policy"]) }
+            return false
+        }
+        if !hasOwn { return rules }
+        var tmp = raw
+        tmp["rules"] = .array(rules)
+        expandOwnPolicyProviders(&tmp, home: o.home)
+        raw["proxy-groups"] = tmp["proxy-groups"]
+        raw["rule-providers"] = tmp["rule-providers"]
+        return tmp.list("rules")
     }
 
     /// bridge addRemoteModuleRules. the old core reads the overrides of the

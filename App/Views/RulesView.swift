@@ -432,7 +432,7 @@ struct LocalRulesView: View {
                 }
                 .onMove { custom.moveSubset(localCustom, from: $0, to: $1) }
             } footer: {
-                Text("策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 Clash 规则集；QX filter_remote 没有 force-policy 时整份列表走 proxy（第一个手动选择组）。")
+                Text("策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 Clash 规则集；QX filter_remote 没有 force-policy 时按列表内每行自己的策略分流，配置中不存在的策略自动创建为手动选择组。")
                     .modifier(UITestOrderValue(id: "rules.custom.order", order: custom.orderToken))
             }
             .listRowBackground(Theme.card)

@@ -207,7 +207,7 @@ NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/N
 - 仅代理模式：不遵守系统代理的 App 与所有 UDP / QUIC 会直连；按 IP 的规则与 Fake-IP 不生效。
 - iCloud 备份需要签名里有 iCloud 容器权限；没有时可在「保存到文件」时选 iCloud 云盘。
 - MitM：HTTP/3（QUIC）无法解密，默认对 MitM 主机阻断 UDP 443（可按主机放行，或选择全部阻断）；证书固定的 App 会握手失败并被自动放行。
-- QX `filter_remote` 没写 `force-policy` 时整份列表走 proxy（第一个手动选择组），列表内各行的策略被忽略。
+- QX `filter_remote` 没写 `force-policy` 时按列表内每行自己的策略分流，配置中不存在的策略自动创建为手动选择组（单个列表最多拆 32 个策略）；列表首次下载并拆分前整份列表走 proxy（第一个手动选择组）。
 
 ## 许可与致谢
 
