@@ -262,6 +262,9 @@ struct BackupView: View {
                 }
             }
             .listRowBackground(Theme.card)
+
+            // feat/fresh-reinstall: 清除全部数据 (double confirmation, DataReset.wipeAll, then the app exits).
+            DataResetSection()
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)

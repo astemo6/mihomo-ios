@@ -87,6 +87,9 @@ enum SettingsSearchIndex {
           ["备份", "恢复", "导出", "导入", "加密的备份", "iCloud", "backup", "restore", "export"]),
         e("webdav", "WebDAV 备份", [more, "备份与恢复"], "server.rack", .blue, .webdav, ["webdav", "云备份", "坚果云", "nextcloud", "cloud"]),
         e("syncFolder", "同步文件夹", [more, "备份与恢复"], "folder", .blue, .syncFolder, ["同步", "iCloud Drive", "文件", "sync", "folder"]),
+        // feat/fresh-reinstall: 清除全部数据 sits at the bottom of 备份与恢复.
+        e("resetAll", "清除全部数据", [more, "备份与恢复"], "trash", .red, .backup,
+          ["清除", "清空", "删除全部", "抹掉", "重置", "恢复出厂", "全新安装", "重新安装", "从新开始", "reset", "erase", "wipe", "factory reset", "clear all data", "delete all"]),
         e("storage", "存储空间", [more], "internaldrive", .neutral, .storage, ["缓存", "清理", "空间", "storage", "cache", "clean"]),
         e("notifications", "通知", [more], "bell.badge.fill", .red, .notifications,
           ["通知", "提醒", "推送", "网络变化", "策略组异常", "节点异常", "内存警告", "脚本通知", "notification", "notifications", "alert", "push"]),

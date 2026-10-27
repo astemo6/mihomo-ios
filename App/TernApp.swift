@@ -7,6 +7,8 @@ struct TernApp: App {
     @StateObject private var vpn = VPNManager.shared
     @StateObject private var router = ImportRouter.shared
     @StateObject private var store = ProfileStore.shared
+    /// feat/fresh-reinstall: the reinstall question and 清除全部数据 replace the whole app while not `.normal`.
+    @StateObject private var reset = DataResetCoordinator.shared
     // fix/nav-jank: singletons that publish often (speed every second, the memory stream, IP lookups) are held
     // without observing. As @StateObject the App re-evaluated its scene on every tick; views that show these
     // values observe them themselves.
@@ -18,41 +20,67 @@ struct TernApp: App {
         EgernDensity.applyBars()
         // test/selftest: simulator UI tests only (-UITestSeed); wipes the demo container before any store loads.
         UITestSeed.resetIfNeeded()
+        // feat/fresh-reinstall: install marker check before anything reads or writes the group store. On a reinstall
+        // with leftover data the launch tasks wait for 保留 (全部清除 exits the app instead).
+        DataResetCoordinator.shared.evaluateLaunch(launchTasks: Self.launchTasks)
+        // feat/jsc-engine: `-TernJSCSelfTest` runs one the old JS engine-vs-JavaScriptCore conformance case and logs it.
+        JSCScriptEngine.selfTestIfRequested()
+    }
+
+    /// Launch work that writes into the group container (deferred while the reinstall question is open).
+    static func launchTasks() {
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
         DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
         // fix/nc-storage-other: crashed-prepare staging dirs and orphaned atomic-write temp files (older than 10 min).
         DispatchQueue.global(qos: .background).async { StorageScan.sweepOnLaunch() }
         // r7 B28: scripts' $environment.language follows the UI language (read by the engine on its next load).
         DispatchQueue.global(qos: .utility).async { EngineConfig.stampLanguage() }
-        // feat/jsc-engine: `-TernJSCSelfTest` runs one the old JS engine-vs-JavaScriptCore conformance case and logs it.
-        JSCScriptEngine.selfTestIfRequested()
+    }
+
+    private func becameActive() {
+        Task { await vpn.load() }
+        // v0.14: due subscriptions + usage alerts + the opt-in update notification.
+        Task { await ScheduledUpdates.run() }
+        Task { await ResourceStore.shared.updateDueIfNeeded() }
+        Task { await ProviderUpdater.shared.autoUpdateIfNeeded() }
+        ipinfo.scheduleRefresh(after: 0.3)
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environmentObject(vpn)
-                .environmentObject(store)
-                .environmentObject(dash)
-                .environmentObject(ipinfo)
-                .environmentObject(router)
-                // Imports are presented by ImportRouter from the topmost view controller (v0.8.1): a root
-                // .sheet was silently dropped while onboarding, another sheet or the file picker was up.
-                .onOpenURL { router.handle(url: $0) }
-                .tint(Theme.accent)
-                // v0.9: 更多 → 设置 → 外观 (跟随系统 / 浅色 / 深色), applied to every window.
-                .onAppear { AppAppearance.apply() }
-                .onChange(of: phase) { p in
-                    if p == .background { LiveActivityController.shared.didEnterBackground(); ScheduledUpdates.scheduleBackground() }
-                    if p == .active {
-                        Task { await vpn.load() }
-                        // v0.14: due subscriptions + usage alerts + the opt-in update notification.
-                        Task { await ScheduledUpdates.run() }
-                        Task { await ResourceStore.shared.updateDueIfNeeded() }
-                        Task { await ProviderUpdater.shared.autoUpdateIfNeeded() }
-                        ipinfo.scheduleRefresh(after: 0.3)
-                    }
+            Group {
+                if reset.phase == .normal {
+                    RootView()
+                        .environmentObject(vpn)
+                        .environmentObject(store)
+                        .environmentObject(dash)
+                        .environmentObject(ipinfo)
+                        .environmentObject(router)
+                } else {
+                    DataResetGateView()
                 }
+            }
+            // Imports are presented by ImportRouter from the topmost view controller (v0.8.1): a root
+            // .sheet was silently dropped while onboarding, another sheet or the file picker was up.
+            // feat/fresh-reinstall: while the reinstall question is open the URL waits for RootView's cold-launch drain.
+            .onOpenURL { url in
+                if reset.phase == .normal { router.handle(url: url) } else { router.coldLaunchURLs.append(url) }
+            }
+            .tint(Theme.accent)
+            // v0.9: 更多 → 设置 → 外观 (跟随系统 / 浅色 / 深色), applied to every window.
+            .onAppear { AppAppearance.apply() }
+            .onChange(of: phase) { p in
+                // feat/fresh-reinstall: after 清除全部数据 leaving the app ends it (the next launch starts clean);
+                // nothing else runs while the gate is up.
+                if case .wiped = reset.phase, p == .background { exit(0) }
+                guard reset.phase == .normal else { return }
+                if p == .background { LiveActivityController.shared.didEnterBackground(); ScheduledUpdates.scheduleBackground() }
+                if p == .active { becameActive() }
+            }
+            // feat/fresh-reinstall: 保留 on the reinstall question — the app was already active, so run what activation runs.
+            .onChange(of: reset.phase) { ph in
+                if ph == .normal && phase == .active { becameActive() }
+            }
         }
     }
 }
