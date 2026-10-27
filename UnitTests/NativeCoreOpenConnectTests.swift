@@ -653,4 +653,42 @@ final class NativeCoreOpenConnectTests: XCTestCase {
         XCTAssertNil(NCOpenConnect.completeFrameLength(unknown.prefix(9)))
     }
 
+
+    // fix/nc-oc-dtls: split-tunnel routes.
+    func testSplitCIDRForms() {
+        XCTAssertEqual(NCOpenConnect.TunnelParameters.splitCIDR("10.77.0.0/255.255.255.0"), NCCIDR("10.77.0.0/24"))
+        XCTAssertEqual(NCOpenConnect.TunnelParameters.splitCIDR("10.0.0.0/255.0.0.0"), NCCIDR("10.0.0.0/8"))
+        XCTAssertEqual(NCOpenConnect.TunnelParameters.splitCIDR("192.168.1.5"), NCCIDR("192.168.1.5/32"))
+        XCTAssertEqual(NCOpenConnect.TunnelParameters.splitCIDR("fd00:1::/64"), NCCIDR("fd00:1::/64"))
+        XCTAssertNil(NCOpenConnect.TunnelParameters.splitCIDR("10.0.0.0/255.0.255.0"))
+        XCTAssertNil(NCOpenConnect.TunnelParameters.splitCIDR("junk"))
+    }
+
+    func testRoutesThroughTunnel() {
+        var p = NCOpenConnect.TunnelParameters()
+        XCTAssertTrue(p.routesThroughTunnel(NCIP("8.8.8.8")!), "no split routes → full tunnel")
+        p.splitExcludes = ["192.168.0.0/255.255.0.0"]
+        XCTAssertTrue(p.routesThroughTunnel(NCIP("8.8.8.8")!))
+        XCTAssertFalse(p.routesThroughTunnel(NCIP("192.168.3.4")!))
+        p.splitIncludes = ["10.77.0.0/255.255.255.0", "fd00::/64"]
+        p.splitExcludes = ["10.77.0.192/255.255.255.192"]
+        p.dnsServers = ["172.16.0.53"]
+        XCTAssertTrue(p.routesThroughTunnel(NCIP("10.77.0.1")!))
+        XCTAssertFalse(p.routesThroughTunnel(NCIP("10.77.0.200")!))
+        XCTAssertFalse(p.routesThroughTunnel(NCIP("8.8.8.8")!))
+        XCTAssertTrue(p.routesThroughTunnel(NCIP("fd00::5")!))
+        XCTAssertFalse(p.routesThroughTunnel(NCIP("2001:db8::1")!))
+        XCTAssertTrue(p.routesThroughTunnel(NCIP("172.16.0.53")!), "the VPN's DNS server stays inside")
+        // A more specific include inside an exclude wins.
+        p.splitIncludes.append("10.77.0.200/255.255.255.255")
+        XCTAssertTrue(p.routesThroughTunnel(NCIP("10.77.0.200")!))
+    }
+
+    func testSplitRoutesOption() {
+        let base: [String: NCJSONValue] = ["server": .string("vpn.example.com"), "username": .string("u"), "password": .string("p")]
+        XCTAssertEqual(NCOpenConnect.Config.parse(NCProxy(name: "a", type: "openconnect", fields: base)).0?.splitRoutes, true)
+        var off = base
+        off["split-routes"] = .bool(false)
+        XCTAssertEqual(NCOpenConnect.Config.parse(NCProxy(name: "b", type: "openconnect", fields: off)).0?.splitRoutes, false)
+    }
 }

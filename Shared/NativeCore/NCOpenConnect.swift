@@ -203,6 +203,40 @@ enum NCOpenConnect {
             }
             return params
         }
+
+        /// fix/nc-oc-dtls: one X-CSTP-Split-Include/-Exclude value → CIDR. ocserv / ASA send IPv4 as
+        /// "10.0.0.0/255.255.0.0" (dotted netmask), IPv6 as "fd00::/64"; a bare address is a host route.
+        static func splitCIDR(_ raw: String) -> NCCIDR? {
+            let v = raw.trimmingCharacters(in: .whitespaces)
+            let parts = v.split(separator: "/", maxSplits: 1).map(String.init)
+            if parts.count == 2, parts[1].contains("."), let mask = NCIP(parts[1]), case .v4(let m) = mask {
+                // Contiguous dotted mask → prefix length (a non-contiguous mask is rejected).
+                let bits = m.nonzeroBitCount
+                guard bits == 0 || m == (0xffff_ffff << (32 - bits)) else { return nil }
+                return NCCIDR("\(parts[0])/\(bits)")
+            }
+            return NCCIDR(v)
+        }
+
+        /// fix/nc-oc-dtls: whether `ip` goes through the tunnel under the server's split-tunnel routes, like the
+        /// AnyConnect / openconnect clients: an exclude match → outside; with includes, only an include match is inside;
+        /// no includes → everything (except excludes) is inside. The longest-prefix rule (exclude inside a wider include)
+        /// follows from checking excludes first; an include more specific than an exclude wins as on the server side.
+        func routesThroughTunnel(_ ip: NCIP) -> Bool {
+            let inc = splitIncludes.compactMap(Self.splitCIDR)
+            let exc = splitExcludes.compactMap(Self.splitCIDR)
+            let bestInc = inc.filter { $0.contains(ip) }.map(\.bits).max()
+            let bestExc = exc.filter { $0.contains(ip) }.map(\.bits).max()
+            if let e = bestExc {
+                if let i = bestInc, i > e { return true }
+                return false
+            }
+            if inc.isEmpty { return true }
+            if bestInc != nil { return true }
+            // The tunnel's own addresses (pool / DNS) are always reachable inside it.
+            if dnsServers.contains(where: { NCIP($0) == ip }) { return true }
+            return false
+        }
     }
 
     enum AuthType: String, Equatable {
@@ -434,6 +468,9 @@ enum NCOpenConnect {
         let skipCertVerify: Bool
         let serverCertPin: String?
         let dtls: Bool
+        /// fix/nc-oc-dtls: honour the server's X-CSTP-Split-Include / -Exclude (default on; `split-routes: false`
+        /// sends every flow of this node through the tunnel).
+        var splitRoutes: Bool = true
         let mtu: Int
         let userAgent: String
         let localHostname: String?
@@ -478,7 +515,9 @@ enum NCOpenConnect {
                 userAgent: userAgent,
                 localHostname: localHostname
             )
-            return (cfg, nil)
+            var c = cfg
+            c.splitRoutes = f["split-routes"]?.bool ?? true
+            return (c, nil)
         }
     }
 

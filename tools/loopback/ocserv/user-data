@@ -2,6 +2,7 @@
 # fix/nc-openconnect-dp: cloud-init user-data for the ocserv loopback VM (start-ocserv-vm.sh).
 # Real ocserv (Alpine edge/testing package) + the services the OpenConnect loopback test reaches *through* the tunnel:
 #   10.77.0.1:9000 TCP echo, 10.77.0.1:9001 UDP echo, 10.77.0.1:53 DNS (echo.oc.test / web.oc.test -> 10.77.0.1),
+#   split routes: include 10.77.0.0/24, exclude 10.77.0.192/26 (everything else goes direct from the client).
 #   10.77.0.1:8080 HTTP (busybox httpd: /hello.txt = "tern-openconnect-ok\n", /big.txt = "tern-oc-0123456789\n" x N, 304000 bytes).
 # Constants mirrored in E2ETests/NCOpenConnectLoopbackTests.swift and tools/loopback/ocserv/README.md.
 exec > /dev/console 2>&1
@@ -51,6 +52,9 @@ ping-leases = false
 mtu = 1400
 cisco-client-compat = true
 dtls-legacy = true
+# fix/nc-oc-dtls: split-tunnel routes (X-CSTP-Split-Include / -Exclude) — the client sends only these through the node.
+route = 10.77.0.0/255.255.255.0
+no-route = 10.77.0.192/255.255.255.192
 C
 mkdir -p /srv/www
 printf 'tern-openconnect-ok\n' > /srv/www/hello.txt

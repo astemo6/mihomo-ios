@@ -13,8 +13,9 @@ import Network
 //   ocserv ──► TLS byte stream ──► frames parsed in place ──► nc_wg_input (DATA) / DPD-RESP / terminate
 //
 // One frame per TLS record matters: ocserv reads a record and rejects it unless it is exactly one CSTP frame
-// ("error parsing CSTP data"), so frames are written one at a time (next send after .contentProcessed) and never
-// coalesced. Memory: one Data per outgoing packet (header + payload in a single allocation), zero copies for
+// ("error parsing CSTP data"), so frames are never coalesced into one Data / one send. fix/nc-oc-dtls: up to
+// `maxInFlight` frames are handed to the NWConnection at once (each its own send → its own TLS record) instead of
+// one per .contentProcessed round trip, which bounded throughput to one packet per callback hop. Memory: one Data per outgoing packet (header + payload in a single allocation), zero copies for
 // incoming packets beyond lwIP's pbuf; the uplink queue is capped (packets beyond it are dropped like a full
 // interface queue, TCP retransmits).
 //
@@ -103,6 +104,10 @@ final class NCOCDevice: NCLwIPDevice {
     private(set) var txDropped = 0
     private(set) var framesIn = 0
     private(set) var framesOut = 0
+    /// Flows that went DIRECT because the server's split-tunnel routes put the destination outside the tunnel.
+    private(set) var splitDirect = 0
+    /// Most frames ever in flight at once (diagnostics + the throughput test).
+    private(set) var maxInFlightSeen = 0
 
     private var stream: NCStream?
     private var rx = Data()
@@ -110,7 +115,9 @@ final class NCOCDevice: NCLwIPDevice {
     private var txQueue: [Data] = []
     private var txHead = 0
     private var txQueuedBytes = 0
-    private var txInFlight = false
+    private var txInFlight = 0
+    /// Frames handed to the TLS connection before their .contentProcessed (each frame is a separate send).
+    static let maxInFlight = 32
     /// Uplink queue cap: what lwIP may hand us faster than the TLS stream drains (several flows' windows).
     private static let txCap = 512 * 1024
 
@@ -423,7 +430,11 @@ final class NCOCDevice: NCLwIPDevice {
     }
 
     private func kick() {
-        guard !txInFlight, let s = stream, txHead < txQueue.count else { return }
+        while txInFlight < Self.maxInFlight, stream != nil, txHead < txQueue.count { sendNext() }
+    }
+
+    private func sendNext() {
+        guard let s = stream else { return }
         let frame = txQueue[txHead]
         txQueue[txHead] = Data()
         txHead += 1
@@ -434,14 +445,15 @@ final class NCOCDevice: NCLwIPDevice {
             txQueue.removeFirst(txHead)
             txHead = 0
         }
-        txInFlight = true
+        txInFlight += 1
+        if txInFlight > maxInFlightSeen { maxInFlightSeen = txInFlight }
         lastTx = Date()
         framesOut += 1
         let n = frame.count
         s.conn.send(content: frame, completion: .contentProcessed { [weak self] err in
             // NCStream's connection runs on NCLwIP.queue.
             guard let self, self.stream === s else { return }
-            self.txInFlight = false
+            self.txInFlight = max(0, self.txInFlight - 1)
             self.txQueuedBytes = max(0, self.txQueuedBytes - n)
             if let err {
                 self.transportLost("send: \(err.localizedDescription)")
@@ -455,7 +467,7 @@ final class NCOCDevice: NCLwIPDevice {
         txQueue.removeAll()
         txHead = 0
         txQueuedBytes = 0
-        txInFlight = false
+        txInFlight = 0
     }
 
     // MARK: Timers (lwIP, DPD, keepalive, idle)
@@ -538,6 +550,17 @@ final class NCOCDevice: NCLwIPDevice {
         }
     }
 
+    var label: String { "openconnect" }
+
+    /// fix/nc-oc-dtls: whether a destination goes through this node's tunnel (server split-tunnel routes, unless the
+    /// node sets `split-routes: false`). Before the channel is up everything counts as inside.
+    func routesThroughTunnel(_ ip: NCIP) -> Bool {
+        guard cfg.splitRoutes, let p = params else { return true }
+        return p.routesThroughTunnel(ip)
+    }
+
+    fileprivate func noteSplitDirect() { splitDirect += 1 }
+
     // MARK: Test hooks (NCOpenConnectLoopbackTests)
 
     /// Drops the TLS channel as if the network had failed (the reconnect path).
@@ -576,6 +599,16 @@ extension NCConnector {
                     let why = dev.alive ? "cannot resolve \(target.host)" : (dev.lastError ?? "down")
                     dev.release()
                     queue.async { completion(nil, Failure.handshake("openconnect: \(why)")) }
+                    return
+                }
+                if !dev.routesThroughTunnel(ip) {
+                    // Outside the server's split-include (or inside a split-exclude): the VPN does not carry it,
+                    // so the flow goes direct like with the AnyConnect / openconnect clients.
+                    dev.noteSplitDirect()
+                    dev.release()
+                    StartupLog.write("openconnect: \(proxy.name) \(ip.string):\(target.port) outside split routes → direct")
+                    let d = NCStream(to: ip.string, port: target.port, queue: queue)
+                    d.start { err in completion(err == nil ? d : nil, err) }
                     return
                 }
                 let s = NCWGTCPStream(device: dev, callerQueue: queue)

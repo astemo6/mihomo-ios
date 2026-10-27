@@ -122,9 +122,14 @@ final class NCOpenConnectLoopbackTests: XCTestCase {
         let back = echo(stream, big)
         XCTAssertEqual(back.count, big.count)
         XCTAssertTrue(back == big, "1 MiB echo differs")
-        NSLog("[oc-loopback] 1 MiB echo in %.2f s; frames out %d in %d, tx dropped %d",
-              Date().timeIntervalSince(t0), NCLwIP.queue.sync { dev.framesOut }, NCLwIP.queue.sync { dev.framesIn },
-              NCLwIP.queue.sync { dev.txDropped })
+        let secs = Date().timeIntervalSince(t0)
+        NSLog("[oc-loopback] 1 MiB echo in %.2f s; frames out %d in %d, tx dropped %d, max in flight %d",
+              secs, NCLwIP.queue.sync { dev.framesOut }, NCLwIP.queue.sync { dev.framesIn },
+              NCLwIP.queue.sync { dev.txDropped }, NCLwIP.queue.sync { dev.maxInFlightSeen })
+        // fix/nc-oc-dtls: several frames in flight (each its own TLS record — ocserv rejects coalesced frames, so a
+        // byte-exact echo also proves no record carried two frames). 1da28ca (one frame per write) took ≈2–3 s here.
+        XCTAssertGreaterThan(NCLwIP.queue.sync { dev.maxInFlightSeen }, 1, "uplink never pipelined")
+        XCTAssertLessThan(secs, 30)
     }
 
     /// A domain target resolves through X-CSTP-DNS (dnsmasq behind ocserv), not the system resolver.
@@ -268,6 +273,49 @@ final class NCOpenConnectLoopbackTests: XCTestCase {
         defer { stream2.cancel() }
         let third = Data("after reconnect".utf8)
         XCTAssertEqual(echo(stream2, third), third)
+    }
+
+    /// fix/nc-oc-dtls: the server's split-tunnel routes decide which destinations use the node. ocserv announces
+    /// include 10.77.0.0/24 and exclude 10.77.0.192/26; 127.0.0.1 is outside, so a flow to the host's forwarded
+    /// ocserv port goes DIRECT (through the tunnel 127.0.0.1 would be the VM's own loopback with nothing listening).
+    func testSplitRoutes() throws {
+        let p = node()
+        let (s, err) = dial(p, echoIP, 9000)
+        let stream = try XCTUnwrap(s, "dial failed: \(String(describing: err))")
+        defer { stream.cancel() }
+        let dev = try XCTUnwrap(device(p))
+        NCLwIP.queue.sync {
+            NSLog("[oc-loopback] split include %@ exclude %@", "\(dev.params?.splitIncludes ?? [])",
+                  "\(dev.params?.splitExcludes ?? [])")
+            XCTAssertFalse(dev.params?.splitIncludes.isEmpty ?? true, "no X-CSTP-Split-Include")
+            XCTAssertFalse(dev.params?.splitExcludes.isEmpty ?? true, "no X-CSTP-Split-Exclude")
+            XCTAssertTrue(dev.routesThroughTunnel(NCIP("10.77.0.1")!))
+            XCTAssertTrue(dev.routesThroughTunnel(NCIP("10.77.0.100")!))
+            XCTAssertFalse(dev.routesThroughTunnel(NCIP("10.77.0.200")!))
+            XCTAssertFalse(dev.routesThroughTunnel(NCIP("127.0.0.1")!))
+            XCTAssertFalse(dev.routesThroughTunnel(NCIP("1.1.1.1")!))
+        }
+        let before = NCLwIP.queue.sync { dev.splitDirect }
+        let framesBefore = NCLwIP.queue.sync { dev.framesOut }
+        let (d, derr) = dial(p, "127.0.0.1", port)
+        let direct = try XCTUnwrap(d, "split-excluded dial failed: \(String(describing: derr))")
+        direct.cancel()
+        XCTAssertEqual(NCLwIP.queue.sync { dev.splitDirect }, before + 1)
+        // A direct dial sends no CSTP DATA (keepalive/DPD may add a frame or two at most).
+        XCTAssertLessThanOrEqual(NCLwIP.queue.sync { dev.framesOut } - framesBefore, 2)
+        // Inside the include the same node still tunnels.
+        let msg = Data("still tunnelled".utf8)
+        XCTAssertEqual(echo(stream, msg), msg)
+    }
+
+    /// fix/nc-oc-dtls: flow errors on the OpenConnect netif say "openconnect:", not "wireguard:".
+    func testFlowErrorsNameOpenConnect() throws {
+        let p = node()
+        let (s, err) = dial(p, echoIP, 9) // nothing listens on 10.77.0.1:9 → RST through the tunnel
+        XCTAssertNil(s)
+        let text = "\(String(describing: err))"
+        XCTAssertTrue(text.contains("openconnect"), text)
+        XCTAssertFalse(text.contains("wireguard"), text)
     }
 
     /// Wrong password: the connector fails with the server's auth error (no hang, no netif).

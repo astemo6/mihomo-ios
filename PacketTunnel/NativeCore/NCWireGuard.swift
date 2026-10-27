@@ -37,9 +37,13 @@ protocol NCLwIPDevice: AnyObject {
     func resolve(_ host: String, _ done: @escaping ([NCIP]) -> Void)
     /// An IP packet lwIP emits on this netif (valid only during the call).
     func lwipOutput(_ pkt: UnsafeBufferPointer<UInt8>)
+    /// Error-message prefix for flows on this netif ("wireguard", "openconnect"). fix/nc-oc-dtls.
+    var label: String { get }
 }
 
 extension NCLwIPDevice {
+    var label: String { "wireguard" }
+
     /// The address family to dial for this device: v4 when the interface has one.
     func pick(_ ips: [NCIP]) -> NCIP? {
         if has4, let v4 = ips.first(where: { $0.isV4 }) { return v4 }
@@ -1085,7 +1089,7 @@ final class NCWGTCPStream: NCRelayStream {
         let b = ip.bytes
         connID = b.withUnsafeBufferPointer { nc_wg_tcp_connect(device.devID, $0.baseAddress, ip.isV4 ? 0 : 1, UInt16(clamping: port)) }
         guard connID != 0 else {
-            finishConnect(NCConnector.Failure.handshake("wireguard: no lwIP PCB for \(ip.string):\(port)"))
+            finishConnect(NCConnector.Failure.handshake("\(device.label): no lwIP PCB for \(ip.string):\(port)"))
             releaseDevice()
             return
         }
@@ -1096,7 +1100,7 @@ final class NCWGTCPStream: NCRelayStream {
             nc_wg_tcp_abort(self.connID)
             self.connID = 0
             self.closed = true
-            self.finishConnect(NCConnector.Failure.handshake("wireguard: connect timeout (no handshake / no answer)"))
+            self.finishConnect(NCConnector.Failure.handshake("\(self.device.label): connect timeout (no handshake / no answer)"))
             self.releaseDevice()
         }
     }
@@ -1141,7 +1145,7 @@ final class NCWGTCPStream: NCRelayStream {
     fileprivate func lwipError(_ err: Int32) {
         connID = 0
         drainSendWaiters()
-        let e = NCConnector.Failure.handshake("wireguard: connection reset (lwIP \(err))")
+        let e = NCConnector.Failure.handshake("\(device.label): connection reset (lwIP \(err))")
         if !connected {
             closed = true
             finishConnect(e)
@@ -1262,7 +1266,7 @@ final class NCWGTCPStream: NCRelayStream {
                 handler = nil
                 callerQueue.async { h(nil, nil) }
             }
-            finishConnect(NCConnector.Failure.handshake("wireguard: cancelled"))
+            finishConnect(NCConnector.Failure.handshake("\(device.label): cancelled"))
             releaseDevice()
         }
     }
