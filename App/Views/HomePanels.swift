@@ -306,7 +306,7 @@ struct HomePanelsSection: View {
             }
         }
         // A drop anywhere in the section (between cards, on the header) ends the drag and saves the order.
-        .onDrop(of: [.plainText], delegate: HomeReorderDrop(target: nil, home: home))
+        .onDrop(of: [UTType.text], delegate: HomeReorderDrop(drop: { if home.dragging != nil { home.commitDrag() } }))
         .sheet(item: $editPanel) { p in PanelEditSheet(p: p) }
         .task(id: vpn.isConnected) {
             home.loadCache()
@@ -591,29 +591,19 @@ struct HomeReorderDrag: ViewModifier {
                 home.dragging = id
                 return NSItemProvider(object: id as NSString)
             }
-            .onDrop(of: [.plainText], delegate: HomeReorderDrop(target: id, home: home))
+            .onDrop(of: [UTType.text], delegate: HomeReorderDrop(
+                enter: { if let d = home.dragging { home.dragMove(d, over: id) } },
+                drop: { home.commitDrag() }))
     }
 }
 
+/// Same shape as the 策略 tab's GroupDropDelegate: closures made in the view (main actor) do the work.
 struct HomeReorderDrop: DropDelegate {
-    /// The card under the finger; nil = the section itself (only ends the drag).
-    let target: String?
-    let home: HomePanelStore
-
-    func validateDrop(info: DropInfo) -> Bool { home.dragging != nil }
-
-    func dropEntered(info: DropInfo) {
-        guard let dragged = home.dragging, let target else { return }
-        home.dragMove(dragged, over: target)
-    }
-
+    var enter: () -> Void = {}
+    let drop: () -> Void
+    func dropEntered(info: DropInfo) { enter() }
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard home.dragging != nil else { return false }
-        home.commitDrag()
-        return true
-    }
+    func performDrop(info: DropInfo) -> Bool { drop(); return true }
 }
 
 /// r7: Debug UI-test builds only (-UITestSeed): exposes a list's saved order as the accessibility value of its footer,

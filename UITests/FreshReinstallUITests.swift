@@ -86,6 +86,17 @@ extension TernUITests {
             guard let i = o.firstIndex(of: a), let j = o.firstIndex(of: b) else { return false }
             return i < j
         }
+        /// Long-press (the menu preview lifts), then drag slowly onto `target` and hold; one retry from the target's edge.
+        func drag(_ e: XCUIElement, onto target: XCUIElement, until done: () -> Bool) -> Bool {
+            e.press(forDuration: 1.0, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
+            usleep(1_500_000) // drop + 0.6 s save
+            if done() { return true }
+            warnings.append("[\(Env.tag)] home drag retry")
+            e.press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)),
+                    withVelocity: .slow, thenHoldForDuration: 0.8)
+            usleep(1_500_000)
+            return done()
+        }
         let uptime = tile("uptime"), memory = tile("memory")
         XCTAssertTrue(scrollTo(uptime), "运行时长 tile")
         XCTAssertTrue(memory.exists, "内存 tile")
@@ -94,10 +105,8 @@ extension TernUITests {
         XCTAssertLessThan(uptime.frame.midX, memory.frame.midX, "half tiles: 运行时长 left of 内存")
 
         // Half width: drag 内存 onto 运行时长 → 内存 first.
-        memory.press(forDuration: 1.0, thenDragTo: uptime)
-        usleep(1_500_000) // drop + 0.6 s save
+        XCTAssertTrue(drag(memory, onto: uptime) { before("memory", "uptime") }, "drag reordered (half): \(order())")
         snap("home-drag-half")
-        XCTAssertTrue(before("memory", "uptime"), "drag reordered (half): \(order())")
         XCTAssertTrue(scrollTo(uptime), "运行时长 tile after the drag")
         XCTAssertLessThan(memory.frame.midX, uptime.frame.midX, "内存 drawn first")
 
@@ -106,10 +115,8 @@ extension TernUITests {
         XCTAssertTrue(tapIfExists(app.button(L("全宽显示")), timeout: 4), "全宽显示")
         usleep(900_000)
         XCTAssertTrue(scrollTo(memory), "内存 full width")
-        uptime.press(forDuration: 1.0, thenDragTo: memory)
-        usleep(1_500_000)
+        XCTAssertTrue(drag(uptime, onto: memory) { before("uptime", "memory") }, "drag reordered (full): \(order())")
         snap("home-drag-full")
-        XCTAssertTrue(before("uptime", "memory"), "drag reordered (full): \(order())")
         // The long-press menu no longer offers 在首页隐藏; removal is 从首页移除.
         uptime.press(forDuration: 1.2)
         XCTAssertTrue(app.button(L("从首页移除")).waitForExistence(timeout: 4), "从首页移除 in the long-press menu")
