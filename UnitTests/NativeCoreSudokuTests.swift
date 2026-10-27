@@ -1,5 +1,6 @@
 import XCTest
 import CryptoKit
+import Network
 @testable import Tern
 
 final class NativeCoreSudokuTests: XCTestCase {
@@ -382,23 +383,47 @@ final class NativeCoreSudokuTests: XCTestCase {
         XCTAssertTrue(reason2?.contains("users") == true, "expected users message, got: \(reason2 ?? "")")
     }
 
-    func testConnectorDialFailsAgainstClosedPort() {
-        // S2 wired the real dialer (commit 2041932), so a dial no longer returns
-        // a deferred-unsupported marker — it must attempt the TCP dial and fail
-        // against a closed port with a non-nil error and no stream.
+    /// The node is available, so NCConnector really dials: against a peer that accepts and closes at once the
+    /// handshake must fail with an error and no stream — never an "unsupported" marker. (A refused port is not used:
+    /// real flows keep NWConnection's .waiting retry behaviour, which only fails at the flow timeout.)
+    func testConnectorDialFailsAgainstClosingPeer() throws {
+        let listener = try NWListener(using: .tcp, on: .any)
+        let lq = DispatchQueue(label: "sudoku.closing-peer")
+        listener.newConnectionHandler = { conn in
+            conn.start(queue: lq)
+            lq.asyncAfter(deadline: .now() + 0.05) { conn.cancel() }
+        }
+        let up = expectation(description: "listener ready")
+        let upOnce = NCCallOnce { up.fulfill() }
+        listener.stateUpdateHandler = { state in
+            if case .ready = state { upOnce.call() }
+        }
+        listener.start(queue: lq)
+        wait(for: [up], timeout: 5)
+        defer { listener.cancel() }
+        let port = Int(listener.port?.rawValue ?? 0)
+        XCTAssertGreaterThan(port, 0)
         let proxy = NCProxy(name: "DialTest", type: "sudoku", fields: [
             "server": .string("127.0.0.1"),
-            "port": .number(1),
+            "port": .number(Double(port)),
             "key": .string("valid_secret")
         ])
-        let exp = expectation(description: "dial fails against closed port")
-        let target = NCTarget(host: "example.com", port: 80)
-        NCConnector.connect(target: target, proxy: proxy, queue: .main) { stream, error in
-            XCTAssertNil(stream)
-            XCTAssertNotNil(error)
+        XCTAssertNil(NCSupport.unsupportedReason(proxy))
+        let exp = expectation(description: "dial fails against a closing peer")
+        let box = SudokuDialResult()
+        NCConnector.connect(target: NCTarget(host: "example.com", port: 80), proxy: proxy,
+                            queue: DispatchQueue(label: "sudoku.dial-test")) { stream, error in
+            box.set(stream != nil, error)
+            stream?.cancel()
             exp.fulfill()
         }
-        wait(for: [exp], timeout: 10.0)
+        wait(for: [exp], timeout: 15.0)
+        let (gotStream, error) = box.get()
+        XCTAssertFalse(gotStream)
+        XCTAssertNotNil(error)
+        if let f = error as? NCConnector.Failure, case .unsupported(let why) = f {
+            XCTFail("dial returned an unsupported marker: \(why)")
+        }
     }
 
     // MARK: - fix/nc-sudoku-interop: availability + canonical fields
@@ -457,5 +482,25 @@ final class NativeCoreSudokuTests: XCTestCase {
         XCTAssertEqual(node.fields["custom-tables"]?.array?.compactMap { $0.string }, ["xpxvvpvv", "vxpvxvvp"])
         XCTAssertEqual(node.fields["multiplex"]?.string, "auto")
         XCTAssertNil(NCSupport.unsupportedReason(node))
+    }
+}
+
+/// Thread-safe holder for the connector callback (testConnectorDialFailsAgainstClosingPeer).
+private final class SudokuDialResult {
+    private let lock = NSLock()
+    private var gotStream = false
+    private var error: Error?
+
+    func set(_ gotStream: Bool, _ error: Error?) {
+        lock.lock()
+        self.gotStream = gotStream
+        self.error = error
+        lock.unlock()
+    }
+
+    func get() -> (Bool, Error?) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (gotStream, error)
     }
 }
