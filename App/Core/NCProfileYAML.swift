@@ -2,7 +2,7 @@ import Foundation
 
 // DIVERGENCES:
 // 1. YAML Node Engine:
-//    - the old core: Uses go.yaml.in/yaml/v3 AST (yaml.Node tree) where all comments and
+//    - the old core: Uses a YAML node tree where all comments and
 //      formatting styles (flow vs block) are parsed into AST nodes, and serialized back out with yaml.Encoder.
 //    - Swift (NCProfileYAML): Uses a line/block-based document editor that locates sections (`proxies:`,
 //      `proxy-groups:`, `rules:`, `sub-rules:`) and entries by line structure. For modified/inserted proxy entries,
@@ -11,18 +11,18 @@ import Foundation
 //    - Impact: Comments, custom spacing, and formatting outside touched entries are 100% preserved bit-for-bit
 //      without any AST re-serialization reformatting side-effects.
 // 2. Flow Style Proxy Handling:
-//    - the old core: Uses yaml.FlowStyle bitmask on yaml.Node.
+//    - the old core: Uses a flow-style flag on each node.
 //    - Swift: Detects flow-style proxy entries (`- { ... }`) and preserves flow-style mapping formatting on updates.
 //    - Impact: Flow-style entries remain flow-style; block-style entries remain block-style.
 // 3. Line endings / BOM (rv2):
-//    - the old core: yaml.v3 re-encodes the whole document with LF endings.
+//    - the old core: the reference YAML library re-encodes the whole document with LF endings.
 //    - Swift: the dominant line ending of the input (CRLF or LF) and a leading UTF-8 BOM are kept on output, so an
 //      edit to a uniformly-CRLF file changes only the touched lines. Mixed-ending files are written with the
 //      dominant ending.
-// 4. Scalar quoting (rv2): formatYAMLString follows yaml.v3's encoder choice — plain when the string re-reads as
+// 4. Scalar quoting (rv2): formatYAMLString follows the reference YAML library's encoder choice — plain when the string re-reads as
 //    the same !!str, double-quoted when it would resolve to another type (bool / null / int / float / timestamp /
 //    YAML 1.1 bool / base-60) or contains control or line-break characters, single-quoted otherwise. Divergence: a
-//    multi-line string is double-quoted with `\n` escapes instead of yaml.v3's block literal (`|-`), since the
+//    multi-line string is double-quoted with `\n` escapes instead of the reference YAML library's block literal (`|-`), since the
 //    line editor emits single-line values; it reads back as the identical string.
 
 /// A comment- and order-preserving YAML document editor for profile node operations.
@@ -627,7 +627,7 @@ final class NCProfileYAML {
         }
     }
 
-    /// yaml.v3 float spelling; integral values within Int64 range print without a fraction (the old
+    /// the reference YAML library float spelling; integral values within Int64 range print without a fraction (the old
     /// `Int64(n)` trapped for integral values beyond Int64, e.g. 1e20).
     static func formatYAMLDouble(_ n: Double) -> String {
         if n.isNaN { return ".nan" }
@@ -638,13 +638,13 @@ final class NCProfileYAML {
         return "\(n)"
     }
 
-    // MARK: - Scalar quoting (yaml.v3 equivalent)
+    // MARK: - Scalar quoting (the reference YAML library equivalent)
 
-    /// Formats a string scalar the way yaml.v3's encoder chooses its style (encode stringv + libyaml
+    /// Formats a string scalar the way the reference YAML library's encoder chooses its style (its scalar style choice + libyaml
     /// yaml_emitter_analyze_scalar / select_scalar_style):
     ///  - "" -> `""`
     ///  - contains a line break or a non-printable character (control chars, tab, DEL, BOM, NEL, LS, PS) ->
-    ///    double-quoted with escapes (yaml.v3 uses a `|-` literal for multi-line block values; a double-quoted
+    ///    double-quoted with escapes (the reference YAML library uses a `|-` literal for multi-line block values; a double-quoted
     ///    scalar reads back as the identical string and keeps the entry on one line — see DIVERGENCES 4)
     ///  - would resolve to a non-string as a plain scalar (null, bool incl. YAML 1.1 y/yes/on/off..., int incl.
     ///    0x/0o/0b/underscores, float incl. .inf/.nan, base-60, timestamp, merge key `<<`) -> double-quoted
@@ -701,13 +701,13 @@ final class NCProfileYAML {
         return m.range.location == 0 && m.range.length == r.length
     }
 
-    /// yaml.v3 resolve() (+ isOldBool / isBase60Float in stringv): true when the plain scalar `s` would not
+    /// the reference YAML library resolve() (+ the YAML 1.1 bool / base-60 float checks): true when the plain scalar `s` would not
     /// read back as a !!str.
     static func resolvesToNonString(_ s: String) -> Bool {
         let nullOrBool: Set<String> = [
             "~", "null", "Null", "NULL",
             "true", "True", "TRUE", "false", "False", "FALSE",
-            // YAML 1.1 booleans (yaml.v3 isOldBool) and merge key
+            // YAML 1.1 booleans (YAML 1.1 rules) and merge key
             "y", "Y", "yes", "Yes", "YES", "on", "On", "ON",
             "n", "N", "no", "No", "NO", "off", "Off", "OFF", "<<",
             ".inf", ".Inf", ".INF", "+.inf", "+.Inf", "+.INF", "-.inf", "-.Inf", "-.INF",
@@ -717,7 +717,7 @@ final class NCProfileYAML {
         guard let first = s.unicodeScalars.first else { return true }
         let hint = "+-.0123456789"
         guard hint.unicodeScalars.contains(first) else { return false }
-        // int: strconv.ParseInt(strings.ReplaceAll(s, "_", ""), 0, 64) (+ ParseUint) — any base prefix.
+        // int: 64-bit integer (signed or unsigned) after removing "_", any base prefix.
         let noUnderscore = s.replacingOccurrences(of: "_", with: "")
         if fullMatch("[-+]?(0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+|[0-9]+)", noUnderscore) { return true }
         // float: yamlStyleFloat

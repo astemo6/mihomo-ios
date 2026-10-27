@@ -561,7 +561,7 @@ extension NCTLS13 {
             ext(43, Data([0x02, 0x03, 0x04]))
         } else {
             // supported_versions: u8 list length 4 = TLS 1.3, TLS 1.2. Was 0x03 (odd length) since 6bcf716: the old core
-            // crypto/tls answers decode_error (alert 50) — every non-ECH native-TLS hello was malformed. Fixed twice
+            // a reference TLS server answers decode_error (alert 50) — every non-ECH native-TLS hello was malformed. Fixed twice
             // independently (feat/nc-naive-h2h3 15a5f62, fix/nc-ech-rest b805b96); this is the single implementation.
             ext(43, Data([0x04, 0x03, 0x04, 0x03, 0x03]))
         }

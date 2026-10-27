@@ -10,7 +10,7 @@
 //   2. Map Local, first match: the inline answer the old core precomputed (text / json / base64 / tiny-gif).
 //   3. Request header rewrites (add / del / replace / replace-regex, Host handled like the old core) in rule order.
 //   4. Response rules against the final URL: header rewrites are applied natively to the upstream's head.
-//   5. The outbound request exactly as httputil.ReverseProxy would send it (hop-by-hop headers, Te: trailers,
+//   5. The outbound request exactly as a standard HTTP reverse proxy would send it (hop-by-hop headers, Te: trailers,
 //      Upgrade, Forwarded / X-Forwarded-*), the body passed through untouched.
 //
 // Everything else is .deferred(reason): the session asks the old flow as before. That covers any script (request or
@@ -452,7 +452,7 @@ final class NativeRewriteEngine {
         if let (hh, port) = NetURL.splitHostPort(host), (scheme == "https" && port == "443") || (scheme == "http" && port == "80") { urlHost = hh }
         var u = scheme + "://" + urlHost + r.requestURI
         if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .deferred("url") }
-        let clientBody = cl != 0     // the client sends a body (the old core: r.Body is not http.NoBody)
+        let clientBody = cl != 0     // the client sends a body (the old core: the request has a body, not an empty one)
 
         let active = on ? rules : []
 
@@ -599,7 +599,7 @@ final class NativeRewriteEngine {
                         return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: status, header: h, body: m.body), log, m.body)
                     }
                     if let nu = o.url, !nu.isEmpty, nu != u {
-                        // url.Parse(res.URL) with a host: Swift takes only what it parses exactly like the old core
+                        // URL parse of res.URL with a host: Swift takes only what it parses exactly like the old core
                         guard let p = NetURL.parseAbsolute(nu) else { return .deferred("script url") }
                         u = nu
                         log.url = u
@@ -607,7 +607,7 @@ final class NativeRewriteEngine {
                     }
                     if let m = o.method, !m.isEmpty {
                         guard m.utf8.allSatisfy({ $0 < 0x80 }) else { return .deferred("script method") }
-                        let up = m.uppercased() // strings.ToUpper on ASCII
+                        let up = m.uppercased() // ASCII upper-casing
                         guard up.utf8.allSatisfy(RWAscii.isTokenByte) else { return .deferred("script method") }
                         r.method = up
                     }
@@ -655,7 +655,7 @@ final class NativeRewriteEngine {
                 log.notes.append(r.contentLength < 0 ? "跳过请求体规则（分块请求体）" : "跳过请求体规则（请求体 \(r.contentLength >> 10) KB 超过上限）")
                 reqBodyRules.removeAll()
             } else if r.contentLength == 0 {
-                // no body (http.NoBody): a regex leaves it empty, a json / jq rule fails on it (the old core skips the rule) —
+                // no body (no body at all): a regex leaves it empty, a json / jq rule fails on it (the old core skips the rule) —
                 // native-only: the json / jq rules are skipped the same way, the regex rules leave it empty
                 // the old core's json / jq rule errors on the empty body before ent.Match, so the request log does not list it
                 let failed = Set(reqBodyRules.filter { $0.kind != "body" }.map(\.index))
@@ -743,7 +743,7 @@ final class NativeRewriteEngine {
 
         // ---- 5. the outbound request (flowOutbound + forward) ----
         guard r.host.isEmpty || NativeRewriteEngine.plainHost(r.host) else { return .deferred("host after rules") }
-        guard let target = NetURL.parseAbsolute(u) else { return .deferred("target url") } // url.Parse(f.url)
+        guard let target = NetURL.parseAbsolute(u) else { return .deferred("target url") } // URL parse of f.url
         log.url = u
         log.headers = r.header.sortedPairs   // ent.ReqHeaders(r.Method, r.Header)
         if r.method != method { log.reqMethod = r.method }
@@ -863,12 +863,12 @@ final class NativeRewriteEngine {
         } else if contentLength >= 0 {
             outLen = contentLength
         }
-        let logHeaders = h.sortedPairs // ent.Response(resp.StatusCode, resp.Header) at the end of modifyResponse
+        let logHeaders = h.sortedPairs // the response entry (status code, headers) at the end of modifyResponse
         if !noBody { h.del("Content-Length") }
         h.del("Transfer-Encoding")
         let ct = h.get("Content-Type")
         let media = RWAscii.lower(RWAscii.trimSpace(String(ct.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")))
-        // flow runResponse: an empty (Content-Length 0) body is http.NoBody, not the upstream's reader → "read"
+        // flow runResponse: an empty (Content-Length 0) body counts as no body, not the upstream's reader → "read"
         // (the old core hands back an empty body; the native driver serves it the same way).
         let mode: FlowBodyMode = noBody ? .none : (contentLength == 0 ? .read : .upstream)
         return RewriteResponse(action: .respond, status: status, headers: h.sortedPairs, bodyMode: mode,

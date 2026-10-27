@@ -2,7 +2,7 @@ import XCTest
 @testable import Tern
 
 /// SSR primitives — stream cipher vectors from reference implementations
-/// (the old core stdlib AES modes, x/crypto-style ChaCha per RFC 8439, RC4-MD5),
+/// (reference AES modes, ChaCha per RFC 8439, RC4-MD5),
 /// auth_sha1_v4 framing verified structurally (CRC/HMAC per spec) plus a
 /// self-decoding round trip.
 final class NativeCoreSSRTests: XCTestCase {

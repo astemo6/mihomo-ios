@@ -6,7 +6,7 @@ import Foundation
 ///   - `allow-lan` false → the listener binds 127.0.0.1 whatever `bind-address` says (Clash.Meta genAddr);
 ///   - `bind-address` "*" (Clash.Meta default) / "" / 0.0.0.0 / :: → every interface; a loopback address → loopback;
 ///     another IP literal → that address only;
-///   - `authentication` ["user:pass", …] — split at the FIRST ':' (strings.Cut, so a password may contain ':'),
+///   - `authentication` ["user:pass", …] — split at the FIRST ':' (so a password may contain ':'),
 ///     entries without ':' are ignored, a later duplicate user replaces the earlier one (sync.Map Store);
 ///     no valid entry = no authentication;
 ///   - `skip-auth-prefixes` — source addresses that never authenticate (the app always writes 127.0.0.0/8, ::1/128);

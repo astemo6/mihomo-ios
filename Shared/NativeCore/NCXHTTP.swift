@@ -478,7 +478,7 @@ struct NCXHTTPConfig {
         if !seq.isEmpty { put(seq, placement: seqPlacement, key: seqKey) }
     }
 
-    // MARK: escaping (the old core net/url)
+    // MARK: escaping (the old core's URL rules)
 
     /// url.URL.EscapedPath (encodePath): unreserved + "$&+,/:;=@" stay, everything else %XX.
     static func escapePath(_ s: String) -> String {

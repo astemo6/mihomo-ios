@@ -9,9 +9,9 @@ import Foundation
 /// NCRuntimeSteps.providerConvert / uniqueProviderName, NCRuleValidator.prettyProviderName,
 /// NCProfileInspectorPort.parseProviderNodes / parseRuleCache, NCSubscriptionParser (= parseNodeText).
 ///
-/// Divergences: the old core streamed list conversion from an io.Reader; here the downloaded Data is scanned line by line
+/// Divergences: the old core streamed list conversion from a stream; here the downloaded Data is scanned line by line
 /// in place (one UTF-8 decode of the download, no per-line arrays kept). MigrateProfileProviders re-emits the
-/// profile with NCYAML.emit as the old core re-marshalled it with yaml.v3 (comments dropped in both).
+/// profile with NCYAML.emit as the old core re-marshalled it with the reference YAML library (comments dropped in both).
 enum NCProviderPorts {
 
     // MARK: - mitm ConvertListLine
@@ -461,7 +461,7 @@ enum NCProviderPorts {
         for m in ruleSetRefRE.matches(in: r, range: NSRange(location: 0, length: ns.length)).reversed() {
             let g = ns.substring(with: m.range(at: 1))
             guard let nn = renames[g.trimmingCharacters(in: .whitespaces)] else { continue }
-            // the old core: strings.Replace(match, sub[1], nn, 1) — the first occurrence of the captured text in the match.
+            // the old core replaces once — the first occurrence of the captured text in the match.
             let whole = ns.substring(with: m.range)
             guard let rr = whole.range(of: g) else { continue }
             let replaced = whole.replacingCharacters(in: rr, with: nn)

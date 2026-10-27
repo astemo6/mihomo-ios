@@ -322,7 +322,7 @@ enum NCSubscriptionParser {
                 opts["mode"] = .string(arg("mode") ?? arg("obfs") ?? "websocket")
                 if let h = arg("host") ?? arg("obfs-host") { opts["host"] = .string(h) }
                 if let pa = arg("path") { opts["path"] = .string(pa) }
-                // Clash.Meta detects the TLS flag with strings.Contains over the
+                // Clash.Meta detects the TLS flag with a substring check over the
                 // whole plugin value — kept for byte-for-byte parity with
                 // Libmihome on the same link.
                 if plugin.contains("tls") { opts["tls"] = .bool(true) }

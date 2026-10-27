@@ -1,15 +1,15 @@
 // Native MitM stage 3b — JSON exactly as the old core body rules see and write it.
 //
-// the old core decodes a body with encoding/json + UseNumber (r6limits
+// the old core decodes a body with a JSON decoder that keeps numbers as their literal text (r6limits
 // decodeJSONNumber: one value, only whitespace after it), edits the value tree (Loon json ops: jsonEdit; legacy jq
-// step lists: setpath / delpaths), and encodes it with encodeJSON (json.Encoder, SetEscapeHTML(false), no trailing newline).
+// step lists: setpath / delpaths), and encodes it with encodeJSON (no HTML escaping, no trailing newline).
 // This file reproduces that byte for byte:
 //
 //   - strings and object keys are kept as raw UTF-8 bytes (Swift String equality / ordering is Unicode-canonical,
 //     the old core's is bytewise: "é" and "e\u{301}" are two keys in the old core);
 //   - numbers keep their literal text (json.Number is written back verbatim);
 //   - objects are written with keys sorted bytewise (the old core sorts map keys), duplicates resolved last-wins;
-//   - strings are escaped like encoding/json's appendString without HTML escaping (\b \f \n \r \t, \u00XX for the
+//   - strings are escaped like the reference JSON encoder without HTML escaping (\b \f \n \r \t, \u00XX for the
 //     other control bytes, \" \\, \u2028 / \u2029).
 //
 // Anything where the old core would do something Swift does not reproduce returns nil from the parser (the caller hands the
@@ -27,7 +27,7 @@ indirect enum BodyJSON: Equatable {
     case object([[UInt8]: BodyJSON])
     case deleted                    // delpaths marker (never encoded)
 
-    // MARK: parse (encoding/json + UseNumber, then "only whitespace after the value")
+    // MARK: parse (numbers kept as their literal text, then "only whitespace after the value")
 
     static func parse(_ data: Data) -> BodyJSON? {
         let bytes = [UInt8](data)
@@ -235,7 +235,7 @@ indirect enum BodyJSON: Equatable {
         return true
     }
 
-    // MARK: encode (encodeJSON: json.Encoder, SetEscapeHTML(false), trailing newline trimmed)
+    // MARK: encode (encodeJSON: no HTML escaping, trailing newline trimmed)
 
     /// nil when the tree still holds a delete marker (never happens after a completed delpaths).
     func encoded() -> Data? {
@@ -284,7 +284,7 @@ indirect enum BodyJSON: Equatable {
         out.append(UInt8(ascii: "\""))
     }
 
-    /// the old core's map key order: bytewise (strings.Compare).
+    /// the old core's map key order: bytewise.
     static func keyLess(_ a: [UInt8], _ b: [UInt8]) -> Bool { a.lexicographicallyPrecedes(b) }
 
     private func encode(into out: inout [UInt8]) -> Bool {

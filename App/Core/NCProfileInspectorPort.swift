@@ -200,7 +200,7 @@ enum NCProfileInspectorPort {
         case "MATCH", "FINAL":
             return InspectRule(type: "MATCH", payload: "", proxy: rest.trimmingCharacters(in: .whitespaces), options: nil)
         default:
-            // the old core strings.Split keeps empty fields; options = TrimSpace(Join(parts[2:], ",")).
+            // the old core split keeps empty fields; options = the rest re-joined with "," and trimmed.
             let parts = rest.split(separator: ",", omittingEmptySubsequences: false).map { String($0) }
             let payload = parts.first?.trimmingCharacters(in: .whitespaces) ?? ""
             let proxy = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""

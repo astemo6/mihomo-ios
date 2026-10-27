@@ -284,7 +284,7 @@ enum NCRuntimeBuilder {
     }
 
     /// Sorted-keys JSON of the tree (the nativecore-runtime.json
-    /// shape; the old core marshals the same map with encoding/json).
+    /// shape; the old core marshals the same map as JSON).
     static func jsonData(_ raw: [String: NCJSONValue]) -> Data? {
         let any = NCJSONValue.object(raw).anyTree
         return try? JSONSerialization.data(withJSONObject: any, options: [.sortedKeys])

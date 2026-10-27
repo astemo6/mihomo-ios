@@ -174,7 +174,7 @@ enum H2Request {
         var headers: HTTPHeaderList = host.isEmpty ? [] : [("Host", host)]
         headers.append(contentsOf: regular)
         // Unknown length: what the old core's h2 server reports as ContentLength -1; the flow API's head JSON expresses it as
-        // chunked (the old core removes Transfer-Encoding exactly like net/http's server does).
+        // chunked (the old core removes Transfer-Encoding exactly like a standard HTTP server does).
         if length < 0 { headers.append(("Transfer-Encoding", "chunked")) }
         let head = HTTPRequestHead(method: m, target: p, version: "HTTP/2.0", headers: headers)
         return .success(H2ParsedRequest(head: head, length: length, scheme: sch, authority: host))

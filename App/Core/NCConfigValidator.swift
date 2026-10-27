@@ -175,7 +175,9 @@ enum NCConfigValidator {
                 switch p {
                 case .number, .null: break
                 case .string(let s):
-                    if goParseInt(s) == nil {
+                    if parseIntAnyBase(s) == nil {
+                        // Kept verbatim: Clash.Meta's own error text for this case (users compare it with other clients'
+                        // messages / search for it); the wording is upstream's, not a reference to our code.
                         throw ParseError(message: "proxy \(idx): cannot parse 'port' as int: strconv.ParseInt: parsing \"\(s)\": invalid syntax")
                     }
                 case .bool: throw ParseError(message: "proxy \(idx): 'port' expected type 'int', got unconvertible type 'bool'")
@@ -701,7 +703,7 @@ enum NCConfigValidator {
 
     static func list(_ v: NCJSONValue?) -> [NCJSONValue] { v?.array ?? [] }
 
-    /// A scalar as yaml.v3 would hand it to a string field (numbers and bools stringified).
+    /// A scalar as the reference YAML library would hand it to a string field (numbers and bools stringified).
     static func scalar(_ v: NCJSONValue?) -> String? {
         guard let v else { return nil }
         switch v {
@@ -714,8 +716,8 @@ enum NCConfigValidator {
         }
     }
 
-    /// strconv.ParseInt(s, 0, 64): decimal, 0x / 0o / 0b prefixes, optional sign and underscores after a prefix.
-    static func goParseInt(_ s: String) -> Int64? {
+    /// Clash.Meta config integer semantics (64-bit): decimal, 0x / 0o / 0b prefixes, optional sign and underscores after a prefix.
+    static func parseIntAnyBase(_ s: String) -> Int64? {
         var t = s
         var neg = false
         if t.hasPrefix("+") || t.hasPrefix("-") { neg = t.hasPrefix("-"); t.removeFirst() }

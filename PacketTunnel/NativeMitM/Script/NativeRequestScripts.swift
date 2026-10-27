@@ -97,7 +97,7 @@ final class NativeRequestScripts {
             }
             ticket = a.ticket ?? 0
             if p.contentLength == 0 {
-                bodyOK = true // http.NoBody
+                bodyOK = true // no body at all
                 body = Data()
                 state.bodyLoaded = true
                 return run(p, slot: slot)

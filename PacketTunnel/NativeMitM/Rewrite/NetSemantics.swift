@@ -1,7 +1,7 @@
-// Native MitM stage 3 (lane s3-full) — small pieces of net/url and net/http semantics the native rewrite engine
-// reproduces byte for byte: request-target parsing (url.ParseRequestURI + URL.EscapedPath / RequestURI), absolute
-// URL parsing for plain http(s) URLs (url.Parse), net.SplitHostPort, httputil's query cleaning (url.ParseQuery +
-// Values.Encode), http.StatusText and http.DetectContentType.
+// Native MitM stage 3 (lane s3-full) — small pieces of URL and HTTP semantics the native rewrite engine
+// reproduces byte for byte: request-target parsing (request-URI parse + escaped path / request URI), absolute
+// URL parsing for plain http(s) URLs (URL parse), host:port splitting, the reverse proxy's query clean-up (query parse +
+// re-encode), standard status texts and content sniffing.
 //
 // The escape tables and every function here are held to the old core by UnitTests/NativeMitmRegexFixtures.json (generated
 // by the retired bridge the old core standard library itself).
@@ -9,7 +9,7 @@
 import Foundation
 
 enum NetURL {
-    // net/url shouldEscape tables (bit set: the byte is escaped), generated from the old core 1.26:
+    // URL escaping tables (bit set: the byte is escaped), generated from the old core:
     // pathEsc = (&url.URL{Path: "/"+b}).EscapedPath() != "/"+b, queryEsc = url.QueryEscape(b) != b.
     static let pathEsc: [UInt32] = [4294967295, 3489662895, 2013265920, 3087007745, 4294967295, 4294967295, 4294967295, 4294967295]
     static let queryEsc: [UInt32] = [4294967295, 4227899391, 2013265921, 3087007745, 4294967295, 4294967295, 4294967295, 4294967295]
@@ -98,7 +98,7 @@ enum NetURL {
         var forceQuery: Bool
     }
 
-    /// url.ParseRequestURI(t) as http's server sees it, for origin-form ("/…") and plain absolute http(s) targets.
+    /// request-URI parse of t as an HTTP server sees it, for origin-form ("/…") and plain absolute http(s) targets.
     /// nil: the old core errors, or a form Swift does not reproduce ("*", "//…", authority oddities).
     static func parseRequestURI(_ t: String) -> Target? {
         let b = Array(t.utf8)
@@ -137,7 +137,7 @@ enum NetURL {
         var forceQuery: Bool
     }
 
-    /// url.Parse for "http://host[:port][/path][?query]" with a plain host (letters, digits, "-", ".", optional
+    /// URL parse for "http://host[:port][/path][?query]" with a plain host (letters, digits, "-", ".", optional
     /// ":digits"), no userinfo, no fragment. nil: anything else (the old core's result is not reproduced).
     static func parseAbsolute(_ s: String) -> Absolute? {
         let b = Array(s.utf8)
@@ -153,7 +153,7 @@ enum NetURL {
         return Absolute(scheme: scheme, host: host, path: t.path, query: t.query, forceQuery: t.forceQuery)
     }
 
-    /// net.SplitHostPort. nil: the old core reports an error.
+    /// host:port split. nil: the old core reports an error.
     static func splitHostPort(_ hp: String) -> (String, String)? {
         let b = Array(hp.utf8)
         guard let i = b.lastIndex(of: UInt8(ascii: ":")) else { return nil }
@@ -174,8 +174,8 @@ enum NetURL {
         return (String(decoding: host, as: UTF8.self), String(decoding: b[(i + 1)...], as: UTF8.self))
     }
 
-    /// flow_request flowCleanQuery (httputil cleanQueryParams): a query with ";" or a bad escape is re-encoded
-    /// from url.ParseQuery (unparsable parameters dropped). nil: not reproduced.
+    /// flow_request flowCleanQuery (reverse-proxy query clean-up): a query with ";" or a bad escape is re-encoded
+    /// from the query parse (unparsable parameters dropped). nil: not reproduced.
     static func cleanQuery(_ s: String) -> String? {
         let b = Array(s.utf8)
         var i = 0
@@ -190,7 +190,7 @@ enum NetURL {
             i += 1
         }
         if !dirty { return s }
-        // url.ParseQuery
+        // query parse
         if b.reduce(0, { $0 + ($1 == UInt8(ascii: "&") ? 1 : 0) }) + 1 > 10000 { return "" } // limit: error, empty map
         var m: [[UInt8]: [[UInt8]]] = [:]
         for part in b.split(separator: UInt8(ascii: "&"), omittingEmptySubsequences: false) {
@@ -216,7 +216,7 @@ enum NetURL {
 }
 
 enum NetStatus {
-    /// http.StatusText (the old core 1.26).
+    /// Standard HTTP status texts (as the old core sent them).
     static let text: [Int: String] = [
         100: "Continue", 101: "Switching Protocols", 102: "Processing", 103: "Early Hints",
         200: "OK", 201: "Created", 202: "Accepted", 203: "Non-Authoritative Information", 204: "No Content", 205: "Reset Content",
@@ -235,7 +235,7 @@ enum NetStatus {
         510: "Not Extended", 511: "Network Authentication Required",
     ]
 
-    /// resp.Status as flow runResponse builds it: fmt.Sprintf("%d %s", code, http.StatusText(code)).
+    /// the status line as flow runResponse builds it: "<code> <status text>".
     static func status(_ code: Int) -> String { "\(code) \(text[code] ?? "")" }
 }
 

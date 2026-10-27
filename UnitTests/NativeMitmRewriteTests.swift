@@ -140,7 +140,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         let fx = try fixtures()
         XCTAssertEqual(fx.version, RWSnapshot.supportedVersion)
         XCTAssertGreaterThanOrEqual(fx.suites.count, 4)
-        var total = 0, native = 0, deferred = 0, mismatch = 0, mustDefer = 0, goNative = 0, hostsOK = 0, nativeSkipped = 0
+        var total = 0, native = 0, deferred = 0, mismatch = 0, mustDefer = 0, fixtureNative = 0, hostsOK = 0, nativeSkipped = 0
         var reasons: [String: Int] = [:]
         var perSuite: [String] = []
         for s in fx.suites {
@@ -149,7 +149,7 @@ final class NativeMitmRewriteTests: XCTestCase {
             for c in s.cases ?? [] {
                 total += 1
                 let expectNative = c.expect.action == "local" || c.expect.action == "drop" || c.expect.action == "forward"
-                if expectNative { goNative += 1 }
+                if expectNative { fixtureNative += 1 }
                 let d = engine.decide(Self.request(c))
                 if case .deferred(let why) = d {
                     deferred += 1; sd += 1
@@ -181,12 +181,12 @@ final class NativeMitmRewriteTests: XCTestCase {
             perSuite.append("\(s.name) \(sn)/\(sn + sd)")
         }
         let top = reasons.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-        print("NativeMitmRewrite conformance: \(fx.suites.count) suites, \(total) cases; native == fixture \(native), deferred \(deferred) (\(top)), mismatches \(mismatch), must-defer violations \(mustDefer), native rule skips \(nativeSkipped); fixture-native cases \(goNative); hosts ok \(hostsOK)")
+        print("NativeMitmRewrite conformance: \(fx.suites.count) suites, \(total) cases; native == fixture \(native), deferred \(deferred) (\(top)), mismatches \(mismatch), must-defer violations \(mustDefer), native rule skips \(nativeSkipped); fixture-native cases \(fixtureNative); hosts ok \(hostsOK)")
         print("NativeMitmRewrite per suite (native/total): " + perSuite.joined(separator: "; "))
         XCTAssertEqual(mismatch, 0)
         XCTAssertEqual(mustDefer, 0)
         // guard against an engine that defers everything (always "correct", never useful)
-        XCTAssertGreaterThan(native, goNative / 2, "native engine decided only \(native) of \(goNative) fixture-native cases")
+        XCTAssertGreaterThan(native, fixtureNative / 2, "native engine decided only \(native) of \(fixtureNative) fixture-native cases")
     }
 
     // MARK: regexp2 → ICU translation (lane s3-full)
@@ -377,7 +377,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertNil(rule(#"{"p":"(?(x)y)","repl":"X"}"#), "untranslatable: the rule stays skipped")
     }
 
-    /// net/url, net, net/http pieces (NetSemantics.swift) against the old core's own answers.
+    /// URL, host:port and HTTP pieces (NetSemantics.swift) against the old core's own answers.
     func testNetSemantics() throws {
         guard let fx = try regexFixtures() else { return }
         XCTAssertEqual(NetURL.pathEsc.map { Int($0) }, fx.pathEsc.map { Int(UInt32(truncatingIfNeeded: $0)) })

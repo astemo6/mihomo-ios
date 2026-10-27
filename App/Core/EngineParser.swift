@@ -2228,7 +2228,7 @@ extension NCEngineRuleset {
     static func isEgern(_ text: String) -> Bool {
         var hasRulesKey = false
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            // the old core strings.TrimRight(l, " \t\r"): leading indentation is
+            // the old core trims trailing space / tab / CR: leading indentation is
             // KEPT — the top-level test below and the "  hostnames:" /
             // "    includes:" markers depend on it. Trimming both sides made
             // nested keys look top-level and a mitm-only Egern module

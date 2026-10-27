@@ -4,7 +4,7 @@ import CryptoKit
 
 /// Vectors for the hand-rolled TLS 1.3 key schedule and the REALITY
 /// handshake math. Sources: RFC 8448 §3, RFC 5869 test case 1, and vectors
-/// generated locally with the old core's standard library / x/crypto (the same crypto
+/// generated locally with an independent reference implementation (the same crypto
 /// the old core uses) — never from the Swift implementation under test.
 final class NativeCoreTLS13Tests: XCTestCase {
     private func unhex(_ s: String) -> Data {
@@ -64,7 +64,7 @@ final class NativeCoreTLS13Tests: XCTestCase {
     }
 
     func testRealityAuthKeyVector() {
-        // the old core (crypto/ecdh + x/crypto/hkdf): client private = bytes 0x20...0x3f,
+        // an independent ECDH + HKDF: client private = bytes 0x20...0x3f,
         // server public below, clientRandom = bytes 0x00...0x1f.
         let clientPriv = try! Curve25519.KeyAgreement.PrivateKey(
             rawRepresentation: Data((0x20..<0x40).map { UInt8($0) }))

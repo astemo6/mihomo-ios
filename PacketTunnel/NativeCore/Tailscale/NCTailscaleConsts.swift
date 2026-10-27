@@ -40,7 +40,7 @@ enum NCTailscaleConsts {
     static let noiseProtocolName: String = "Noise_IK_25519_ChaChaPoly_BLAKE2s"
 
     /// Noise prologue literal mixed into the handshake state at initialization.
-    /// Official reference: `tailscale.com/control/controlhttp/ts2021` `earlyNoisePrologue = []byte("Tailscale Control Protocol v2021")`.
+    /// Official reference: `tailscale.com/control/controlhttp/ts2021` `earlyNoisePrologue` = "Tailscale Control Protocol v2021".
     static let noisePrologueLiteral: String = "Tailscale Control Protocol v2021"
 
     // MARK: - DERP (Designated Encrypted Relay for Packets)
@@ -126,7 +126,7 @@ enum NCTailscaleConsts {
     /// Aligns with old bridge specification: `tsWatchInterval = 2 * time.Second`.
     static let watchdogInterval: TimeInterval = 2.0
 
-    // MARK: - Error Text Formatting (Aligned with GoText / the old core Bridge)
+    // MARK: - Error Text Formatting (aligned with the official client / the retired bridge)
 
     /// Formats the refusal error message when memory is insufficient at startup.
     static func refusalErrorMessage(availableBytes: Int64) -> String {

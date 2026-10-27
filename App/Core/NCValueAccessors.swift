@@ -3,7 +3,7 @@ import Foundation
 
 /// nc-integrate: the bridge's loose accessors
 /// over NCJSONValue, for the ports that read YAML trees the way the old code read map[string]any.
-/// str(): fmt.Sprint of a scalar (YAML ints print without a fraction); intOf(): number or numeric string;
+/// str(): default text of a scalar (YAML ints print without a fraction); intOf(): number or numeric string;
 /// boolOf(): a bool or a truthy string ("1", "true", "yes", "on").
 
 func ncStr(_ v: NCJSONValue?) -> String {

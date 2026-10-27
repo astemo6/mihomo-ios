@@ -89,7 +89,7 @@ enum NCBlake2b {
     }
 }
 
-/// Argon2id (RFC 9106 / x/crypto/argon2 semantics): the KDF Snell uses.
+/// Argon2id (RFC 9106 semantics): the KDF Snell uses.
 /// Single implementation, lanes supported; verified against the old core vectors.
 enum NCArgon2 {
     /// H' — BLAKE2b long-output hash used for block seeding/extraction.
@@ -221,7 +221,7 @@ enum NCArgon2 {
         }
     }
 
-    /// Port of x/crypto/argon2's indexAlpha + phi (lanes = memory lanes).
+    /// Port of the reference Argon2's indexAlpha + phi (lanes = memory lanes).
     private static func indexAlpha(random: UInt64, segmentLength: Int, lanes laneLength: Int,
                                    pass: Int, slice: Int, lane: Int, index: Int,
                                    lanesCount: Int) -> Int {
@@ -246,7 +246,7 @@ enum NCArgon2 {
 
     /// The Argon2 compression function G: P(a⊕b) ⊕ a ⊕ b, additionally
     /// XORed with `old` when given (Argon2 v1.3 later-pass semantics;
-    /// x/crypto always fills with the XOR variant, and fresh memory is
+    /// The reference implementation always fills with the XOR variant, and fresh memory is
     /// zero, so pass 0 comes out identical).
     static func processBlock(_ a: [UInt64], _ b: [UInt64], xorInto old: [UInt64]?) -> [UInt64] {
         var t = [UInt64](repeating: 0, count: 128)

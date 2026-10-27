@@ -31,7 +31,7 @@
 //      - Impact: No runtime cache overhead in the App process; generation is fixed to 1 as required by native runtime prep.
 //
 //   3. RE2 AST & ICU Translation for Body Rewrites:
-//      - the old core behavior: icuFromRE2 uses the old core standard library regexp/syntax.Parse(p, syntax.Perl) to produce an AST,
+//      - the old core behavior: icuFromRE2 uses an RE2 syntax parse with Perl flags to produce an AST,
 //        which is re-emitted into an explicit ICU pattern with explicit \x{...} runes, sorted character classes,
 //        simple-fold orbit classes, and anchored lookarounds.
 //      - Swift behavior: Swift implements a dedicated RE2/Perl syntax parser and AST generator matching the old core's syntax.Parse
@@ -45,7 +45,7 @@
 //        pass through. The legacy step-list parser below (snapJQ) is kept only for old snapshots / fixtures.
 //
 //   5. Remote Map Local & Script Resource Management (NCResources):
-//      - the old core behavior: Resources downloads remote scripts/resources using the old core net/http through the core client,
+//      - the old core behavior: Resources downloads remote scripts/resources over HTTP through the core client,
 //        caching files in <home>/engine/cache/<sha1>.
 //      - Swift behavior: NCResources performs synchronous downloads using URLSession during the detached background
 //        preparation pass, writing atomically to <home>/engine/cache/<sha1>. If download fails and no cached copy

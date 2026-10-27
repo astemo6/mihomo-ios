@@ -47,7 +47,7 @@ struct NativeRequestEvent: Encodable, Equatable {
     var status: Int? = nil
     var headers: [[String]]? = nil
     var len: Int64? = nil
-    var body: Data? = nil    // local answer body, only while capture is on (JSON: base64, like the old core's []byte)
+    var body: Data? = nil    // local answer body, only while capture is on (JSON: base64, like the old core's byte fields)
     var sent: Int64? = nil
     var resp: Bool? = nil
     var why: String? = nil

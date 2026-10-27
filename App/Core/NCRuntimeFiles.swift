@@ -12,17 +12,17 @@ import Foundation
 
 // MARK: - Tree accessors (bridge str / strList / boolOf / intOf)
 //
-// Review R-4: these follow the old core's inspect semantics on the go.yaml.in/yaml/v3
+// Review R-4: these follow the old core's inspect semantics on the reference YAML library
 // tree exactly. yaml v3 keeps `yes` / `on` / `no` / `off` as STRINGS (only
 // true/false are bools), so the old core helpers coerce:
-//   str(v)     string as-is; nil -> ""; anything else fmt.Sprint(v)
+//   str(v)     string as-is; nil -> ""; anything else its default text form
 //              (so `name: 123` reads "123", `name: true` reads "true")
 //   boolOf(v)  bool as-is; string -> truthy (1/true/yes/on, trimmed, any case)
-//   intOf(v)   int/float truncated; string -> strconv.Atoi(trimmed) else 0
+//   intOf(v)   int/float truncated; string -> decimal integer of the trimmed text else 0
 //   strList(v) str() of every element of a list, empty results dropped
 
 enum NCValueCoercion {
-    /// fmt.Sprint-style rendering of a yaml-decoded value (NCYAML numbers are
+    /// Default-text rendering of a yaml-decoded value (NCYAML numbers are
     /// Doubles; integral scalars print as integers, and float64 prints without
     /// an exponent below 1e21).
     static func sprint(_ v: NCJSONValue) -> String {

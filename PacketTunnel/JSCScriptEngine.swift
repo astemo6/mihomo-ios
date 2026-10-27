@@ -512,7 +512,7 @@ final class JSCScriptEngine: NSObject, JSCEngineBinding {
 
     func end(_ runID: Int64) {
         // queued like drop: the caller does not wait for a running script (FIFO, so a later begin sees the context
-        // free again). The run is released off the engine thread: GoJSCRun holds a the old bridge proxy whose release runs
+        // free again). The run is released off the engine thread: the JSCRun holds a the old bridge proxy whose release runs
         // old code, which the engine thread must not do outside a JavaScript callback (JSCThread).
         js.async { [self] in
             guard let run = endOnJS(runID) else { return }
@@ -650,7 +650,7 @@ final class JSCScriptEngine: NSObject, JSCEngineBinding {
         let host: @convention(block) (String?, String?) -> String = { [weak c] op, arg in
             guard let run = c?.run, let op else { return "" }
             if let lane = JSCScriptEngine.nativeBlobs, let r = JSCScriptEngine.laneHost(run, lane, op, arg ?? "") { return r }
-            if op == "text", let id = Int64(arg ?? "") { return JSCScriptEngine.goBlobText(run, id) }
+            if op == "text", let id = Int64(arg ?? "") { return JSCScriptEngine.blobText(run, id) }
             return run.host(op, arg ?? "")
         }
         let put: @convention(block) (JSValue?, Double, Double) -> Double = { [weak c] buf, off, len in
@@ -801,7 +801,7 @@ final class JSCScriptEngine: NSObject, JSCEngineBinding {
         return run.put(Data(bytes: p.advanced(by: o), count: n))
     }
 
-    /// Host ops the engine answers itself for lane bodies: "text" of a native blob (the old core's U+FFFD rules, goText) and "utf8" of a
+    /// Host ops the engine answers itself for lane bodies: "text" of a native blob (the old core's U+FFFD rules, lenientUTF8Text) and "utf8" of a
     /// large string (stored in the lane). nil: ask the old core host.
     private static func laneHost(_ run: JSCRun, _ lane: JSCNativeBlobProvider, _ op: String, _ arg: String) -> String? {
         switch op {
@@ -832,10 +832,10 @@ final class JSCScriptEngine: NSObject, JSCEngineBinding {
     /// with NSString(bytesNoCopy:…encoding: .utf8), which drops a leading BOM (CI 40052493849 bom-text-go-path:
     /// the old JS engine 37 characters, JavaScriptCore 36). CFStringCreateWithBytes with isExternalRepresentation false keeps
     /// it; peak memory is the same as before (the old core's copy, then the CFString, then JavaScriptCore's copy).
-    private static func goBlobText(_ run: JSCRun, _ id: Int64) -> String {
+    private static func blobText(_ run: JSCRun, _ id: Int64) -> String {
         guard let data = run.take(id), !data.isEmpty else { return "" }
         return data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> String in
-            guard isValidUTF8(buf), let base = buf.baseAddress else { return goText(buf) }
+            guard isValidUTF8(buf), let base = buf.baseAddress else { return lenientUTF8Text(buf) }
             let bom = buf.count >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF
             if let cf = CFStringCreateWithBytes(kCFAllocatorDefault, base.assumingMemoryBound(to: UInt8.self), buf.count,
                                                 CFStringBuiltInEncodings.UTF8.rawValue, false),
@@ -846,18 +846,18 @@ final class JSCScriptEngine: NSObject, JSCEngineBinding {
         }
     }
 
-    /// The text of lane handle h exactly as the old core's bodyString would build it (goText), without the bytes going
+    /// The text of lane handle h exactly as the old core's bodyString would build it (lenientUTF8Text), without the bytes going
     /// through the old core; nil for an unknown / failed handle (then the old core host answers).
     private static func laneText(_ lane: JSCNativeBlobProvider, _ h: Int64) -> String? {
         var text: String?
-        _ = lane.withDecoded(h) { bytes in text = goText(bytes) }
+        _ = lane.withDecoded(h) { bytes in text = lenientUTF8Text(bytes) }
         return text
     }
 
     /// the old core's bodyString: valid UTF-8 as it is (String(decoding:) keeps a leading BOM and NUL bytes, as the old core strings
-    /// and the old JS engine do — Foundation's UTF-8 initializers drop a leading BOM), otherwise strings.ToValidUTF8(s,
-    /// "\u{FFFD}"): one U+FFFD per run of bytes that do not start a valid sequence.
-    static func goText(_ buf: UnsafeRawBufferPointer) -> String {
+    /// and the old JS engine do — Foundation's UTF-8 initializers drop a leading BOM), otherwise invalid UTF-8 is
+    /// replaced: one U+FFFD per run of bytes that do not start a valid sequence.
+    static func lenientUTF8Text(_ buf: UnsafeRawBufferPointer) -> String {
         if isValidUTF8(buf) { return String(decoding: buf, as: UTF8.self) }
         let n = buf.count
         guard let base = buf.baseAddress else { return "" }

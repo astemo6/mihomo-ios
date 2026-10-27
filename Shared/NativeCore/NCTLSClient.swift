@@ -1260,7 +1260,7 @@ final class NCTLSClientStream: NCRelayStream {
     /// Detach from the record layer (XTLS Vision commandDirect): returns the
     /// decrypted-but-unconsumed plaintext chunks and the unparsed raw tail —
     /// bytes past the last complete record, which after a splice are inner
-    /// plaintext (mirrors the old core tls.Conn's rawInput drain). From now on, raw
+    /// plaintext (mirrors the reference TLS connection's buffered-input drain). From now on, raw
     /// socket bytes are delivered verbatim through `receiveSpliced`.
     func spliceOut() -> (plaintext: [Data], rawTail: Data) {
         spliced = true
