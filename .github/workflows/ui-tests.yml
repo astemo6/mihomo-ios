@@ -12,8 +12,10 @@
 #
 # ci/speedup (2026-10-27, report work/nc/ci-speedup-report.md):
 # - one build per run instead of one per combo (each combo built for 6–15 min before);
-# - light tests split into 5 shards balanced on measured durations (~26 min of tests each; the old 3 shards ran
-#   29–61 min) — light:1–4 are fixed lists, light:5 is everything else in TernUITests (new tests land there);
+# - light tests split into N shards balanced on measured durations (scripts/ci/ui-shards.py + ui-test-times.tsv; tests
+#   are read from UITests/*.swift, so new tests are scheduled automatically; the last shard = the rest of TernUITests).
+#   N = 4 on astemo6 (~32 min of tests each; its runners also carry unit, E2E and the IPA build), 5 elsewhere (~26 min).
+#   The old 3 shards ran 29–61 min;
 # - the unit tests run once, in their own `unit` combo, instead of inside light shard 2 of both languages (the en
 #   mirror's copy was the identical bundle on an identical simulator; UI_LANG / UI_STYLE are read by UI tests only);
 # - an explicit selection runs in `light:sel` (+ `dark:sel` unless it selects unit tests only) — no shard builds just
@@ -55,7 +57,7 @@
 #   smoke = zh-Hans light SMOKE_TESTS (launch + tab/page navigation + node manager) + the `unit` combo
 #     (astemo6 / other repos; the astemo666 en mirror runs no UI job). The app, test bundle and framework are built
 #     in full, so a compile break still fails.
-#   full  = the repository split above: light:1–5 + dark:0 per language (+ unit on astemo6 / other repos).
+#   full  = the repository split above: light:1…N + dark:0 per language (+ unit on astemo6 / other repos).
 # Markers / inputs (commit message of the pushed head; dispatch input `shard`):
 #   [shard:all]   / shard=all    full matrix, both languages, in this repo (wins over everything)
 #   [shard:smoke] / shard=smoke  force smoke even when UI files changed
@@ -239,8 +241,12 @@ jobs:
             fi
           fi
           # Combos "<lang>:<style>:<shard>" (shard 1–5 light, 0 dark, smoke, sel) and "unit" (TernUnitTests bundle).
-          L5='"LANG:light:1","LANG:light:2","LANG:light:3","LANG:light:4","LANG:light:5","LANG:dark:0"'
-          ZH=${L5//LANG/zh-Hans}; EN=${L5//LANG/en}
+          # Light shards per language (scripts/ci/ui-shards.py balances them on measured durations): 4 on astemo6, whose
+          # 5 runners also carry unit + E2E + the IPA build in a full CI; 5 elsewhere (the en mirror, one-repo runs).
+          lights() { local n=$1 k out=""; for k in $(seq 1 "$n"); do out="$out,\"LANG:light:$k/$n\""; done; echo "${out#,},\"LANG:dark:0\""; }
+          case "$REPO" in astemo6/mihomo-ios) NZH=4 ;; *) NZH=5 ;; esac
+          [ "$MODE" != all ] || NZH=5
+          ZH=$(lights "$NZH"); ZH=${ZH//LANG/zh-Hans}; EN=$(lights 5); EN=${EN//LANG/en}
           # Unit-only selection ([unit:] markers without [only:], or inputs.only naming TernUnitTests): no dark run.
           UNIT_ONLY=0
           if [ "$SELECTION" = 1 ]; then
@@ -304,6 +310,7 @@ jobs:
             [ -n "$BASE" ] && echo "- base: \`${BASE:0:12}\` ($BASE_DESC), $NCHANGED changed file(s)"
             echo "- combos: \`$COMBOS\` (ui runs: $UI)"
             [ -z "${EXTRAS:-}" ] || echo "- extras: e2e=$E2E proto-loopback=[${LOOP}] ipa=$IPA checks=$CHK"
+            case "$COMBOS" in *light:1/*) echo "- light shards (zh-Hans $NZH, en 5):"; python3 scripts/ci/ui-shards.py "$NZH" | sed 's/^/  /' ;; esac
             if [ -n "$UI_FILES" ]; then
               echo "- UI-affecting files:"
               printf '%s' "$UI_FILES" | head -n 30 | sed 's/^/  - /'
@@ -350,7 +357,7 @@ jobs:
             LANG_=zh-Hans; STYLE=light; SHARD=unit; SHORT=unit
           else
             LANG_=${combo%%:*}; rest=${combo#*:}; STYLE=${rest%%:*}; SHARD=${rest#*:}
-            SHORT=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")-$STYLE$([ "$SHARD" = 0 ] || echo "-$SHARD")
+            SHORT=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")-$STYLE$([ "$SHARD" = 0 ] || echo "-${SHARD%/*}")
           fi
           { echo "LANG_=$LANG_"; echo "STYLE=$STYLE"; echo "SHARD=$SHARD"; echo "SHORT=$SHORT"; } >> "$GITHUB_ENV"
       - uses: ./.github/actions/tern-prebuilt
@@ -361,29 +368,6 @@ jobs:
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           ONLY_INPUT: ${{ inputs.only }}
-          # Light shards 1–4: fixed lists balanced on measured durations (runs 40478110763 zh / 40473451340 en,
-          # ~25.7 min of tests each). Shard 5 = every other test in TernUITests (UISmoothPerfUITests included), so new
-          # tests land there automatically. Rebalance when a shard grows past ~35 min.
-          SHARD1_TESTS: >-
-            test03_MoreEveryPage test06b_ImportSurge test10_ProfileNodeEdit test11_RegionFilters test12_FilterSources
-            test21_TileEditing test26_HomeTiles test28_WebDAV test33_RulesAndRewriteAddDelete test47_SnapshotMultiDelete
-            test57_GroupLongPressMenu test61_SubNodeAddToLocal test70_TrafficScope test76_MoreSearch test81_PausedIndicators
-            test91_RowHeightParity
-          SHARD2_TESTS: >-
-            test07_Editors test17_RequestsSummary test18_SSIDPermissions test19_RequestTimeline test34_URLSchemeLinks
-            test38_ProfileSwitch test49_SurgeUIShots test50_HomeExitSubtitle test56_ProfileSubscriptionSwipe
-            test58_SubsSplitProviderActions test63_MoreDedup test68_SubscriptionAddEdit test72_TabTopShots
-            test77_LiveActivityRow test90_HomeDrillDown test94_HomePanelWidth
-          SHARD3_TESTS: >-
-            test01_TabsAndHome test02_HomePolicyPicker test05_AddNodeAndEditor test06c_ImportClash test15_AllRewrites
-            test22_TailscaleNode test24_SampleProfile test25_OverrideScripts test29_UnlockServices test35_NodeEditUndo
-            test43_ModeGlobalVisibility test44_HomeUnlockTileAndScriptTasks test64_HomeAnalysis test65_EgernShots
-            test78_RewritePage test79_UnifiedSubscriptionRows
-          SHARD4_TESTS: >-
-            test04_NodeManager test09_AutoApplySettings test13_RuleChips test16_PolicyModeControl test31_GroupOrder
-            test36_LanguagesNoLeftovers test40_FilterRenameAndIcon test42_GroupReorderBothWays test45_RuleFormDefaults
-            test46_LogsNotEmptyOnFirstOpen test51_PolicyChainShots test60_NodeCredentialReveal test66_RulesDragMove
-            test67_HomeTileReorder test92_LaneDCopyAndPanelRefreshError test93_RuleSetOrderAndPolicyRow
           DARK_TESTS: test01_TabsAndHome test03_MoreEveryPage test04_NodeManager test05_AddNodeAndEditor
           SMOKE_TESTS: test01_TabsAndHome test03_MoreEveryPage test04_NodeManager
         run: |
@@ -406,12 +390,11 @@ jobs:
             unit) SEL=(-only-testing:TernUnitTests) ;;
             smoke) for t in $SMOKE_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
             0) for t in $DARK_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
-            1|2|3|4)
-              V="SHARD${SHARD}_TESTS"
-              for t in ${!V}; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
-            5)
-              SEL=(-only-testing:TernUITests)
-              for t in $SHARD1_TESTS $SHARD2_TESTS $SHARD3_TESTS $SHARD4_TESTS; do SEL+=(-skip-testing:"TernUITests/TernUITests/$t"); done ;;
+            */*)
+              # Light shard K of N (scripts/ci/ui-shards.py: balanced on scripts/ci/ui-test-times.tsv; shard N = the rest
+              # of TernUITests, so a test the shard script does not know still runs).
+              while IFS= read -r a; do SEL+=("$a"); done < <(python3 scripts/ci/ui-shards.py "${SHARD#*/}" "${SHARD%/*}")
+              echo "light shard $SHARD: ${#SEL[@]} selection argument(s)" ;;
             *) echo "::error::unknown shard $SHARD"; exit 1 ;;
           esac
           xcrun simctl ui "$DEV" appearance "$STYLE" || true

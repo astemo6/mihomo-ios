@@ -34,7 +34,9 @@
   以前每个 macOS 作业各自编译 6–15 分钟，一次全量 CI 要编译 16 次。
 - 编译缓存：Xcode 26 compilation caching（按内容寻址）+ actions/cache。GitHub 缓存按分支隔离（加上默认分支），
   所以新的 `test/**` 分支第一次是冷编译，同一分支之后的运行才命中。
-- UI light 分 5 片（按实测时长平衡，每片约 26 分钟测试；1–4 是固定清单，5 = 其余全部，新测试自动落在 5），dark 1 片；
+- UI light 按实测时长自动分片（`scripts/ci/ui-shards.py` + `scripts/ci/ui-test-times.tsv`；测试从 `UITests/*.swift` 读出，
+  新测试自动排进去，最后一片 = TernUITests 里其余全部）：astemo6 4 片（每片约 32 分钟测试，它的 runner 还要跑 unit、E2E、IPA），
+  其它（en 镜像）5 片（约 26 分钟）；dark 1 片；某片超过 ~35 分钟时用新一轮运行的时长更新 tsv；
   单元测试单独一个 `unit` 组合（只在 astemo6 / 其它仓库跑一次；en 镜像不再重复跑同一个单元测试包）。
 - **全量 CI = 两次派发**（每个仓库一次，共用各自的构建）：
   ```bash
@@ -51,7 +53,7 @@
 - `[unit:Class]`：再加一个单元测试类。
 - `[skip-ui]`：不跑 macOS UI 分片。
 - `[shard:all]`：一个仓库里跑两种语言的全部组合（2×(5 light + 1 dark) + unit）。**别用**——占满 macOS 配额；失败只重跑失败的部分。
-- **冒烟路径（默认 auto）**：相对 main 的 merge-base（在 main 上则相对上一个 `v*-build*` 标签）没有改动界面相关文件（App/Views、xcstrings、UITests 等）时，UI 只跑一个 zh-Hans light 冒烟组合（test01/03/04；单元测试在并行的 `unit` 组合里），否则跑完整矩阵（light:1–5 + dark:0，astemo6 再加 unit）；`[shard:smoke]` / `[shard:full]` 或 dispatch `shard=smoke|full` 强制。
+- **冒烟路径（默认 auto）**：相对 main 的 merge-base（在 main 上则相对上一个 `v*-build*` 标签）没有改动界面相关文件（App/Views、xcstrings、UITests 等）时，UI 只跑一个 zh-Hans light 冒烟组合（test01/03/04；单元测试在并行的 `unit` 组合里），否则跑完整矩阵（light:1…N + dark:0，astemo6 再加 unit）；`[shard:smoke]` / `[shard:full]` 或 dispatch `shard=smoke|full` 强制。
 
 ## 排队与去重
 
