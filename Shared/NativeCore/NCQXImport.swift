@@ -271,6 +271,19 @@ enum NCQXImport {
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "sudoku":
+            type = "sudoku"
+            if let k = take("key") ?? take("password") {
+                fields["key"] = .string(k)
+                fields["password"] = .string(k)
+            }
+            if let a = take("aead-method") ?? take("aead") { fields["aead-method"] = .string(a) }
+            if let t = take("table-type") ?? take("ascii") { fields["table-type"] = .string(t) }
+            if let ct = take("custom-table") ?? take("table") { fields["custom-table"] = .string(ct) }
+            if let pmin = take("padding-min") ?? take("padding_min"), let n = Int(pmin) { fields["padding-min"] = .number(Double(n)) }
+            if let pmax = take("padding-max") ?? take("padding_max"), let n = Int(pmax) { fields["padding-max"] = .number(Double(n)) }
+            if let pd = take("enable-pure-downlink") ?? take("pure-downlink"), let b = NCConfImport.boolValue(pd) { fields["enable-pure-downlink"] = .bool(b) }
+            if let m = take("multiplex") { fields["multiplex"] = .string(m) }
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.

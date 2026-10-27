@@ -20,6 +20,7 @@ enum NCSupport {
         // feat/nc-naive-h2h3 (NCNaive / NCH2ProxySession / NCH3ProxySession): NaïveProxy (h2, or h3 with
         // quic: true) and Shadowrocket-style HTTP/2 / HTTP/3 CONNECT proxies.
         "naive", "http2", "h2", "http3", "h3",
+        "sudoku",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -93,6 +94,9 @@ enum NCSupport {
             if let why = NCGostRelay.options(p).1 { return why }
         case "naive", "http2", "h2", "http3", "h3":
             if NCH2H3ProxyOptions(proxy: p) == nil { return "\(t) 缺少 server / port" }
+        case "sudoku":
+            if let why = sudokuUnsupported(p) { return why }
+            return NCSudoku.interopUnavailable
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
@@ -257,6 +261,11 @@ enum NCSupport {
             return "WireGuard 缺少 server / port / public-key"
         }
         return nil
+    }
+
+    /// Sudoku (NCSudoku, feat/nc-sudoku): validation and unsupported marker checks.
+    static func sudokuUnsupported(_ p: NCProxy) -> String? {
+        NCSudoku.unsupportedReason(p)
     }
 
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.

@@ -839,8 +839,29 @@ enum NCConnector {
                 return
             }
             juicityStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "sudoku":
+            if let why = NCSupport.sudokuUnsupported(proxy) {
+                queue.async { completion(nil, Failure.unsupported(why)) }
+                return
+            }
+            // fix/nc-proto-sudoku-int (review of #162): the clean-room data plane does not interoperate with the
+            // official server (key schedule, ECDH rekey, math/rand v1 table, padding-aware decode differ), so the
+            // node is unavailable rather than dialling into a handshake timeout.
+            queue.async { completion(nil, Failure.unsupported(NCSudoku.interopUnavailable)) }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
+        }
+    }
+
+    private static func sudokuStream(proxy: NCProxy, target: NCTarget, transport: NCRelayStream?,
+                                     queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        guard let server = proxy.server, let port = proxy.port else {
+            queue.async { completion(nil, Failure.handshake("sudoku missing server or port")) }
+            return
+        }
+        obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+            guard let raw else { completion(nil, err); return }
+            NCSudokuSession.connect(raw: raw, proxy: proxy, target: target, queue: queue, completion: completion)
         }
     }
 
