@@ -80,11 +80,15 @@ final class NativeTunnelCore {
             stopLocked()
         }
         let gen = bumpGeneration()
+        // fix/nc-mem-4: kernel-peak watcher + start checkpoints (DEBUG builds; NCMemTrace).
+        NCMemTrace.startWatcher()
+        NCMemTrace.line("start-begin")
         let engine = NativeCoreEngine()
         if let msg = engine.load(home: home) {
             engine.stop()
             throw PacketTunnelProvider.error("内核配置加载失败：\(msg)")
         }
+        NCMemTrace.line("start-engine-loaded")
         let plane = NCDataPlane(engine: engine, flow: flow, mtu: UInt16(clamping: mtu))
         do {
             try plane.start()
@@ -92,6 +96,7 @@ final class NativeTunnelCore {
             engine.stop()
             throw PacketTunnelProvider.error("内核数据面启动失败：\(error.localizedDescription)")
         }
+        NCMemTrace.line("start-plane-up")
         let needed = localProxyNeeded ?? (mixedPort > 0)
         let lanSetup = Self.localProxySetup(raw: engine.config?.raw ?? [:], mixedPort: mixedPort, needed: needed,
                                             fallback: lanFallback)
