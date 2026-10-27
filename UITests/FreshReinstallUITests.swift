@@ -89,14 +89,29 @@ extension TernUITests {
             guard let i = o.firstIndex(of: a), let j = o.firstIndex(of: b) else { return false }
             return i < j
         }
-        /// Long-press (the menu preview lifts), then drag slowly onto `target` and hold; one retry from the target's edge.
+        /// Brings `e` into the upper part of the screen when the page can scroll that far, so its long-press menu opens
+        /// below it instead of above, across the way to a card above (rel 0.20.2: a drag that slid over the menu
+        /// ended on 从首页移除).
+        func raise(_ e: XCUIElement) {
+            for _ in 0..<4 where e.exists && e.frame.midY > app.frame.height * 0.5 {
+                let y0 = e.frame.midY
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.62))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.42)))
+                usleep(800_000)
+                if abs(e.frame.midY - y0) < 4 { break } // end of the page
+            }
+        }
+        /// Long-press until the card lifts (0.7 s: the drag starts before the menu takes the finger), then drag slowly
+        /// onto `target` and hold; one retry (1.0 s press) towards the target's leading half.
         func drag(_ e: XCUIElement, onto target: XCUIElement, until done: () -> Bool) -> Bool {
-            e.press(forDuration: 1.0, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
+            raise(e)
+            e.press(forDuration: 0.7, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
             usleep(1_500_000) // drop + 0.6 s save
             if done() { return true }
             warnings.append("[\(Env.tag)] home drag retry")
-            // A press that ended as a context menu must be closed first, or the retry lands on a menu item.
-            if app.button(L("从首页移除")).exists || app.button(L("全宽显示")).exists {
+            // A press that ended as a context menu (or its 从首页移除 confirmation) must be closed first, or the retry
+            // lands on a menu item.
+            if app.button(L("从首页移除")).exists || app.button(L("全宽显示")).exists || app.button(L("半宽显示")).exists {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
                 usleep(700_000)
             }
