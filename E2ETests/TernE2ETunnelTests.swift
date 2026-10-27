@@ -683,9 +683,9 @@ final class TernE2ETunnelTests: XCTestCase {
                 let isTLSStage = stage.contains("tls") || stage == "handshake"
                 if isTLSStage { tlsTried += 1 }
                 let p = byName[n]
-                let internal = Self.internalTLSClasses.contains { msg.contains($0) }
+                let isInternal = Self.internalTLSClasses.contains { msg.contains($0) }
                 let trust = msg.range(of: #"-98\d\d"#, options: .regularExpression) != nil
-                if internal || (trust && (p?.skipCertVerify ?? false)) {
+                if isInternal || (trust && (p?.skipCertVerify ?? false)) {
                     let f = p.map { px -> String in
                         let sni = px.fields["servername"]?.string ?? px.fields["sni"]?.string
                         let ipSNI = sni.map { NCIP($0) != nil } ?? (px.server.map { NCIP($0) != nil } ?? false)
