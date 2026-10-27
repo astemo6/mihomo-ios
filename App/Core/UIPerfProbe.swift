@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Darwin
 
 /// fix/nc-ui-smooth: frame-hitch probe for the simulator UI performance tests (UITests/UISmoothPerfUITests.swift).
 ///
@@ -26,7 +27,25 @@ final class UIPerfProbe: NSObject {
     }
 
     struct Counters { var frames = 0; var hitches = 0; var hitchMs = 0.0; var maxMs = 0.0; var start: CFTimeInterval = 0 }
-    struct StepResult { let name: String; let frames: Int; let hitches: Int; let hitchMs: Double; let maxMs: Double; let windowMs: Double }
+    struct StepResult { let name: String; let frames: Int; let hitches: Int; let hitchMs: Double; let maxMs: Double; let windowMs: Double; let cpuMs: Double }
+
+    /// Main-thread CPU time (user + system) in ms: the work the step put on the main thread, independent of how the
+    /// simulator happened to draw (frame hitches on shared CI runners are noisy; this is far steadier).
+    private var mainThread: thread_act_t = 0
+    func mainCPUms() -> Double {
+        guard mainThread != 0 else { return 0 }
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_info(mainThread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return 0 }
+        let u = Double(info.user_time.seconds) * 1000 + Double(info.user_time.microseconds) / 1000
+        let sy = Double(info.system_time.seconds) * 1000 + Double(info.system_time.microseconds) / 1000
+        return u + sy
+    }
 
     private var link: CADisplayLink?
     private var last: CFTimeInterval = 0
@@ -38,6 +57,7 @@ final class UIPerfProbe: NSObject {
 
     func startIfNeeded() {
         guard Self.enabled, link == nil else { return }
+        mainThread = mach_thread_self() // on the main thread (called from onAppear)
         let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
         l.add(to: .main, forMode: .common)
         link = l
@@ -66,12 +86,13 @@ final class UIPerfProbe: NSObject {
     func step(_ name: String, settle: Double = 0.8, _ body: () async -> Void) async {
         let before = total
         let t0 = CACurrentMediaTime()
+        let c0 = mainCPUms()
         windowMax = 0
         await body()
         try? await Task.sleep(nanoseconds: UInt64(settle * 1_000_000_000))
         let window = (CACurrentMediaTime() - t0) * 1000
         let r = StepResult(name: name, frames: total.frames - before.frames, hitches: total.hitches - before.hitches,
-                           hitchMs: total.hitchMs - before.hitchMs, maxMs: windowMax, windowMs: window)
+                           hitchMs: total.hitchMs - before.hitchMs, maxMs: windowMax, windowMs: window, cpuMs: mainCPUms() - c0)
         results.append(r)
     }
 
@@ -80,20 +101,21 @@ final class UIPerfProbe: NSObject {
     /// `state=done|steps=N` then one `name frames hitches hitchMs maxMs windowMs` line per step and per-group sums.
     var summary: String {
         var lines = ["state=\(state)|steps=\(results.count)|frames=\(total.frames)|hitches=\(total.hitches)|hitchMs=\(Int(total.hitchMs.rounded()))"]
-        var groups: [String: (n: Int, hitches: Int, hitchMs: Double, windowMs: Double, maxMs: Double)] = [:]
+        var groups: [String: (n: Int, hitches: Int, hitchMs: Double, windowMs: Double, maxMs: Double, cpuMs: Double)] = [:]
         var order: [String] = []
         for r in results {
-            lines.append(String(format: "%@ f=%d h=%d hms=%.0f max=%.0f win=%.0f", r.name, r.frames, r.hitches, r.hitchMs, r.maxMs, r.windowMs))
+            lines.append(String(format: "%@ f=%d h=%d hms=%.0f max=%.0f win=%.0f cpu=%.0f", r.name, r.frames, r.hitches, r.hitchMs, r.maxMs, r.windowMs, r.cpuMs))
             let g = String(r.name.split(separator: ":").first ?? Substring(r.name))
             if groups[g] == nil { order.append(g) }
-            var v = groups[g] ?? (0, 0, 0, 0, 0)
+            var v = groups[g] ?? (0, 0, 0, 0, 0, 0)
             v.n += 1; v.hitches += r.hitches; v.hitchMs += r.hitchMs; v.windowMs += r.windowMs; v.maxMs = max(v.maxMs, r.maxMs)
+            v.cpuMs += r.cpuMs
             groups[g] = v
         }
         for g in order {
             let v = groups[g]!
             let ratio = v.windowMs > 0 ? v.hitchMs / (v.windowMs / 1000) : 0
-            lines.append(String(format: "SUM %@ n=%d hitches=%d hitchMs=%.0f ratio=%.1fms/s worstFrame=%.0fms", g, v.n, v.hitches, v.hitchMs, ratio, v.maxMs))
+            lines.append(String(format: "SUM %@ n=%d hitches=%d hitchMs=%.0f ratio=%.1fms/s worstFrame=%.0fms mainCPU=%.0fms (%.0f/step)", g, v.n, v.hitches, v.hitchMs, ratio, v.maxMs, v.cpuMs, v.cpuMs / Double(max(v.n, 1))))
         }
         return lines.joined(separator: "\n")
     }
@@ -145,6 +167,20 @@ enum UIPerfScenario {
             insp.select(group: g.name, node: members[0])
         }
 
+        // 3b. Expand / collapse the biggest group on 策略 (the big profile's 3000-member select), then select while it
+        //     is expanded (every member cell on screen re-renders). PolicyView listens in Debug builds only.
+        if let big = insp.result.groups.filter({ insp.members(of: $0).count >= 200 }).max(by: { insp.members(of: $0).count < insp.members(of: $1).count }) {
+            let members = insp.members(of: big)
+            for i in 0..<3 {
+                await p.step("expand:\(i)", settle: 1.0) { NotificationCenter.default.post(name: .uiPerfExpandGroup, object: big.name, userInfo: ["on": true]) }
+                if big.type == "select" {
+                    await p.step("select-expanded:\(i)", settle: 0.8) { insp.select(group: big.name, node: members[(i + 1) % members.count]) }
+                }
+                await p.step("collapse:\(i)", settle: 1.0) { NotificationCenter.default.post(name: .uiPerfExpandGroup, object: big.name, userInfo: ["on": false]) }
+            }
+            insp.select(group: big.name, node: members[0])
+        }
+
         // 4. Home layout edits (half / full width, reorder) with the same animations as the menu actions.
         router.selectedTab = 0
         try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -165,6 +201,11 @@ enum UIPerfScenario {
         }
         p.setState("done")
     }
+}
+
+extension Notification.Name {
+    /// UIPerfScenario → PolicyView (Debug builds): expand (`userInfo["on"] == true`) or collapse the group named by `object`.
+    static let uiPerfExpandGroup = Notification.Name("tern.uiperf.expandGroup")
 }
 
 /// Hidden accessibility element `uiperf.probe` (label = UIPerfProbe.summary, built when XCUITest reads it).

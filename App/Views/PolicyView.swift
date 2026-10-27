@@ -611,6 +611,15 @@ struct PolicyView: View {
             if mode != m { withAnimation(.easeInOut(duration: 0.2)) { mode = m } }
         }
         .onChange(of: sortMode) { _ in snapshotDelays() }
+        #if DEBUG
+        // fix/nc-ui-smooth: UIPerfScenario (UI performance tests, -UIPerfProbe) expands / collapses a group like a tap.
+        .onReceive(NotificationCenter.default.publisher(for: .uiPerfExpandGroup)) { n in
+            guard let name = n.object as? String else { return }
+            let on = (n.userInfo?["on"] as? Bool) ?? true
+            let key = vpn.isConnected ? name : "offline:" + name
+            withAnimation(.spring(response: 0.3)) { if on { expanded.insert(key) } else { expanded.remove(key) } }
+        }
+        #endif
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
         // The order changed underneath (another save, a reload, a subscription update): no drag override survives it.
         .onChange(of: orderGroups.map { $0.name }) { _ in resetDrag() }
