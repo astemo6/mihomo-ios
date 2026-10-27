@@ -47,6 +47,7 @@ struct RewriteView: View {
     static let boxJSModule = "https://raw.githubusercontent.com/chavyleung/scripts/master/box/rewrite/boxjs.rewrite.surge.sgmodule"
     @ObservedObject var store = EngineStore.shared
     @ObservedObject var res = ResourceStore.shared
+    @ObservedObject private var downloads = BackgroundDownloads.shared
     @State private var editing: EditTarget?
     @State private var rawMode = false
     @State private var rawText = ""
@@ -219,14 +220,22 @@ struct RewriteView: View {
         .accessibilityIdentifier("localmodule.add")
     }
 
+    /// fix/nc-0.20.2: a download that failed while the VPN was off shows 「待重试（连接后自动下载）」 until it is fetched.
+    func moduleStatus(_ m: EngineModule, item: ResourceItem?, info: ParsedEngineText?) -> SubscriptionStatus {
+        var status = ModuleSubSheet.status(m, item: item, info: info)
+        if let p = downloads.pendingModules[m.id], m.enabled { status.error = p }
+        return status
+    }
+
     @ViewBuilder
     func moduleRow(_ m: EngineModule) -> some View {
         let info = store.moduleInfo[m.id]
         let item = res.items.first { $0.key == "module:" + m.id }
         let remote = !m.url.isEmpty
-        let busy = store.busy.contains(m.id) || res.busy.contains("module:" + m.id)
+        let busy = store.busy.contains(m.id) || res.busy.contains("module:" + m.id) || downloads.fetching.contains(m.id)
+        let status = moduleStatus(m, item: item, info: info)
         SubscriptionRow(id: "module.row." + m.name, icon: remote ? "puzzlepiece.extension" : "doc.text", color: Theme.tone(0.55, 0.45, 1.0),
-                        name: m.name, status: ModuleSubSheet.status(m, item: item, info: info), updating: busy,
+                        name: m.name, status: status, updating: busy,
                         enabled: Binding(get: { m.enabled }, set: { on in setModule(m, on) }),
                         onTap: { editingModule = m }) {
             if let f = info?.format, !f.isEmpty { SourceFormatBadge(format: f) }
@@ -306,7 +315,7 @@ struct RewriteView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除或编辑；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。")
-                    Text("订阅按列表顺序生效：越靠上越先匹配。在 ⋯ 里选「调整顺序」后拖动排序（搜索或筛选分类时不能排序）。")
+                    Text("订阅按列表顺序生效：越靠上越先匹配。点右上角「排序」后拖动调整顺序（搜索或筛选分类时不能排序）。")
                 }
                 .modifier(UITestOrderValue(id: "rewrite.subs.order", order: store.config.modules.map(\.name).joined(separator: " | ")))
             }
@@ -326,10 +335,9 @@ struct RewriteView: View {
                         Button(role: .destructive) { store.config.rules.removeAll { $0.id == it.id }; store.save() } label: { Label("删除", systemImage: "trash") }
                     }
                 }
-                .onMove { from, to in
-                    guard search.isEmpty else { return }
+                .onMove(perform: editMode.isEditing && search.isEmpty ? { (from: IndexSet, to: Int) in
                     store.config.rules.move(fromOffsets: from, toOffset: to); store.save()
-                }
+                } : nil)
                 ForEach(scripts) { it in
                     RuleRow(item: it) { on in
                         if let i = store.config.scripts.firstIndex(where: { $0.id == it.id }) { store.config.scripts[i].enabled = on; store.save() }
@@ -347,10 +355,9 @@ struct RewriteView: View {
                         Button { debugging = it } label: { Label("在调试台打开", systemImage: "play.fill") }
                     }
                 }
-                .onMove { from, to in
-                    guard search.isEmpty else { return }
+                .onMove(perform: editMode.isEditing && search.isEmpty ? { (from: IndexSet, to: Int) in
                     store.config.scripts.move(fromOffsets: from, toOffset: to); store.save()
-                }
+                } : nil)
             } header: { Text("本地 \(store.config.rules.count + store.config.scripts.count)") } footer: {
                 Text("你自己的重写和脚本，与订阅一起生效、优先于它们。点 + 用表单添加，或在 ⋯ 里以文本编辑；重写按顺序匹配。")
             }
@@ -365,7 +372,7 @@ struct RewriteView: View {
                     }
                 }
                 .onDelete { idx in store.config.hostnames.remove(atOffsets: idx); store.save() }
-                .onMove { from, to in store.config.hostnames.move(fromOffsets: from, toOffset: to); store.save() }
+                .onMove(perform: editMode.isEditing ? { (from: IndexSet, to: Int) in store.config.hostnames.move(fromOffsets: from, toOffset: to); store.save() } : nil)
                 HStack {
                     TextField("example.com、*.example.com、-排除.com", text: $newHost)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()

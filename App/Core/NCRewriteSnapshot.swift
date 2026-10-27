@@ -551,6 +551,30 @@ final class NCResources {
         _ = group.wait(timeout: end + .milliseconds(200)) // workers return right after the deadline cancels them
     }
 
+    /// One URLSession per QoS band, its delegate (completion) queue at that QoS, so a thread waiting on a download
+    /// is never waiting on a lower-QoS thread. Created on first use; three at most.
+    private static let sessionLock = NSLock()
+    private static var sessions: [Int: URLSession] = [:]
+
+    static func session(for qos: qos_class_t) -> URLSession {
+        let band: QualityOfService
+        switch qos {
+        case QOS_CLASS_USER_INTERACTIVE: band = .userInteractive
+        case QOS_CLASS_USER_INITIATED, QOS_CLASS_DEFAULT, QOS_CLASS_UNSPECIFIED: band = .userInitiated
+        default: band = .utility
+        }
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
+        if let s = sessions[band.rawValue] { return s }
+        let q = OperationQueue()
+        q.name = "NCResources.fetch"
+        q.qualityOfService = band
+        q.maxConcurrentOperationCount = 6
+        let s = URLSession(configuration: .default, delegate: nil, delegateQueue: q)
+        sessions[band.rawValue] = s
+        return s
+    }
+
     static func isRemote(_ p: String) -> Bool {
         p.hasPrefix("http://") || p.hasPrefix("https://")
     }
@@ -653,7 +677,10 @@ final class NCResources {
         var resultData: Data?
         var resultError: Error?
         let sem = DispatchSemaphore(value: 0)
-        let task = URLSession.shared.dataTask(with: req) { data, resp, err in
+        // fix/nc-0.20.2 (Thread Performance Checker: priority inversion in prefetch): the caller blocks on `sem` at its
+        // own QoS (user-initiated during prepare), while URLSession.shared signals from its delegate queue at the
+        // default QoS. The completion now runs on a session whose delegate queue matches the caller's QoS class.
+        let task = Self.session(for: qos_class_self()).dataTask(with: req) { data, resp, err in
             if let err = err {
                 resultError = err
             } else if let http = resp as? HTTPURLResponse, http.statusCode != 200 {

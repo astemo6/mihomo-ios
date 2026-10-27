@@ -234,6 +234,8 @@ struct ScriptTasksView: View {
                         Text("同一时间触发的任务按列表顺序启动。点右上角「排序」拖动调整顺序。右滑更新或运行，左滑删除或编辑；长按查看全部操作。")
                     }
                 }
+                // fix/nc-0.20.2: the saved order for the UI tests (Debug -UITestSeed only).
+                .modifier(UITestOrderValue(id: "tasks.order", order: visible.map(\.script.name).joined(separator: " | ")))
             }
             .listRowBackground(Theme.card)
 
@@ -372,7 +374,8 @@ struct ScriptTasksView: View {
                                                    interval: item?.interval ?? 0,
                                                    error: item?.error ?? (t.lastOK == false ? t.lastResult : nil),
                                                    disabled: canSwitch && !on,
-                                                   downloaded: item.map { $0.updatedAt > 0 }),
+                                                   downloaded: item.map { $0.updatedAt > 0 },
+                                                   notDownloadedText: String(localized: "需要更新")),
                         details: details(t, off: off),
                         updating: busy,
                         enabled: canSwitch ? Binding(get: { prefs.isOn(t) }, set: { setOn(t, $0) }) : nil,
@@ -902,6 +905,10 @@ struct TaskAddPrompt: View {
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityIdentifier("taskadd.cron")
                     if !valid { Text("Cron 表达式无效（5 或 6 段，例如 0 8 * * *）").font(.caption).foregroundStyle(Theme.bad) }
+                    if valid, let n = TaskFormSheet.nextRunText(cron) {
+                        Text("下次运行：\(n)").font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("taskadd.nextRun")
+                    }
                 } header: { Text("执行日期") } footer: { Text("Cron 表达式，只填时间部分，不含脚本。") }
                 Section {
                     Button("下一步") { go(.template(TaskFormSheet.normCron(cron))) }
@@ -956,13 +963,24 @@ struct TaskFormSheet: View {
     });
     """
 
-    static func normCron(_ s: String) -> String {
+    nonisolated static func normCron(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
             .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 
+    /// fix/nc-0.20.2: the next fire time with the tunnel's own scheduler (NCCron, Shared/NativeCore), nil when the
+    /// expression does not parse or never fires within 5 years.
+    nonisolated static func nextRun(_ s: String, after t: Date = Date()) -> Date? {
+        guard cronOK(s) else { return nil }
+        return NCCron(normCron(s))?.next(after: t)
+    }
+
+    nonisolated static func nextRunText(_ s: String) -> String? {
+        nextRun(s).map { $0.formatted(date: .abbreviated, time: .shortened) }
+    }
+
     /// 5- or 6-field cron (or an @macro) that the task parser accepts.
-    static func cronOK(_ s: String) -> Bool {
+    nonisolated static func cronOK(_ s: String) -> Bool {
         let c = normCron(s)
         if c.hasPrefix("@") { return NCEngineParser.cronMacros[c.lowercased()] != nil }
         let n = c.split(separator: " ").count
@@ -1028,6 +1046,10 @@ struct TaskFormSheet: View {
                             Button("每小时") { cron = "0 * * * *" }.buttonStyle(.bordered)
                         }
                         if !Self.cronOK(cron) { Text("Cron 表达式无效（5 或 6 段）").font(.caption).foregroundStyle(Theme.bad) }
+                        else if let n = Self.nextRunText(cron) {
+                            Text("下次运行：\(n)").font(.caption).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("taskform.nextRun")
+                        }
                     } header: { Text("Cron 表达式 *") }
                     .listRowBackground(Theme.card)
                 }

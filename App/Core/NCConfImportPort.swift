@@ -31,6 +31,22 @@ enum NCConfImportPort {
         /// (provider overrides) after the profile is saved: these are the proxy-provider / rule-provider names.
         var disabledProviders: [String]? = nil
         var disabledRuleSets: [String]? = nil
+        /// fix/nc-0.20.2: commented-out local rules (`# DOMAIN,…` in [Rule] / [filter_local] — how Surge, Loon and QX
+        /// keep a switched-off rule) imported as 停用 profile rules: the rule text in the generated profile and which
+        /// occurrence of that text it is (the #profile-rules override key).
+        var disabledRules: [DisabledRule]? = nil
+        /// fix/nc-0.20.2: commented-out local rewrite / script / task lines, added as 停用 local items of 重写.
+        var disabledLocal: [DisabledLocal]? = nil
+    }
+
+    struct DisabledRule: Codable, Hashable {
+        var rule: String
+        var index: Int
+    }
+
+    struct DisabledLocal: Codable, Hashable {
+        var line: String
+        var script: Bool
     }
 
     struct RemoteModule: Codable, Hashable {
@@ -38,6 +54,8 @@ enum NCConfImportPort {
         var name: String
         var enabled: Bool
         var interval: Int
+        /// fix/nc-0.20.2: the client whose User-Agent fetches it ("qx" for rewrite_remote, "loon" for [Plugin]).
+        var client: String? = nil
     }
 
     struct ConfSettings: Codable {
@@ -120,6 +138,30 @@ enum NCConfImportPort {
             secs[cur]?.append(t)
         }
         return (order, secs)
+    }
+
+    /// fix/nc-0.20.2: the commented-out lines per section (lowercased name): `# DOMAIN,a.com,Proxy` → `DOMAIN,a.com,Proxy`.
+    /// Surge, Loon and Quantumult X keep a switched-off local entry as a `#` comment; `#!` headers, `;` / `//` notes,
+    /// blank comments and prose (anything that does not parse as an entry later) are ignored by the callers.
+    static func commentedSections(_ text: String) -> [String: [String]] {
+        var out: [String: [String]] = [:]
+        var cur = ""
+        var t0 = text
+        if t0.hasPrefix("\u{FEFF}") { t0.removeFirst() }
+        for raw in t0.replacingOccurrences(of: "\r", with: "").split(separator: "\n", omittingEmptySubsequences: false) {
+            let t = raw.trimmingCharacters(in: .whitespaces)
+            if let re = confSectionRe, let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+               let r1 = Range(m.range(at: 1), in: t) {
+                cur = String(t[r1]).trimmingCharacters(in: .whitespaces).lowercased()
+                continue
+            }
+            guard t.hasPrefix("#"), !t.hasPrefix("#!") else { continue }
+            let body = t.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
+            // a candidate only; the callers keep it when it parses as an entry of its section (prose does not)
+            guard body.count >= 3, !body.hasPrefix("[") else { continue }
+            out[cur, default: []].append(body)
+        }
+        return out
     }
 
     static func nonEmpty(_ l: [String]?) -> [String] {
@@ -1551,6 +1593,46 @@ enum NCConfImportPort {
             rules.append(c.format(pol))
         }
 
+        // fix/nc-0.20.2: commented-out local rules → 停用 profile rules (after the enabled local rules; they take effect
+        // there when switched on). Remote lines and the final rule are not imported this way.
+        let commented = commentedSections(text)
+        var disabledRuleTexts: [String] = []
+        for l in commented[ruleSec] ?? [] {
+            let (c, err) = NCEngineRuleset.convertRuleLine(l)
+            guard err == nil, c.remoteURL.isEmpty, !c.rule.isEmpty, c.type != "MATCH" else { continue }
+            let (pol, ok) = resolvePol(c.policy)
+            guard ok else { continue }
+            let r = c.format(pol)
+            rules.append(r)
+            disabledRuleTexts.append(r)
+        }
+
+        // fix/nc-0.20.2: Loon [Remote Rule] (`URL, policy=X, tag=Y, enabled=false`) → a rule set like a QX
+        // filter_remote; enabled=false imports it 停用 (listed, never downloaded until switched on).
+        if !isQX {
+            for l in nonEmpty(secs["remote rule"]) {
+                let opts = qxLineOpts(l)
+                let u = String(l.split(separator: ",", maxSplits: 1).first ?? "").trimmingCharacters(in: .whitespaces)
+                guard u.hasPrefix("http://") || u.hasPrefix("https://") else {
+                    skip("remote rule", l, "整个规则列表未导入：无效的规则列表地址（需要 http:// 或 https:// 开头）")
+                    rulesSkipped += 1
+                    continue
+                }
+                let off = opts["enabled"].map { !truthy($0) } ?? false
+                if off {
+                    if rep.disabled == nil { rep.disabled = [] }
+                    rep.disabled?.append("[Remote Rule] " + qxRemoteLabel(l))
+                }
+                let provBefore = Set(providers.keys)
+                addRemote(sec: "remote rule", u: u, kind: "list", pol: firstNonEmpty(opts["policy"], "DIRECT"), line: l,
+                          tag: opts["tag"] ?? "", interval0: atoi(opts["update-interval"], 0))
+                if off {
+                    let added = providers.keys.filter { !provBefore.contains($0) }.sorted()
+                    if !added.isEmpty { rep.disabledRuleSets = (rep.disabledRuleSets ?? []) + added }
+                }
+            }
+        }
+
         if isQX {
             var inserted: [String] = []
             for l0 in nonEmpty(secs["filter_remote"]) {
@@ -1678,6 +1760,21 @@ enum NCConfImportPort {
         if let finalRule {
             rules.append(finalRule)
         }
+        // fix/nc-0.20.2: which occurrence of its text each 停用 rule is in the final list (the appended ones are the
+        // last occurrences of their text).
+        if !disabledRuleTexts.isEmpty {
+            var fromEnd: [String: Int] = [:]
+            var refs: [DisabledRule] = []
+            for r in disabledRuleTexts.reversed() {
+                let total = rules.filter { $0 == r }.count
+                let k = fromEnd[r] ?? 0
+                fromEnd[r] = k + 1
+                if total - 1 - k >= 0 { refs.append(DisabledRule(rule: r, index: total - 1 - k)) }
+            }
+            rep.disabledRules = Array(refs.reversed())
+            if rep.disabled == nil { rep.disabled = [] }
+            rep.disabled?.append(contentsOf: disabledRuleTexts.map { "[" + ruleSec + "] " + $0 })
+        }
 
         // ---- DNS / General
         let (strippedP, strippedG) = stripReservedOutbound(proxies, groups, &rep)
@@ -1735,13 +1832,15 @@ enum NCConfImportPort {
         }
 
         // ---- rewrite / MitM / scripts → one module text
+        // fix/nc-0.20.2: Loon's local [Rewrite] joins the module; [Plugin] / [Remote Rule] are handled below / above.
         let moduleSecs: Set<String> = [
             "url rewrite", "header rewrite", "body rewrite", "map local", "script", "mitm",
-            "rewrite_local", "task_local"
+            "rewrite_local", "task_local", "rewrite"
         ]
         let knownSecs: Set<String> = [
             "", "general", "proxy", "proxy group", "rule", "server_local", "server_remote",
-            "policy", "filter_local", "filter_remote", "dns", "replica", "host", "rewrite_remote"
+            "policy", "filter_local", "filter_remote", "dns", "replica", "host", "rewrite_remote",
+            "plugin", "remote rule"
         ]
         var modText = ""
         for s in order {
@@ -1772,20 +1871,51 @@ enum NCConfImportPort {
             modText += "[" + title + "]\n" + lines.joined(separator: "\n") + "\n\n"
         }
 
-        if isQX {
+        // QX [rewrite_remote] / fix/nc-0.20.2: Loon [Plugin] — one remote module per line; enabled=false is kept and
+        // such a module is NOT downloaded at import (it is fetched when switched on).
+        do {
             var remotes: [RemoteModule] = []
-            for l in nonEmpty(secs["rewrite_remote"]) {
-                let (m, ok) = parseQXRewriteRemote(l)
+            let sec = isQX ? "rewrite_remote" : "plugin"
+            for l in nonEmpty(secs[sec]) {
+                let (m0, ok) = parseQXRewriteRemote(l)
                 if ok {
+                    var m = m0
+                    m.client = isQX ? "qx" : "loon"
                     remotes.append(m)
                 } else {
-                    skip("rewrite_remote", l, "不是有效的远程重写链接")
+                    skip(sec, l, "不是有效的远程重写链接")
                 }
             }
             if !remotes.isEmpty {
                 res.rewriteRemotes = remotes
             }
-            rep.remotes = remotes.count
+            if isQX || !remotes.isEmpty { rep.remotes = remotes.count }
+        }
+
+        // fix/nc-0.20.2: commented-out local rewrite / script / task lines → 停用 local items (only lines the module
+        // parser accepts in their section).
+        var offLocal: [DisabledLocal] = []
+        for s in order where moduleSecs.contains(s) && s != "mitm" {
+            for l in commented[s] ?? [] {
+                // parsed the way 重写's local items are built (NCMitmBuild: scripts with section "script", rewrites
+                // with the section guessed from the line), so a 停用 item works as is once switched on
+                let sc = NCEngineRuleset()
+                sc.parseLine(l, section: "script", source: "用户")
+                if !sc.tasks.isEmpty || sc.rules.contains(where: { $0.kind == "script" }) {
+                    offLocal.append(DisabledLocal(line: l, script: true))
+                    continue
+                }
+                let rw = NCEngineRuleset()
+                rw.parseLine(l, section: "", source: "用户")
+                if rw.rules.contains(where: { $0.kind != "script" }) {
+                    offLocal.append(DisabledLocal(line: l, script: false))
+                }
+            }
+        }
+        if !offLocal.isEmpty {
+            rep.disabledLocal = offLocal
+            if rep.disabled == nil { rep.disabled = [] }
+            rep.disabled?.append(contentsOf: offLocal.map { "[" + ($0.script ? "脚本" : "重写") + "] " + $0.line })
         }
 
         if !modText.isEmpty {

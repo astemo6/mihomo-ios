@@ -414,6 +414,8 @@ struct GallerySourcesView: View {
     @State private var url = ""
     @State private var name = ""
     @State private var error: String?
+    /// fix/nc-0.20.2: the shared 排序 / 完成 button (was the system 编辑 button).
+    @State private var editMode: EditMode = .inactive
 
     var body: some View {
         List {
@@ -444,7 +446,7 @@ struct GallerySourcesView: View {
                         Button { Task { await gallery.refresh(s) } } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(Theme.accent)
                     }
                 }
-                .onMove { from, to in gallery.sources.move(fromOffsets: from, toOffset: to); gallery.saveSources() }
+                .onMove(perform: editMode.isEditing ? { (from: IndexSet, to: Int) in gallery.sources.move(fromOffsets: from, toOffset: to); gallery.saveSources() } : nil)
                 if gallery.sources.isEmpty { Text("没有来源").foregroundStyle(.secondary) }
             } footer: {
                 Text("支持：GitHub 仓库或文件夹链接（列出其中的 .sgmodule / .plugin / .stoverride / .snippet 文件，子文件夹作为分类）、JSON 列表（name、url、desc、category）、包含模块链接或安装链接的网页、Markdown 或文本。")
@@ -482,8 +484,13 @@ struct GallerySourcesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
-            ToolbarItem(placement: .navigationBarLeading) { EditButton() }
+            ToolbarItem(placement: .navigationBarLeading) {
+                ReorderToolbarButton(isEditing: editMode.isEditing, count: gallery.sources.count, id: "gallery.sources.reorder") {
+                    withAnimation { editMode = editMode.isEditing ? .inactive : .active }
+                }
+            }
         }
+        .environment(\.editMode, $editMode)
         .alert("添加来源", isPresented: $adding) {
             TextField("https://github.com/…", text: $url).textInputAutocapitalization(.never).autocorrectionDisabled()
             TextField("名称（可选）", text: $name)

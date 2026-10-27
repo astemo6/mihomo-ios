@@ -23,6 +23,9 @@ struct ConfImportResult: Decodable {
         /// fix/nc-0.20.2: those entries are imported and then switched off (provider overrides).
         var disabledProviders: [String]?
         var disabledRuleSets: [String]?
+        /// fix/nc-0.20.2: commented-out local rules (→ 停用 profile rules) and rewrite / script lines (→ 停用 local items).
+        var disabledRules: [NCConfImportPort.DisabledRule]?
+        var disabledLocal: [NCConfImportPort.DisabledLocal]?
     }
     var yaml: String?
     var module: String?
@@ -31,6 +34,8 @@ struct ConfImportResult: Decodable {
         var name: String
         var enabled: Bool
         var interval: Int?
+        /// fix/nc-0.20.2: "qx" (rewrite_remote) / "loon" ([Plugin]) — the User-Agent that fetches it.
+        var client: String?
     }
     var rewriteRemotes: [RemoteModule]? = nil
     /// v0.11: QX [general] connection settings (excluded_routes, ssid_suspended_list, server_check_url /
@@ -110,14 +115,34 @@ struct ConfImportResult: Decodable {
 
 enum ConfImport {
     /// fix/nc-0.20.2: switches off the imported entries the original config had disabled.
-    @MainActor static func applyDisabled(profileID: String, nodeSets: [String], ruleSets: [String]) {
+    @MainActor static func applyDisabled(profileID: String, nodeSets: [String], ruleSets: [String],
+                                         rules: [NCConfImportPort.DisabledRule] = [], local: [NCConfImportPort.DisabledLocal] = []) {
         let ov = ProviderOverrideStore.shared
         for n in nodeSets { ov.update(profileID, n) { $0.disabled = true } }
         for n in ruleSets { ov.update(profileID, ProviderOverride.ruleKey(n)) { $0.disabled = true } }
+        // fix/nc-0.20.2: commented-out local rules → 停用 profile rules (分流规则 → 本地规则 shows them switched off).
+        for r in rules { ov.updateProfileRule(profileID, rule: r.rule, index: r.index) { $0.disabled = true } }
+        // commented-out rewrite / script lines → 停用 local items of 重写 (a line already there is not added twice)
+        if !local.isEmpty {
+            let store = EngineStore.shared
+            func has(_ list: [EngineItem], _ l: String) -> Bool {
+                list.contains { $0.line.trimmingCharacters(in: .whitespaces) == l.trimmingCharacters(in: .whitespaces) }
+            }
+            for l in local {
+                if l.script {
+                    if !has(store.config.scripts, l.line) { store.config.scripts.append(EngineItem(enabled: false, line: l.line)) }
+                } else if !has(store.config.rules, l.line) {
+                    store.config.rules.append(EngineItem(enabled: false, line: l.line))
+                }
+            }
+            store.save()
+        }
     }
 
     /// Saves the converted profile (validated by the real core) and, if present, the module.
-    static func save(text: String, name: String, result: ConfImportResult?, store: ProfileStore,
+    /// fix/nc-0.20.2: `waitForDownloads` (the E2E replay) awaits the background downloads and lists each remote module
+    /// that failed on its own line (「<name>：<error>」) as before; the import sheet returns at once.
+    static func save(text: String, name: String, result: ConfImportResult?, store: ProfileStore, waitForDownloads: Bool = false,
                      progress: @MainActor (String) -> Void = { _ in }) async throws -> String {
         let r: ConfImportResult
         if let result { r = result } else { await progress(String(localized: "正在转换配置…")); r = await ConfImportResult.convert(text) }
@@ -133,38 +158,65 @@ enum ConfImport {
         // fix/nc-0.20.2: entries switched off in the original config are imported as 停用 node sets / rule sets —
         // listed, never fetched or loaded until the user turns them on.
         let offNodes = r.report?.disabledProviders ?? [], offRules = r.report?.disabledRuleSets ?? []
-        if !offNodes.isEmpty || !offRules.isEmpty {
-            await MainActor.run { ConfImport.applyDisabled(profileID: p.id, nodeSets: offNodes, ruleSets: offRules) }
+        let offLocalRules = r.report?.disabledRules ?? [], offLocal = r.report?.disabledLocal ?? []
+        if !offNodes.isEmpty || !offRules.isEmpty || !offLocalRules.isEmpty || !offLocal.isEmpty {
+            await MainActor.run {
+                ConfImport.applyDisabled(profileID: p.id, nodeSets: offNodes, ruleSets: offRules, rules: offLocalRules, local: offLocal)
+            }
         }
         var msg = String(localized: "已导入配置「\(p.name)」")
         if let m = r.module, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await MainActor.run { EngineStore.shared.addModule(text: m, name: p.name + "（重写）") }
             msg += String(localized: "，重写 / MitM / 脚本已作为模块「\(p.name)（重写）」添加")
         }
-        // QX [rewrite_remote] (v0.8.1): one module per line (tag / file name, enabled= kept), downloaded now.
+        // QX [rewrite_remote] (v0.8.1) / Loon [Plugin]: one module per line (tag / file name, enabled= kept).
+        // fix/nc-0.20.2: added at once and downloaded in the background (BackgroundDownloads), not inside this sheet;
+        // a 停用 one is listed and only downloaded when switched on.
         let remotes = r.rewriteRemotes ?? []
+        var fetchIDs: [String] = []
+        var clients: [String: String] = [:]
         if !remotes.isEmpty {
-            await progress(String(localized: "正在下载远程重写…"))
-            var failed: [String] = []
-            for m in remotes {
-                if let e = await EngineStore.shared.addRemoteModule(url: m.url, name: m.name, enabled: m.enabled, interval: m.interval ?? 86400, client: "qx") {
-                    failed.append("\(m.name)：\(e)")
+            (fetchIDs, clients) = await MainActor.run { () -> ([String], [String: String]) in
+                var fetchIDs: [String] = []
+                var clients: [String: String] = [:]
+                let store = EngineStore.shared
+                for m in remotes where !store.config.modules.contains(where: { $0.url == m.url }) {
+                    guard store.addPreviewedModule(url: m.url, text: "", name: m.name, enabled: m.enabled,
+                                                   interval: (m.interval ?? 86400) > 0 ? (m.interval ?? 86400) : nil),
+                          let i = store.config.modules.firstIndex(where: { $0.url == m.url }) else { continue }
+                    // the user's tag stays the name; the module was never downloaded (updatedAt nil)
+                    store.config.modules[i].customName = m.name.isEmpty ? nil : true
+                    store.config.modules[i].updatedAt = nil
+                    let id = store.config.modules[i].id
+                    if let c = m.client { clients[id] = c }
+                    if m.enabled { fetchIDs.append(id) }
                 }
+                store.save()
+                return (fetchIDs, clients)
             }
+            let off = remotes.filter { !$0.enabled }.count
             msg += String(localized: "，另添加 \(remotes.count) 个远程重写模块")
-            if !failed.isEmpty {
-                msg += String(localized: "（\(failed.count) 个下载失败，可在「工具 → 重写」中更新）\n") + failed.joined(separator: "\n")
-            }
+            if off > 0 { msg += String(localized: "（\(off) 个按原配置停用，启用后再下载）") }
         }
         if let st = r.settings, r.applySettings != false, !st.lines.isEmpty {
             await MainActor.run { st.apply() }
             msg += String(localized: "，已应用 \(st.lines.count) 项连接设置")
         }
-        // Rule sets / node subscriptions: download them now so they work before the first connection.
-        await progress(String(localized: "正在下载规则集 / 节点集…"))
-        let pr = await ProviderUpdater.shared.updateAll(profile: p)
-        if pr.failed > 0 {
-            msg += String(localized: "\n规则集 / 节点集：\(pr.ok) 个已下载，\(pr.failed) 个失败（规则集在「工具 → 分流规则 → 订阅」、节点集在「节点与订阅」中重试）")
+        // Rule sets / node subscriptions and the remote modules: downloaded in the background (they keep going when
+        // the sheet closes or the app leaves the foreground); a notification sums them up.
+        let ids = fetchIDs, cl = clients
+        let job = await MainActor.run { BackgroundDownloads.shared.runImport(profile: p, moduleIDs: ids, clients: cl, notify: !waitForDownloads) }
+        if waitForDownloads {
+            await progress(String(localized: "正在下载规则集 / 节点集…"))
+            let sum = await job.value
+            if !sum.modulesFailed.isEmpty {
+                msg += String(localized: "（\(sum.modulesFailed.count) 个下载失败，可在「工具 → 重写」中更新）\n") + sum.modulesFailed.joined(separator: "\n")
+            }
+            if sum.providers.failed > 0 {
+                msg += String(localized: "\n规则集 / 节点集：\(sum.providers.ok) 个已下载，\(sum.providers.failed) 个失败（规则集在「工具 → 分流规则 → 订阅」、节点集在「节点与订阅」中重试）")
+            }
+        } else {
+            msg += String(localized: "\n远程重写、规则集与节点集正在后台下载，完成后会通知你。")
         }
         return msg
     }

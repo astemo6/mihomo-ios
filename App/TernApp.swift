@@ -41,7 +41,11 @@ struct TernApp: App {
                 .onOpenURL { router.handle(url: $0) }
                 .tint(Theme.accent)
                 // v0.9: 更多 → 设置 → 外观 (跟随系统 / 浅色 / 深色), applied to every window.
-                .onAppear { AppAppearance.apply() }
+                .onAppear {
+                    AppAppearance.apply()
+                    // fix/nc-0.20.2: import / module downloads outside the sheets, retried on connect / foreground.
+                    BackgroundDownloads.shared.start()
+                }
                 .onChange(of: phase) { p in
                     if p == .background { LiveActivityController.shared.didEnterBackground(); ScheduledUpdates.scheduleBackground() }
                     if p == .active {
