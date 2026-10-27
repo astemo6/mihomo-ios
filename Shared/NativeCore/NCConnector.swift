@@ -465,22 +465,31 @@ enum NCConnector {
                 socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
         case "http", "https":
-            if transport != nil && proxy.type == "https" {
+            // fix-tls-c: `https` and Clash `http` + `tls: true` (share-link https://) are the same TLS proxy. Before, the
+            // system-TLS path used NCStream(tls:) — no SNI from `sni`, no skip-cert-verify (a self-signed https node
+            // always failed `tls · -9808`) — and `http` + `tls: true` dialed in plain text.
+            let httpTLS = httpProxyUsesTLS(proxy)
+            if transport != nil && httpTLS {
                 queue.async { completion(nil, Failure.unsupported("https proxy over a chain transport")) }
                 return
             }
-            if proxy.type == "https" && isECHEnabled(proxy) && realityParams(proxy) != nil {
+            if httpTLS && isECHEnabled(proxy) && realityParams(proxy) != nil {
                 queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
                 return
             }
-            if proxy.type == "https" && needsNativeTLS(proxy) {
+            if httpTLS && needsNativeTLS(proxy) {
                 dialNativeTLS(proxy: proxy, server: server, port: port, defaultALPN: ["http/1.1"], queue: queue) { raw, err in
                     guard let raw else { completion(nil, err); return }
                     httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
                 }
                 return
             }
-            obtainStream(transport: transport, make: { NCStream(to: server, port: port, tls: proxy.type == "https", queue: queue) }) { raw, err in
+            obtainStream(transport: transport, make: {
+                httpTLS
+                    ? NCStream(to: server, port: port, tlsServerName: httpProxySNI(proxy, server: server),
+                               allowInsecure: proxy.skipCertVerify, queue: queue)
+                    : NCStream(to: server, port: port, queue: queue)
+            }) { raw, err in
                 guard let raw else { completion(nil, err); return }
                 httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
@@ -1135,6 +1144,21 @@ enum NCConnector {
         default:
             return type == "trojan" ? ["h2", "http/1.1"] : []
         }
+    }
+
+    /// fix-tls-c: an HTTP CONNECT proxy reached over TLS — `type: https` (QX over-tls, Surge https) or Clash `type: http`
+    /// with `tls: true` (also the share-link https:// form).
+    static func httpProxyUsesTLS(_ proxy: NCProxy) -> Bool {
+        proxy.type == "https" || (proxy.type == "http" && (proxy.fields["tls"].flatMap(NCProxy.truthy) ?? false))
+    }
+
+    /// SNI of an HTTP-over-TLS proxy: `sni` / `servername` / QX `tls-host` (kept verbatim by the QX import), else the
+    /// server (as Clash.Meta's http outbound).
+    static func httpProxySNI(_ proxy: NCProxy, server: String) -> String {
+        for k in ["sni", "servername", "tls-host"] {
+            if let v = proxy.fields[k]?.string, !v.isEmpty { return v }
+        }
+        return server
     }
 
     /// Whether this proxy requires the native TLS stack (NCTLSClient).

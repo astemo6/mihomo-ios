@@ -634,28 +634,58 @@ final class TernE2ETunnelTests: XCTestCase {
                                      "HelloRetryRequest", "all padding", "application data before"]
 
     /// "… at stage tls (-9808: bad certificate format)" → ("tls", "-9808: bad certificate format").
+    /// fix-tls-c: NCStream now appends "· verify on: <reason> · chain …" / "· skip-cert-verify on"; the per-node chain
+    /// part (" · chain …") is cut so the histogram still groups by reason.
     static func stageReason(_ msg: String) -> (stage: String, reason: String) {
         guard let r = msg.range(of: "at stage ") else { return ("?", msg.isEmpty ? "unknown" : String(msg.prefix(80))) }
         let rest = msg[r.upperBound...]
         let stage = rest.prefix { $0 != " " }
         var reason = String(rest.dropFirst(stage.count)).trimmingCharacters(in: .whitespaces)
+        if let bar = reason.range(of: " | ") { reason = String(reason[..<bar.lowerBound]) }
         if reason.hasPrefix("("), reason.hasSuffix(")") { reason = String(reason.dropFirst().dropLast()) }
+        if let c = reason.range(of: " · chain ") { reason = String(reason[..<c.lowerBound]) }
         // Collapse per-node numbers so the histogram groups: "after 5000 ms" / status lines keep their class.
         reason = reason.replacingOccurrences(of: #"\d+ ms"#, with: "N ms", options: .regularExpression)
-        return (String(stage), String(reason.prefix(90)))
+        return (String(stage), String(reason.prefix(110)))
+    }
+
+    /// fix-tls-c: how the dial handled the certificate, from NCStream's annotation of the TLS error.
+    static func dialedVerify(_ msg: String) -> String {
+        if msg.contains("· verify on") { return "verify on" }
+        if msg.contains("· skip-cert-verify on") { return "skip on" }
+        return "not stated"
+    }
+
+    /// fix-tls-c: the provider body's format — the core's "proxy provider <p>: body …" line, else the raw-body cache
+    /// file parsed again (the 400-line log ring may have dropped the start-up lines).
+    private func providerBody(_ prov: String, qxRemote: Bool) -> String {
+        let head = "proxy provider \(prov): body "
+        if let l = NativeLogRing.shared.since(0).lines.last(where: { $0.payload.hasPrefix(head) }) {
+            return String(l.payload.dropFirst(head.count))
+        }
+        let f = URL(fileURLWithPath: home).appendingPathComponent("nativecore-nodesubs")
+            .appendingPathComponent(NCNodeSubscriptionStore.cacheFileName(for: prov))
+        guard let text = try? String(contentsOf: f, encoding: .utf8) else { return "unknown (no log line, no cache file)" }
+        let p = NCSubscriptionParser.parseDetailed(text, qxRemote: qxRemote)
+        return p.format + (qxRemote ? ", QX TLS default: \(p.qxTLSDefaulted) node(s) verification off (re-parsed cache)" : " (re-parsed cache)")
     }
 
     /// Every provider node through GET /proxies/{name}/delay (8 at a time): success ratio and failure-reason
-    /// histogram per provider. FAIL on an internal TLS error class, and on a certificate-trust error (-98xx) for a node
-    /// whose skip-cert-verify is on (the switch was not honoured). The run 40287757614 group-delay row showed
-    /// 「SZ CN -9808」 as one of five truncated failures and still passed.
+    /// histogram per provider. FAIL on an internal TLS error class, on a certificate-trust error (-98xx) for a node
+    /// whose skip-cert-verify is on (the switch was not honoured), and (fix-tls-c) on a QX [server_remote] provider's
+    /// TLS node that still verifies without `tls-verification: true` (the QX default was not applied). The run
+    /// 40287757614 group-delay row showed 「SZ CN -9808」 as one of five truncated failures and still passed.
+    /// fix-tls-c: every -98xx failure also gets one evidence line — provider body format, protocol, skip-cert-verify in
+    /// the config and as dialed, SNI kind, and a direct probe of the server (TLS version, chain, SecTrust verdict).
     private func nodeTLS(_ engine: NativeCoreEngine) {
         guard let cfg = engine.effectiveConfig else { return }
         let byName = Dictionary(cfg.proxies.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         let provs = providerNodes()
         if provs.isEmpty { r.record("node-tls", .info, "no provider nodes"); return }
         let url = testURL(cfg)
+        let subs = engine.loadedCanonicalConfig?.subscriptions ?? []
         for (prov, names) in provs.sorted(by: { $0.key < $1.key }) where !names.isEmpty {
+            let qxRemote = subs.first { $0.name == prov }.map(NCNodeSubscriptionStore.isQXRemote) ?? false
             let list = Array(names.prefix(60))
             var results = [String?](repeating: nil, count: list.count) // nil = ok
             let lock = NSLock()
@@ -675,29 +705,67 @@ final class TernE2ETunnelTests: XCTestCase {
             var hist: [String: (count: Int, example: String)] = [:]
             var bad: [String] = []
             var tlsOK = 0, tlsTried = 0
+            var trustFails: [(name: String, msg: String, proxy: NCProxy?)] = []
+            var verifyOnTLS = 0
             for (i, n) in list.enumerated() {
+                let p = byName[n]
+                if let px = p, qxRemote, NCQXImport.qxRemoteTLSDefault(px) != nil { verifyOnTLS += 1 }
                 guard let msg = results[i] else { tlsOK += 1; tlsTried += 1; continue }
                 let (stage, reason) = Self.stageReason(msg)
                 let key = "\(stage) · \(reason)"
                 hist[key, default: (0, n)].count += 1
                 let isTLSStage = stage.contains("tls") || stage == "handshake"
                 if isTLSStage { tlsTried += 1 }
-                let p = byName[n]
                 let isInternal = Self.internalTLSClasses.contains { msg.contains($0) }
                 let trust = msg.range(of: #"-98\d\d"#, options: .regularExpression) != nil
-                if isInternal || (trust && (p?.skipCertVerify ?? false)) {
-                    let f = p.map { px -> String in
-                        let sni = px.fields["servername"]?.string ?? px.fields["sni"]?.string
-                        let ipSNI = sni.map { NCIP($0) != nil } ?? (px.server.map { NCIP($0) != nil } ?? false)
-                        return "\(px.type)/\(px.fields["network"]?.string ?? "tcp"), skip-cert-verify \(px.skipCertVerify), sni \(sni == nil ? "none" : (ipSNI ? "IP" : "name")), reality \(px.fields["reality-opts"] != nil), fp \(px.fields["client-fingerprint"]?.string ?? "-")"
-                    } ?? "?"
-                    bad.append("\(n): \(key) [\(f)]")
+                if trust { trustFails.append((n, msg, p)) }
+                let qxNotApplied = trust && qxRemote && p.map { NCQXImport.qxRemoteTLSDefault($0) != nil } == true
+                if isInternal || (trust && ((p?.skipCertVerify ?? false) || Self.dialedVerify(msg) == "skip on")) || qxNotApplied {
+                    bad.append("\(n): \(key) [\(Self.tlsFields(p))]\(qxNotApplied ? " QX default not applied" : "")")
                 }
             }
+            // Evidence for every -98xx failure (probes 8 at a time, ≤ 20 nodes).
+            var evidence = [String](repeating: "", count: min(trustFails.count, 20))
+            let pg = DispatchGroup()
+            let psem = DispatchSemaphore(value: 8)
+            for (i, t) in trustFails.prefix(20).enumerated() {
+                psem.wait(); pg.enter()
+                q.async {
+                    var line = "\(t.name): \(Self.tlsFields(t.proxy)), dialed \(Self.dialedVerify(t.msg))"
+                    if let px = t.proxy, let server = px.server, let port = px.port {
+                        let sni = NCConnector.tlsSNI(px, server: server)
+                        line += "; " + E2ECertProbe.inspect(host: server, port: port, sni: sni).line
+                    } else {
+                        line += "; probe: no server/port"
+                    }
+                    lock.lock(); evidence[i] = line; lock.unlock()
+                    psem.signal(); pg.leave()
+                }
+            }
+            _ = pg.wait(timeout: .now() + 120)
             let histText = hist.sorted { $0.value.count > $1.value.count }.map { "\($0.key) ×\($0.value.count) (e.g. \($0.value.example))" }
-            let detail = "\(list.count - results.compactMap { $0 }.count)/\(list.count) ok; TLS handshake \(tlsOK)/\(max(tlsTried, tlsOK)) of the nodes that reached TLS; reasons: " + (histText.isEmpty ? "none" : histText.prefix(8).joined(separator: " ; "))
-            r.record("node-tls:\(prov)", bad.isEmpty ? .pass : .fail, bad.isEmpty ? detail : detail + " — INTERNAL / skip-cert-verify ignored: " + bad.prefix(8).joined(separator: " ; "))
+            var detail = "\(list.count - results.compactMap { $0 }.count)/\(list.count) ok; TLS handshake \(tlsOK)/\(max(tlsTried, tlsOK)) of the nodes that reached TLS; "
+            detail += "body: \(providerBody(prov, qxRemote: qxRemote)); QX [server_remote] \(qxRemote ? "yes" : "no")"
+            if qxRemote { detail += " (TLS nodes still verifying without tls-verification=true: \(verifyOnTLS))" }
+            detail += "; reasons: " + (histText.isEmpty ? "none" : histText.prefix(8).joined(separator: " ; "))
+            if !evidence.isEmpty {
+                detail += " — -98xx evidence (\(trustFails.count)): " + evidence.filter { !$0.isEmpty }.joined(separator: " ; ")
+            }
+            r.record("node-tls:\(prov)", bad.isEmpty ? .pass : .fail, bad.isEmpty ? detail : detail + " — INTERNAL / skip-cert-verify ignored / QX default not applied: " + bad.prefix(8).joined(separator: " ; "))
         }
+    }
+
+    /// Redacted TLS fields of a node: type / network, skip-cert-verify in the config, SNI none / IP / name, REALITY,
+    /// client fingerprint, pin, the QX tls-verification marker. No server, SNI or credential.
+    static func tlsFields(_ p: NCProxy?) -> String {
+        guard let px = p else { return "not in the running config" }
+        let sni = px.fields["servername"]?.string ?? px.fields["sni"]?.string
+        let ipSNI = sni.map { NCIP($0) != nil } ?? (px.server.map { NCIP($0) != nil } ?? false)
+        var s = "\(px.type)/\(px.fields["network"]?.string ?? "tcp"), skip-cert-verify \(px.skipCertVerify), sni \(sni == nil ? "none" : (ipSNI ? "IP" : "name"))"
+        s += ", reality \(px.fields["reality-opts"] != nil), fp \(px.fields["client-fingerprint"]?.string ?? "-")"
+        if NCConnector.parsePinnedCertSHA256(px) != nil { s += ", pinned" }
+        if px.fields["tls-verification"] != nil { s += ", tls-verification marker" }
+        return s
     }
 
     // MARK: - fix/nc-tls-scripts: a real script rule fires (gap b)

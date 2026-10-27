@@ -207,6 +207,8 @@ enum SelfCheckLogic {
                 name = String(body[..<r.lowerBound]); stage = "tcp"
                 reason = body[r.upperBound...].range(of: "failed (").map { String(body[$0.upperBound...].dropLast()) } ?? String(localized: "失败")
             } else { continue }
+            // fix-tls-c: NCStream's TLS errors end with the per-node chain (" · chain 1, leaf …, valid …"); group without it.
+            if let c = reason.range(of: " · chain ") { reason = String(reason[..<c.lowerBound]) }
             if reason.count > 90 { reason = String(reason.prefix(90)) + "…" }
             let key = stage + "\u{1}" + reason
             if map[key] == nil { order.append(key); map[key] = DelayFailure(stage: stage, reason: reason, nodes: []) }
