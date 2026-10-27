@@ -604,6 +604,14 @@ struct PolicyView: View {
         // Review 5: mirror only the outbound mode (fires with the current value on appear, then on every change).
         .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in if mode != m { mode = m } }
         .onChange(of: sortMode) { _ in snapshotDelays() }
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: .uiPerfExpandGroup)) { n in
+            guard let name = n.object as? String else { return }
+            let on = (n.userInfo?["on"] as? Bool) ?? true
+            let key = vpn.isConnected ? name : "offline:" + name
+            withAnimation(.spring(response: 0.3)) { if on { expanded.insert(key) } else { expanded.remove(key) } }
+        }
+        #endif
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
         // The order changed underneath (another save, a reload, a subscription update): no drag override survives it.
         .onChange(of: orderGroups.map { $0.name }) { _ in resetDrag() }

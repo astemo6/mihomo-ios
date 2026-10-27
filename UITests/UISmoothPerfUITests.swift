@@ -20,7 +20,7 @@ final class UISmoothPerfUITests: MihomoUITestCase {
 
     private func record(_ title: String, _ summary: String) {
         let lines = summary.split(separator: "\n").map(String.init)
-        for l in lines where l.hasPrefix("SUM ") || l.hasPrefix("state=") || l.hasPrefix("STEP ") { warnings.append("[perf] \(title) \(l)") }
+        for l in lines { warnings.append("[perf] \(title) \(l.hasPrefix("SUM ") || l.hasPrefix("state=") ? l : "STEP " + l)") }
         print("UIPERF \(title)\n\(summary)")
         let att = XCTAttachment(string: summary)
         att.name = "uiperf-\(title)"
@@ -107,7 +107,7 @@ final class UISmoothPerfUITests: MihomoUITestCase {
         for i in 0..<2 {
             probed("expand:\(i)") {
                 header.tap()
-                XCTAssertTrue(app.element(id: "policy.member.Big Select.Big 00000").waitForExistence(timeout: 15), "members shown")
+                XCTAssertTrue(app.element(id: "policy.member.Big Select.Big 00000.delay").waitForExistence(timeout: 15), "members shown")
             }
             probed("collapse:\(i)") {
                 header.tap()
@@ -115,15 +115,7 @@ final class UISmoothPerfUITests: MihomoUITestCase {
             }
         }
         header.tap()
-        _ = app.element(id: "policy.member.Big Select.Big 00000").waitForExistence(timeout: 15)
-        let scrollOpts = XCTMeasureOptions()
-        scrollOpts.iterationCount = 3
-        scrollOpts.invocationOptions = [.manuallyStop]
-        measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric], options: scrollOpts) {
-            app.swipeUp(velocity: .fast)
-            stopMeasuring()
-            app.swipeDown(velocity: .fast)
-        }
+        _ = app.element(id: "policy.member.Big Select.Big 00000.delay").waitForExistence(timeout: 15)
         probed("fling") {
             app.swipeUp(velocity: .fast)
             app.swipeUp(velocity: .fast)
@@ -132,5 +124,30 @@ final class UISmoothPerfUITests: MihomoUITestCase {
         }
         assertAlive("push-pop-expand")
         print("UIPERF probe\n" + warnings.joined(separator: "\n"))
+    }
+
+    /// Fling the 策略 list with the 3000-member group expanded (XCTest allows one metric set per test method).
+    func testD_ScrollExpandedBigGroup() {
+        launch(["-UIPerfProbe", "-UITestBigProfile"])
+        tab(1)
+        let header = app.element(id: "policy.card.Big Select")
+        XCTAssertTrue(header.waitForExistence(timeout: 20), "big group on 策略")
+        header.tap()
+        XCTAssertTrue(app.element(id: "policy.member.Big Select.Big 00000.delay").waitForExistence(timeout: 15), "members shown")
+        let opts = XCTMeasureOptions()
+        opts.iterationCount = 3
+        opts.invocationOptions = [.manuallyStop]
+        measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric], options: opts) {
+            app.swipeUp(velocity: .fast)
+            stopMeasuring()
+            app.swipeDown(velocity: .fast)
+        }
+        probed("fling-down-up") {
+            app.swipeUp(velocity: .fast)
+            app.swipeUp(velocity: .fast)
+            app.swipeDown(velocity: .fast)
+            app.swipeDown(velocity: .fast)
+        }
+        assertAlive("scroll expanded")
     }
 }
