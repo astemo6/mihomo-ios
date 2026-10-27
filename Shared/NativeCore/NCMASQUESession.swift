@@ -365,6 +365,11 @@ final class NCMASQUEConnection {
                     self.lock.unlock()
                 }
                 complete(matched)
+                // A refused server certificate leaves the QUIC group waiting until our 15 s timeout (real interop:
+                // 15.03 s); fail the start right away with the pinning error instead.
+                if !matched, let self {
+                    self.finishStart(NCMASQUEWarp.WarpError.warpPinMismatch(NCMASQUEWarp.warpPinMismatch))
+                }
             }, queue)
         } else if config.skipCertVerify {
             sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)

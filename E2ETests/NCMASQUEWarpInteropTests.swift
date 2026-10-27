@@ -208,8 +208,9 @@ final class NCMASQUEWarpInteropTests: XCTestCase {
         let (s, err) = dial(p, "www.cloudflare.com", 443, timeout: 90)
         s?.cancel()
         XCTAssertNil(s, "an unenrolled key must not get a tunnel")
-        NSLog("[warp-interop] wrong private key -> %@", "\(String(describing: err))")
-        XCTAssertNotNil(err)
+        let text = "\(String(describing: err))"
+        NSLog("[warp-interop] wrong private key -> %@", text)
+        XCTAssertTrue(text.contains(NCMASQUEWarp.warpRejected) || text.contains("被拒绝"), text)
         XCTAssertNil(device(p), "a refused node must not keep a device")
     }
 
@@ -217,9 +218,11 @@ final class NCMASQUEWarpInteropTests: XCTestCase {
     func testWrongPublicKeyRejected() throws {
         let wrong = try XCTUnwrap(env["NC_WARP_WRONG_PUB"], "NC_WARP_WRONG_PUB missing")
         let p = node(name: "warp-wrong-pub", publicKey: wrong)
+        let t0 = Date()
         let (s, err) = dial(p, "www.cloudflare.com", 443, timeout: 90)
         s?.cancel()
         XCTAssertNil(s, "a server whose key does not match public-key must be refused")
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 10, "pin mismatch must fail fast, not at the 15 s timeout")
         let text = "\(String(describing: err))"
         NSLog("[warp-interop] wrong public key -> %@", text)
         XCTAssertTrue(text.contains(NCMASQUEWarp.warpPinMismatch), text)
