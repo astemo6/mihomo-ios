@@ -1228,6 +1228,50 @@ extension NativeCoreLoopbackTests {
         try self.assertEcho(stream, payload: Data("second round".utf8))
     }
 
+    /// 1 MiB, byte-exact, streamed in 64 KiB chunks with back-pressure (many records, TCP reads, server padding).
+    private func sudokuBigEcho(_ stream: NCRelayStream, bytes: Int, timeout: TimeInterval) throws {
+        var raw = [UInt8](repeating: 0, count: bytes)
+        for i in 0..<bytes { raw[i] = UInt8(truncatingIfNeeded: (i &* 131) ^ (i >> 9)) }
+        let payload = Data(raw)
+        let exp = self.expectation(description: "sudoku big echo")
+        let state = EchoState(want: payload.count) { exp.fulfill() }
+        state.pump(stream)
+        let chunk = 64 * 1024
+        func sendFrom(_ off: Int) {
+            guard off < payload.count else { return }
+            let end = min(off + chunk, payload.count)
+            stream.send(payload.subdata(in: off..<end)) { sendFrom(end) }
+        }
+        sendFrom(0)
+        self.wait(for: [exp], timeout: timeout)
+        let (data, err) = state.result()
+        if let err { throw err }
+        XCTAssertEqual(data.count, payload.count, "echoed length")
+        XCTAssertTrue(data == payload, "big echo bytes differ")
+    }
+
+    func testSudokuTCPEcho1MiB() throws {
+        let p = Self.sudokuProxy("loop-sudoku-1m", 18090, ["aead-method": .string("chacha20-poly1305")])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.sudokuBigEcho(stream, bytes: 1 << 20, timeout: 90)
+    }
+
+    /// Rekey path: the client rotates its send epoch every 128 KiB (official KeyUpdateAfterBytes semantics, lowered
+    /// for the test), so the official server must derive each new epoch key and keep decrypting — 8 key updates.
+    func testSudokuClientEpochRekeyEcho() throws {
+        let saved = NCSudokuRecordLayer.keyUpdateAfterBytes
+        NCSudokuRecordLayer.keyUpdateAfterBytes = 128 * 1024
+        defer { NCSudokuRecordLayer.keyUpdateAfterBytes = saved }
+        let p = Self.sudokuProxy("loop-sudoku-rekey", 18091, [
+            "aead-method": .string("aes-128-gcm"), "table-type": .string("prefer_ascii"),
+            "enable-pure-downlink": .bool(false), "http-mask": .bool(false),
+        ])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.sudokuBigEcho(stream, bytes: 1 << 20, timeout: 90)
+    }
+
     /// A real HTTP/1 fetch through the official server: GET a 48 KiB page from the :18095 origin.
     func testSudokuHTTPFetch() throws {
         let p = Self.sudokuProxy("loop-sudoku-http", 18090, [:])
