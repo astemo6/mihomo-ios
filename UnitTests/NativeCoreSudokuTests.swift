@@ -576,8 +576,12 @@ final class NativeCoreSudokuTests: XCTestCase {
         let other = self.makeCodec(key: Self.vectorKey64Other).encode(payload)
         XCTAssertNotEqual(self.makeCodec().encode(payload), other,
                           "different keys must derive different tables")
-        XCTAssertNotEqual(self.makeCodec(key: Self.vectorKey64Other).decode(other),
+        // Decode the other key's wire with the default key's table (the old line decoded it with the
+        // same key it was encoded with, which only differed while some grids had no unique hint).
+        XCTAssertNotEqual(self.makeCodec().decode(other),
                           payload, "cross-key decode must not round-trip")
+        XCTAssertEqual(self.makeCodec(key: Self.vectorKey64Other).decode(other), payload,
+                       "same-key decode round-trips")
     }
 
     /// Pins the current contract: the encoder emits exactly 4 clue bytes per
