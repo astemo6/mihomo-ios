@@ -196,8 +196,13 @@ final class NativeCoreE2EReplayTests: XCTestCase {
             r.record("scripts-loadable", .fail, "\(broken.count) of \(counts.scripts) unloadable: " + broken.prefix(12).joined(separator: "; "))
         }
 
+        // fix/nc-tls-scripts (E2E gap d): the user's device flow — delete the profile, import the same file again,
+        // force-update every provider. Device build506 answered 「路径不在内核目录内」 here while the first import
+        // worked; the replay never exercised a second import or a manual provider update.
+        let handoffProfile = await Self.reimportAndForceUpdate(r: r, fixture: fixture.text, old: profile, home: home) ?? profile
+
         E2EReport.writeHandoff([
-            "home": home, "profile": profile.fileURL.path, "profileID": profile.id, "container": NSHomeDirectory(),
+            "home": home, "profile": handoffProfile.fileURL.path, "profileID": handoffProfile.id, "container": NSHomeDirectory(),
             "proxies": counts.proxies, "providers": counts.providers, "groups": counts.groups, "rules": counts.rules,
             "ruleProviders": counts.ruleProviders, "mitmHosts": counts.mitmHosts, "scripts": counts.scripts,
             "tasks": counts.tasks, "importMs": importMs, "prepMs": prepMs,
@@ -210,6 +215,56 @@ final class NativeCoreE2EReplayTests: XCTestCase {
     }
 
     private func rep0RemoteCount(_ rep: ConfImportResult.Report?) -> Int { rep?.remotes ?? 0 }
+
+    /// Delete + re-import + provider force update + runtime generation again; returns the new profile (nil: the
+    /// step could not run and the first import stays in use). Provider failures that are the fixture's environment
+    /// (HTTP 4xx / Cloudflare / no network to the subscription host) are INFO; a path / store error is a FAIL.
+    private static func reimportAndForceUpdate(r: E2EReport, fixture: String, old: Profile, home: String) async -> Profile? {
+        guard let action = ImportRouter.route(text: fixture, name: "E2E") else { return nil }
+        ProfileStore.shared.delete(old)
+        let gone = !FileManager.default.fileExists(atPath: old.fileURL.path) && !ProfileStore.shared.profiles.contains { $0.id == old.id }
+        do {
+            switch action {
+            case .confText(let name, let text):
+                let conv = await ConfImportResult.convert(text)
+                if let e = conv.error, !e.isEmpty { throw ProfileStore.StoreError.invalid(e) }
+                _ = try await ConfImport.save(text: text, name: name, result: conv, store: ProfileStore.shared)
+            case .profileText(let name, let text):
+                _ = try await ProfileStore.shared.addLocal(name: name, text: text)
+            default:
+                r.record("reimport", .skip, "re-import covers .conf / profile fixtures (this one is \(action.id))")
+                return nil
+            }
+        } catch {
+            r.record("reimport", .fail, "delete + re-import failed: \(error.localizedDescription)")
+            return nil
+        }
+        guard let p = ProfileStore.shared.profiles.last, p.id != old.id else {
+            r.record("reimport", .fail, "no new profile after the re-import")
+            return nil
+        }
+        ProfileStore.shared.activeID = p.id
+        AppShared.activeProfileID = p.id
+        r.record("reimport", gone ? .pass : .fail, gone ? "deleted and imported again (new profile)" : "the deleted profile is still on disk / in the list")
+
+        let tasks = ProviderUpdater.plan(profilePath: p.fileURL.path)
+        let res = await ProviderUpdater.shared.updateAll(profile: p)
+        let errs = ProviderUpdater.shared.errors.filter { e in tasks.contains { $0.id == e.key } }
+        let env = errs.filter { e in
+            let l = e.value.lowercased()
+            return l.contains("http 4") || l.contains("http 5") || l.contains("timed out") || l.contains("超时") || l.contains("offline")
+                || l.contains("could not") || l.contains("network") || l.contains("网络")
+        }
+        let real = errs.filter { env[$0.key] == nil }
+        let detail = "\(tasks.count) provider(s): ok \(res.ok), failed \(res.failed)"
+            + (env.isEmpty ? "" : "; environment (INFO): " + env.map { "\($0.key) \($0.value)" }.sorted().prefix(6).joined(separator: "; "))
+            + (real.isEmpty ? "" : "; ERRORS: " + real.map { "\($0.key) \($0.value)" }.sorted().prefix(8).joined(separator: "; "))
+        r.record("reimport-provider-update", real.isEmpty && (tasks.isEmpty || res.ok > 0) ? .pass : .fail, detail)
+
+        let err = await Task.detached(priority: .userInitiated) { NativeRuntimePrep.prepareSyncForReplay(home: home, profile: p.fileURL) }.value
+        r.record("reimport-runtime", err == nil ? .pass : .fail, err.map { "runtime generation after the re-import: \($0)" } ?? "runtime regenerated for the re-imported profile")
+        return err == nil ? p : nil
+    }
 
     // MARK: helpers
 

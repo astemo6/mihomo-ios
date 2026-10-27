@@ -6,10 +6,10 @@ import Security
 /// needs byte-exact control of the ClientHello) and usable as plain TLS too.
 /// Plain (non-REALITY) mode falls back to TLS 1.2 when the server picks it
 /// (ECDHE + AES-GCM / ChaCha20-Poly1305, see NCTLS12; feat/nc-proto A8).
-/// Scope: X25519 key share, suites 1301/1302/1303, no client
+/// Scope: X25519 key share (P-256 / P-384 after a HelloRetryRequest), suites 1301/1302/1303, no client
 /// certs, no resumption. Certificate policy: REALITY mode verifies the leaf
 /// by its HMAC proof (falling back to "not verified" → handshake failure,
-/// exactly like the old core client); plain mode uses SecTrust against the system
+/// as REALITY clients do); plain mode uses SecTrust against the system
 /// roots for the configured server name.
 final class NCTLSClientStream: NCRelayStream {
     struct Config {
@@ -86,6 +86,11 @@ final class NCTLSClientStream: NCRelayStream {
     // Handshake state
     private var transcript = Data() // concatenated handshake messages
     private var clientPrivate: Curve25519.KeyAgreement.PrivateKey?
+    /// fix/nc-tls-scripts: key share after a plain (non-ECH) HelloRetryRequest that asked for secp256r1 / secp384r1
+    /// (both are in the supported_groups we advertise; a server preferring them answered HRR, which used to fail
+    /// with "key agreement failed").
+    private var clientP256: P256.KeyAgreement.PrivateKey?
+    private var clientP384: P384.KeyAgreement.PrivateKey?
     private var clientRandom = Data()
     private var certsDER: [Data] = []
     private var certVerify: (scheme: UInt16, signature: Data)?
@@ -435,13 +440,26 @@ final class NCTLSClientStream: NCRelayStream {
                     return
                 }
                 readSeq += 1
-                guard let innerType = plain.last else { return }
-                let content = Data(plain.dropLast())
+                guard let (innerType, content) = NCTLS13.innerPlaintext(plain) else {
+                    fail(TLSError.handshake("encrypted record without a content type (all padding)"))
+                    return
+                }
                 switch innerType {
                 case 22: handleHandshakeBytes(content)
-                case 23: deliverAppData(content)
-                case 21: closed = true; deliverEOFOrError(nil)
-                default: break
+                case 23:
+                    guard handshakeDone else {
+                        fail(TLSError.handshake("application data before the server Finished"))
+                        return
+                    }
+                    deliverAppData(content)
+                case 21:
+                    if content.count >= 2, content[content.startIndex] == 2, !handshakeDone {
+                        fail(TLSError.handshake("fatal alert \(content[content.startIndex + 1])"))
+                        return
+                    }
+                    closed = true; deliverEOFOrError(nil)
+                default:
+                    if !handshakeDone { fail(TLSError.handshake("unexpected inner content type \(innerType)")); return }
                 }
             } else {
                 // Plaintext handshake (ServerHello flight)
@@ -485,7 +503,7 @@ final class NCTLSClientStream: NCRelayStream {
             return
         }
         switch type {
-        case 2: // ServerHello (exactly once, in plaintext; HelloRetryRequest is not supported)
+        case 2: // ServerHello (plaintext; once, or twice around a HelloRetryRequest)
             guard readKey == nil, handshakeSecretStored == nil, !handshakeDone else {
                 fail(TLSError.handshake("unexpected ServerHello"))
                 return
@@ -521,8 +539,10 @@ final class NCTLSClientStream: NCRelayStream {
             }
         case 20: // Finished: only after a verified Certificate + CertificateVerify (no PSK mode is offered).
             guard !handshakeDone else { fail(TLSError.handshake("unexpected Finished")); return }
-            guard serverAuthenticated else {
-                fail(TLSError.handshake("server Finished without a verified CertificateVerify"))
+            guard gotEncryptedExtensions, gotCertificate, serverAuthenticated else {
+                fail(TLSError.handshake("server Finished without a verified CertificateVerify (seen: "
+                    + "EncryptedExtensions \(gotEncryptedExtensions ? "yes" : "no"), Certificate \(gotCertificate ? "yes" : "no"), "
+                    + "CertificateVerify \(serverAuthenticated ? "yes" : "no")\(skippedHandshakeTypes.isEmpty ? "" : ", other " + skippedHandshakeTypes.map { String($0) }.joined(separator: "/")))"))
                 return
             }
             handleServerFinished(message)
@@ -540,9 +560,13 @@ final class NCTLSClientStream: NCRelayStream {
             transcript.append(message)
         default:
             if handshakeDone { return }
+            if skippedHandshakeTypes.count < 4 { skippedHandshakeTypes.append(type) }
             transcript.append(message)
         }
     }
+
+    /// Unknown handshake message types seen before Finished (diagnostics only).
+    private var skippedHandshakeTypes: [UInt8] = []
 
     /// EncryptedExtensions: u16 length, then type/len/body entries; we read ALPN (16) and ECH (0xfe0d).
     private func parseEncryptedExtensions(_ message: Data) {
@@ -613,7 +637,18 @@ final class NCTLSClientStream: NCRelayStream {
             return
         }
 
+        if echSelected == nil, serverRandom == NCTLS13.helloRetryRequestRandom {
+            guard !hrrReceived else {
+                fail(TLSError.handshake("multiple HelloRetryRequest messages received"))
+                return
+            }
+            hrrReceived = true
+            handlePlainHelloRetryRequest(message: message, extensions: body.subdata(in: idx..<extEnd))
+            return
+        }
+
         var serverShare: Data?
+        var serverGroup: UInt16 = 0
         var supportedVersion: UInt16 = 0
         while idx + 4 <= extEnd {
             let extType = UInt16(body[idx]) << 8 | UInt16(body[idx + 1])
@@ -623,6 +658,7 @@ final class NCTLSClientStream: NCRelayStream {
             case 43: supportedVersion = extBody.count >= 2 ? UInt16(extBody[0]) << 8 | UInt16(extBody[1]) : 0
             case 51: // key_share: group(2) + len(2) + key
                 if extBody.count >= 4 {
+                    serverGroup = UInt16(extBody[extBody.startIndex]) << 8 | UInt16(extBody[extBody.startIndex + 1])
                     serverShare = Data(extBody.dropFirst(4))
                 }
             default: break
@@ -630,10 +666,8 @@ final class NCTLSClientStream: NCRelayStream {
             idx += 4 + extSize
         }
         guard supportedVersion == 0x0304 else { fail(TLSError.handshake("not TLS 1.3")); return }
-        guard let serverShare, let clientPrivate,
-              let serverPub = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: serverShare),
-              let shared = try? clientPrivate.sharedSecretFromKeyAgreement(with: serverPub) else {
-            fail(TLSError.handshake("key agreement failed"))
+        guard let serverShare, let shared = keyAgreement(group: serverGroup, serverShare: serverShare) else {
+            fail(TLSError.handshake("key agreement failed (server group 0x\(String(serverGroup, radix: 16)))"))
             return
         }
 
@@ -661,7 +695,7 @@ final class NCTLSClientStream: NCRelayStream {
         }
 
         transcript.append(message)
-        let sharedData = shared.withUnsafeBytes { Data($0) }
+        let sharedData = shared
         let hashCHSH = kind.hash(transcript)
         // Partial schedule now (handshake secrets); app secrets after Finished.
         let zero = Data(repeating: 0, count: kind.length)
@@ -682,6 +716,67 @@ final class NCTLSClientStream: NCRelayStream {
     }
 
     private var handshakeSecretStored: Data?
+
+    /// ECDHE with the share for the group the server picked (X25519 by default, P-256 / P-384 after an HRR).
+    private func keyAgreement(group: UInt16, serverShare: Data) -> Data? {
+        switch group {
+        case 0x0017:
+            guard let priv = clientP256, let pub = try? P256.KeyAgreement.PublicKey(x963Representation: serverShare),
+                  let s = try? priv.sharedSecretFromKeyAgreement(with: pub) else { return nil }
+            return s.withUnsafeBytes { Data($0) }
+        case 0x0018:
+            guard let priv = clientP384, let pub = try? P384.KeyAgreement.PublicKey(x963Representation: serverShare),
+                  let s = try? priv.sharedSecretFromKeyAgreement(with: pub) else { return nil }
+            return s.withUnsafeBytes { Data($0) }
+        default: // 0x001d (or 0 from a malformed share: X25519 is the only share of the first hello)
+            guard group == 0x001d || group == 0, clientP256 == nil, clientP384 == nil, let priv = clientPrivate,
+                  let pub = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: serverShare),
+                  let s = try? priv.sharedSecretFromKeyAgreement(with: pub) else { return nil }
+            return s.withUnsafeBytes { Data($0) }
+        }
+    }
+
+    /// RFC 8446 §4.1.4 HelloRetryRequest without ECH: transcript = message_hash(ClientHello1) || HRR, then
+    /// ClientHello2 = ClientHello1 with the cookie echoed and a key share for the selected group. Plain TLS only:
+    /// REALITY / shadow-tls / restls derive the session ID from the first hello and cannot retry.
+    private func handlePlainHelloRetryRequest(message: Data, extensions exts: Data) {
+        guard config.reality == nil, config.sessionIDGenerator == nil, config.restls == nil, !config.maxTLS12 else {
+            fail(TLSError.handshake("HelloRetryRequest not supported in this TLS mode (REALITY / shadow-tls / restls)"))
+            return
+        }
+        guard let v = NCTLS13.parseExtension(type: 43, fromExtensionsData: exts), v.count >= 2,
+              (UInt16(v[v.startIndex]) << 8 | UInt16(v[v.startIndex + 1])) == 0x0304 else {
+            fail(TLSError.handshake("HRR missing or invalid supported_versions"))
+            return
+        }
+        var group: UInt16 = 0x001d
+        if let ks = NCTLS13.parseExtension(type: 51, fromExtensionsData: exts) {
+            guard ks.count >= 2 else { fail(TLSError.handshake("HRR malformed key_share")); return }
+            group = UInt16(ks[ks.startIndex]) << 8 | UInt16(ks[ks.startIndex + 1])
+        }
+        let cookie = NCTLS13.parseExtension(type: NCTLS13.extensionCookie, fromExtensionsData: exts)
+        let share: Data
+        switch group {
+        case 0x001d:
+            guard let priv = clientPrivate else { fail(TLSError.handshake("missing client key share")); return }
+            share = Data(priv.publicKey.rawRepresentation)
+        case 0x0017:
+            let k = P256.KeyAgreement.PrivateKey(); clientP256 = k; share = k.publicKey.x963Representation
+        case 0x0018:
+            let k = P384.KeyAgreement.PrivateKey(); clientP384 = k; share = k.publicKey.x963Representation
+        default:
+            fail(TLSError.handshake("HRR requested unsupported key share group 0x\(String(group, radix: 16))"))
+            return
+        }
+        let firstHello = transcript
+        transcript = NCTLS13.syntheticMessageHash(for: firstHello, kind: kind)
+        transcript.append(message)
+        let hello2 = NCTLS13.buildClientHello(random: clientRandom, sessionID: Data(repeating: 0, count: 32),
+                                              serverName: config.serverName, alpn: config.alpn, keyShare: share,
+                                              profile: config.profile, cookie: cookie, keyShareGroup: group)
+        transcript.append(hello2)
+        sendRecord(type: 22, payload: hello2)
+    }
 
     private func parseCertificates(_ message: Data) {
         let body = Data(message.dropFirst(4))
@@ -1531,7 +1626,7 @@ extension NCTLSClientStream {
     /// After a restls handshake: a server record is either a restls record (data + command) or a real TLS record
     /// relayed from the camouflage server (decrypted with the real keys, application data dropped).
     fileprivate func restlsAccept(_ restls: NCRestlsSession, header: Data, payload: Data, realOpen: () -> Bool) {
-        if header.first == 21 { // the old core: an outer alert after auth is treated as fatal bad_record_mac
+        if header.first == 21 { // an outer alert after auth is treated as fatal (restls: bad_record_mac)
             fail(TLSError.handshake("restls: alert from server"))
             return
         }
@@ -1561,8 +1656,7 @@ extension NCTLSClientStream {
                   let plain = NCTLS13.openRecord(suite: suite, key: readKey, iv: readIV, seq: readSeq,
                                                  header: header, sealed: payload) else { return false }
             readSeq += 1
-            guard let innerType = plain.last else { return true }
-            let content = Data(plain.dropLast())
+            guard let (innerType, content) = NCTLS13.innerPlaintext(plain) else { return true }
             switch innerType {
             case 22: handleHandshakeBytes(content) // NewSessionTicket / KeyUpdate
             case 21: closed = true; deliverEOFOrError(nil)

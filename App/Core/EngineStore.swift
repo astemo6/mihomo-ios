@@ -299,14 +299,18 @@ final class EngineStore: ObservableObject {
 
     /// Rewrites / scripts / MitM hosts of the enabled modules (更多 shows the same numbers as 模块与资源).
     var enabledModuleCounts: (rewrites: Int, scripts: Int, hosts: Int) {
-        var r = 0, s = 0, h = 0
+        var r = 0, s = 0
+        // fix/nc-tls-scripts: distinct host patterns across the enabled modules (the runtime dedupes them) — the
+        // ximalaya QX module lists 246 entries / 145 distinct, so 自检 showed 「MitM 主机：模块 250 → 运行时 149」
+        // and read as a loss.
+        var h = Set<String>()
         for m in config.modules where m.enabled {
             guard let p = moduleInfo[m.id] else { continue }
             s += p.rules.filter { $0.kind == "script" }.count
             r += p.rules.filter { $0.kind != "script" }.count
-            h += p.hostnames.filter { !$0.hasPrefix("-") }.count
+            for x in p.hostnames where !x.hasPrefix("-") { h.insert(x.lowercased()) }
         }
-        return (r, s, h)
+        return (r, s, h.count)
     }
 
     private var caTrustedOrUnknownTrue: Bool { caTrusted == true }

@@ -612,7 +612,7 @@ final class NCHysteria2Connection {
         }
         self.init(server: server, port: port, password: password,
                   sni: proxy.fields["sni"]?.string,
-                  allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                  allowInsecure: proxy.skipCertVerify,
                   echEnabled: echEnabled,
                   queue: queue)
     }

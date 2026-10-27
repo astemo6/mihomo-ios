@@ -415,7 +415,7 @@ extension NCConnector {
         }
         let raw = NCStream(to: server, port: port,
                            tlsServerName: sni,
-                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           allowInsecure: proxy.skipCertVerify,
                            queue: queue)
         raw.start { err in wrap(err == nil ? raw : nil, err) }
     }

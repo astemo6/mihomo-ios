@@ -200,7 +200,7 @@ final class NCHysteria1Connection {
         sendBPS = up; recvBPS = down
         sni = proxy.fields["sni"]?.string ?? server
         alpn = proxy.fields["alpn"]?.array?.compactMap { $0.string } ?? ["hysteria"]
-        allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
+        allowInsecure = proxy.skipCertVerify
         self.callbackQueue = queue
         self.queue = NCSessionQueues.make("nc.hy1.\(server):\(port)")
     }

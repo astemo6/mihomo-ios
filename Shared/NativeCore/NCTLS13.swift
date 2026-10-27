@@ -132,6 +132,21 @@ enum NCTLS13 {
         }
     }
 
+    /// RFC 8446 §5.4: TLSInnerPlaintext = content || ContentType || zeros. The real content type is the last
+    /// NON-ZERO byte; servers may pad (REALITY pads its encrypted handshake records to the length of the target
+    /// site's records). nil = all zeros (unexpected_message). fix/nc-tls-scripts: the client took `plain.last` (0 on a
+    /// padded record) and dropped the record, so EncryptedExtensions / Certificate / CertificateVerify vanished and the
+    /// unpadded Finished failed with "server Finished without a verified CertificateVerify".
+    static func innerPlaintext(_ plain: Data) -> (type: UInt8, content: Data)? {
+        var end = plain.endIndex
+        while end > plain.startIndex {
+            let b = plain[plain.index(before: end)]
+            if b != 0 { return (b, Data(plain[plain.startIndex..<plain.index(before: end)])) }
+            end = plain.index(before: end)
+        }
+        return nil
+    }
+
     static func openRecord(suite: Suite, key: Data, iv: Data, seq: UInt64, header: Data, sealed: Data) -> Data? {
         let nonce = recordNonce(iv: iv, seq: seq)
         var combined = nonce
@@ -182,7 +197,7 @@ enum NCTLS13 {
         return sid
     }
 
-    /// Seal the session ID exactly as the old core client does: AES-256-GCM with
+    /// Seal the session ID the REALITY way: AES-256-GCM with
     /// authKey, nonce = clientRandom[20..<32], AAD = the whole ClientHello
     /// handshake message with the session-ID field still zeroed.
     static func realitySealSessionID(authKey: Data, plain: Data, clientRandom: Data, aad: Data) -> Data? {
@@ -209,7 +224,9 @@ enum NCTLS13 {
 /// that is SecTrust's job in the plain-TLS path).
 struct NCX509Certificate {
     enum PublicKeyAlgorithm {
-        case ed25519, rsa, ecP256, ecP384, unknown
+        case ed25519, rsa, ecP256, ecP384, ecP521, unknown
+        /// RSASSA-PSS public key (OID 1.2.840.113549.1.1.10): signs only with rsa_pss_pss_* (0x0809–0x080b).
+        case rsaPSS
     }
 
     let publicKeyAlgorithm: PublicKeyAlgorithm
@@ -244,6 +261,8 @@ struct NCX509Certificate {
             publicKeyAlgorithm = .ed25519
         case [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01]: // rsaEncryption
             publicKeyAlgorithm = .rsa
+        case [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0a]: // id-RSASSA-PSS
+            publicKeyAlgorithm = .rsaPSS
         case [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]: // ecPublicKey
             // params carry the curve OID
             if let curve = algReader.readTLV(), curve.tag == 0x06 {
@@ -252,6 +271,8 @@ struct NCX509Certificate {
                     publicKeyAlgorithm = .ecP256
                 case [0x2b, 0x81, 0x04, 0x00, 0x22]:
                     publicKeyAlgorithm = .ecP384
+                case [0x2b, 0x81, 0x04, 0x00, 0x23]:
+                    publicKeyAlgorithm = .ecP521
                 default:
                     publicKeyAlgorithm = .unknown
                 }
@@ -314,20 +335,24 @@ enum NCTLSVerify {
                   let raw = derToRaw(signature, partLength: 48),
                   let sig = try? P384.Signing.ECDSASignature(rawRepresentation: raw) else { return false }
             return pub.isValidSignature(sig, for: SHA384.hash(data: signedContent))
-        case 0x0804, 0x0805, 0x0806: // rsa_pss_rsae_sha256/384/512
-            guard cert.publicKeyAlgorithm == .rsa else { return false }
-            let kind: NCTLS13.HashKind = scheme == 0x0804 ? .sha256 : .sha384
+        case 0x0603: // ecdsa_secp521r1_sha512 (fix/nc-tls-scripts)
+            guard cert.publicKeyAlgorithm == .ecP521,
+                  let pub = try? P521.Signing.PublicKey(x963Representation: cert.publicKeyBytes),
+                  let raw = derToRaw(signature, partLength: 66),
+                  let sig = try? P521.Signing.ECDSASignature(rawRepresentation: raw) else { return false }
+            return pub.isValidSignature(sig, for: SHA512.hash(data: signedContent))
+        case 0x0804, 0x0805, 0x0806, // rsa_pss_rsae_sha256/384/512 (rsaEncryption key)
+             0x0809, 0x080a, 0x080b: // rsa_pss_pss_sha256/384/512 (RSASSA-PSS key; fix/nc-tls-scripts)
+            let pssKey = scheme >= 0x0809
+            guard cert.publicKeyAlgorithm == (pssKey ? .rsaPSS : .rsa) else { return false }
             let digest: Data
-            let saltLength: Int
             switch scheme {
-            case 0x0804: digest = Data(SHA256.hash(data: signedContent)); saltLength = 32
-            case 0x0805: digest = Data(SHA384.hash(data: signedContent)); saltLength = 48
-            default:
-                digest = Data(SHA512.hash(data: signedContent)); saltLength = 64
-                return verifyPSS(cert: cert, digest: digest, signature: signature, hashKind: nil, saltLength: saltLength)
+            case 0x0804, 0x0809: digest = Data(SHA256.hash(data: signedContent))
+            case 0x0805, 0x080a: digest = Data(SHA384.hash(data: signedContent))
+            default: digest = Data(SHA512.hash(data: signedContent))
             }
-            _ = kind
-            return verifyPSS(cert: cert, digest: digest, signature: signature, hashKind: kind, saltLength: saltLength)
+            // RFC 8446 §4.2.3: the PSS salt is as long as the digest.
+            return verifyPSS(cert: cert, digest: digest, signature: signature, hashKind: nil, saltLength: digest.count)
         default:
             return false
         }
@@ -493,7 +518,8 @@ extension NCTLS13 {
     static func buildClientHello(random: Data, sessionID: Data, serverName: String, alpn: [String],
                                  keyShare: Data, profile: NCClientHelloProfile,
                                  tls13Only: Bool = false, cookie: Data? = nil,
-                                 extraExtensions: [(type: UInt16, data: Data)] = []) -> Data {
+                                 extraExtensions: [(type: UInt16, data: Data)] = [],
+                                 keyShareGroup: UInt16 = 0x001d) -> Data {
         var body = Data()
         body.appendBE16(0x0303) // legacy version
         body.append(random)
@@ -560,7 +586,7 @@ extension NCTLS13 {
         if tls13Only {
             ext(43, Data([0x02, 0x03, 0x04]))
         } else {
-            // supported_versions: u8 list length 4 = TLS 1.3, TLS 1.2. Was 0x03 (odd length) since 6bcf716: the old core
+            // supported_versions: u8 list length 4 = TLS 1.3, TLS 1.2. Was 0x03 (odd length) since 6bcf716:
             // a reference TLS server answers decode_error (alert 50) — every non-ECH native-TLS hello was malformed. Fixed twice
             // independently (feat/nc-naive-h2h3 15a5f62, fix/nc-ech-rest b805b96); this is the single implementation.
             ext(43, Data([0x04, 0x03, 0x04, 0x03, 0x03]))
@@ -568,7 +594,7 @@ extension NCTLS13 {
         ext(45, Data([0x01, 0x01]))
         var share = Data()
         share.appendBE16(UInt16(keyShare.count + 4))
-        share.appendBE16(0x001d)
+        share.appendBE16(keyShareGroup) // X25519 unless a HelloRetryRequest asked for P-256 / P-384
         share.appendBE16(UInt16(keyShare.count))
         share.append(keyShare)
         ext(51, share)

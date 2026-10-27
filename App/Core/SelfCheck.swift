@@ -1103,7 +1103,7 @@ final class SelfCheck: ObservableObject {
             let data = try await ControllerClient.shared.send("/mitm/tasks")
             let tasks = (try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
             guard let t = tasks.first(where: { ($0["enabled"] as? Bool) != false }) ?? tasks.first, let id = t["id"] as? String else {
-                set("script", .skip, String(localized: "当前配置没有脚本任务")); return
+                await scriptRulesEvidence(); return
             }
             let name = (t["script"] as? [String: Any])?["name"] as? String ?? id
             progress("script", String(localized: "运行「\(name)」"))
@@ -1118,6 +1118,35 @@ final class SelfCheck: ObservableObject {
             set("script", ok && after > before ? .pass : .fail, d)
         } catch {
             set("script", .fail, error.localizedDescription)
+        }
+    }
+
+    /// fix/nc-tls-scripts: a profile with request / response scripts but no cron task used to SKIP with
+    /// 「当前配置没有脚本任务」 while its scripts were loaded — the step now reports the script rules the core holds, the
+    /// ones it could not load (named in 脚本日志) and whether any of them ran since the VPN started.
+    private func scriptRulesEvidence() async {
+        let status = (try? await ControllerClient.shared.send("/mitm/status", timeout: 4))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let rules = (status["scripts"] as? Int) ?? 0
+        let log = Self.sessionLog()
+        let sc = SelfCheckLogic.lastLine(log, containing: "native scripts: ").flatMap(SelfCheckLogic.parseScripts)
+        guard rules > 0 || (sc?.scripts ?? 0) > 0 else {
+            set("script", .skip, String(localized: "当前配置没有脚本（脚本规则 0 · 定时任务 0）")); return
+        }
+        let lines = (try? await ControllerClient.shared.send("/mitm/logs", timeout: 4))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] } ?? []
+        let ran = lines.filter { ($0["msg"] as? String ?? "").contains("已触发") || ($0["msg"] as? String ?? "").contains("执行完成")
+            || ($0["level"] as? String ?? "") == "log" }
+        let failed = lines.filter { ($0["msg"] as? String ?? "").hasPrefix("脚本无法加载") }
+        var d = String(localized: "没有定时任务；内核有 \(rules) 条请求 / 响应脚本规则")
+        if let sc, sc.unloadable > 0 { d += " · " + String(localized: "\(sc.unloadable) 个无法加载") }
+        for f in failed.prefix(3) { d += "\n" + "\(f["script"] as? String ?? "?")：" + String((f["msg"] as? String ?? "").prefix(120)) }
+        if let last = ran.last {
+            d += "\n" + String(localized: "最近一次执行：") + "\(last["script"] as? String ?? "?") · " + String((last["msg"] as? String ?? "").prefix(100))
+            set("script", failed.isEmpty ? .pass : .fail, d)
+        } else {
+            d += "\n" + String(localized: "本次连接还没有请求命中脚本规则（打开对应 App 后再自检）")
+            set("script", failed.isEmpty ? .skip : .fail, d)
         }
     }
 

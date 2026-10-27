@@ -237,7 +237,7 @@ enum NCQXImport {
                 fields["sni"] = .string(s)
                 fields["servername"] = .string(s)
             }
-            if type == "vless", let f = take("flow") { fields["flow"] = .string(f) }
+            if type == "vless", let f = take("flow") ?? take("vless-flow") { fields["flow"] = .string(f) }
             // NB: `tls-pseudo-domain` (REALITY camouflage) is deliberately
             // left unconsumed — it is preserved verbatim by finishFields.
         case "trojan":
@@ -317,10 +317,48 @@ enum NCQXImport {
         if fields["skip-cert-verify"] == nil, let v = take("skip-cert-verify"), let b = NCConfImport.boolValue(v) {
             fields["skip-cert-verify"] = .bool(b)
         }
+        applyQXTLSDefaults(type: type, kv: kv, consumed: &consumed, fields: &fields)
         NCConfImport.applyECH(kv: kv, consumed: &consumed, fields: &fields)
 
         NCConfImport.finishFields(&fields, kv: kv, order: order, consumed: consumed)
         return NCProxy(name: name, type: type, fields: fields)
+    }
+
+    /// fix/nc-tls-scripts — Quantumult X TLS semantics on a node line (also every QX-format subscription body: the
+    /// tunnel parses provider bodies fetched with the QuanX User-Agent through buildQXNode):
+    /// - `tls-verification` defaults to **false** in QX (crossutility sample.conf: verification is opt-in;
+    ///   "If the tls-verification is false then the tls-cert-sha256 and tls-pubkey-sha256 will be ignored"). A node
+    ///   without the key was imported as verify-on, so self-built nodes with self-signed / expired / IP certificates
+    ///   that work in QX failed with `tls · -9808` / `-9814` (device build506, provider SelfBuild 16/33).
+    /// - `tls-cert-sha256` pins the leaf (Clash `fingerprint`), only when verification is on.
+    /// - `reality-base64-pubkey` / `reality-hex-shortid` turn the TLS into REALITY (QX 1.5.5+).
+    private static func applyQXTLSDefaults(type: String, kv: [String: String], consumed: inout Set<String>,
+                                           fields: inout [String: NCJSONValue]) {
+        let obfs = (kv["obfs"] ?? "").lowercased()
+        let tls = fields["tls"]?.bool == true || ["trojan", "https", "anytls"].contains(type)
+            || obfs == "over-tls" || obfs == "wss"
+        if let pk = kv["reality-base64-pubkey"], !pk.isEmpty {
+            consumed.insert("reality-base64-pubkey")
+            var ro: [String: NCJSONValue] = ["public-key": .string(pk)]
+            if let sid = kv["reality-hex-shortid"], !sid.isEmpty {
+                consumed.insert("reality-hex-shortid")
+                ro["short-id"] = .string(sid)
+            }
+            fields["reality-opts"] = .object(ro)
+            fields["tls"] = .bool(true)
+            if fields["client-fingerprint"] == nil { fields["client-fingerprint"] = .string("chrome") }
+            return // REALITY authenticates the server itself; no certificate policy applies
+        }
+        guard tls else { return }
+        let verify = kv["tls-verification"].flatMap { NCConfImport.boolValue($0) } ?? false
+        if fields["skip-cert-verify"] == nil { fields["skip-cert-verify"] = .bool(!verify) }
+        if verify, fields["fingerprint"] == nil, let raw = kv["tls-cert-sha256"] {
+            let hex = raw.lowercased().replacingOccurrences(of: ":", with: "").replacingOccurrences(of: " ", with: "")
+            if hex.count == 64, hex.allSatisfy({ $0.isHexDigit }) {
+                consumed.insert("tls-cert-sha256")
+                fields["fingerprint"] = .string(hex)
+            }
+        }
     }
 
     /// QX transport spelling: `obfs=ws` (+ obfs-host/obfs-uri) or
