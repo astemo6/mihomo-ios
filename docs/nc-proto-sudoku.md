@@ -1,9 +1,13 @@
 # NativeCore: Sudoku — design note (feat/nc-sudoku, baseline 6fd4bab)
 
-> **Status (fix/nc-proto-sudoku-int, 2026-10-27):** import / canonical fields / codecs are in; the node is shown
-> **unavailable** because the data plane does not interoperate with the official server — §2.6 lists the gaps
-> (directional HKDF handshake keys, X25519 rekey, reference lagged-Fibonacci PRNG (v1) table seeding, key normalisation, padding-aware
-> streaming decode, aead none passthrough). The loopback against the official binary returns when they are fixed.
+> **Status (fix/nc-sudoku-interop, 2026-10-27):** the data plane is wire-compatible with the official server v0.5.2.0
+> (`NCSudokuWire.swift` + `NCSudokuSession.swift`): per-direction HKDF handshake keys, X25519 rekey, the reference
+> server's legacy PRNG table seed (additive lagged Fibonacci, seeded table — `NCLaggedFibRand` / `NCLaggedFibSeedTable`),
+> client key normalisation (private key → master public key), padding-aware streaming decode (classic + packed
+> downlink), aead none passthrough, custom-table rotation hint. Verified by `NativeCoreLoopbackTests` against the
+> official binary built from source in proto-loopback.yml (:18090–:18094, HTTP origin :18095); with that loopback
+> green the node is **available** (NCSupport / NCConnector dial it). Not implemented (explicit markers, never a
+> timeout): HTTP tunnel modes stream / poll / auto / ws, `multiplex: on`.
 
 Status 2026-10-26 (S2 complete): parsing layer (S1) plus pure-Swift data plane,
 connector wiring, unit vectors/boundary tests, and the loopback harness wired to
@@ -24,7 +28,7 @@ remediation list in §8. Clean-room basis is documented in §6.
 - **Primary Author**: `saba` / `saba-futai`
 - **Upstream release used for the loopback black-box peer**: `v0.5.2.0` (tag on GitHub Releases; assets `sudoku-darwin-arm64.tar.gz` / `sudoku-linux-{amd64,arm64}.tar.gz` / …, flat tarballs containing the `sudoku` binary)
 - **Reference Implementations**:
-  - **Upstream (server cores)**:
+  - **Go**:
     - `SUDOKU-ASCII/sudoku` (official tunnel core, server, and CLI tools)
     - `MetaCubeX/mihomo` (PR #2397 merged on 2025-11-28, adding native outbound and inbound listener support in v1.19.21+)
     - `SUDOKU-ASCII/sudoku-sing-box` (official sing-box integration branch)
@@ -44,29 +48,29 @@ Sudoku is a traffic obfuscation proxy protocol based on constructing and solving
 
 ### 2.1 Obfuscation Layer (Sudoku Encoding)
 - **Table generation**: both peers derive the byte→puzzle mapping from the shared
-  key string. Upstream (`pkg/obfs/sudoku/grid`):
+  key string. Upstream (`pkg/obfs/sudoku/grid.go`):
   - All valid 4×4 grids are enumerated by fixed-order backtracking — 288 grids;
-    "the order is part of the table-seeding contract" (`grid:26`).
-  - `shuffledGrids(key)` seeds reference PRNG **v1** with `int64(BE(SHA256(key)[0..8]))`
+    "the order is part of the table-seeding contract" (`grid.go:26`).
+  - `shuffledGrids(key)` seeds `math/rand` **v1** with `int64(BE(SHA256(key)[0..8]))`
     and Fisher-Yates-shuffles the 288 grids; position k in the result is the grid
-    of plaintext byte k, the 32 trailing grids encode nothing (`grid:80-89`).
-    The comment states "The reference lagged-Fibonacci PRNG (v1) stream is part of the wire contract."
+    of plaintext byte k, the 32 trailing grids encode nothing (`grid.go:80-89`).
+    The comment states "The math/rand v1 stream is part of the wire contract."
   - The client normalizes its key first (§2.6 row 2), so both sides seed from the
     **master public key hex string**.
 - **4×4 clue mapping**: each byte is encoded as a uniquely solvable puzzle of 4
   clues; the encoder picks among valid clue sets stochastically
-  (`classic_encode pickPuzzle`).
+  (`classic_encode.go pickPuzzle`).
 - **True Arbitrary Dynamic Padding**: padding bytes from the layout's padding pool
   can be inserted *before each clue byte and before each clue group*
-  (`classic_encode:57-69 padSlot`), driven by `padding_min`/`padding_max`
+  (`classic_encode.go:57-69 padSlot`), driven by `padding_min`/`padding_max`
   probabilities. The decoder keeps a streaming hint buffer and skips non-clue
-  bytes anywhere between clue bytes (`classic_decode:7-35`) — no padding length
+  bytes anywhere between clue bytes (`classic_decode.go:7-35`) — no padding length
   is ever negotiated.
 - **ASCII & Entropy Profiles**: `prefer_ascii` (printable ASCII layout),
   `prefer_entropy` (low-Hamming-weight layout), directional
   `up_ascii_down_entropy` / `up_entropy_down_ascii`, and custom 8-character XVP
   layouts (2×`x`, 2×`p`, 4×`v`, e.g. `xpxvvpvv`; 420 valid permutations).
-  ASCII preference wins over custom patterns (`layout:70-74`).
+  ASCII preference wins over custom patterns (`layout.go:70-74`).
 
 ### 2.2 Downlink Modes
 - **Pure Sudoku Downlink (`enable_pure_downlink: true`, default)**: both directions use classic 4×4 Sudoku clue encoding.
@@ -80,21 +84,21 @@ Sudoku is a traffic obfuscation proxy protocol based on constructing and solving
 - `multiplex: off/auto/on`: `on` enables session mux over raw TCP or HTTPMask (`auto` = transport reuse only).
 
 ### 2.4 AEAD Record Layer (Encryption)
-When `aead` is not `none` (`pkg/crypto/record_conn`):
+When `aead` is not `none` (`pkg/crypto/record_conn.go`):
 - **Record framing** (matches our implementation byte-for-byte):
   | Field | Size | Encoding | Description |
   |---|---:|---|---|
   | `body_len` | 2 bytes | uint16 BE | Length of `header` + `ciphertext` (incl. tag) |
   | `header` | 12 bytes | Plaintext | `epoch` (uint32 BE) + `seq` (uint64 BE) |
   | `ciphertext+tag` | `body_len - 12` | AEAD | `AEAD.Seal(nonce=header, plaintext, aad=header)` |
-  The 12-byte header serves as framing, nonce, and AAD (`record_conn:36-41`).
+  The 12-byte header serves as framing, nonce, and AAD (`record_conn.go:36-41`).
 - **Key schedule** (official; *not* matched by the current clean-room client, see §2.6):
-  1. PSK handshake bases: `HKDF-Expand(SHA256(key-string), "sudoku-psk-c2s" | "sudoku-psk-s2c", 32)` — directional; ClientHello/ServerHello records are sealed with these (`session_keys:16-21`, `handshake_client:71-72`).
-  2. After ServerHello both sides **Rekey** to session bases: `prk = HKDF-Extract(salt=SHA256(key-string), ikm=X25519(ephemeral, server_pub) ‖ nonce)`, then `HKDF-Expand(prk, "sudoku-session-c2s" | "sudoku-session-s2c", 32)` (`session_keys:25-47`, `kip_hello deriveClientSession`, `handshake_server:152`).
-  3. Per-epoch AEAD key: `HMAC-SHA256(base, "sudoku-record:" ‖ method ‖ epoch_be32)`; rotation every 32 MiB plaintext per direction (`record_conn:270-280`, `KeyUpdateAfterBytes`).
+  1. PSK handshake bases: `HKDF-Expand(SHA256(key-string), "sudoku-psk-c2s" | "sudoku-psk-s2c", 32)` — directional; ClientHello/ServerHello records are sealed with these (`session_keys.go:16-21`, `handshake_client.go:71-72`).
+  2. After ServerHello both sides **Rekey** to session bases: `prk = HKDF-Extract(salt=SHA256(key-string), ikm=X25519(ephemeral, server_pub) ‖ nonce)`, then `HKDF-Expand(prk, "sudoku-session-c2s" | "sudoku-session-s2c", 32)` (`session_keys.go:25-47`, `kip_hello.go deriveClientSession`, `handshake_server.go:152`).
+  3. Per-epoch AEAD key: `HMAC-SHA256(base, "sudoku-record:" ‖ method ‖ epoch_be32)`; rotation every 32 MiB plaintext per direction (`record_conn.go:270-280`, `KeyUpdateAfterBytes`).
   4. Receive path enforces strict in-order `seq` (replay protection).
 - **Ciphers**: `chacha20-poly1305` (default) or `aes-128-gcm`. `none` = raw
-  passthrough with **no framing at all** (`record_conn` `Write`, `method == "none"` branch).
+  passthrough with **no framing at all** (`record_conn.go` `Write`, `method == "none"` branch).
 
 ### 2.5 Control Plane (KIP Framing)
 All control messages are wrapped in KIP frames:
@@ -105,8 +109,8 @@ All control messages are wrapped in KIP frames:
 | `payload_len` | 2 bytes | uint16 BE | Length of payload |
 | `payload` | variable | bytes | Message body |
 
-- **ClientHello (0x01)** (`internal/tunnel/kip:173`): `timestamp` (uint64 BE unix seconds) + `user_hash` (8 bytes = `SHA256(private-key-bytes)[:8]`, `kip:157`) + `nonce` (16 random bytes) + `client_pub` (32 X25519 ephemeral) + `features` (uint32 BE) — 68 bytes, plus an *optional* trailing 4-byte table hint (decoded when present, `kip:192-219`). The server tolerates ±60 s clock skew and rejects nonce replay (`kip_hello:24`, `acceptClientHello`).
-- **ServerHello (0x02)** (`kip:246`): `nonce` (16, exact echo) + `server_pub` (32 X25519 ephemeral) + `selected_features` (uint32 BE) — exactly 52 bytes.
+- **ClientHello (0x01)** (`internal/tunnel/kip.go:173`): `timestamp` (uint64 BE unix seconds) + `user_hash` (8 bytes = `SHA256(private-key-bytes)[:8]`, `kip.go:157`) + `nonce` (16 random bytes) + `client_pub` (32 X25519 ephemeral) + `features` (uint32 BE) — 68 bytes, plus an *optional* trailing 4-byte table hint (decoded when present, `kip.go:192-219`). The server tolerates ±60 s clock skew and rejects nonce replay (`kip_hello.go:24`, `acceptClientHello`).
+- **ServerHello (0x02)** (`kip.go:246`): `nonce` (16, exact echo) + `server_pub` (32 X25519 ephemeral) + `selected_features` (uint32 BE) — exactly 52 bytes.
 - **OpenTCP (0x10)**: SOCKS5-style address: `atyp` (0x01 IPv4 / 0x03 domain / 0x04 IPv6) + address bytes + port (uint16 BE).
 - **UoT (0x12)**: UDP-over-TCP datagram framing. *Not implemented in the current clean-room client.*
 
@@ -117,20 +121,20 @@ frozen this round) against the upstream source. **Layer-by-layer verdict**:
 
 | # | Layer | Official v0.5.2 (evidence) | Our clean-room data plane | Interop |
 |---|---|---|---|---|
-| 1 | KIP frame layout | `"kip"` + type + u16 BE len + payload (`apis/codec`, `tunnel/kip`) | identical (`NCSudokuKIP`) | ✅ |
-| 2 | Key normalization | client rewrites `cfg.Key` to master-public-key hex for PSK + table seed, keeps raw private bytes for `user_hash` (`internal/app/client normalizeClientKey`) | absent — key used as given | ❌ (affects PSK + table seed for split-key configs) |
-| 3 | `user_hash` | `SHA256(private-key-bytes)[:8]`; 64/128-hex decoded; fallback `SHA256(trim(key-string))` (`kip:157`) | same for 64/128-hex; fallback does not trim | ✅ (trim nit) |
-| 4 | ClientHello payload | 8+8+16+32+4 (+optional 4B table hint) (`kip:173,192`) | identical without the hint (server tolerates absence) | ✅ |
-| 5 | ServerHello payload | nonce 16 + pub 32 + feats 4, exact-52 (`kip:246`) | identical | ✅ |
-| 6 | Record framing | u16 `body_len` + header 12 B = epoch‖seq as nonce+AAD (`record_conn:36`) | identical (`NCSudokuAEAD.seal/unseal`) | ✅ |
-| 7 | Handshake record keys | directional `HKDF-Expand(SHA256(key-string), "sudoku-psk-c2s"/"-s2c")` (`session_keys:16`) | single `SHA256(key-bytes)` both directions | ❌ |
-| 8 | Post-ServerHello rekey | X25519 ECDH + HKDF session bases + `Rekey` (`session_keys:25`, `kip_hello`) | absent — no ECDH mixing, no rekey | ❌ |
-| 9 | Per-epoch key | `HMAC-SHA256(base, "sudoku-record:"+method+epoch)`, 32 MiB rotation, strict recv `seq` (`record_conn:270,30`) | fixed key, no rotation, no seq check | ❌ |
-| 10 | `aead=none` framing | raw passthrough, no framing (`record_conn` Write) | u16-len framed plaintext | ❌ |
-| 11 | Grid enumeration | fixed-order backtracking, 288 grids (`grid:26`) | identical enumeration (`generate288Grids`) | ✅ |
-| 12 | Table shuffle | seed `int64(BE(SHA256(key-string)[:8]))` → reference lagged-Fibonacci PRNG (v1) → Fisher-Yates; first 256 slots = bytes, 32 trailing unused; "the reference lagged-Fibonacci PRNG (v1) stream is part of the wire contract" (`grid:80-89`) | homemade xorshift PRNG over `SHA256(key-bytes)`, all 288 slots indexed 0…255 | ❌ |
-| 13 | Uplink padding | per-clue interleaved padding from layout pool, probability-driven (`classic_encode:57-69`) | none emitted (`paddingMin/Max` parsed but unused) | ⚠️ subset (valid-but-minimal; server accepts) |
-| 14 | Decode padding tolerance | streaming hint buffer; padding allowed between clue bytes (`classic_decode`) | fixed 4-byte aligned groups; only whole garbage groups dropped | ❌ (server-padded downlink misparses) |
+| 1 | KIP frame layout | `"kip"` + type + u16 BE len + payload (`apis/codec.go`, `tunnel/kip.go`) | identical (`NCSudokuKIP`) | ✅ |
+| 2 | Key normalization | client rewrites `cfg.Key` to master-public-key hex for PSK + table seed, keeps raw private bytes for `user_hash` (`internal/app/client.go normalizeClientKey`) | absent — key used as given | ❌ (affects PSK + table seed for split-key configs) |
+| 3 | `user_hash` | `SHA256(private-key-bytes)[:8]`; 64/128-hex decoded; fallback `SHA256(trim(key-string))` (`kip.go:157`) | same for 64/128-hex; fallback does not trim | ✅ (trim nit) |
+| 4 | ClientHello payload | 8+8+16+32+4 (+optional 4B table hint) (`kip.go:173,192`) | identical without the hint (server tolerates absence) | ✅ |
+| 5 | ServerHello payload | nonce 16 + pub 32 + feats 4, exact-52 (`kip.go:246`) | identical | ✅ |
+| 6 | Record framing | u16 `body_len` + header 12 B = epoch‖seq as nonce+AAD (`record_conn.go:36`) | identical (`NCSudokuAEAD.seal/unseal`) | ✅ |
+| 7 | Handshake record keys | directional `HKDF-Expand(SHA256(key-string), "sudoku-psk-c2s"/"-s2c")` (`session_keys.go:16`) | single `SHA256(key-bytes)` both directions | ❌ |
+| 8 | Post-ServerHello rekey | X25519 ECDH + HKDF session bases + `Rekey` (`session_keys.go:25`, `kip_hello.go`) | absent — no ECDH mixing, no rekey | ❌ |
+| 9 | Per-epoch key | `HMAC-SHA256(base, "sudoku-record:"+method+epoch)`, 32 MiB rotation, strict recv `seq` (`record_conn.go:270,30`) | fixed key, no rotation, no seq check | ❌ |
+| 10 | `aead=none` framing | raw passthrough, no framing (`record_conn.go` Write) | u16-len framed plaintext | ❌ |
+| 11 | Grid enumeration | fixed-order backtracking, 288 grids (`grid.go:26`) | identical enumeration (`generate288Grids`) | ✅ |
+| 12 | Table shuffle | seed `int64(BE(SHA256(key-string)[:8]))` → `math/rand` v1 → Fisher-Yates; first 256 slots = bytes, 32 trailing unused; "the math/rand v1 stream is part of the wire contract" (`grid.go:80-89`) | homemade xorshift PRNG over `SHA256(key-bytes)`, all 288 slots indexed 0…255 | ❌ |
+| 13 | Uplink padding | per-clue interleaved padding from layout pool, probability-driven (`classic_encode.go:57-69`) | none emitted (`paddingMin/Max` parsed but unused) | ⚠️ subset (valid-but-minimal; server accepts) |
+| 14 | Decode padding tolerance | streaming hint buffer; padding allowed between clue bytes (`classic_decode.go`) | fixed 4-byte aligned groups; only whole garbage groups dropped | ❌ (server-padded downlink misparses) |
 | 15 | Packed downlink | 6-bit chunk mode when `enable_pure_downlink=false` (`packed*.go`) | not implemented (pure mode only) | ❌ (loopback config pins pure mode) |
 
 **Consequence**: rows 7/8/12 alone make the handshake impossible — the official
@@ -234,11 +238,11 @@ Memory & concurrency: per-connection objects only, incremental
    against the upstream *documentation* only — `doc/README.md` (protocol layers,
    wire formats, KIP messages, address encoding, padding principle) and
    `configs/README.md` (field semantics) — as listed in the reference header of
-   `NCSudokuSession.swift`. No upstream code was copied or mechanically
+   `NCSudokuSession.swift`. No upstream Go code was copied or mechanically
    translated.
 2. **Why the divergences exist.** The public docs specify the *shapes* (framing,
    payload layouts, padding principle, table concept) but not the exact PRNG
-   stream (reference lagged-Fibonacci PRNG (v1) internal state machine), the HKDF label schedule, or
+   stream (`math/rand` v1 internal state machine), the HKDF label schedule, or
    the epoch-HMAC KDF. The clean-room implementation filled those gaps with
    spec-compatible-but-independent choices (§2.6 rows 7–12). This is precisely
    what the loopback interop test is designed to expose.
@@ -246,16 +250,16 @@ Memory & concurrency: per-connection objects only, incremental
    (tag `v0.5.2.0`) read-only, solely to (a) operate the official server as a
    black-box peer (release assets, `configs/server.config.json` template,
    `configs/README.md` field guide) and (b) produce the §2.6 divergence analysis
-   and the §8 remediation list. Files consulted: `internal/app/client`,
-   `internal/app/client_runtime`, `internal/tunnel/{kip,kip_hello,session_keys,handshake_client,handshake_server}`,
-   `pkg/crypto/record_conn`, `pkg/crypto/keypair`, `pkg/obfs/sudoku/{grid,table,rand,layout,ascii_mode,classic_encode,classic_decode}`,
-   `internal/config/{config,defaults}`, `cmd/sudoku-tunnel/main`,
+   and the §8 remediation list. Files consulted: `internal/app/client.go`,
+   `internal/app/client_runtime.go`, `internal/tunnel/{kip,kip_hello,session_keys,handshake_client,handshake_server}.go`,
+   `pkg/crypto/record_conn.go`, `pkg/crypto/keypair.go`, `pkg/obfs/sudoku/{grid,table,rand,layout,ascii_mode,classic_encode,classic_decode}.go`,
+   `internal/config/{config,defaults}.go`, `cmd/sudoku-tunnel/main.go`,
    `.github/workflows/release.yml`, `configs/*.json`. No code from these files
    was incorporated into this repository in this round.
 4. **License note.** Upstream is GPL-3.0. The S3 remediation (§8) must close the
    divergences by *re-implementing from documented behavior* (e.g. porting the
-   reference lagged-Fibonacci PRNG (v1) stream and HKDF/HMAC schedules as algorithms, not by copying
-   upstream source), keeping the clean-room posture and respecting GPL-3.0
+   `math/rand` v1 stream and HKDF/HMAC schedules as algorithms, not by copying
+   Go source), keeping the clean-room posture and respecting GPL-3.0
    obligations for anything that ends up derived from upstream code.
 5. **Test vectors.** The SHA-256 user-hash vectors and the RFC 7748 §6.1 X25519
    vectors pinned in `UnitTests/NativeCoreSudokuTests.swift` come from public
@@ -306,9 +310,9 @@ Official server as black-box peer (sing-box has no sudoku inbound):
    bytes for `user_hash` (§2.6 rows 2/3).
 2. PSK directional handshake keys: `HKDF-Expand(SHA256(key-string), …)` with the
    upstream labels (CryptoKit `HKDF<SHA256>`) (row 7).
-3. Table shuffle: port the reference lagged-Fibonacci PRNG (v1) stream (seeded lagged-Fibonacci
+3. Table shuffle: port the `math/rand` v1 stream (seeded lagged-Fibonacci
    `rngSource` + `Int31n`/`Shuffle` semantics) as an algorithm — documented
-   wire contract, `grid:80-89` (row 12).
+   wire contract, `grid.go:80-89` (row 12).
 4. Session rekey: X25519 (CryptoKit, RFC 7748 vector already pinned) +
    `HKDF-Extract/Expand` session bases applied after ServerHello (row 8).
 5. Per-epoch keys `HMAC-SHA256(base, "sudoku-record:"+method+epoch)` + optional

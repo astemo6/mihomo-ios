@@ -112,7 +112,6 @@ enum NCSupport {
             if !NCOpenConnect.dataPlaneVerified { return NCOpenConnect.dataPlaneUnavailable }
         case "sudoku":
             if let why = sudokuUnsupported(p) { return why }
-            return NCSudoku.interopUnavailable
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }

@@ -61,6 +61,16 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
 | 18083 | `echo_server.py` UDP control: datagram `go` → blackhole discards; `pause` → holds again |
+| 18090 | official Sudoku server v0.5.2.0 (`sudoku/entropy.json`) — prefer_entropy, chacha20-poly1305, legacy HTTP mask, pure downlink; fallback → 18080 |
+| 18091 | official Sudoku server (`sudoku/ascii-packed.json`) — prefer_ascii, aes-128-gcm, no HTTP mask, packed downlink |
+| 18092 | official Sudoku server (`sudoku/directional-none.json`) — up_ascii_down_entropy, custom table `xpxvvpvv`, aead none |
+| 18093 | official Sudoku server (`sudoku/rotation.json`) — custom-tables `xpxvvpvv` / `vxpvxvvp` (ClientHello table hint), packed downlink |
+| 18094 | official Sudoku server (`sudoku/closed-fallback.json`) — like 18090, fallback → 18099 (nothing listens: wrong key = closed socket) |
+| 18095 | `python3 -m http.server` origin serving `sudoku-fetch.txt` (48 KiB) for the HTTP-fetch-through-Sudoku test |
+
+Sudoku key: the servers hold the master **public** key `3388f6b5…451d`; the tests dial with the split private key
+(exercising client key normalisation) and with the public key itself. CI builds the server from the pinned tag's source
+(`SUDOKU_BIN`); locally `start-servers.sh` downloads the release tarball.
 
 All inbounds route to a `direct` outbound, so the target a client asks for
 *is* the backend it reaches: tests aim at 18080 for echo and 18082 for
