@@ -80,6 +80,39 @@ final class HomePanelStore: ObservableObject {
     /// context menu, which would pick 「从首页移除」; the menu's remove ignores taps during / right after a drag.
     private var lastDragActivity = Date.distantPast
 
+    /// Card frames in the Home section's coordinate space (not published: read only while dragging).
+    var cardFrames: [String: CGRect] = [:]
+    /// The card the last live move was made over; hovering it again does nothing (after a move the rows regroup and
+    /// the same or the dragged card can slide under a still finger, which must not swap them back).
+    private var lastHoverTarget: String?
+    private var lastMoveAt = Date.distantPast
+
+    func beginDrag(_ id: String) {
+        commitWork?.cancel()
+        commitWork = nil
+        lastHoverTarget = nil
+        dragging = id
+    }
+
+    /// Section drop target moved to `p`: move the dragged card into the place of the card under the finger.
+    func dragHover(at p: CGPoint) {
+        guard let d = dragging else { return }
+        commitWork?.cancel() // still over Home: the drop saves
+        commitWork = nil
+        guard let target = cardFrames.first(where: { $0.value.contains(p) })?.key else { return }
+        if target == d {
+            // Back over the dragged card itself (not right after a move): a later hover on the same card moves again.
+            if Date().timeIntervalSince(lastMoveAt) > 0.35 { lastHoverTarget = nil }
+            return
+        }
+        guard target != lastHoverTarget else { return }
+        lastHoverTarget = target
+        lastMoveAt = Date()
+        dragMove(d, over: target)
+        commitWork?.cancel() // dragMove scheduled a save; the drop (or leaving Home) saves instead
+        commitWork = nil
+    }
+
     /// Live reorder while a dragged card hovers `target`: the dragged id takes the target's place in the pinned order.
     /// Saved shortly after the last move (and at the drop), so hovering over many cards writes once.
     func dragMove(_ id: String, over target: String) {
@@ -101,6 +134,7 @@ final class HomePanelStore: ObservableObject {
         commitWork?.cancel()
         commitWork = nil
         dragging = nil
+        lastHoverTarget = nil
         savePinned()
         orderChanged()
     }
@@ -167,7 +201,8 @@ final class HomePanelStore: ObservableObject {
     /// 「从首页移除」 from a Home card's long-press menu: ignored while a drag is in flight or within 1 s of one,
     /// so a press-and-drag that ends over the menu never removes the card.
     func unpinFromMenu(_ id: String) {
-        guard dragging == nil, Date().timeIntervalSince(lastDragActivity) > 1.0 else { return }
+        guard Date().timeIntervalSince(lastDragActivity) > 1.0 else { return }
+        if dragging != nil { commitDrag() } // a drag that ended outside any drop target
         unpin(id)
     }
 
@@ -316,7 +351,12 @@ struct HomePanelsSection: View {
             }
         }
         // A drop anywhere in the section (between cards, on the header) ends the drag and saves the order.
-        .onDrop(of: [UTType.text], delegate: HomeReorderDrop(drop: { if home.dragging != nil { home.commitDrag() } }))
+        .onPreferenceChange(HomeCardFrameKey.self) { home.cardFrames = $0 }
+        .onDrop(of: [UTType.text], delegate: HomeReorderDrop(
+            update: { home.dragHover(at: $0) },
+            exit: { if home.dragging != nil { home.scheduleCommit() } },
+            drop: { if home.dragging != nil { home.commitDrag() } }))
+        .coordinateSpace(name: HomeReorderDrag.space)
         .sheet(item: $editPanel) { p in PanelEditSheet(p: p) }
         .task(id: vpn.isConnected) {
             home.loadCache()
@@ -588,31 +628,46 @@ struct HomePanelsEditor: View {
 }
 
 /// feat/fresh-reinstall (user: reorder Home directly, like iOS widgets): long-press a card, then drag it — the context
-/// menu preview lifts and becomes the drag (iOS 16+); hovering another card moves the dragged one into its place
-/// (works for half- and full-width cards, the rows regroup as the order changes); the order is saved to
-/// panels.pinned at the drop, or 0.6 s after the last move if the drop lands outside Home.
+/// menu preview lifts and becomes the drag (iOS 16+). rel 0.20.2 (CI 40566844130 test96): the drop target is the whole
+/// Home section, which finds the card under the finger from the cards' measured frames. Per-card drop delegates were
+/// rebuilt whenever the rows regrouped (a full-width card next to a half one), so the session never entered them and
+/// the order stayed put; a drag that ended outside Home also left `dragging` set (card stuck dimmed, 从首页移除 dead).
+/// Hovering another card moves the dragged one into its place; the order is saved at the drop, or 0.6 s after the
+/// finger leaves Home / the last move.
 struct HomeReorderDrag: ViewModifier {
+    static let space = "home.panels.space"
     let id: String
     @ObservedObject private var home = HomePanelStore.shared
     func body(content: Content) -> some View {
         content
             .opacity(home.dragging == id ? 0.45 : 1)
+            .background(GeometryReader { g in
+                Color.clear.preference(key: HomeCardFrameKey.self, value: [id: g.frame(in: .named(Self.space))])
+            })
             .onDrag {
-                home.dragging = id
+                home.beginDrag(id)
                 return NSItemProvider(object: id as NSString)
             }
-            .onDrop(of: [UTType.text], delegate: HomeReorderDrop(
-                enter: { if let d = home.dragging { home.dragMove(d, over: id) } },
-                drop: { home.commitDrag() }))
     }
 }
 
-/// Same shape as the 策略 tab's GroupDropDelegate: closures made in the view (main actor) do the work.
+/// Frames of the Home cards in the section's coordinate space (for the section-wide drop target).
+struct HomeCardFrameKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+/// Section-wide drop target: `update` gets the finger's location (section coordinates) on every move.
 struct HomeReorderDrop: DropDelegate {
-    var enter: () -> Void = {}
+    let update: (CGPoint) -> Void
+    let exit: () -> Void
     let drop: () -> Void
-    func dropEntered(info: DropInfo) { enter() }
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func validateDrop(info: DropInfo) -> Bool { true }
+    func dropEntered(info: DropInfo) { update(info.location) }
+    func dropUpdated(info: DropInfo) -> DropProposal? { update(info.location); return DropProposal(operation: .move) }
+    func dropExited(info: DropInfo) { exit() }
     func performDrop(info: DropInfo) -> Bool { drop(); return true }
 }
 

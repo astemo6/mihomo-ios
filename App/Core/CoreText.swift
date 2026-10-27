@@ -74,6 +74,10 @@ enum CoreText {
             let name = String(s.dropFirst("策略组「".count).dropLast("」重名".count))
             return String(localized: "策略组「\(name)」重名")
         }
+        // Script task rows (EngineParser task desc; rel 0.20.2 en CI test95: 「定时脚本：0 8 * * *」 untranslated).
+        if s.hasPrefix("定时脚本：") { return String(localized: "定时脚本：\(String(s.dropFirst("定时脚本：".count)))") }
+        if s == "事件脚本：网络变化" { return String(localized: "事件脚本：网络变化") }
+        if s == "通用脚本（手动运行 / 面板）" { return String(localized: "通用脚本（手动运行 / 面板）") }
         // v0.19.3 script runtime guards.
         if s == "脚本调用栈溢出（递归过深）" { return String(localized: "脚本调用栈溢出（递归过深）") }
         if s == "脚本内存占用过高，已终止（保护隧道内存）" { return String(localized: "脚本内存占用过高，已终止（保护隧道内存）") }

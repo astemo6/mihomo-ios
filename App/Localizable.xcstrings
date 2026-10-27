@@ -108045,6 +108045,346 @@
           }
         }
       }
+    },
+    "%lld 个无法加载": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld can't be loaded"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個無法載入"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件を読み込めません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개를 불러올 수 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "не загружается: %lld"
+          }
+        }
+      }
+    },
+    "Surge / QX / Loon / Clash 规则列表（.list / .txt / .yaml）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge / QX / Loon / Clash rule list (.list / .txt / .yaml)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge / QX / Loon / Clash 規則列表（.list / .txt / .yaml）。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge / QX / Loon / Clash のルールリスト（.list / .txt / .yaml）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge / QX / Loon / Clash 규칙 목록(.list / .txt / .yaml)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список правил Surge / QX / Loon / Clash (.list / .txt / .yaml)."
+          }
+        }
+      }
+    },
+    "事件脚本：网络变化": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event script: network change"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件腳本：網路變化"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントスクリプト：ネットワーク変化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스크립트: 네트워크 변경"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипт события: смена сети"
+          }
+        }
+      }
+    },
+    "定时脚本：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheduled script: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定時腳本：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定期スクリプト：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예약 스크립트: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипт по расписанию: %@"
+          }
+        }
+      }
+    },
+    "当前配置没有脚本（脚本规则 0 · 定时任务 0）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current profile has no scripts (0 script rules · 0 scheduled tasks)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前設定沒有腳本（腳本規則 0 · 定時任務 0）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプロファイルにスクリプトはありません（スクリプトルール 0 · 定期タスク 0）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프로파일에 스크립트가 없습니다(스크립트 규칙 0 · 예약 작업 0)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В текущем профиле нет скриптов (правил скриптов 0 · задач по расписанию 0)"
+          }
+        }
+      }
+    },
+    "最近一次执行：": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last run: "
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近一次執行："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終実行："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 실행: "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последний запуск: "
+          }
+        }
+      }
+    },
+    "本次连接还没有请求命中脚本规则（打开对应 App 后再自检）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No request has matched a script rule in this connection yet (open the matching app, then run the self-check again)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次連線還沒有請求命中腳本規則（開啟對應 App 後再自檢）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この接続ではまだスクリプトルールに一致したリクエストがありません（対象アプリを開いてから再度セルフチェック）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 연결에서 아직 스크립트 규칙에 일치한 요청이 없습니다(해당 앱을 연 뒤 다시 자체 점검)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом подключении ни один запрос ещё не совпал с правилом скрипта (откройте нужное приложение и повторите самопроверку)"
+          }
+        }
+      }
+    },
+    "没有定时任务；内核有 %lld 条请求 / 响应脚本规则": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No scheduled tasks; the core has %lld request / response script rules"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有定時任務；核心有 %lld 條請求 / 回應腳本規則"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定期タスクはありません。コアにはリクエスト / レスポンススクリプトルールが %lld 件あります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예약 작업이 없습니다. 코어에 요청 / 응답 스크립트 규칙이 %lld개 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задач по расписанию нет; в ядре правил скриптов запросов / ответов: %lld"
+          }
+        }
+      }
+    },
+    "还没有规则订阅。点右上角 + →「订阅规则集」添加远程规则列表（Surge / QX / Loon / Clash 格式）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No rule subscriptions yet. Tap + → “Subscribe to Rule Set” to add a remote rule list (Surge / QX / Loon / Clash format)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有規則訂閱。點右上角 + →「訂閱規則集」新增遠端規則列表（Surge / QX / Loon / Clash 格式）。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールの購読はまだありません。右上の + →「ルールセットを購読」でリモートのルールリスト（Surge / QX / Loon / Clash 形式）を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 규칙 구독이 없습니다. 오른쪽 위 + →「규칙 세트 구독」으로 원격 규칙 목록(Surge / QX / Loon / Clash 형식)을 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписок на правила пока нет. Нажмите + → «Подписаться на набор правил», чтобы добавить удалённый список правил (формат Surge / QX / Loon / Clash)."
+          }
+        }
+      }
+    },
+    "通用脚本（手动运行 / 面板）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generic script (run manually / panel)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通用腳本（手動執行 / 面板）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "汎用スクリプト（手動実行 / パネル）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 스크립트(수동 실행 / 패널)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Общий скрипт (вручную / панель)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
