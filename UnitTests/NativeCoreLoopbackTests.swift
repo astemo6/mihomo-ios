@@ -494,6 +494,32 @@ final class NativeCoreLoopbackTests: XCTestCase {
     }
 
     func testLuaCustomBackendEcho() throws {
+        // Diagnostic probes (added after run 40422207536 hung in connect with
+        // no completion at all): prove the mock is reachable from this
+        // process and speaks HE/HO before involving NCConnector.
+        let probe = NWConnection(host: NWEndpoint.Host(Self.host),
+                                 port: NWEndpoint.Port(rawValue: UInt16(Self.luaPort))!,
+                                 using: .tcp)
+        let readyExp = expectation(description: "lua mock ready")
+        let readyBox = LockedBox(false)
+        probe.stateUpdateHandler = { state in
+            if case .ready = state { readyBox.set(true); readyExp.fulfill() }
+            if case .failed = state { readyExp.fulfill() }
+        }
+        probe.start(queue: DispatchQueue(label: "nc.loopback.lua.probe"))
+        wait(for: [readyExp], timeout: 5)
+        XCTAssertTrue(readyBox.get(), "lua mock :\(Self.luaPort) not reachable from the test process")
+        let hoExp = expectation(description: "lua mock HO")
+        let hoBox = LockedBox<Data?>(nil)
+        probe.send(content: Data("HE".utf8), completion: .idempotent)
+        probe.receive(minimumIncompleteLength: 1, maximumLength: 64) { data, _, _, _ in
+            hoBox.set(data)
+            hoExp.fulfill()
+        }
+        wait(for: [hoExp], timeout: 5)
+        XCTAssertEqual(hoBox.get(), Data("HO".utf8), "lua mock did not answer HE with HO")
+        probe.cancel()
+
         let stream = try self.connect(proxy: Self.luaProxy, target: Self.echoTarget, timeout: 20)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)

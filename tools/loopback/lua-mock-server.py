@@ -53,6 +53,7 @@ def handle(conn: socket.socket) -> None:
             return
         conn.sendall(b"HO")
         backend = socket.create_connection((ECHO_HOST, ECHO_PORT), timeout=5)
+        backend.settimeout(None)  # create_connection leaves its timeout on the socket
         t = threading.Thread(target=pump, args=(conn, backend), daemon=True)
         t.start()
         pump(backend, conn)
