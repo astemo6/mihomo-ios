@@ -123,6 +123,14 @@ enum UITestSeed {
             }
             try seedNodeSubscription()
             EngineStore.shared.addModule(text: moduleText, name: "UITest Panel Module")
+            // fix/nc-0.20.2: a second rewrite subscription and two local cron tasks for the reorder-persists tests.
+            if args.contains("-UITestReorder") {
+                let es = EngineStore.shared
+                es.addModule(text: "#!name=UITest Order B\n[URL Rewrite]\n^https?://b\\.example\\.com/ - reject\n", name: "UITest Order B")
+                es.config.scripts.append(EngineItem(line: "UITest Task A = type=cron,cronexp=\"0 8 * * *\",script-path=https://example.invalid/uitest-a.js"))
+                es.config.scripts.append(EngineItem(line: "UITest Task B = type=cron,cronexp=\"0 9 * * *\",script-path=https://example.invalid/uitest-b.js"))
+                es.save()
+            }
             try writeSamples()
             if args.contains("-UITestDemoScripts"), let demo = store.profiles.first(where: { $0.name == "UITest Demo" }) {
                 OverrideScriptStore.shared.add(demo.id, name: "bettbox-demo.js", source: demoScript)

@@ -13,6 +13,8 @@ struct OverrideScriptsView: View {
     @State private var status: (exists: Bool, fresh: Bool, at: Date?) = (false, false, nil)
     /// Review 5: deleting asks first and saves a snapshot (the .js file is removed with it).
     @State private var pendingDelete: [OverrideScript]?
+    /// fix/nc-0.20.2: the shared 排序 / 完成 button (was the system 编辑 button).
+    @State private var editMode: EditMode = .inactive
 
     var scripts: [OverrideScript] { store.scripts(profile.id) }
 
@@ -27,7 +29,7 @@ struct OverrideScriptsView: View {
                     NavigationLink { OverrideScriptDetailView(profile: profile, scriptID: s.id) } label: { OverrideScriptRow(script: s) }
                         .accessibilityIdentifier("scripts.row.\(s.name)")
                 }
-                .onMove { store.move(profile.id, from: $0, to: $1); rerun() }
+                .onMove(perform: editMode.isEditing ? { (from: IndexSet, to: Int) in store.move(profile.id, from: from, to: to); rerun() } : nil)
                 .onDelete { idx in pendingDelete = idx.map { scripts[$0] } }
             } header: {
                 Text("按顺序运行")
@@ -85,7 +87,14 @@ struct OverrideScriptsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("覆写脚本")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { if !scripts.isEmpty { EditButton() } }
+        .environment(\.editMode, $editMode)
+        .toolbar {
+            if !scripts.isEmpty {
+                ReorderToolbarButton(isEditing: editMode.isEditing, count: scripts.count, id: "scripts.reorder") {
+                    withAnimation { editMode = editMode.isEditing ? .inactive : .active }
+                }
+            }
+        }
         .sheet(isPresented: $showAddURL) { AddScriptURLSheet(profile: profile) }
         .sheet(item: $newScript) { s in
             OverrideScriptEditor(profile: profile, scriptID: s.id, isNew: true)

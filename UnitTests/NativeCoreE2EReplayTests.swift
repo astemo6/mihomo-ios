@@ -45,7 +45,7 @@ final class NativeCoreE2EReplayTests: XCTestCase {
                 let conv = await ConfImportResult.convert(text)
                 confReport = conv.report
                 if let e = conv.error, !e.isEmpty { throw ProfileStore.StoreError.invalid(e) }
-                importDetail = try await ConfImport.save(text: text, name: name, result: conv, store: ProfileStore.shared)
+                importDetail = try await ConfImport.save(text: text, name: name, result: conv, store: ProfileStore.shared, waitForDownloads: true)
                 // A plain QX export keeps its CA in [mitm] passphrase / p12, which the conf import skips; the user
                 // imports it on the CA page (NCCAManager.importP12) — do the same, so MitM uses the fixture CA.
                 if let ca = Self.qxCA(text) {

@@ -8,6 +8,8 @@ struct ProxyChainsView: View {
     @State private var adding = false
     @State private var confirmDelete: ProxyChain?
     @State private var message: String?
+    /// fix/nc-0.20.2: the shared 排序 / 完成 button (was the system 编辑 button).
+    @State private var editMode: EditMode = .inactive
 
     var body: some View {
         List {
@@ -16,7 +18,7 @@ struct ProxyChainsView: View {
                     EmptyStateRow(icon: "link", title: "还没有代理链", message: "点右上角 + 添加。代理链让流量依次经过多个节点或策略组。")
                 }
                 ForEach(store.chains) { c in row(c) }
-                    .onMove { from, to in Task { if let e = await store.move(from: from, to: to) { message = e } } }
+                    .onMove(perform: editMode.isEditing ? { (from: IndexSet, to: Int) in Task { if let e = await store.move(from: from, to: to) { message = e } } } : nil)
             } footer: {
                 if !store.chains.isEmpty {
                     Text("启用的代理链会作为策略出现在策略组和规则里。成员在当前配置里找不到时，这条链不生效。")
@@ -31,12 +33,15 @@ struct ProxyChainsView: View {
         .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                if store.chains.count > 1 { EditButton() }
+                ReorderToolbarButton(isEditing: editMode.isEditing, count: store.chains.count, id: "chains.reorder") {
+                    withAnimation { editMode = editMode.isEditing ? .inactive : .active }
+                }
                 Button { adding = true } label: { Image(systemName: "plus") }
                     .accessibilityLabel(Text("添加代理链"))
                     .accessibilityIdentifier("chains.add")
             }
         }
+        .environment(\.editMode, $editMode)
         .onAppear { store.reload() }
         .sheet(isPresented: $adding) { ProxyChainEditor(chain: ProxyChain(name: ""), isNew: true) }
         .sheet(item: $editing) { c in ProxyChainEditor(chain: c, isNew: false) }

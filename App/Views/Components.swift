@@ -214,6 +214,9 @@ enum TernRowMetrics {
     static let minContentHeight: CGFloat = 30
     static let titleFont: Font = .subheadline
     static let detailFont: Font = .caption2
+    /// fix/nc-0.20.2: the vertical inset SwiftUI's inset-grouped List gives a row's content (a 工具 card's cell =
+    /// content + 2 × this). Rows drawn outside a List (策略's group cards) add it themselves to be as tall.
+    static let listRowVerticalInset: CGFloat = 11
 }
 
 /// The shared icon row: tile · title over an optional detail line · flexible space · optional trailing content.

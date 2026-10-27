@@ -106719,6 +106719,1332 @@
           }
         }
       }
+    },
+    "Cron 表达式 *": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron expression *"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron 表示式 *"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron 式 *"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron 표현식 *"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron-выражение *"
+          }
+        }
+      }
+    },
+    "Cron 表达式无效（5 或 6 段）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid cron expression (5 or 6 fields)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron 表示式無效（5 或 6 段）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な cron 式（5 または 6 フィールド）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 cron 표현식 (5 또는 6개 필드)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверное cron-выражение (5 или 6 полей)"
+          }
+        }
+      }
+    },
+    "Cron 表达式无效（5 或 6 段，例如 0 8 * * *）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid cron expression (5 or 6 fields, e.g. 0 8 * * *)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron 表示式無效（5 或 6 段，例如 0 8 * * *）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な cron 式（5 または 6 フィールド、例：0 8 * * *）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 cron 표현식 (5 또는 6개 필드, 예: 0 8 * * *)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверное cron-выражение (5 или 6 полей, например 0 8 * * *)"
+          }
+        }
+      }
+    },
+    "Cron 表达式，只填时间部分，不含脚本。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cron expression: the schedule only, without the script."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron 表示式，只填時間部分，不含腳本。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cron 式：時刻の部分だけを入力し、スクリプトは含めません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cron 표현식: 일정 부분만 입력하고 스크립트는 넣지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cron-выражение: только расписание, без скрипта."
+          }
+        }
+      }
+    },
+    "\n远程重写、规则集与节点集正在后台下载，完成后会通知你。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nRemote rewrites, rule sets and node sets are downloading in the background; you'll be notified when they finish."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n遠端重寫、規則集與節點集正在背景下載，完成後會通知你。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nリモート書き換え、ルールセット、ノードセットをバックグラウンドでダウンロード中です。完了したら通知します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n원격 재작성, 규칙 세트, 노드 세트를 백그라운드에서 다운로드하는 중입니다. 완료되면 알려 드립니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nУдалённые правила перезаписи, наборы правил и наборы узлов загружаются в фоне; по завершении придёт уведомление."
+          }
+        }
+      }
+    },
+    "「%@」的下载已完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads for “%@” finished"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」的下載已完成"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」のダウンロードが完了しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 다운로드 완료"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузки для «%@» завершены"
+          }
+        }
+      }
+    },
+    "下次运行：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next run: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下次執行：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回の実行：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 실행: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующий запуск: %@"
+          }
+        }
+      }
+    },
+    "从「文件」导入脚本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Script from Files"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從「檔案」匯入腳本"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ファイル」からスクリプトを読み込む"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일에서 스크립트 가져오기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт скрипта из «Файлов»"
+          }
+        }
+      }
+    },
+    "列表自带策略（QX）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Policy in Each Line (QX)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表自帶策略（QX）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リスト内の各行のポリシー（QX）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목록 각 줄의 정책 (QX)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Политика из каждой строки (QX)"
+          }
+        }
+      }
+    },
+    "列表里每一行都使用这个策略；QX 列表可以选「列表自带策略」，按每行写的策略分流。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every line of the list uses this policy. For a QX list you can choose “Policy in Each Line” to route by the policy written on each line."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表裡每一行都使用這個策略；QX 列表可以選「列表自帶策略」，按每行寫的策略分流。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストのすべての行がこのポリシーを使います。QX リストでは「リスト内の各行のポリシー」を選ぶと、行ごとに書かれたポリシーで振り分けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목록의 모든 줄에 이 정책이 적용됩니다. QX 목록은 “목록 각 줄의 정책”을 선택해 줄마다 적힌 정책으로 분류할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта политика применяется ко всем строкам списка. Для списка QX можно выбрать «Политика из каждой строки» — маршрутизация по политике, указанной в строке."
+          }
+        }
+      }
+    },
+    "同一时间触发的任务按列表顺序启动。点右上角「排序」拖动调整顺序。右滑更新或运行，左滑删除或编辑；长按查看全部操作。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks due at the same time start in list order. Tap Sort at the top right and drag to change the order. Swipe right to update or run, left to delete or edit; long-press for all actions."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一時間觸發的任務按列表順序啟動。點右上角「排序」拖動調整順序。右滑更新或執行，左滑刪除或編輯；長按檢視全部操作。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同時刻に実行されるタスクはリスト順に開始します。右上の「並べ替え」をタップしてドラッグで順序を変更します。右スワイプで更新・実行、左スワイプで削除・編集、長押しですべての操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 시각에 실행되는 작업은 목록 순서대로 시작합니다. 오른쪽 위 “정렬”을 눌러 드래그로 순서를 바꿉니다. 오른쪽으로 밀어 업데이트·실행, 왼쪽으로 밀어 삭제·편집, 길게 눌러 모든 작업을 봅니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задачи, назначенные на одно время, запускаются по порядку списка. Нажмите «Сортировка» вверху справа и перетащите, чтобы изменить порядок. Смахните вправо — обновить или запустить, влево — удалить или изменить; долгое нажатие — все действия."
+          }
+        }
+      }
+    },
+    "名称 / 标签": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name / Tag"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱 / 標籤"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前 / タグ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 / 태그"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя / тег"
+          }
+        }
+      }
+    },
+    "图标与选项": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon & Options"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖示與選項"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンとオプション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘 및 옵션"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значок и параметры"
+          }
+        }
+      }
+    },
+    "失败的项目会在连接后自动重试。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed items are retried automatically after you connect."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗的專案會在連線後自動重試。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗した項目は接続後に自動で再試行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패한 항목은 연결 후 자동으로 다시 시도합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неудавшиеся загрузки будут повторены автоматически после подключения."
+          }
+        }
+      }
+    },
+    "将以禁用状态导入 %lld 项": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld items will be imported turned off"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將以禁用狀態匯入 %lld 項"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 項目をオフの状態で読み込みます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개 항목을 꺼진 상태로 가져옵니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld элемент(ов) будет импортировано выключенными"
+          }
+        }
+      }
+    },
+    "待重试（连接后自动下载）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to retry (downloads after you connect)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待重試（連線後自動下載）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行待ち（接続後に自動ダウンロード）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시도 대기 (연결 후 자동 다운로드)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидает повтора (загрузится после подключения)"
+          }
+        }
+      }
+    },
+    "手动添加": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Manually"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動新增"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить вручную"
+          }
+        }
+      }
+    },
+    "执行日期": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schedule"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行日期"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行日時"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 일정"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расписание"
+          }
+        }
+      }
+    },
+    "文本方式添加": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add as Text"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字方式新增"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストで追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트로 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить текстом"
+          }
+        }
+      }
+    },
+    "无法读取这个文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't read this file"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取這個檔案"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを読み込めません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일을 읽을 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удаётся прочитать этот файл"
+          }
+        }
+      }
+    },
+    "标签": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タグ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "태그"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тег"
+          }
+        }
+      }
+    },
+    "每天 8:00": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily 8:00"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天 8:00"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎日 8:00"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매일 8:00"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ежедневно 8:00"
+          }
+        }
+      }
+    },
+    "添加任务": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Task"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增任務"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить задачу"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加计划任务，或在模块、「脚本」里添加定时、网络变化或交互脚本，例如：": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + at the top right to add a scheduled task, or add cron, network-change or interaction scripts in modules or Scripts, for example:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增計劃任務，或在模組、「腳本」裡新增定時、網路變化或互動腳本，例如："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + で計画タスクを追加するか、モジュールや「スクリプト」で定時・ネットワーク変化・インタラクションのスクリプトを追加します。例："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 +로 예약 작업을 추가하거나, 모듈이나 “스크립트”에서 예약·네트워크 변경·상호작용 스크립트를 추가하세요. 예:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите + вверху справа, чтобы добавить задачу по расписанию, или добавьте скрипты cron, смены сети или взаимодействия в модулях или «Скриптах», например:"
+          }
+        }
+      }
+    },
+    "生成的任务行": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generated Task Line"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成的任務行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成されたタスク行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성된 작업 줄"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сгенерированная строка задачи"
+          }
+        }
+      }
+    },
+    "留空时使用订阅内容里的名称或文件名。自己填写的名称在更新后保持不变。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave empty to use the name in the subscription or its file name. A name you type stays after updates."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留空時使用訂閱內容裡的名稱或檔名。自己填寫的名稱在更新後保持不變。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空欄の場合は購読内容の名前かファイル名を使います。入力した名前は更新後も変わりません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비워 두면 구독 내용의 이름이나 파일 이름을 사용합니다. 직접 입력한 이름은 업데이트 후에도 유지됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставьте пустым, чтобы использовать имя из подписки или имя файла. Введённое вами имя сохраняется после обновлений."
+          }
+        }
+      }
+    },
+    "脚本路径 *": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script Path *"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本路徑 *"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトのパス *"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 경로 *"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Путь к скрипту *"
+          }
+        }
+      }
+    },
+    "自动：先用 Clash.Meta 请求（保留分组和流量信息），没有识别到节点时依次改用 Quantumult X、Shadowrocket，并记住可用的那个。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto: requests with Clash.Meta first (keeps groups and usage info); if no nodes are recognised, tries Quantumult X, then Shadowrocket, and remembers the one that worked."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動：先用 Clash.Meta 請求（保留分組和流量資訊），沒有識別到節點時依次改用 Quantumult X、Shadowrocket，並記住可用的那個。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動：まず Clash.Meta で取得し（グループと使用量情報を保持）、ノードを認識できないときは Quantumult X、Shadowrocket の順に試し、成功したものを記憶します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동: 먼저 Clash.Meta로 요청하고(그룹과 사용량 정보 유지), 노드를 인식하지 못하면 Quantumult X, Shadowrocket 순으로 시도한 뒤 성공한 것을 기억합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто: сначала запрос как Clash.Meta (сохраняет группы и данные о трафике); если узлы не распознаны — Quantumult X, затем Shadowrocket; сработавший вариант запоминается."
+          }
+        }
+      }
+    },
+    "节点排序": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node Sorting"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點排序"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードの並び順"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 정렬"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сортировка узлов"
+          }
+        }
+      }
+    },
+    "规则集 / 节点集：%lld 个已下载，%lld 个失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule sets / node sets: %lld downloaded, %lld failed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則集 / 節點集：%lld 個已下載，%lld 個失敗"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наборы правил / узлов: загружено %lld, ошибок %lld"
+          }
+        }
+      }
+    },
+    "计划任务": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheduled Task"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計劃任務"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計画タスク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예약 작업"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задача по расписанию"
+          }
+        }
+      }
+    },
+    "订阅按列表顺序生效：越靠上越先匹配。点右上角「排序」后拖动调整顺序（搜索或筛选分类时不能排序）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscriptions apply in list order: higher ones match first. Tap Sort at the top right, then drag to change the order (not while searching or filtering by category)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱按列表順序生效：越靠上越先匹配。點右上角「排序」後拖動調整順序（搜尋或篩選分類時不能排序）。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読はリスト順に適用され、上にあるものが先にマッチします。右上の「並べ替え」をタップしてからドラッグで順序を変更します（検索中やカテゴリ絞り込み中は不可）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독은 목록 순서대로 적용되며 위에 있을수록 먼저 일치합니다. 오른쪽 위 “정렬”을 누른 뒤 드래그해 순서를 바꿉니다(검색 또는 분류 필터 중에는 불가)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписки применяются по порядку списка: верхние срабатывают первыми. Нажмите «Сортировка» вверху справа и перетащите (недоступно при поиске или фильтре по категории)."
+          }
+        }
+      }
+    },
+    "订阅规则集": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscribe to Rule Set"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱規則集"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセットを購読"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트 구독"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписаться на набор правил"
+          }
+        }
+      }
+    },
+    "远程重写：%lld 个已下载，%lld 个失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote rewrites: %lld downloaded, %lld failed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端重寫：%lld 個已下載，%lld 個失敗"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート書き換え：%lld 件ダウンロード、%lld 件失敗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 재작성: %lld개 다운로드, %lld개 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалённые перезаписи: загружено %lld, ошибок %lld"
+          }
+        }
+      }
+    },
+    "连接后已重试下载": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads retried after connecting"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線後已重試下載"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続後にダウンロードを再試行しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 후 다운로드를 다시 시도했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузки повторены после подключения"
+          }
+        }
+      }
+    },
+    "通用（手动）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generic (Manual)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通用（手動）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "汎用（手動）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 (수동)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Общие (вручную)"
+          }
+        }
+      }
+    },
+    "需要更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs Update"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新が必要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 필요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется обновление"
+          }
+        }
+      }
+    },
+    "顺序就是匹配优先级：越靠上越先匹配。点右上角「排序」拖动调整顺序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The order is the matching priority: higher ones match first. Tap Sort at the top right and drag to change it."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序就是匹配優先順序：越靠上越先匹配。點右上角「排序」拖動調整順序。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序がマッチの優先度です。上にあるものが先にマッチします。右上の「並べ替え」をタップしてドラッグで変更します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "순서가 곧 일치 우선순위입니다. 위에 있을수록 먼저 일치합니다. 오른쪽 위 “정렬”을 눌러 드래그로 바꿉니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок — это приоритет совпадения: верхние срабатывают первыми. Нажмите «Сортировка» вверху справа и перетащите."
+          }
+        }
+      }
+    },
+    "（%lld 个按原配置停用，启用后再下载）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (%lld turned off as in the original profile; downloaded when turned on)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（%lld 個按原配置停用，啟用後再下載）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（%lld 件は元の設定どおりオフ。オンにしたときにダウンロード）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(%lld개는 원래 설정대로 꺼짐, 켤 때 다운로드)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (%lld выключено, как в исходном профиле; загрузится при включении)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

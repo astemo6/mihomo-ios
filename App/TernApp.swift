@@ -74,7 +74,11 @@ struct TernApp: App {
             }
             .tint(Theme.accent)
             // v0.9: 更多 → 设置 → 外观 (跟随系统 / 浅色 / 深色), applied to every window.
-            .onAppear { AppAppearance.apply() }
+            .onAppear {
+                AppAppearance.apply()
+                // fix/nc-0.20.2: import / module downloads outside the sheets, retried on connect / foreground.
+                BackgroundDownloads.shared.start()
+            }
             .onChange(of: phase) { p in
                 // feat/fresh-reinstall: after 清除全部数据 leaving the app ends it (the next launch starts clean);
                 // nothing else runs while the gate is up.

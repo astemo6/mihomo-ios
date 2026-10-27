@@ -185,7 +185,8 @@ struct NodeFilterView: View {
     /// Review 5: removing a policy group from the profile asks first (swipe, menu, or deleting its filter).
     @State private var pendingRemoveGroup: RegionFilter?
     @State private var pendingDelete: [RegionFilter]?
-    @Environment(\.editMode) private var editMode
+    /// fix/nc-0.20.2: the shared 排序 / 完成 button (was the system 编辑 button on the environment's edit mode).
+    @State private var editMode: EditMode = .inactive
 
     struct Region: Identifiable {
         let code: String
@@ -243,7 +244,7 @@ struct NodeFilterView: View {
         previewMembers = m
     }
 
-    var editingList: Bool { editMode?.wrappedValue.isEditing == true }
+    var editingList: Bool { editMode.isEditing }
 
     var body: some View {
         let counts = Dictionary(filters.map { ($0.id, count($0)) }, uniquingKeysWith: { a, _ in a })
@@ -305,10 +306,13 @@ struct NodeFilterView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("筛选节点")
         .navigationBarTitleDisplayMode(.large) // fix/app-policy-ui #5b: pushed page keeps its large title
+        .environment(\.editMode, $editMode)
         .onReceive(NodeManagerModel.shared.$nodes.removeDuplicates()) { if $0 != nodes { nodes = $0 } }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                EditButton()
+                ReorderToolbarButton(isEditing: editMode.isEditing, count: filters.count, id: "filters.reorder") {
+                    withAnimation { editMode = editMode.isEditing ? .inactive : .active }
+                }
                 Button { creating = true } label: { Image(systemName: "plus") }
                     .accessibilityLabel(Text("添加筛选"))
                     .accessibilityIdentifier("filters.add")

@@ -204,9 +204,7 @@ struct RulesView: View {
                     if orderSaving {
                         ProgressView()
                     } else {
-                        Button("完成") { Task { await finishOrder() } }
-                            .fontWeight(.semibold)
-                            .accessibilityIdentifier("rules.orderDone")
+                        ReorderToolbarButton(isEditing: true, id: "rules.orderDone") { Task { await finishOrder() } }
                     }
                 }
             } else {

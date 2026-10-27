@@ -49,6 +49,8 @@ struct SubscriptionStatus: Equatable {
     /// Extra line under the status (expiry / used of a subscription), shown only without an error.
     var usage: String? = nil
     var usageFraction: Double? = nil
+    /// fix/nc-0.20.2: what a remote item never downloaded says instead of 尚未下载 (定时任务: 需要更新, as QX).
+    var notDownloadedText: String? = nil
 
     static let relative: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -67,7 +69,7 @@ struct SubscriptionStatus: Equatable {
             if let updated {
                 parts.append(String(localized: "更新于 \(Self.relative.localizedString(for: updated, relativeTo: Date()))"))
             } else if downloaded != true {
-                parts.append(String(localized: "尚未下载"))
+                parts.append(notDownloadedText ?? String(localized: "尚未下载"))
             }
             if interval > 0 { parts.append(String(localized: "每 \(ResourceStore.intervalText(interval))")) }
         }

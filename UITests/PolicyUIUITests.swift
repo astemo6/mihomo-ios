@@ -35,9 +35,8 @@ extension TernUITests {
         let ruleRow = rowCellHeight(china)
         snap("policyui-rules")
 
-        // ⋯ → 编辑排序 → 置顶 Facebook → 完成.
-        XCTAssertTrue(tapIfExists(app.element(id: "rules.more"), timeout: 4), "⋯")
-        XCTAssertTrue(tapIfExists(app.element(id: "rules.reorder"), timeout: 4), "编辑排序 in ⋯")
+        // fix/nc-0.20.2: the shared 排序 toolbar button (no ⋯ menu) → 置顶 Facebook → 完成.
+        XCTAssertTrue(tapIfExists(app.element(id: "rules.reorder"), timeout: 4), "排序 button")
         XCTAssertTrue(waitOrder("ruleorder.sets.order", "China | AI | Facebook"), "reorder list (got \(orderValue("ruleorder.sets.order")))")
         XCTAssertTrue(app.element(id: "ruleorder.set.row.Facebook").exists, "reorder row Facebook")
         snap("policyui-rules-reorder")
@@ -55,8 +54,7 @@ extension TernUITests {
         XCTAssertTrue(waitOrder("rules.sets.order", "Facebook | China | AI", timeout: 10),
                       "order kept after reopening (got \(orderValue("rules.sets.order")))")
         // 取消 leaves the order alone.
-        XCTAssertTrue(tapIfExists(app.element(id: "rules.more"), timeout: 4), "⋯ again")
-        XCTAssertTrue(tapIfExists(app.element(id: "rules.reorder"), timeout: 4), "编辑排序 again")
+        XCTAssertTrue(tapIfExists(app.element(id: "rules.reorder"), timeout: 4), "排序 again")
         XCTAssertTrue(waitOrder("ruleorder.sets.order", "Facebook | China | AI"), "reorder list shows the saved order")
         let topAI = app.element(id: "ruleorder.set.top.AI")
         if scrollTo(topAI, fail: false) { topAI.tap() }
@@ -68,9 +66,9 @@ extension TernUITests {
         let card = app.element(id: "policy.group.Proxy")
         XCTAssertTrue(card.waitForExistence(timeout: 10), "Proxy group card")
         XCTAssertTrue(scrollTo(app.element(id: "policy.card.Proxy")), "Proxy on screen")
-        let policyRow = card.frame.height
         snap("policyui-policy")
-        XCTAssertEqual(policyRow, ruleRow, accuracy: 2.5, "策略 row \(policyRow) pt vs 分流规则 row \(ruleRow) pt")
+        // fix/nc-0.20.2: the collapsed row now matches a 工具 row (test99), not the 3-line 分流规则 row.
+        _ = ruleRow
         let test = app.element(id: "policy.test.Proxy")
         XCTAssertTrue(test.exists, "测速 button")
         XCTAssertGreaterThanOrEqual(test.frame.width, 43, "测速 target width \(test.frame.width)")

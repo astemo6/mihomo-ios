@@ -530,9 +530,7 @@ struct PolicyView: View {
                     if reorderSaving {
                         ProgressView()
                     } else {
-                        Button("完成") { Task { await finishReorder() } }
-                            .fontWeight(.semibold)
-                            .accessibilityIdentifier("grouporder.done")
+                        ReorderToolbarButton(isEditing: true, id: "grouporder.done") { Task { await finishReorder() } }
                     }
                 }
               } else {
@@ -819,6 +817,8 @@ final class PolicySortMemo {
 }
 
 struct PolicyGroupCard: View {
+    /// fix/nc-0.20.2: the 工具 row's Dynamic Type minimum height (TernIconRow uses the same scaled metric).
+    @ScaledMetric(relativeTo: .subheadline) var rowMinHeight: CGFloat = TernRowMetrics.minContentHeight
     let group: PolicyGroupDisplay
     let testing: Bool
     @Binding var expanded: Bool
@@ -885,12 +885,17 @@ struct PolicyGroupCard: View {
         // the right (设置 / 测速 / 展开, mis-taps) became one: 测速 with a 44 pt target; a tap anywhere else on the row
         // expands / collapses; 编辑策略组 is in the long-press menu and inside the expanded section (Surge / Egern).
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: PolicyRowMetrics.iconTextSpacing) {
-                GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: PolicyRowMetrics.iconSize)
+            // fix/nc-0.20.2 (user: 策略组行高与「工具」普通行一致): the header uses the 工具 card metrics (TernRowMetrics —
+            // 30 pt icon, 12 pt to the text, subheadline title over ONE caption2 detail line, the same Dynamic Type
+            // minimum height), plus the list-row inset a 工具 card gets from its List cell, so a collapsed group is
+            // exactly as tall as a 工具 row. The detail line joins the old lines 2 and 3: path · delay · members.
+            HStack(spacing: TernRowMetrics.iconTextSpacing) {
+                GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: TernRowMetrics.iconSize)
+                    .frame(width: TernRowMetrics.iconSize, height: TernRowMetrics.iconSize)
                     .accessibilityIdentifier("policy.icon." + group.name)
-                VStack(alignment: .leading, spacing: PolicyRowMetrics.lineSpacing) {
+                VStack(alignment: .leading, spacing: TernRowMetrics.titleDetailSpacing) {
                     HStack(spacing: 4) {
-                        Text(group.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Text(group.name).font(TernRowMetrics.titleFont.weight(.semibold)).lineLimit(1)
                             .accessibilityIdentifier("policy.card." + group.name)
                         Text(group.label)
                             .scaledFont(9, weight: .semibold) // r7 P3-4: follows Dynamic Type like the other badges
@@ -906,7 +911,7 @@ struct PolicyGroupCard: View {
                             Label("已固定", systemImage: "pin.fill")
                                 .labelStyle(.titleAndIcon)
                                 .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .padding(.horizontal, 6)
                                 .lineLimit(1)
                                 .background(Capsule().fill(Theme.warn.opacity(0.18)))
                                 .foregroundStyle(Theme.warn)
@@ -915,38 +920,41 @@ struct PolicyGroupCard: View {
                             Label("智能", systemImage: "sparkles")
                                 .labelStyle(.titleAndIcon)
                                 .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .padding(.horizontal, 6)
                                 .lineLimit(1)
                                 .background(Capsule().fill(Theme.accent.opacity(0.18)))
                                 .foregroundStyle(Theme.accent)
                         }
                     }
-                    // Line 2 (= a rule row's link line): the path down to the node.
-                    HStack(spacing: 6) {
-                      if let chain {
-                        // feat/policy-chain: 「日本节点 › 🇯🇵 东京 AZ JP01」; a long path gives way in the middle so the
-                        // group's own pick and the final node both stay readable.
-                        ChainLine(hops: PolicyChainText.parts(chain), font: .caption, label: PolicyChainText.text(chain))
-                            .accessibilityIdentifier("policy.chain." + group.name)
-                      } else {
-                        Text(verbatim: FlagSafe.text(group.now ?? "—")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                      }
+                    // One detail line (= a 工具 card's stats / caption line): the path down to the node, the delay of
+                    // the current pick, the member count.
+                    HStack(spacing: 4) {
+                        if let chain {
+                            // feat/policy-chain: 「日本节点 › 🇯🇵 东京 AZ JP01」; a long path gives way in the middle so the
+                            // group's own pick and the final node both stay readable.
+                            ChainLine(hops: PolicyChainText.parts(chain), font: TernRowMetrics.detailFont, label: PolicyChainText.text(chain))
+                                .accessibilityIdentifier("policy.chain." + group.name)
+                                .layoutPriority(1)
+                        } else {
+                            Text(verbatim: FlagSafe.text(group.now ?? "—")).foregroundStyle(.secondary).lineLimit(1)
+                                .layoutPriority(1)
+                        }
                         if chain == nil, let n = group.now, let r = resolved?(n), r.node != n {
-                            Text(verbatim: Self.resolutionText(r)).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(verbatim: Self.resolutionText(r)).foregroundStyle(.tertiary).lineLimit(1)
                                 .accessibilityIdentifier("policy.via." + group.name)
                         }
-                    }
-                    // Line 3 (= a rule row's status line): delay of the current pick · member count.
-                    HStack(spacing: 4) {
                         if let n = group.now, let d = delay(n) {
+                            Text(verbatim: "·").foregroundStyle(.tertiary)
                             Text(Theme.delayText(d))
-                                .font(.caption.monospacedDigit())
+                                .monospacedDigit()
                                 .foregroundStyle(Theme.delayColor(d))
+                                .fixedSize()
                                 .accessibilityIdentifier("policy.delay." + group.name)
-                            Text(verbatim: "·").font(.caption).foregroundStyle(.tertiary)
                         }
-                        Text("\(group.members.count) 个成员").font(.caption).foregroundStyle(.secondary)
+                        Text(verbatim: "·").foregroundStyle(.tertiary)
+                        Text("\(group.members.count) 个成员").foregroundStyle(.secondary).fixedSize()
                     }
+                    .font(TernRowMetrics.detailFont)
                     .lineLimit(1)
                 }
                 Spacer(minLength: 12)
@@ -963,10 +971,13 @@ struct PolicyGroupCard: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, -8) // the 44 pt target reaches into the card padding, the glyph stays aligned
+                // the 44 pt target overhangs the row vertically instead of making it taller than a 工具 row
+                .padding(.vertical, -(PolicyRowMetrics.testTarget - TernRowMetrics.iconSize) / 2)
                 .accessibilityLabel(Text("测速"))
                 .accessibilityIdentifier("policy.test." + group.name)
             }
-            .padding(.vertical, PolicyRowMetrics.verticalPadding)
+            .frame(minHeight: rowMinHeight)
+            .padding(.vertical, TernRowMetrics.verticalPadding + TernRowMetrics.listRowVerticalInset)
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.spring(response: 0.3)) { expanded.toggle() } }
             .accessibilityAction(named: expanded ? Text("收起") : Text("展开")) { withAnimation(.spring(response: 0.3)) { expanded.toggle() } }
@@ -1154,11 +1165,9 @@ struct PolicyCardSegment: View {
 
 /// fix/app-policy-ui #4: the 策略 group row uses the metrics of a 分流规则 订阅 row (SubscriptionRow in an inset
 /// List): 32 pt icon (SourceIcon), 12 pt icon–text spacing, 2 pt between lines, 11 pt vertical list-row padding.
+/// fix/nc-0.20.2: the header row's icon / font / padding / minimum height are TernRowMetrics (shared with 工具's
+/// cards); only the 测速 target is policy-specific.
 enum PolicyRowMetrics {
-    static let iconSize: CGFloat = 32
-    static let iconTextSpacing: CGFloat = 12
-    static let lineSpacing: CGFloat = 2
-    static let verticalPadding: CGFloat = 11
     /// The 测速 button's hit target (Apple HIG minimum).
     static let testTarget: CGFloat = 44
 }
