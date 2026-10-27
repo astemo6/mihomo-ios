@@ -70,7 +70,9 @@ func ncProviderCachePath(home: String, kind: String, _ m: [String: NCJSONValue])
             // fix/nc-0.20.2: an absolute path from an older install's container (delete + reinstall, re-signed build)
             // is rebased under the current home; one already inside home is kept.
             if let r = NCPathContainment.rebaseForeignAbsolute(home: home, p, fallbackDir: kind == "rule" ? "rules" : "proxies") {
-                return (home as NSString).appendingPathComponent(r)
+                // r is "./<dir>/<file>": joined without the "./" so the cache path is canonical
+                let rel = r.hasPrefix("./") ? String(r.dropFirst(2)) : r
+                return (home as NSString).appendingPathComponent(rel)
             }
             return p
         }

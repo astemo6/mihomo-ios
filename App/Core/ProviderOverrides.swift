@@ -107,6 +107,18 @@ final class ProviderOverrideStore: ObservableObject {
         set(profileID, name, o)
     }
 
+    /// fix/nc-0.20.2: a new 自定义 copy (first 策略组 reorder, GroupOrder.save) keeps the source profile's
+    /// 节点集 / 规则集 overrides (停用 / 删除 / 编辑), the rule-set order (`#rule-order`) and the profile-rule edits;
+    /// before, they stayed keyed by the source id, so the copy came up with the rule sets in the profile's own order.
+    /// Entries the copy already has are kept.
+    func copy(from: String, to: String) {
+        guard from != to, let src = all[from], !src.isEmpty else { return }
+        var m = all[to] ?? [:]
+        for (k, v) in src where m[k] == nil { m[k] = v }
+        all[to] = m
+        write()
+    }
+
     /// 恢复已删除的节点集 (ruleSets false) / 恢复已删除的规则集 (true): clears 删除 on those providers of the profile
     /// (other edits stay). Rule-set entries are keyed `rule:<name>`.
     func restoreDeleted(_ profileID: String, ruleSets: Bool = false) {
