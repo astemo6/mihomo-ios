@@ -484,12 +484,6 @@ final class NCOpenConnectSession {
         onStateChange?(state)
     }
 
-    /// The data plane took over the CSTP stream (NCOCDevice owns and closes it from now on); cancel() / reconnect()
-    /// must no longer touch it.
-    func releaseTunnelStream() {
-        cstpStream = nil
-    }
-
     func cancel() {
         guard !isClosed else { return }
         isClosed = true
