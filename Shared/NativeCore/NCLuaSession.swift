@@ -35,6 +35,13 @@ final class NCLuaSession: NCRelayStream {
     private var handshakeSteps = 0
     private var connectCompletion: ((NCRelayStream?, Error?) -> Void)?
     private var handshakeTimeout: DispatchWorkItem?
+    /// Strong self-reference held from `connect` until the connect outcome is
+    /// delivered. Nothing else retains the session during the async
+    /// handshake (the raw stream's receive handler and the timeout capture
+    /// it weakly), so without this the session deallocates as soon as
+    /// `beginHandshake` returns and the dial hangs forever — no stream, no
+    /// error, not even the handshake timeout. Cleared in `finishConnect`.
+    private var selfRetain: NCLuaSession?
 
     private init(raw: NCRelayStream, engine: NCLuaEngine, hostContext: NCLuaHostContext, queue: DispatchQueue) {
         self.raw = raw
@@ -74,6 +81,7 @@ final class NCLuaSession: NCRelayStream {
         }
         engine.attach(context: context, settings: settingsTable(proxy))
         session.connectCompletion = completion
+        session.selfRetain = session
         let timeout = DispatchWorkItem { [weak session] in session?.handshakeTimedOut() }
         session.handshakeTimeout = timeout
         queue.asyncAfter(deadline: .now() + 15, execute: timeout)
@@ -147,9 +155,7 @@ final class NCLuaSession: NCRelayStream {
         case .success(true):
             phase = .open
             handshakeTimeout?.cancel()
-            let completion = connectCompletion
-            connectCompletion = nil
-            completion?(self, nil)
+            finishConnect { completion in completion(self, nil) }
         case .success(false):
             raw.receive { [weak self] data, err in
                 guard let self else { return }
@@ -180,14 +186,22 @@ final class NCLuaSession: NCRelayStream {
         failConnect("lua handshake timeout (15s)")
     }
 
+    /// Delivers the connect outcome exactly once and drops the self-retain:
+    /// on success the caller owns the session-as-stream from here on.
+    private func finishConnect(_ deliver: ((NCRelayStream?, Error?) -> Void) -> Void) {
+        let completion = connectCompletion
+        connectCompletion = nil
+        selfRetain = nil
+        if let completion { deliver(completion) }
+    }
+
     private func failConnect(_ message: String) {
         phase = .failed
         failure = NCConnector.Failure.handshake(message)
         handshakeTimeout?.cancel()
         raw.cancel()
-        let completion = connectCompletion
-        connectCompletion = nil
-        completion?(nil, failure)
+        let error = failure
+        finishConnect { completion in completion(nil, error) }
         if let handler = pendingReceive {
             pendingReceive = nil
             handler(nil, failure)
@@ -293,9 +307,10 @@ final class NCLuaSession: NCRelayStream {
             self.handshakeTimeout?.cancel()
             self.engine.callClose()
             self.raw.cancel()
-            if wasHandshaking, let completion = self.connectCompletion {
-                self.connectCompletion = nil
-                completion(nil, NCConnector.Failure.handshake("lua connect cancelled"))
+            if wasHandshaking {
+                self.finishConnect { completion in
+                    completion(nil, NCConnector.Failure.handshake("lua connect cancelled"))
+                }
             }
             if let handler = self.pendingReceive {
                 self.pendingReceive = nil

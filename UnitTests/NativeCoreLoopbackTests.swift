@@ -520,30 +520,9 @@ final class NativeCoreLoopbackTests: XCTestCase {
         XCTAssertEqual(hoBox.get(), Data("HO".utf8), "lua mock did not answer HE with HO")
         probe.cancel()
 
-        // Bisect step 1: raw NCStream start against the mock.
-        let raw = NCStream(to: Self.host, port: Self.luaPort, queue: DispatchQueue(label: "nc.loopback.lua.raw"))
-        let rawExp = expectation(description: "raw NCStream ready")
-        let rawBox = LockedBox<Error?>(nil)
-        raw.start { err in rawBox.set(err); rawExp.fulfill() }
-        wait(for: [rawExp], timeout: 6)
-        XCTAssertNil(rawBox.get(), "step1: NCStream start failed")
-        // Bisect step 2: NCLuaSession directly over that stream.
-        let sessExp = expectation(description: "lua session connect")
-        let sessBox = LockedBox<(NCRelayStream?, Error?)>((nil, nil))
-        NCLuaSession.connect(raw: raw, proxy: Self.luaProxy, target: Self.echoTarget,
-                             queue: DispatchQueue(label: "nc.loopback.lua.session")) { s, e in
-            sessBox.set((s, e))
-            sessExp.fulfill()
-        }
-        wait(for: [sessExp], timeout: 8)
-        let (sessStream, sessErr) = sessBox.get()
-        XCTAssertNil(sessErr, "step2: session connect error")
-        let stream = try XCTUnwrap(sessStream, "step2: NCLuaSession.connect produced no stream")
+        let stream = try self.connect(proxy: Self.luaProxy, target: Self.echoTarget, timeout: 20)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
-        // Bisect step 3: the full NCConnector path.
-        let viaConnector = try self.connect(proxy: Self.luaProxy, target: Self.echoTarget, timeout: 10)
-        viaConnector.cancel()
     }
 }
 
