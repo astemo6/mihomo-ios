@@ -85,11 +85,14 @@ final class TernE2ETunnelTests: XCTestCase {
         contract(engine)
         E2EMemory.mark("contract-done")
         groupDelay(engine)
+        nodeTLS(engine)
         mem.checkpoint("contract+delay")
         let mapped = trafficFakeIP(engine)
         appStatsRecorded()
         mitm()
+        scriptTrigger()
         tasksAndScripts()
+        selfcheckReplay()
         // fix/nc-e2e-real: judged on the core phases (start, providers, rule sets, controller, delay, fake-ip traffic,
         // MitM, scripts) — what a device runs. The restart / redir-host reload phases that follow are test-only
         // (a second engine generation while the first drains, the XCTest harness's own buffers) and are reported as
@@ -623,6 +626,244 @@ final class TernE2ETunnelTests: XCTestCase {
         r.record("script-log-api", api.contains { ($0["msg"] as? String ?? "").contains(marker) } ? .pass : .fail, "GET /mitm/logs: \(api.count) line(s)")
     }
 
+    // MARK: - fix/nc-tls-scripts: per-node TLS (gap a)
+
+    /// Our own TLS stack's internal-error classes: never the server's or the network's fault.
+    static let internalTLSClasses = ["CertificateVerify", "record decrypt failed", "certificate parse failed",
+                                     "signature invalid", "unexpected ", "key agreement failed", "inner content type",
+                                     "HelloRetryRequest", "all padding", "application data before"]
+
+    /// "… at stage tls (-9808: bad certificate format)" → ("tls", "-9808: bad certificate format").
+    static func stageReason(_ msg: String) -> (stage: String, reason: String) {
+        guard let r = msg.range(of: "at stage ") else { return ("?", msg.isEmpty ? "unknown" : String(msg.prefix(80))) }
+        let rest = msg[r.upperBound...]
+        let stage = rest.prefix { $0 != " " }
+        var reason = String(rest.dropFirst(stage.count)).trimmingCharacters(in: .whitespaces)
+        if reason.hasPrefix("("), reason.hasSuffix(")") { reason = String(reason.dropFirst().dropLast()) }
+        // Collapse per-node numbers so the histogram groups: "after 5000 ms" / status lines keep their class.
+        reason = reason.replacingOccurrences(of: #"\d+ ms"#, with: "N ms", options: .regularExpression)
+        return (String(stage), String(reason.prefix(90)))
+    }
+
+    /// Every provider node through GET /proxies/{name}/delay (8 at a time): success ratio and failure-reason
+    /// histogram per provider. FAIL on an internal TLS error class, and on a certificate-trust error (-98xx) for a node
+    /// whose skip-cert-verify is on (the switch was not honoured). The run 40287757614 group-delay row showed
+    /// 「SZ CN -9808」 as one of five truncated failures and still passed.
+    private func nodeTLS(_ engine: NativeCoreEngine) {
+        guard let cfg = engine.effectiveConfig else { return }
+        let byName = Dictionary(cfg.proxies.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        let provs = providerNodes()
+        if provs.isEmpty { r.record("node-tls", .info, "no provider nodes"); return }
+        let url = testURL(cfg)
+        for (prov, names) in provs.sorted(by: { $0.key < $1.key }) where !names.isEmpty {
+            let list = Array(names.prefix(60))
+            var results = [String?](repeating: nil, count: list.count) // nil = ok
+            let lock = NSLock()
+            let q = DispatchQueue(label: "e2e.nodetls", attributes: .concurrent)
+            let sem = DispatchSemaphore(value: 8)
+            let g = DispatchGroup()
+            for (i, n) in list.enumerated() {
+                sem.wait(); g.enter()
+                q.async {
+                    let one = self.api.call("GET", "/proxies/\(E2EController.enc(n))/delay", query: ["url": url, "timeout": "5000"], timeout: 12)
+                    let okDelay = (one.object?["delay"] as? NSNumber)?.intValue ?? 0
+                    lock.lock(); results[i] = okDelay > 0 ? nil : (one.message.isEmpty ? "HTTP \(one.status)" : one.message); lock.unlock()
+                    sem.signal(); g.leave()
+                }
+            }
+            _ = g.wait(timeout: .now() + 180)
+            var hist: [String: (count: Int, example: String)] = [:]
+            var bad: [String] = []
+            var tlsOK = 0, tlsTried = 0
+            for (i, n) in list.enumerated() {
+                guard let msg = results[i] else { tlsOK += 1; tlsTried += 1; continue }
+                let (stage, reason) = Self.stageReason(msg)
+                let key = "\(stage) · \(reason)"
+                hist[key, default: (0, n)].count += 1
+                let isTLSStage = stage.contains("tls") || stage == "handshake"
+                if isTLSStage { tlsTried += 1 }
+                let p = byName[n]
+                let internal = Self.internalTLSClasses.contains { msg.contains($0) }
+                let trust = msg.range(of: #"-98\d\d"#, options: .regularExpression) != nil
+                if internal || (trust && (p?.skipCertVerify ?? false)) {
+                    let f = p.map { px -> String in
+                        let sni = px.fields["servername"]?.string ?? px.fields["sni"]?.string
+                        let ipSNI = sni.map { NCIP($0) != nil } ?? (px.server.map { NCIP($0) != nil } ?? false)
+                        return "\(px.type)/\(px.fields["network"]?.string ?? "tcp"), skip-cert-verify \(px.skipCertVerify), sni \(sni == nil ? "none" : (ipSNI ? "IP" : "name")), reality \(px.fields["reality-opts"] != nil), fp \(px.fields["client-fingerprint"]?.string ?? "-")"
+                    } ?? "?"
+                    bad.append("\(n): \(key) [\(f)]")
+                }
+            }
+            let histText = hist.sorted { $0.value.count > $1.value.count }.map { "\($0.key) ×\($0.value.count) (e.g. \($0.value.example))" }
+            let detail = "\(list.count - results.compactMap { $0 }.count)/\(list.count) ok; TLS handshake \(tlsOK)/\(max(tlsTried, tlsOK)) of the nodes that reached TLS; reasons: " + (histText.isEmpty ? "none" : histText.prefix(8).joined(separator: " ; "))
+            r.record("node-tls:\(prov)", bad.isEmpty ? .pass : .fail, bad.isEmpty ? detail : detail + " — INTERNAL / skip-cert-verify ignored: " + bad.prefix(8).joined(separator: " ; "))
+        }
+    }
+
+    // MARK: - fix/nc-tls-scripts: a real script rule fires (gap b)
+
+    /// A URL the pattern matches, for simple patterns (literal host, `\.`, `\/`, `.+`/`.*`, `\d+`, groups → first
+    /// alternative). nil when the host part is not literal or the result does not match.
+    static func sampleURL(_ pattern: String) -> (host: String, path: String)? {
+        var p = Substring(pattern)
+        if p.hasPrefix("^") { p = p.dropFirst() }
+        var matchedScheme = false
+        for pre in ["https?:\\/\\/", "https?://", "https:\\/\\/", "https://", "http(s)?:\\/\\/", "http(s)?://"] where p.hasPrefix(pre) {
+            p = p.dropFirst(pre.count); matchedScheme = true; break
+        }
+        guard matchedScheme else { return nil }
+        var host = ""
+        while let c = p.first {
+            if c == "\\" {
+                let n = p.dropFirst().first
+                if n == "." { host.append("."); p = p.dropFirst(2); continue }
+                if n == "/" { break }
+                return nil
+            }
+            if c == "/" || c == ":" { break }
+            if c.isLetter || c.isNumber || c == "-" { host.append(c); p = p.dropFirst(); continue }
+            if c == "." { host.append("."); p = p.dropFirst(); continue }
+            return nil
+        }
+        guard host.contains("."), !host.isEmpty else { return nil }
+        // path: a tiny sampler
+        var out = ""
+        var chars = Array(p)
+        var i = 0
+        func skipGroup(from start: Int) -> (alt: String, end: Int)? {
+            var depth = 0, j = start, cur = "", firstAlt: String? = nil
+            while j < chars.count {
+                let c = chars[j]
+                if c == "\\", j + 1 < chars.count { if firstAlt == nil { cur.append(c); cur.append(chars[j + 1]) }; j += 2; continue }
+                if c == "(" { depth += 1; if depth > 1, firstAlt == nil { cur.append(c) }; j += 1; continue }
+                if c == ")" { depth -= 1; if depth == 0 { return (firstAlt ?? cur, j) }; if firstAlt == nil { cur.append(c) }; j += 1; continue }
+                if c == "|", depth == 1, firstAlt == nil { firstAlt = cur; j += 1; continue }
+                if firstAlt == nil { cur.append(c) }
+                j += 1
+            }
+            return nil
+        }
+        var guardSteps = 0
+        while i < chars.count, guardSteps < 4000 {
+            guardSteps += 1
+            let c = chars[i]
+            switch c {
+            case "\\":
+                guard i + 1 < chars.count else { i += 1; continue }
+                let n = chars[i + 1]
+                switch n {
+                case "d": out.append("1")
+                case "w": out.append("a")
+                case "s": out.append(" ")
+                default: out.append(n)
+                }
+                i += 2
+            case "(":
+                guard let (alt, end) = skipGroup(from: i) else { return nil }
+                var a = alt
+                if a.hasPrefix("?:") { a.removeFirst(2) }
+                chars.replaceSubrange(i...end, with: Array(a))
+            case ".":
+                out.append("a"); i += 1
+            case "[":
+                var j = i + 1; var first: Character = "a"
+                if j < chars.count, chars[j] == "^" { j += 1 } else if j < chars.count, chars[j] != "]" { first = chars[j] == "\\" && j + 1 < chars.count ? chars[j + 1] : chars[j] }
+                while j < chars.count, chars[j] != "]" { j += 1 }
+                out.append(first == "/" ? "a" : first); i = j + 1
+            case "+", "*", "?": i += 1
+            case "{":
+                while i < chars.count, chars[i] != "}" { i += 1 }; i += 1
+            case "$": i = chars.count
+            case "^": i += 1
+            default: out.append(c); i += 1
+            }
+        }
+        var path = out
+        if !path.hasPrefix("/") { path = "/" + path }
+        let url = "https://\(host)\(path)"
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              re.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil else { return nil }
+        return (host, path)
+    }
+
+    /// A script rule of the real config is triggered through the TUN + MitM front to its real host: ≥ 1 [SCRIPT] /
+    /// 脚本日志 line for it (ran, errored or was skipped — any of them proves the request reached the script).
+    private func scriptTrigger() {
+        guard !sample else { return }
+        guard let d = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json")),
+              let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else {
+            r.record("script-trigger", .skip, "no rewrite snapshot"); return
+        }
+        let rules = (o["rules"] as? [[String: Any]] ?? []).filter { ($0["kind"] as? String) == "script" }
+        if rules.isEmpty { r.record("script-trigger", .info, "the config has no script rules"); return }
+        guard E2EReport.internetOK, !dnsNeeded, let ca = NCCAManager.caCertDER(home: home) else {
+            r.record("script-trigger", .skip, "needs internet + public DNS + the MitM CA"); return
+        }
+        var candidates: [(name: String, host: String, path: String)] = []
+        for rule in rules {
+            guard let pat = (rule["re"] as? [String: Any])?["p"] as? String,
+                  let name = (rule["script"] as? [String: Any])?["name"] as? String,
+                  let u = Self.sampleURL(pat), NativeRewriteEngine.shared.intercepts(host: u.host, port: 443),
+                  !candidates.contains(where: { $0.host == u.host }) else { continue }
+            candidates.append((name, u.host, u.path))
+            if candidates.count >= 5 { break }
+        }
+        if candidates.isEmpty {
+            r.record("script-trigger", .info, "\(rules.count) script rule(s), none with a literal MitM host this sampler can build a URL for"); return
+        }
+        var tried: [String] = []
+        for c in candidates {
+            guard let ip = resolveRetry(c.host)?.ips.first else { tried.append("\(c.name): no DNS"); continue }
+            let before = NativeLogRing.shared.since(0).lines.count
+            let res = E2ETLSProbe.get(net: net, ip: ip, sni: c.host, path: c.path, caDER: ca, timeout: 20)
+            _ = E2ENet.waitUntil(4) {
+                NativeLogRing.shared.since(0).lines.dropFirst(before).contains { $0.payload.hasPrefix("[SCRIPT] \(c.name)") }
+            }
+            let diag = NativeLogRing.shared.since(0).lines.dropFirst(before).first { $0.payload.hasPrefix("[SCRIPT] \(c.name)") }?.payload
+            let console = NativeLogRing.shared.scriptLines(since: 0).contains { $0.script == c.name }
+            if let diag {
+                r.record("script-trigger", .pass, "\(c.name) on \(c.host): \(diag); 脚本日志 \(console ? "has" : "has NO") line; HTTP \(res.status.map { String($0) } ?? "-")")
+                r.record("script-trigger-console", console ? .pass : .fail, console ? "the triggered script is in 脚本日志" : "\(c.name) ran but 脚本日志 shows nothing for it")
+                return
+            }
+            tried.append("\(c.name) on \(c.host)\(c.path.prefix(40)): TLS \(res.handshake ? "ok" : "failed (\(res.error ?? "-"))"), HTTP \(res.status.map { String($0) } ?? "-"), [MITM] \(connLine(host: c.host) ?? "no line")")
+        }
+        r.record("script-trigger", .fail, "no [SCRIPT] line after requests that match a script rule: " + tried.joined(separator: " | "))
+    }
+
+    // MARK: - fix/nc-tls-scripts: the App self-check's checks the replay can run (gap c)
+
+    /// SelfCheck runs in the App (VPNManager, UI); these are its tunnel-side checks: integrity of the script / MitM
+    /// counts between the files the App wrote and what the core loaded, unloadable scripts named in 脚本日志 (the
+    /// stale fake-ip probe is `stale-fakeip-host`).
+    private func selfcheckReplay() {
+        let status = api.call("GET", "/mitm/status").object ?? [:]
+        var problems: [String] = []
+        if let d = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json")),
+           let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
+            let fileScripts = (o["rules"] as? [[String: Any]] ?? []).filter { ($0["kind"] as? String) == "script" }.count
+            let coreScripts = (status["scripts"] as? Int) ?? -1
+            if fileScripts != coreScripts { problems.append("script rules: snapshot \(fileScripts) → core \(coreScripts)") }
+            let fileHosts = Set((o["inc"] as? [Any] ?? []).compactMap { e -> String? in
+                (e as? String) ?? ((e as? [String: Any])?["pat"] as? String)
+            }.compactMap { NativeRewriteEngine.cleanHostPat($0) })
+            let coreHosts = (status["hostnames"] as? [String])?.count ?? -1
+            if coreHosts < fileHosts.count { problems.append("MitM hosts: snapshot \(fileHosts.count) distinct → core \(coreHosts)") }
+        }
+        var unloadable: [String] = []
+        if let d = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent("nativecore-scripts.json")),
+           let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
+            for e in (o["scripts"] as? [[String: Any]] ?? []) + (o["tasks"] as? [[String: Any]] ?? []) where e["err"] != nil {
+                unloadable.append(e["name"] as? String ?? "?")
+            }
+        }
+        let console = NativeLogRing.shared.scriptLines(since: 0)
+        let missing = unloadable.filter { n in !console.contains { $0.script == n && $0.msg.hasPrefix("脚本无法加载") } }
+        if !missing.isEmpty { problems.append("unloadable script(s) not named in 脚本日志: " + missing.prefix(5).joined(separator: ", ")) }
+        r.record("selfcheck-integrity", problems.isEmpty ? .pass : .fail,
+                 problems.isEmpty ? "script rules / MitM hosts match between the App's files and the core; \(unloadable.count) unloadable script(s), each named in 脚本日志" : problems.joined(separator: "; "))
+    }
+
     // MARK: - tasks / cron
 
     private func tasksAndScripts() {
@@ -679,6 +920,12 @@ final class TernE2ETunnelTests: XCTestCase {
         r.record("stale-fakeip-reset", c.reset ? .pass : .fail, "SYN to unmapped \(stale):443 → \(c.established ? "handshake, then " : "")\(how); \(line)")
         if !c.reset { c.abort() }
         net.forget(c)
+        // fix/nc-tls-scripts (gap c, the App self-check's probe): an HTTP request WITH a Host header to an unmapped fake
+        // IP must be refused at the SYN — device build506 answered it (HTTP 204) because the Host was sniffed.
+        let res = net.httpGet(ip: "198.18.251.78", port: 80, host: "www.gstatic.com", path: "/generate_204", timeout: 6)
+        let refused = !res.established && res.reset
+        r.record("stale-fakeip-host", refused ? .pass : .fail,
+                 "HTTP with Host to unmapped 198.18.251.78:80 → \(res.established ? "accepted" : "no handshake")\(res.reset ? ", RST" : ""), status \(res.status.map { String($0) } ?? "-")")
     }
 
     // MARK: - redir-host
