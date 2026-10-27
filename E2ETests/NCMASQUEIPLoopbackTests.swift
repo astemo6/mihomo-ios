@@ -127,7 +127,7 @@ final class NCMASQUEIPLoopbackTests: XCTestCase {
             XCTAssertTrue(dev.ready)
             XCTAssertTrue(dev.has4)
             XCTAssertEqual(dev.params?.ipv4, "10.89.0.2", "\(String(describing: dev.params))")
-            XCTAssertEqual(dev.mtu, 1200)
+            XCTAssertEqual(Int(dev.mtu), NCMASQUE.connectIPMaxPacket) // node mtu 1200, capped by the datagram room
         }
         let small = pattern(1000, seed: 1)
         XCTAssertEqual(echo(stream, small), small)

@@ -47,6 +47,10 @@ extension NCMASQUE {
         return (rest.isEmpty ? defaultAuthority : String(rest), "/")
     }
 
+    /// Largest IP packet the netif emits: Network.framework's proven QUIC DATAGRAM payload (NCHy2UDP.maxDatagramSize,
+    /// 1197 B — larger ones can be dropped silently) minus room for the quarter stream id (≤ 3 B here) + context id.
+    static let connectIPMaxPacket = NCHy2UDP.maxDatagramSize - 4
+
     /// One HTTP Datagram for CONNECT-IP: quarter stream id + context id 0 + the IP packet, one allocation.
     static func connectIPDatagram(quarterStreamID: UInt64, packet: UnsafeBufferPointer<UInt8>) -> Data {
         let q = varintEncode(quarterStreamID)

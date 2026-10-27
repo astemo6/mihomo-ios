@@ -5,8 +5,8 @@ import Network
 //
 // CONNECT-IP carries IP packets, so a per-flow NCRelayStream needs a TCP/IP stack inside the tunnel. Like WireGuard
 // and OpenConnect, each CONNECT-IP node is one extra lwIP netif (lwip/nc_wg.c) in the shared lwIP instance, addressed
-// with the proxy's ADDRESS_ASSIGN (or the node's `ip` / `ipv6`), MTU = node `mtu` clamped 576…1280 (a QUIC DATAGRAM
-// must hold the whole packet); NativeCore originates TCP (NCWGTCPStream) and UDP (NCUDPWireGuardSession) from it, and
+// with the proxy's ADDRESS_ASSIGN (or the node's `ip` / `ipv6`), MTU = node `mtu` clamped 576…1193 (a QUIC DATAGRAM
+// must hold the whole packet; NCMASQUE.connectIPMaxPacket); NativeCore originates TCP (NCWGTCPStream) and UDP (NCUDPWireGuardSession) from it, and
 // names resolve through the node's `dns` over the tunnel first.
 //
 //   lwIP netif output ──► HTTP Datagram (quarter stream id + context 0 + packet) ──► QUIC DATAGRAM ──► proxy
@@ -97,7 +97,7 @@ final class NCMQIPDevice: NCLwIPDevice {
     init(key: String, cfg: NCMASQUE.Config) {
         self.key = key
         self.cfg = cfg
-        mtu = UInt16(clamping: max(576, min(cfg.mtu, 1280)))
+        mtu = UInt16(clamping: max(576, min(cfg.mtu, NCMASQUE.connectIPMaxPacket)))
         let t = DispatchSource.makeTimerSource(queue: NCLwIP.queue)
         t.schedule(deadline: .now() + 0.25, repeating: 0.25, leeway: .milliseconds(25))
         t.setEventHandler { [weak self] in self?.tick() }
