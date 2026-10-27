@@ -458,6 +458,13 @@ enum NCConnector {
                 guard let raw else { completion(nil, err); return }
                 httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
+        case "lua":
+            // feat/nc-lua S2: Shadowrocket-style Lua custom backend; NCLuaSession drives the
+            // wa_lua_on_* state machine over the raw stream to the backend server.
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                guard let raw else { completion(nil, err); return }
+                NCLuaSession.connect(raw: raw, proxy: proxy, target: target, queue: queue, completion: completion)
+            }
         case "ss":
             if isECHEnabled(proxy) {
                 queue.async { completion(nil, Failure.unsupported("Shadowsocks 插件不支持 ECH")) }
@@ -839,8 +846,59 @@ enum NCConnector {
                 return
             }
             juicityStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "openconnect", "anyconnect":
+            if let why = NCOpenConnect.unsupportedReason(proxy) {
+                queue.async { completion(nil, Failure.unsupported("openconnect: \(why)")) }
+                return
+            }
+            // fix/nc-proto-openconnect-int: OpenConnect is an L3 VPN — CSTP DATA frames carry IP packets, so a
+            // per-flow TCP stream needs a userspace TCP/IP stack on the CSTP channel (an nc_wg-style lwIP netif,
+            // PacketTunnel only). Until that exists the node is unavailable instead of writing flow bytes as
+            // "IP packets" (review of #159).
+            queue.async { completion(nil, Failure.unsupported(NCOpenConnect.dataPlaneUnavailable)) }
+        case "trusttunnel", "trust-tunnel":
+            // feat/nc-trusttunnel S2: HTTP/2 (Track A) & HTTP/3 (Track B) session dispatcher.
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("trusttunnel over a chain transport")) }
+                return
+            }
+            if let why = NCSupport.trusttunnelUnsupported(proxy) {
+                queue.async { completion(nil, Failure.unsupported(why)) }
+                return
+            }
+            NCTrustTunnelSessionManager.connect(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "masque":
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("masque over a chain transport")) }
+                return
+            }
+            // fix/nc-proto-masque-int: connect() carries TCP flows; a CONNECT-UDP stream would ship them as UDP
+            // datagrams to target:port. UDP flows use NCUDPMASQUESession (NCMASQUERegistry.masqueStream).
+            let why = NCSupport.unsupportedReason(proxy) ?? "MASQUE CONNECT-UDP 只承载 UDP，TCP 流请走其他策略"
+            queue.async { completion(nil, Failure.unsupported(why)) }
+        case "sudoku":
+            if let why = NCSupport.sudokuUnsupported(proxy) {
+                queue.async { completion(nil, Failure.unsupported(why)) }
+                return
+            }
+            // fix/nc-proto-sudoku-int (review of #162): the clean-room data plane does not interoperate with the
+            // official server (key schedule, ECDH rekey, math/rand v1 table, padding-aware decode differ), so the
+            // node is unavailable rather than dialling into a handshake timeout.
+            queue.async { completion(nil, Failure.unsupported(NCSudoku.interopUnavailable)) }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
+        }
+    }
+
+    private static func sudokuStream(proxy: NCProxy, target: NCTarget, transport: NCRelayStream?,
+                                     queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        guard let server = proxy.server, let port = proxy.port else {
+            queue.async { completion(nil, Failure.handshake("sudoku missing server or port")) }
+            return
+        }
+        obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+            guard let raw else { completion(nil, err); return }
+            NCSudokuSession.connect(raw: raw, proxy: proxy, target: target, queue: queue, completion: completion)
         }
     }
 

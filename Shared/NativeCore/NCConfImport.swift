@@ -318,7 +318,9 @@ enum NCConfImport {
         case "snell": type = "snell"
         case "tuic": type = "tuic"
         case "juicity": type = "juicity"
+        case "sudoku": type = "sudoku"
         case "hysteria2", "hy2": type = "hysteria2"
+        case "trusttunnel", "trust-tunnel": type = "trusttunnel"
         case "hysteria":
             type = "hysteria2"
             report.warnings.append("node '\(name)': hysteria v1 approximated as hysteria2")
@@ -326,6 +328,9 @@ enum NCConfImport {
         // feat/nc-gost-relay: Shadowrocket `Name = relay, host, port, user, pass, …` (GOST relay; a [Proxy] node
         // line, unrelated to the `relay` chain group) and the Clash.Meta spelling.
         case "relay", "gost-relay", "gostrelay": type = "gost-relay"
+        case "lua": type = "lua"
+        case "openconnect", "anyconnect": type = "openconnect"
+        case "masque": type = "masque"
         case "direct": type = "direct"
         case "reject", "reject-tinygif": type = "reject"
         default:
@@ -398,6 +403,18 @@ enum NCConfImport {
                 let parts = alpn.replacingOccurrences(of: "|", with: ",").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
                 fields["alpn"] = .array(parts.map { .string($0) })
             }
+        case "sudoku":
+            if let k = take("key") ?? take("password") {
+                fields["key"] = .string(k)
+                fields["password"] = .string(k)
+            }
+            if let a = take("aead-method") ?? take("aead") { fields["aead-method"] = .string(a) }
+            if let t = take("table-type") ?? take("ascii") { fields["table-type"] = .string(t) }
+            if let ct = take("custom-table") ?? take("table") { fields["custom-table"] = .string(ct) }
+            if let pmin = take("padding-min") ?? take("padding_min"), let n = Int(pmin) { fields["padding-min"] = .number(Double(n)) }
+            if let pmax = take("padding-max") ?? take("padding_max"), let n = Int(pmax) { fields["padding-max"] = .number(Double(n)) }
+            if let pd = take("enable-pure-downlink") ?? take("pure-downlink"), let b = boolValue(pd) { fields["enable-pure-downlink"] = .bool(b) }
+            if let m = take("multiplex") { fields["multiplex"] = .string(m) }
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") { fields["sni"] = .string(s) }
@@ -406,6 +423,35 @@ enum NCConfImport {
             if positional.count >= 5, !positional[4].isEmpty, kv["password"] == nil { fields["password"] = .string(positional[4]) }
             if fields["udp"] == nil { fields["udp"] = .bool(true) }
             consumed.formUnion(NCGostRelay.applyParams(kv, into: &fields))
+        case "lua":
+            // Shadowrocket Lua custom protocol backend:
+            // Node = lua, server, port, file=backend.lua, username=user, password=pass
+            if let f = take("file") ?? take("script-path") { fields["file"] = .string(f) }
+            if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            report.warnings.append("node '\(name)': lua proxy backend recognized")
+        case "openconnect":
+            if let u = take("username") { fields["username"] = .string(u) }
+            else if positional.count >= 4 { fields["username"] = .string(positional[3]) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            else if positional.count >= 5 { fields["password"] = .string(positional[4]) }
+            if let g = take("auth-group") ?? take("group") { fields["auth-group"] = .string(g) }
+            if let c = take("cookie") { fields["cookie"] = .string(c) }
+            if let s = take("sni") ?? take("tls-name") ?? take("servername") ?? take("peer") {
+                fields["sni"] = .string(s)
+            }
+            if let d = take("dtls"), let b = boolValue(d) { fields["dtls"] = .bool(b) }
+            if let m = take("mtu"), let n = Int(m) { fields["mtu"] = .number(Double(n)) }
+            if let ua = take("user-agent") { fields["user-agent"] = .string(ua) }
+            if let lh = take("local-hostname") { fields["local-hostname"] = .string(lh) }
+            if let fp = take("fingerprint") ?? take("server-cert-pin") ?? take("cert-sha256") {
+                fields["server-cert-pin"] = .string(fp)
+            }
+            // Unsupported fields (explicitly tracked):
+            if let csd = take("csd-wrapper") ?? take("csd") { fields["csd-wrapper"] = .string(csd) }
+            if let hip = take("hip") ?? take("hip-report") { fields["hip"] = .string(hip) }
+            if let tncc = take("tncc") { fields["tncc"] = .string(tncc) }
+            if let tok = take("token-secret") ?? take("token") { fields["token-secret"] = .string(tok) }
         case "http", "https", "socks5":
             // Surge spells credentials positionally after the port for these
             // types; the k=v form is accepted too.
@@ -413,6 +459,34 @@ enum NCConfImport {
             else if positional.count >= 4 { fields["username"] = .string(positional[3]) }
             if let p = take("password") { fields["password"] = .string(p) }
             else if positional.count >= 5 { fields["password"] = .string(positional[4]) }
+        case "trusttunnel":
+            if let u = take("username") { fields["username"] = .string(u) }
+            else if positional.count >= 4 { fields["username"] = .string(positional[3]) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            else if positional.count >= 5 { fields["password"] = .string(positional[4]) }
+            if let q = take("quic") ?? take("h3"), let b = boolValue(q) {
+                fields["quic"] = .bool(b)
+                fields["network"] = .string(b ? "h3" : "h2")
+            }
+            if let s = take("sni") ?? take("custom-sni") {
+                fields["sni"] = .string(s)
+                fields["servername"] = .string(s)
+            }
+            if let a = take("alpn") { fields["alpn"] = .string(a) }
+            if let ms = take("max-streams"), let n = Int(ms) { fields["max-streams"] = .number(Double(n)) }
+            if let h = take("headers") { fields["headers"] = .string(h) }
+        case "masque":
+            if let u = take("username") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            if let priv = take("private-key") ?? take("privatekey") { fields["private-key"] = .string(priv) }
+            if let pub = take("public-key") ?? take("publickey") { fields["public-key"] = .string(pub) }
+            if let ip = take("ip") { fields["ip"] = .string(ip) }
+            if let ipv6 = take("ipv6") { fields["ipv6"] = .string(ipv6) }
+            if let sni = take("sni") { fields["sni"] = .string(sni) }
+            if let alpn = take("alpn") { fields["alpn"] = .string(alpn) }
+            if let uri = take("uri") ?? take("template") { fields["uri"] = .string(uri) }
+            if let ph = take("port-hopping") { fields["port-hopping"] = .string(ph) }
+            if let phi = take("port-hopping-interval") { fields["port-hopping-interval"] = .string(phi) }
         default:
             break
         }
@@ -625,6 +699,8 @@ enum NCConfImport {
                 }
             }
         }
+        // applyScript etc. write cfg.report directly (lua script warnings): keep them, do not overwrite.
+        report.warnings = cfg.report.warnings + report.warnings
         cfg.report = report
         return cfg
     }
@@ -690,6 +766,8 @@ enum NCConfImport {
                 }
             }
         }
+        // applyScript etc. write cfg.report directly (lua script warnings): keep them, do not overwrite.
+        report.warnings = cfg.report.warnings + report.warnings
         cfg.report = report
         return cfg
     }
@@ -855,6 +933,7 @@ enum NCConfImport {
                 var name = "script"
                 var path = ""
                 var reqBody = false
+                var extra: [String: String] = [:]
                 for t in tokens.dropFirst() {
                     if let eq = t.firstIndex(of: "=") {
                         let k = String(t[..<eq]).trimmingCharacters(in: .whitespaces).lowercased()
@@ -862,9 +941,15 @@ enum NCConfImport {
                         if k == "tag" || k == "name" { name = v }
                         else if k == "script-path" { path = v }
                         else if k == "requires-body" { reqBody = (boolValue(v) ?? false) }
+                        else { extra[k] = v }
                     }
                 }
-                cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody))
+                if path.lowercased().hasSuffix(".lua") || type.lowercased() == "lua" || extra["engine"]?.lowercased() == "lua" {
+                    extra["engine"] = "lua"
+                    extra["status"] = "unsupported"
+                    cfg.report.warnings.append("script '\(name)': lua script recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
+                }
+                cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody, extra: extra))
             } else if let eq = trimmed.firstIndex(of: "=") {
                 let name = String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces)
                 let params = String(trimmed[trimmed.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
@@ -873,6 +958,7 @@ enum NCConfImport {
                 var pattern = ""
                 var path = ""
                 var reqBody = false
+                var extra: [String: String] = [:]
                 for t in tokens {
                     if let peq = t.firstIndex(of: "=") {
                         let k = String(t[..<peq]).trimmingCharacters(in: .whitespaces).lowercased()
@@ -881,10 +967,16 @@ enum NCConfImport {
                         else if k == "pattern" { pattern = v }
                         else if k == "script-path" { path = v }
                         else if k == "requires-body" { reqBody = (boolValue(v) ?? (v == "1")) }
+                        else { extra[k] = v }
                     }
                 }
+                if path.lowercased().hasSuffix(".lua") || type.lowercased() == "lua" || extra["engine"]?.lowercased() == "lua" {
+                    extra["engine"] = "lua"
+                    extra["status"] = "unsupported"
+                    cfg.report.warnings.append("script '\(name)': lua script recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
+                }
                 if !pattern.isEmpty {
-                    cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody))
+                    cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody, extra: extra))
                 }
             }
         }

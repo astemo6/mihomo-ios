@@ -290,6 +290,12 @@
           "password": "nc-loop-trojan-pw"
         }
       ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18018,
+      "tag": "http-connect-in",
+      "type": "http"
     }
   ],
   "log": {
