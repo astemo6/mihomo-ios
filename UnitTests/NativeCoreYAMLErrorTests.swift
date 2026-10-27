@@ -104,7 +104,7 @@ final class NativeCoreProfileCommaGroupTests: XCTestCase {
     /// Renaming a comma-named member writes it back quoted, leaves the
     /// other members' raw text (including their quote style) untouched,
     /// and the result re-parses to exactly the renamed member list.
-    /// formatYAMLString mirrors yaml.v3: "X,Y" is printable and resolves
+    /// formatYAMLString mirrors the reference YAML library: "X,Y" is printable and resolves
     /// to !!str, plain is not allowed in flow (comma), so it is emitted
     /// single-quoted ('X,Y'), not double-quoted.
     func testRenameCommaMemberRoundTrips() {

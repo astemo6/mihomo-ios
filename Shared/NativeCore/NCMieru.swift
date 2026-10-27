@@ -5,9 +5,9 @@ import Network
 
 // Mieru (feat/nc-proto3, based on astemo6/Muse NativeCore): pure-Swift client for the mieru v3 stream (TCP)
 // and packet (UDP) underlays, ported from github.com/enfein/mieru/v3 v3.38.1 pkg/cipher + pkg/protocol
-// (session.go, underlay_stream.go, underlay_packet.go, metadata.go, padding.go) and apis/client (socks5
+// and apis/client (socks5
 // request inside the session, UDP via PacketOverStreamTunnel + UDPAssociateWrapper), as Clash.Meta v1.19.33
-// adapter/outbound/mieru.go drives it. traffic-pattern (apis/trafficpattern) is decoded and applied.
+// adapter/outbound/mieru drives it. traffic-pattern (apis/trafficpattern) is decoded and applied.
 //
 // Wire (one TCP connection = one underlay; this client opens one session per underlay, i.e. multiplexing off —
 // the server accepts any number of sessions per underlay, so this interoperates with every multiplexing level):
@@ -51,7 +51,7 @@ enum NCMieruCrypto {
 
 /// mieru `traffic-pattern` (clientcfg.pb TrafficPattern, protobuf → base64 in the mieru / Clash.Meta
 /// config): nonce rewriting, padding caps and TCP fragmentation, with the implicit pattern
-/// mieru generates for unset sub-messages (apis/trafficpattern/config.go). Only the explicitly
+/// mieru generates for unset sub-messages. Only the explicitly
 /// configured low-entropy codec is out of scope (protocols 10/11 — see NCSupport).
 /// The pattern only shapes OUR OWN traffic; the server never sees it, so the implicit values
 /// follow mieru's generation ranges without being bit-identical to its hash-based rng.
@@ -179,7 +179,7 @@ struct NCMieruTrafficPattern {
         return out
     }
 
-    /// NoncePattern rewrite (pkg/cipher nonce.go): printable / printable-subset map the first
+    /// NoncePattern rewrite (pkg/cipher nonce): printable / printable-subset map the first
     /// minLen...maxLen bytes; fixed copies a random custom hex string over the prefix.
     /// The printable-subset alphabet is mieru's ToCommon64Set (base64 alphabet).
     private static let common64 = [UInt8]("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8)
@@ -292,7 +292,7 @@ final class NCMieruCipher {
         if nonce == nil {
             var n = [UInt8]((0..<Self.nonceSize).map { _ in UInt8.random(in: 0...255) })
             // Traffic pattern rewrites the nonce first; the user hint is applied
-            // afterwards and wins the last 4 bytes (cipher.go Encrypt order).
+            // afterwards and wins the last 4 bytes (cipher Encrypt order).
             if let noncePattern { NCMieruTrafficPattern.rewriteNonce(&n, pattern: noncePattern) }
             if !userName.isEmpty {
                 var input = Data(userName.utf8)
@@ -324,7 +324,7 @@ final class NCMieruCipher {
 }
 
 /// mieru's stateless cipher for the packet underlay: every block carries a fresh explicit nonce,
-/// and a segment's payload block reuses its metadata block's nonce (underlay_packet.go writeOneSegment).
+/// and a segment's payload block reuses its metadata block's nonce (underlay_packet writeOneSegment).
 final class NCMieruStatelessCipher {
     private let key: Data
     private let userName: String
@@ -375,7 +375,7 @@ final class NCMieruStatelessCipher {
     }
 }
 
-/// Padding helpers shared by both underlays (padding.go): rng.Intn with mieru's
+/// Padding helpers shared by both underlays: rng.Intn with mieru's
 /// scale-down distribution, and ASCII padding with a printable run.
 private func ncmieruPaddingLen(max maxLen: Int, min minLen: Int = 0) -> Int {
     guard maxLen > minLen else { return minLen }
@@ -433,7 +433,7 @@ final class NCMieruStream: NCRelayStream {
     private var inbuf = [UInt8]()
     private var inOff = 0
     private var pendingMeta: (proto: UInt8, sid: UInt32, prefix: Int, payload: Int, suffix: Int)?
-    private var out: [Data] = []
+    private var out: NCDeque<Data> = [] // F13
     private var failure: Error?
     private var eof = false
     private var closed = false
@@ -566,7 +566,7 @@ final class NCMieruStream: NCRelayStream {
     }
 
     /// All stream-underlay writes go through here so a traffic-pattern TCP
-    /// fragmentation (underlay_stream.go writeWithPossibleFragment) applies:
+    /// fragmentation (underlay_stream writeWithPossibleFragment) applies:
     /// each segment is split into chunks of random length in
     /// [sqrt(remaining)+1, max(that, remaining/2)] with a random sleep of
     /// 0...maxSleepMs between chunks.
@@ -818,7 +818,7 @@ final class NCMieruUDPConn {
 }
 
 /// A mieru session over the packet (UDP) underlay. Unlike the stream underlay, reliability
-/// lives here (pkg/protocol/session.go): session + data segments share one sequence space,
+/// lives here: session + data segments share one sequence space,
 /// unacknowledged segments retransmit with an RTO × 1.5^tx backoff, the peer's advertised
 /// window bounds in-flight segments, ACKs (protocol 8) piggyback unAckSeq on every segment,
 /// and an idle session heartbeats with ACKs — the server drops packet sessions after ~1 min
@@ -846,12 +846,12 @@ final class NCMieruPacketStream: NCRelayStream {
     private var nextRecv: UInt32 = 0
     private var remoteWindow = 16
     private var sendBuf: [UInt32: Pending] = [:]
-    private var sendQueue: [(proto: UInt8, payload: Data, once: NCCallOnce?)] = []
+    private var sendQueue: NCDeque<(proto: UInt8, payload: Data, once: NCCallOnce?)> = [] // F13
     private var recvBuf: [UInt32: (proto: UInt8, payload: Data)] = [:]
     private var lastTxAt = Date()
 
-    private var out: [Data] = []
-    private var waiters: [(Data?, Error?) -> Void] = []
+    private var out: NCDeque<Data> = [] // F13
+    private var waiters: NCDeque<(Data?, Error?) -> Void> = [] // F13
     private var failure: Error?
     private var eof = false
     private var closed = false

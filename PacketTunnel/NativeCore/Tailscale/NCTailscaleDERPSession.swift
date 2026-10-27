@@ -372,7 +372,7 @@ final class NCDERPSession {
         state = .waitingServerInfo
 
         // ClientInfo JSON: official protocol version 2
-        // Reference: `derp_client.go`: ClientInfo{Version: 2, CanAckPings: true}
+        // Reference: `derp_client`: ClientInfo{Version: 2, CanAckPings: true}
         let jsonStr = "{\"Version\":2,\"CanAckPings\":true}"
         let jsonBytes = Data(jsonStr.utf8)
 

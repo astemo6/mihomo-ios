@@ -3,11 +3,11 @@ import Foundation
 /// Tern Rule Set (.mrs) binary format decoder.
 ///
 /// Specification reference:
-/// - upstream Clash.Meta rules/provider/mrs_reader.go (MrsMagicBytes, rulesMrsParse)
-/// - upstream Clash.Meta rules/provider/mrs_converter.go (ConvertToMrs)
-/// - upstream Clash.Meta constant/provider/interface.go (RuleBehavior, RuleFormat)
-/// - upstream Clash.Meta component/trie/domain_set_bin.go & domain_set.go (DomainSet binary)
-/// - upstream Clash.Meta component/cidr/ipcidr_set_bin.go & ipcidr_set.go (IpCidrSet binary)
+/// - upstream Clash.Meta rules/provider/mrs_reader (MrsMagicBytes, rulesMrsParse)
+/// - upstream Clash.Meta rules/provider/mrs_converter (ConvertToMrs)
+/// - upstream Clash.Meta constant/provider/interface (RuleBehavior, RuleFormat)
+/// - upstream Clash.Meta component/trie/domain_set_bin & domain_set (DomainSet binary)
+/// - upstream Clash.Meta component/cidr/ipcidr_set_bin & ipcidr_set (IpCidrSet binary)
 ///
 /// Wire / File Structure:
 /// 1. Outer compression: Zstandard (RFC 8878, magic 0xFD2FB528 / [0x28, 0xB5, 0x2F, 0xFD]).
@@ -192,7 +192,7 @@ enum NCMRSDecodedPayload {
 // MARK: - Domain Set (Behavior: domain)
 
 /// Succinct trie representation of domain patterns decoded from MRS domain behavior.
-/// Matches Clash.Meta's `component/trie/domain_set.go` and `domain_set_bin.go`.
+/// Matches Clash.Meta's `component/trie/domain_set` and `domain_set_bin`.
 struct NCMRSDomainSet: Equatable {
     let leaves: [UInt64]
     let labelBitmap: [UInt64]
@@ -409,7 +409,7 @@ struct NCV6Range: Equatable {
 }
 
 /// Range-set representation of IP-CIDR rules decoded from MRS ipcidr behavior.
-/// Matches Clash.Meta's `component/cidr/ipcidr_set.go` and `ipcidr_set_bin.go`.
+/// Matches Clash.Meta's `component/cidr/ipcidr_set` and `ipcidr_set_bin`.
 struct NCMRSIPCIDRSet: Equatable {
     let v4Ranges: [NCV4Range]
     let v6Ranges: [NCV6Range]

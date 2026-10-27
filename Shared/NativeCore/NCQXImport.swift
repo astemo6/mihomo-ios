@@ -58,7 +58,13 @@ enum NCQXImport {
                 } else if action.hasPrefix("script-") || action.hasPrefix("request-") || action.hasPrefix("response-") {
                     let type = action.contains("response") ? "http-response" : "http-request"
                     let path = parts.count >= 4 ? parts[3] : ""
-                    cfg.scripts.append(NCScriptRule(name: "qx_script", type: type, pattern: pattern, scriptPath: path))
+                    var extra: [String: String] = [:]
+                    if path.lowercased().hasSuffix(".lua") {
+                        extra["engine"] = "lua"
+                        extra["status"] = "unsupported"
+                        report.warnings.append("quantumultx rewrite: lua script '\(path)' recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
+                    }
+                    cfg.scripts.append(NCScriptRule(name: "qx_script", type: type, pattern: pattern, scriptPath: path, extra: extra))
                 }
             }
         }
@@ -182,6 +188,10 @@ enum NCQXImport {
             report.warnings.append("quantumultx [server_local]: custom= node skipped (legacy script-defined protocol): \(line)")
             return nil
         }
+        if rawTypeLower == "trusttunnel" || rawTypeLower == "trust-tunnel" {
+            report.warnings.append("quantumultx [server_local]: trusttunnel has no Quantumult X format specification; explicitly unavailable: \(line)")
+            return nil
+        }
         // Address: host:port, or [v6]:port.
         var host = address
         var port: Int? = nil
@@ -271,6 +281,21 @@ enum NCQXImport {
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "lua":
+            type = "lua"
+            if let f = take("file") ?? take("script-path") { fields["file"] = .string(f) }
+            if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            report.warnings.append("quantumultx [server_local]: lua proxy backend '\(name)' recognized")
+        case "openconnect", "anyconnect":
+            type = "openconnect"
+            report.warnings.append("quantumultx [server_local]: OpenConnect 无公开 Quantumult X 格式，标记不可用")
+            fields["unsupported"] = .string("Quantumult X 无公开 OpenConnect 格式")
+            if let u = take("username") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+        case "masque":
+            report.warnings.append("quantumultx [server_local]: masque 协议在 Quantumult X 中无公开规范，已标记为不可用")
+            fields["unsupported"] = .string("Quantumult X 不支持 MASQUE 协议")
         case "sudoku":
             type = "sudoku"
             NCSudoku.importParams(into: &fields, take: take) // canonical (Clash) field names

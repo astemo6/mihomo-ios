@@ -2,7 +2,7 @@
 // engine forwards itself (switch `nativeMitmBody`, default OFF; it only acts when `nativeMitmRewrite` is on too).
 //
 // What the old core does for a body rule is replayed
-// on the rules the old core exported as portable (bodysnap.go): the request body is read whole (≤ 256 KB, known length),
+// on the rules the old core exported as portable: the request body is read whole (≤ 256 KB, known length),
 // the response body is read whole (≤ 256 KB announced length), decoded (NativeBodyDecode), every matching rule
 // applied in rule order with header rules in between, and the result sent with Content-Length — the same bytes,
 // status and headers the old flow API would produce (UnitTests/NativeMitmBodyTests.swift replays old-core-generated
@@ -46,7 +46,7 @@ enum NativeBodyRuntime {
     }
 }
 
-// MARK: - Snapshot additions (bodysnap.go)
+// MARK: - Snapshot additions
 
 struct RWSnapReplPart: Decodable {
     var l: String?
@@ -79,7 +79,7 @@ struct RWSnapJQStep: Decodable {
     var cond: RWSnapJQCond?
 }
 
-/// A select() condition (bodysnap.go SnapJQCond).
+/// A select() condition (bodysnap SnapJQCond).
 final class RWSnapJQCond: Decodable {
     var k: String
     var a: RWSnapJQCond?
@@ -295,7 +295,7 @@ final class NativeBodyRule {
     }
 }
 
-// MARK: - Request body (handler.go requestPhase, body rules on a request Swift forwards)
+// MARK: - Request body (handler requestPhase, body rules on a request Swift forwards)
 
 struct NativeRequestBodyPlan {
     var rules: [NativeBodyRule]

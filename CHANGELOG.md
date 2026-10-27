@@ -6,6 +6,7 @@
 
 - **内核换成 NativeCore**：隧道和 App 不再包含旧内核，协议、规则、DNS、MitM 重写与脚本全部由纯 Swift（加 lwIP 与 WireGuard 的少量 C、脚本运行时 TernPrelude.js）实现，继续兼容 Clash.Meta 配置与 Surge / Loon / Quantumult X / Egern 的重写和脚本。
 - 不支持的节点（Tailscale、Hysteria v1 faketcp）在节点列表和诊断里显示为不可用并说明原因，不会回退到旧内核。Tailscale 原生支持后续版本加入。
+- **旧版备份不能导入**：Tern 是新 App（新的 bundle ID / App Group），备份与恢复、WebDAV、同步文件夹、完整导出只认 Tern 自己的文件；请在 Tern 里重新配置，或重新导入订阅 / 配置链接。
 - 这是给真机试跑的预发布版本，正式版仍为 v0.19.26。
 - build 373：修复启动即闪退——含 Quantumult X `url request-header … request-header …` 一类重写的模块，解析时用小写副本的位置去截原字符串，越界崩溃（build 372 真机崩溃日志定位）。
 

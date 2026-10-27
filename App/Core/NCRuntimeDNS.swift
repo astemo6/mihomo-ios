@@ -2,13 +2,13 @@ import Foundation
 
 /// E-B1 stage 3g: the DNS / inbound / startup / netextras steps —
 /// ports of the retired bridge (applyDNSOverride,
-/// defaultProxyServerNameserver), localdns.go (applyLocalDNS,
-/// applyInbound, lanCredentials), inbounds.go
-/// (sanitizeProfileInbounds), startup.go (geoxFor,
-/// rewriteProviderURLs), confimport.go (rewriteConvertProviders),
-/// memshed.go (capDNSCache), memtune.go (overrideHealthCheckURL,
-/// applyQUICBlock), ipv6.go (applyIPPreference), netextras.go
-/// (applyUDPFallback) and probe.go (applyProbe).
+/// defaultProxyServerNameserver), localdns (applyLocalDNS,
+/// applyInbound, lanCredentials), inbounds
+/// (sanitizeProfileInbounds), startup (geoxFor,
+/// rewriteProviderURLs), confimport (rewriteConvertProviders),
+/// memshed (capDNSCache), memtune (overrideHealthCheckURL,
+/// applyQUICBlock), ipv6 (applyIPPreference), netextras
+/// (applyUDPFallback) and probe (applyProbe).
 ///
 /// nameserver-policy order: the old core threads an ordered YAML node
 /// through runtime.yaml, but the artifact the tunnel consumes
@@ -34,7 +34,7 @@ extension NCRuntimeSteps {
         return ip.bytes == [UInt8](repeating: 0, count: 15) + [1]
     }
 
-    // MARK: - dns.go
+    // MARK: - dns
 
     static func cleanList(_ inList: [String]) -> [NCJSONValue] {
         inList.map { $0.trimmingCharacters(in: .whitespaces) }
@@ -209,14 +209,14 @@ extension NCRuntimeSteps {
         dns["proxy-server-nameserver"] = .array(ps)
     }
 
-    /// bridge capDNSCache (memshed.go; iosDNSCacheMax = 1024).
+    /// bridge capDNSCache (memshed; iosDNSCacheMax = 1024).
     static func capDNSCache(_ dns: inout [String: NCJSONValue]) {
         let n = dns.intOf("cache-max-size")
         if n > 0 && n <= 1024 { return }
         dns["cache-max-size"] = .number(1024)
     }
 
-    // MARK: - localdns.go
+    // MARK: - localdns
 
     static func validHostName(_ s0: String) -> Bool {
         var s = s0
@@ -332,7 +332,7 @@ extension NCRuntimeSteps {
         raw["skip-auth-prefixes"] = .array(loopbackPrefixes.map { NCJSONValue.string($0) })
     }
 
-    // MARK: - inbounds.go
+    // MARK: - inbounds
 
     static let lanListenerTypesAuth: Set<String> = ["socks", "http", "mixed"]
     static let lanListenerTypesOwnAuth: Set<String> = [
@@ -475,7 +475,7 @@ extension NCRuntimeSteps {
         }
     }
 
-    // MARK: - startup.go geox + provider URL rewrites
+    // MARK: - startup geox + provider URL rewrites
 
     static let geoMirrorBase = "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/"
     static let geoKinds: [(kind: String, remote: String)] = [
@@ -590,7 +590,7 @@ extension NCRuntimeSteps {
         }
     }
 
-    /// bridge providerConvert (confimport.go).
+    /// bridge providerConvert.
     static func providerConvert(_ m: [String: NCJSONValue]) -> (kind: String, src: String) {
         let u = m.str("url")
         if u.hasPrefix("convert+") {

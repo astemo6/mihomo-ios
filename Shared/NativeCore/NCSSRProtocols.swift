@@ -36,7 +36,7 @@ enum NCSSRKit {
     static func rand(_ n: Int) -> Int { n > 0 ? Int.random(in: 0..<n) : 0 }
     static func randBytes(_ n: Int) -> Data { n > 0 ? NCConnector.randomData(n) : Data() }
 
-    /// getHeadSize(b, 30) + rand(32), capped at the data length (protocol.go getDataLength).
+    /// getHeadSize(b, 30) + rand(32), capped at the data length (protocol getDataLength).
     static func dataLength(_ b: Data) -> Int {
         var head = 30
         if b.count >= 2 {
@@ -462,7 +462,7 @@ final class NCSSRHTTPObfs: NCSSRObfsCodec {
     private let host: String, port: Int, ivSize: Int, param: String
     private var sentHeader = false, recvHeader = false
     private var inbuf = Data()
-    /// Clash.Meta v1.19.33 transport/ssr/obfs/http_simple.go userAgent, verbatim (250 entries).
+    /// Clash.Meta v1.19.33 transport/ssr/obfs/http_simple userAgent, verbatim (250 entries).
     private static let userAgents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.162 Safari/537.36",
         "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",

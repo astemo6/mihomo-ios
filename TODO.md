@@ -7,7 +7,7 @@
 | # | 事项 | 说明 |
 |---|---|---|
 | 1 | 改名后的签名 | Bundle ID 改为 `com.astemo6.tern`（`.tunnel` / `.widget`），App Group `group.com.astemo6.tern`。仓库里没有签名 secrets 时 CI 照常出未签名 IPA；若配置签名 secrets，证书的描述文件必须覆盖新 ID 和新 App Group（见 `CI.md`）。 |
-| 2 | 旧版用户迁移说明 | 新 App 不继承旧版数据：发版说明里写清「旧版导出备份 → Tern 里 更多 → 备份与恢复 导入」。 |
+| 2 | 旧版用户迁移说明 | 新 App 不继承旧版数据，也不能导入旧版备份：发版说明里写清「旧版备份无法导入，请在 Tern 里重新配置，或重新导入订阅 / 配置链接」。 |
 | 3 | 真机回归 | 按 `docs/nativecore-device-checklist.md` 跑一遍（内存、热应用、HTTPS 解密、脚本、小组件 / 控制中心开关需要重新添加）。 |
 
 ## 代码整理

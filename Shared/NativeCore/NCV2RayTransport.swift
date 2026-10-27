@@ -2,10 +2,10 @@ import Foundation
 
 // fix/nc-silent-fail: the stream-transport options NCConnector.transportStream used to read only partly, so the
 // node looked usable and connected wrongly. Ported from Clash.Meta v1.19.33:
-// - transport/vmess/websocket.go   ws-opts: path `?ed=`, max-early-data / early-data-header-name (0-RTT
+// - transport/vmess/websocket   ws-opts: path `?ed=`, max-early-data / early-data-header-name (0-RTT
 //                                  WebSocket), v2ray-http-upgrade (+ fast-open): HTTP Upgrade, no ws framing
-// - transport/vmess/http.go        http-opts: HTTP/1.1 request disguise (method, random path, random headers)
-// Snell obfs-opts (simple-obfs http / tls) reuses NCSSPluginStream (adapter/outbound/snell.go streamConnContext).
+// - transport/vmess/http        http-opts: HTTP/1.1 request disguise (method, random path, random headers)
+// Snell obfs-opts (simple-obfs http / tls) reuses NCSSPluginStream (adapter/outbound/snell streamConnContext).
 // Pure Swift, no extra buffering beyond one queued receive and the sends issued while a deferred ws dial runs.
 
 // MARK: - ws-opts

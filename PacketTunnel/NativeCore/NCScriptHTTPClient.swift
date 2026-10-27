@@ -96,7 +96,7 @@ enum NCScriptHTTPClient {
                 req.headers.removeAll { isHeader($0.0, "Content-Type") || isHeader($0.0, "Content-Length") }
             }
             if !sameOrigin {
-                // like the old core's net/http: credentials are not sent to another host
+                // like the old core's HTTP client: credentials are not sent to another host
                 req.headers.removeAll { isHeader($0.0, "Authorization") || isHeader($0.0, "Cookie") }
             }
             req.url = next

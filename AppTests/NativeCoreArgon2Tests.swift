@@ -1,7 +1,7 @@
 import XCTest
 @testable import Tern
 
-/// BLAKE2b and Argon2id vectors generated with golang.org/x/crypto
+/// BLAKE2b and Argon2id vectors generated offline with an independent reference implementation
 /// (the exact library Clash.Meta's Snell KDF uses).
 final class NativeCoreArgon2Tests: XCTestCase {
     private func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }

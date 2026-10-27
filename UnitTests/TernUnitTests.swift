@@ -629,7 +629,7 @@ final class Review6AppTests: XCTestCase {
 // Device report 2026-10-21 (「为什么有好多dns被拦截了」): QUIC refusals must not count as blocks in DNS 日志.
 final class RejectClassifierTests: XCTestCase {
     func testQUICRuleForms() {
-        // As Clash.Meta v1.19.33 logs them (rules/logic/logic.go Payload()).
+        // As Clash.Meta v1.19.33 logs them (rules/logic/logic Payload()).
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443)))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER)))))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443/8443) && (RuleSet,__mitm_hosts) && (NOT,(!(RuleSet,__quic_allow)))))"))

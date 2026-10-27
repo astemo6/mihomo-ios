@@ -147,18 +147,6 @@ final class TernFullExportTests: XCTestCase {
     struct ItemView: Equatable { var line: String; var enabled: Bool; var note: String? }
     func view(_ l: [EngineItem]) -> [ItemView] { l.map { ItemView(line: $0.line, enabled: $0.enabled, note: $0.note) } }
 
-    /// Rename (2026-10-27): a 完整导出 of the pre-rename app names its data files under the old storage dir; they
-    /// are imported into tern/.
-    func testLegacyStorageDirDataFilesImport() throws {
-        let src = try makeSource()
-        let text = try export(src)
-        XCTAssertTrue(text.contains("\ntern/dns.json = "))
-        let old = text.replacingOccurrences(of: "\ntern/", with: "\n" + LegacyImport.storageDir + "/")
-        let p = try TernFullExport.parse(old)
-        XCTAssertNotNil(p.dataFiles["tern/dns.json"])
-        XCTAssertNil(p.dataFiles[LegacyImport.storageDir + "/dns.json"])
-    }
-
     func testRoundTripRestoresEverything() throws {
         let src = try makeSource()
         let text = try export(src)

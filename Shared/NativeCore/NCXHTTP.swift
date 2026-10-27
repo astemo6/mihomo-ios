@@ -2,8 +2,8 @@ import Foundation
 
 // XHTTP (Xray "splithttp") transport — configuration and request construction (feat/nc-xhttp).
 //
-// Ported from Clash.Meta v1.19.33 transport/xhttp (config.go, xpadding.go, browser.go) and the VLESS adapter's
-// xhttp-opts handling (adapter/outbound/vless.go). The wire side (one HTTP/2 connection per dial, the three
+// Ported from Clash.Meta v1.19.33 transport/xhttp and the VLESS adapter's
+// xhttp-opts handling. The wire side (one HTTP/2 connection per dial, the three
 // modes) lives in NCXHTTPStream.swift. Everything here is pure: tests build requests without a socket.
 
 /// Clash.Meta xhttp.Range: "100-1000" or "30" (ParseRange / parseRange).
@@ -178,7 +178,7 @@ struct NCXHTTPConfig {
         self.mode = mode.isEmpty ? "auto" : mode
     }
 
-    // MARK: parse (adapter/outbound/vless.go xhttp-opts + xhttp.NewClient validation)
+    // MARK: parse (adapter/outbound/vless xhttp-opts + xhttp.NewClient validation)
 
     /// Builds the config from a proxy's fields. Throws the error Clash.Meta's NewVless / NewClient would
     /// return for the same options (invalid range, unknown mode, session-table too small, …).
@@ -371,7 +371,7 @@ struct NCXHTTPConfig {
         }
     }
 
-    // MARK: request construction (config.go Fill*Request)
+    // MARK: request construction (config Fill*Request)
 
     /// GetRequestHeader: xhttp-opts.headers, then the browser masquerade for a fetch() request.
     func baseHeaders() -> NCXHTTPHeaders {
@@ -478,7 +478,7 @@ struct NCXHTTPConfig {
         if !seq.isEmpty { put(seq, placement: seqPlacement, key: seqKey) }
     }
 
-    // MARK: escaping (the old core net/url)
+    // MARK: escaping (the old core's URL rules)
 
     /// url.URL.EscapedPath (encodePath): unreserved + "$&+,/:;=@" stay, everything else %XX.
     static func escapePath(_ s: String) -> String {
@@ -505,7 +505,7 @@ struct NCXHTTPConfig {
     }
 }
 
-// MARK: - padding (xpadding.go)
+// MARK: - padding
 
 enum NCXHTTPPadding {
     static let base62 = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".utf8)
@@ -550,7 +550,7 @@ enum NCXHTTPPadding {
     }
 }
 
-// MARK: - browser masquerade (browser.go)
+// MARK: - browser masquerade
 
 enum NCXHTTPBrowser {
     private static func daysSinceEpoch(_ d: Date = Date()) -> Int { Int(d.timeIntervalSince1970) / 86400 }

@@ -27,6 +27,7 @@
 set -euo pipefail
 
 SING_BOX_VERSION="${SING_BOX_VERSION:-1.12.24}"
+TRUSTTUNNEL_VERSION="${TRUSTTUNNEL_VERSION:-1.1.0}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 RUN="${NC_LOOPBACK_DIR:-/tmp/nc-loopback}"
 mkdir -p "$RUN/bin"
@@ -121,6 +122,68 @@ stop_sudoku() {
     done
 }
 
+find_trusttunnel() {
+    if [ -n "${TRUSTTUNNEL_BIN:-}" ]; then
+        printf '%s' "$TRUSTTUNNEL_BIN"
+        return
+    fi
+    if command -v trusttunnel_endpoint >/dev/null 2>&1; then
+        command -v trusttunnel_endpoint
+        return
+    fi
+    local os arch name
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    case "$os" in
+        darwin)
+            name="trusttunnel-v${TRUSTTUNNEL_VERSION}-macos-universal"
+            ;;
+        linux)
+            case "$(uname -m)" in
+                arm64|aarch64) arch="aarch64" ;;
+                x86_64|amd64)  arch="x86_64" ;;
+                *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+            esac
+            name="trusttunnel-v${TRUSTTUNNEL_VERSION}-linux-${arch}"
+            ;;
+        *) echo "unsupported os: $os" >&2; exit 1 ;;
+    esac
+    local bin="$RUN/bin/trusttunnel_endpoint"
+    if [ ! -x "$bin" ]; then
+        log "downloading trusttunnel_endpoint ${TRUSTTUNNEL_VERSION} ($name)"
+        curl -fsSL "https://github.com/TrustTunnel/TrustTunnel/releases/download/v${TRUSTTUNNEL_VERSION}/${name}.tar.gz" \
+            | tar -xz -C "$RUN/bin" --strip-components=1 "$name/trusttunnel_endpoint"
+        chmod +x "$bin"
+    fi
+    printf '%s' "$bin"
+}
+
+find_masque_proxy() {
+    if [ -n "${MASQUE_PROXY_BIN:-}" ]; then
+        printf '%s' "$MASQUE_PROXY_BIN"
+        return 0
+    fi
+    if [ -x "$RUN/bin/masque-proxy" ]; then
+        printf '%s' "$RUN/bin/masque-proxy"
+        return 0
+    fi
+    if command -v masque-proxy >/dev/null 2>&1; then
+        command -v masque-proxy
+        return 0
+    fi
+    if command -v go >/dev/null 2>&1; then
+        log "installing masque-go proxy (RFC 9298, MIT) via go install"
+        GOBIN="$RUN/bin" go install github.com/quic-go/masque-go/cmd/proxy@v0.6.0
+        if [ -x "$RUN/bin/proxy" ]; then
+            mv "$RUN/bin/proxy" "$RUN/bin/masque-proxy"
+        fi
+        if [ -x "$RUN/bin/masque-proxy" ]; then
+            printf '%s' "$RUN/bin/masque-proxy"
+            return 0
+        fi
+    fi
+    return 1
+}
+
 gen_cert() {
     if [ -f "$RUN/cert.pem" ] && [ -f "$RUN/key.pem" ]; then
         return
@@ -137,6 +200,33 @@ render_config() {
     cp -f "$DIR/ech_config.pem" "$RUN/ech_config.pem"
     cp -f "$DIR/ech_config_stale.pem" "$RUN/ech_config_stale.pem"
     sed -e "s|__LOOPBACK_DIR__|$RUN|g" "$DIR/sing-box-config.json" > "$RUN/sing-box.json"
+}
+
+render_trusttunnel_config() {
+    cat << EOF > "$RUN/tt-credentials.toml"
+[[client]]
+username = "nc-loop-tt-user"
+password = "nc-loop-tt-pw"
+EOF
+
+    cat << EOF > "$RUN/tt-hosts.toml"
+[[main_hosts]]
+hostname = "localhost"
+cert_chain_path = "$RUN/cert.pem"
+private_key_path = "$RUN/key.pem"
+EOF
+
+    cat << EOF > "$RUN/tt-settings.toml"
+listen_address = "127.0.0.1:18013"
+credentials_file = "$RUN/tt-credentials.toml"
+allow_private_network_connections = true
+
+[listen_protocols.http2]
+
+[listen_protocols.quic]
+
+[forward_protocol.direct]
+EOF
 }
 
 wait_tcp() {
@@ -206,16 +296,18 @@ stop_wire_capture() {
 }
 
 do_start() {
-    if alive "$RUN/sing-box.pid" && alive "$RUN/echo.pid"; then
-        log "already running (sing-box pid $(cat "$RUN/sing-box.pid"), echo pid $(cat "$RUN/echo.pid"))"
+    if alive "$RUN/sing-box.pid" && alive "$RUN/echo.pid" && alive "$RUN/lua.pid" && alive "$RUN/trusttunnel.pid"; then
+        log "already running (sing-box pid $(cat "$RUN/sing-box.pid"), echo pid $(cat "$RUN/echo.pid"), tt pid $(cat "$RUN/trusttunnel.pid"))"
         return
     fi
     do_stop >/dev/null 2>&1 || true
 
-    local sb
+    local sb tt
     sb="$(find_sing_box)"
+    tt="$(find_trusttunnel)"
     gen_cert
     render_config
+    render_trusttunnel_config
 
     log "sing-box check"
     "$sb" check -c "$RUN/sing-box.json"
@@ -225,6 +317,10 @@ do_start() {
     log "starting echo_server.py"
     nohup python3 "$DIR/echo_server.py" >"$RUN/echo.log" 2>&1 &
     echo $! > "$RUN/echo.pid"
+
+    log "starting lua-mock-server.py (feat/nc-lua)"
+    nohup python3 "$DIR/lua-mock-server.py" >"$RUN/lua.log" 2>&1 &
+    echo $! > "$RUN/lua.pid"
 
     log "starting sing-box $("$sb" version | head -n1)"
     # NC_LOOPBACK_QUIC_DEBUG=1 (off by default): quic-go per-packet debug log into sing-box.log, summarised by
@@ -236,18 +332,38 @@ do_start() {
     fi
     echo $! > "$RUN/sing-box.pid"
 
+    log "starting trusttunnel_endpoint $("$tt" --version 2>&1 | head -n1)"
+    nohup "$tt" "$RUN/tt-settings.toml" "$RUN/tt-hosts.toml" >"$RUN/trusttunnel.log" 2>&1 &
+    echo $! > "$RUN/trusttunnel.pid"
+    local masque_bin=""
+    if masque_bin="$(find_masque_proxy 2>/dev/null)" && [ -n "$masque_bin" ]; then
+        log "starting masque-proxy on port 18012"
+        nohup "$masque_bin" \
+            -t "https://127.0.0.1:18012/.well-known/masque/udp/{target_host}/{target_port}/" \
+            -b "127.0.0.1:18012" \
+            -c "$RUN/cert.pem" \
+            -k "$RUN/key.pem" >"$RUN/masque.log" 2>&1 &
+        echo $! > "$RUN/masque.pid"
+        sleep 0.5
+        kill -0 "$(cat "$RUN/masque.pid")" 2>/dev/null || log "masque-proxy failed to stay alive"
+    else
+        log "masque-proxy not found (install go or set MASQUE_PROXY_BIN to enable MASQUE loopback)"
+    fi
+
     # TCP inbounds + backends can be probed directly. The UDP inbounds
-    # (hysteria2 / tuic / wireguard) cannot; sing-box is a single process, so
+    # (hysteria2 / tuic / wireguard / masque) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
-    for p in 18001 18002 18003 18004 18005 18014 18015 18040 18060 18061 18062 18063 18080 18082; do
+    for p in 18001 18002 18003 18004 18005 18014 18015 18040 18060 18061 18062 18063 18080 18082 18016 18018 18013; do
         wait_tcp "$p"
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
+    kill -0 "$(cat "$RUN/lua.pid")"
+    kill -0 "$(cat "$RUN/trusttunnel.pid")"
     start_hy2_ref_client "$sb"
     start_sudoku
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 echo :18080/:18081 blackhole :18082 sudoku :18090-:18094 http :18095"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 echo :18080/:18081 blackhole :18082 lua :18016 http-connect :18018 tt :18013 masque :18012 sudoku :18090-:18094 http :18095"
 }
 
 # hy2-frag: sing-box's own hysteria2 client as a reference (socks :19080 -> hy2-in), probed by
@@ -303,7 +419,7 @@ do_stop() {
     stop_sudoku
     stop_wire_capture
     quic_debug_summary
-    for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
+    for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/lua.pid" "$RUN/trusttunnel.pid" "$RUN/masque.pid"; do
         if alive "$f"; then
             kill "$(cat "$f")" 2>/dev/null || true
         fi
@@ -314,7 +430,7 @@ do_stop() {
 
 do_status() {
     local rc=0
-    for name in sing-box echo sudoku-entropy sudoku-ascii-packed sudoku-directional-none sudoku-rotation sudoku-closed-fallback sudoku-http; do
+    for name in sing-box echo lua trusttunnel masque sudoku-entropy sudoku-ascii-packed sudoku-directional-none sudoku-rotation sudoku-closed-fallback sudoku-http; do
         if alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
         else

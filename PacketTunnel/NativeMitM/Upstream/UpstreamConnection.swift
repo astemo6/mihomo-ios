@@ -18,7 +18,7 @@
 //
 // Credit: built from astemo6's B8 draft (origin/draft/native-mitm-b7b8 6b53dc6, drafts/native-mitm/Upstream.swift):
 // its NWConnection receive pump, injected relay endpoint and exactly-once completion are kept. Corrected here:
-// the relay (relay.go) only accepts CONNECT, not absolute-form requests, so the draft's "send the head with the
+// the relay only accepts CONNECT, not absolute-form requests, so the draft's "send the head with the
 // full URL" seam is replaced by CONNECT + TLS-to-origin; the draft's .waiting state was ignored (an open could
 // hang on a dead relay) — now an open fails on .waiting and has a connect timeout; the receive handler
 // re-pumped without back-pressure — now reads are pull-based (read(min,max)); a cancel after a send could

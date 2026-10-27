@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - GOST v3 relay protocol (feat/nc-gost-relay)
 
-/// The GOST v3 `relay` protocol as Clash.Meta v1.19.33 speaks it (transport/gost/relay.go; adapter type
+/// The GOST v3 `relay` protocol as Clash.Meta v1.19.33 speaks it (transport/gost/relay; adapter type
 /// `gost-relay`, NOT the `relay` proxy-group, which is the chain group in NCSupport.groupTypes).
 ///
 /// Request:  VER(0x01) ‖ CMD ‖ LEN(BE16) ‖ features…

@@ -6,10 +6,10 @@ import UIKit
 // only runs from the moment this page is opened until the app goes to the background or disconnects.
 //
 // Lines used (Clash.Meta v1.19.33):
-//   [DNS] example.com --> [93.184.216.34] A from https://1.1.1.1/dns-query     dns/util.go batchExchange
-//   [DNS] cache hit example.com --> [93.184.216.34] A, expire at 2026-…          dns/resolver.go
-//   [DNS] resolve example.com error: …                                          tunnel/tunnel.go
-//   [TCP] 198.18.0.1:5000 --> ads.example.com:443 match DomainSuffix(example.com) using REJECT   tunnel/tunnel.go
+//   [DNS] example.com --> [93.184.216.34] A from https://1.1.1.1/dns-query     dns/util batchExchange
+//   [DNS] cache hit example.com --> [93.184.216.34] A, expire at 2026-…          dns/resolver
+//   [DNS] resolve example.com error: …                                          tunnel/tunnel
+//   [TCP] 198.18.0.1:5000 --> ads.example.com:443 match DomainSuffix(example.com) using REJECT   tunnel/tunnel
 //
 // The 已拦截 tab is built from those REJECT *connection* lines, not from DNS answers (the core never refuses a DNS
 // query here). Device report 2026-10-21: most hits were the QUIC fallback rule (UDP 443 → REJECT, apps retry over

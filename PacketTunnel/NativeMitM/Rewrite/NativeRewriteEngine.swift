@@ -1,7 +1,7 @@
 // Native MitM stage 3a — the rewrite decision engine in Swift.
 //
 // Evaluates the Ruleset snapshot the old core exports (RewriteSnapshot.swift) for one HTTP/1.1 request on a decrypted
-// connection and reproduces what the old flow API (the retired bridge / FlowResponse, i.e. handler.go
+// connection and reproduces what the old flow API (the retired bridge / FlowResponse, i.e. handler
 // requestPhase + flowOutbound and modifyResponse) would answer:
 //
 //   1. URL rewrite, first match: reject / reject-200 / reject-img / reject-dict / reject-array → local answer,
@@ -10,7 +10,7 @@
 //   2. Map Local, first match: the inline answer the old core precomputed (text / json / base64 / tiny-gif).
 //   3. Request header rewrites (add / del / replace / replace-regex, Host handled like the old core) in rule order.
 //   4. Response rules against the final URL: header rewrites are applied natively to the upstream's head.
-//   5. The outbound request exactly as httputil.ReverseProxy would send it (hop-by-hop headers, Te: trailers,
+//   5. The outbound request exactly as a standard HTTP reverse proxy would send it (hop-by-hop headers, Te: trailers,
 //      Upgrade, Forwarded / X-Forwarded-*), the body passed through untouched.
 //
 // Everything else is .deferred(reason): the session asks the old flow as before. That covers any script (request or
@@ -51,7 +51,7 @@ struct RewriteLog {
 }
 
 /// The outcome of one http-request script the native dispatcher ran (NativeRequestScripts.swift), applied by the
-/// engine where the old core's requestPhase applies it (handler.go: Match, abort, local answer, URL / method / headers / body).
+/// engine where the old core's requestPhase applies it (handler: Match, abort, local answer, URL / method / headers / body).
 struct RequestScriptOutcome {
     enum Kind { case skipped, failed, ran }
     struct Mock {
@@ -274,7 +274,7 @@ final class NativeRewriteEngine {
         self.init(snapshot: s)
     }
 
-    // MARK: - MitM host matching (config.go HostMatcher)
+    // MARK: - MitM host matching (config HostMatcher)
 
     func intercepts(host: String, port: Int) -> Bool {
         var h = RWAscii.lower(host)
@@ -335,7 +335,7 @@ final class NativeRewriteEngine {
         return host
     }
 
-    /// config.go globMatch: * and ? on bytes.
+    /// config globMatch: * and ? on bytes.
     static func glob(_ pat: String, _ s: String) -> Bool {
         if pat == "*" || pat == s { return true }
         let p = Array(pat.utf8), t = Array(s.utf8)
@@ -452,7 +452,7 @@ final class NativeRewriteEngine {
         if let (hh, port) = NetURL.splitHostPort(host), (scheme == "https" && port == "443") || (scheme == "http" && port == "80") { urlHost = hh }
         var u = scheme + "://" + urlHost + r.requestURI
         if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .deferred("url") }
-        let clientBody = cl != 0     // the client sends a body (the old core: r.Body is not http.NoBody)
+        let clientBody = cl != 0     // the client sends a body (the old core: the request has a body, not an empty one)
 
         let active = on ? rules : []
 
@@ -599,7 +599,7 @@ final class NativeRewriteEngine {
                         return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: status, header: h, body: m.body), log, m.body)
                     }
                     if let nu = o.url, !nu.isEmpty, nu != u {
-                        // url.Parse(res.URL) with a host: Swift takes only what it parses exactly like the old core
+                        // URL parse of res.URL with a host: Swift takes only what it parses exactly like the old core
                         guard let p = NetURL.parseAbsolute(nu) else { return .deferred("script url") }
                         u = nu
                         log.url = u
@@ -607,7 +607,7 @@ final class NativeRewriteEngine {
                     }
                     if let m = o.method, !m.isEmpty {
                         guard m.utf8.allSatisfy({ $0 < 0x80 }) else { return .deferred("script method") }
-                        let up = m.uppercased() // strings.ToUpper on ASCII
+                        let up = m.uppercased() // ASCII upper-casing
                         guard up.utf8.allSatisfy(RWAscii.isTokenByte) else { return .deferred("script method") }
                         r.method = up
                     }
@@ -655,7 +655,7 @@ final class NativeRewriteEngine {
                 log.notes.append(r.contentLength < 0 ? "跳过请求体规则（分块请求体）" : "跳过请求体规则（请求体 \(r.contentLength >> 10) KB 超过上限）")
                 reqBodyRules.removeAll()
             } else if r.contentLength == 0 {
-                // no body (http.NoBody): a regex leaves it empty, a json / jq rule fails on it (the old core skips the rule) —
+                // no body (no body at all): a regex leaves it empty, a json / jq rule fails on it (the old core skips the rule) —
                 // native-only: the json / jq rules are skipped the same way, the regex rules leave it empty
                 // the old core's json / jq rule errors on the empty body before ent.Match, so the request log does not list it
                 let failed = Set(reqBodyRules.filter { $0.kind != "body" }.map(\.index))
@@ -743,7 +743,7 @@ final class NativeRewriteEngine {
 
         // ---- 5. the outbound request (flowOutbound + forward) ----
         guard r.host.isEmpty || NativeRewriteEngine.plainHost(r.host) else { return .deferred("host after rules") }
-        guard let target = NetURL.parseAbsolute(u) else { return .deferred("target url") } // url.Parse(f.url)
+        guard let target = NetURL.parseAbsolute(u) else { return .deferred("target url") } // URL parse of f.url
         log.url = u
         log.headers = r.header.sortedPairs   // ent.ReqHeaders(r.Method, r.Header)
         if r.method != method { log.reqMethod = r.method }
@@ -780,7 +780,7 @@ final class NativeRewriteEngine {
 
     // MARK: - Map Local from a file
 
-    /// the old core's file / URL Map Local (handler.go serveLargeMapLocal, then mapLocalData), read here from the same path.
+    /// the old core's file / URL Map Local (handler serveLargeMapLocal, then mapLocalData), read here from the same path.
     private func mapLocalFile(_ l: RWSnapLocal, _ f: RWSnapFile, _ logIn: RewriteLog) -> RewriteDecision {
         var log = logIn
         let fm = FileManager.default
@@ -863,12 +863,12 @@ final class NativeRewriteEngine {
         } else if contentLength >= 0 {
             outLen = contentLength
         }
-        let logHeaders = h.sortedPairs // ent.Response(resp.StatusCode, resp.Header) at the end of modifyResponse
+        let logHeaders = h.sortedPairs // the response entry (status code, headers) at the end of modifyResponse
         if !noBody { h.del("Content-Length") }
         h.del("Transfer-Encoding")
         let ct = h.get("Content-Type")
         let media = RWAscii.lower(RWAscii.trimSpace(String(ct.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")))
-        // flow.go runResponse: an empty (Content-Length 0) body is http.NoBody, not the upstream's reader → "read"
+        // flow runResponse: an empty (Content-Length 0) body counts as no body, not the upstream's reader → "read"
         // (the old core hands back an empty body; the native driver serves it the same way).
         let mode: FlowBodyMode = noBody ? .none : (contentLength == 0 ? .read : .upstream)
         return RewriteResponse(action: .respond, status: status, headers: h.sortedPairs, bodyMode: mode,
@@ -898,7 +898,7 @@ final class NativeRewriteEngine {
         }
     }
 
-    /// handler.go applyHeaderOps for the ops the old core marked portable. false: an input Swift will not run a regex on.
+    /// handler applyHeaderOps for the ops the old core marked portable. false: an input Swift will not run a regex on.
     static func apply(_ ops: [RWSnapHeaderOp], to h: inout CanonicalHeader, firstLine: String) -> Bool {
         for op in ops {
             let name = op.name ?? "", value = op.value ?? ""
@@ -963,7 +963,7 @@ final class NativeRewriteEngine {
         return .local(l)
     }
 
-    /// handler.go writeLocal followed by flowWriter.commit.
+    /// handler writeLocal followed by flowWriter.commit.
     static func writeLocal(status: Int, header: CanonicalHeader, body: Data) -> RewriteDecision {
         var h = header
         h.del("Content-Encoding")
@@ -972,7 +972,7 @@ final class NativeRewriteEngine {
         return commitLocal(status: status, header: h, first: body.isEmpty ? nil : body)
     }
 
-    /// flow_request.go flowWriter.commit on the header snapshot taken at WriteHeader.
+    /// flow_request flowWriter.commit on the header snapshot taken at WriteHeader.
     static func commitLocal(status: Int, header: CanonicalHeader, first: Data?) -> RewriteDecision {
         var h = header
         let bodyOK = status >= 200 && status != 204 && status != 304

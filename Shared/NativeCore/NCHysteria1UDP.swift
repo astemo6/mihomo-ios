@@ -4,12 +4,12 @@ import Foundation
 import Network
 
 /// Hysteria v1 packet layer and UDP relay (feat/nc-proto2, based on astemo6/Muse NativeCore); behaviour from Clash.Meta
-/// v1.19.33 transport/hysteria (obfs/xplus.go, conns/udp/hop.go, conns/wechat/obfs.go, core/protocol.go, core/frag.go).
+/// v1.19.33 transport/hysteria.
 ///
 /// Network.framework's QUIC owns its UDP socket, so packet-level transforms (XPlus obfs, wechat-video header, port
 /// hopping) run in a loopback shim: QUIC dials 127.0.0.1:<shim port>; the shim obfuscates each QUIC packet and sends
 /// it from an NWConnection (bound like every other outbound socket) to the server, hopping to a fresh socket and a
-/// random port from `ports` every `hop-interval` seconds while still reading the previous one (as hop.go does).
+/// random port from `ports` every `hop-interval` seconds while still reading the previous one (as hop does).
 /// The shim is only created when obfs / wechat-video / ports are configured. faketcp needs raw sockets: unsupported.
 enum NCHy1Obfs {
     static let saltLen = 16
@@ -151,7 +151,7 @@ final class NCHy1PacketShim {
         return c
     }
 
-    /// hop.go: prev is closed, prev = current, current = new socket to a random port; both keep receiving.
+    /// hop: prev is closed, prev = current, current = new socket to a random port; both keep receiving.
     private func hop() {
         guard !closed, let next = dial() else { return }
         previous?.cancel()
@@ -216,7 +216,7 @@ final class NCHy1PacketShim {
     }
 }
 
-// MARK: - UDP relay (core/client.go DialUDP + udpMessage)
+// MARK: - UDP relay (core/client DialUDP + udpMessage)
 
 enum NCHy1UDP {
     /// udpMessage: sessionID u32, hostLen u16, host, port u16, msgID u16, fragID u8, fragCount u8, dataLen u16, data.
@@ -273,7 +273,7 @@ enum NCHy1UDP {
         return out
     }
 
-    /// core/frag.go defragger: one message in flight per connection.
+    /// core/frag defragger: one message in flight per connection.
     struct Defragger {
         private var msgID: UInt16 = 0
         private var parts: [Data?] = []

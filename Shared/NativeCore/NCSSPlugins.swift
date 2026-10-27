@@ -423,8 +423,8 @@ final class NCShadowTLSV3Conn: NCFramedRelay {
 
 // MARK: - gost-plugin (feat/nc-ss-plugins2)
 
-/// `plugin: gost-plugin` + `plugin-opts`, decoded exactly like Clash.Meta v1.19.33 adapter/outbound/shadowsocks.go
-/// (gostObfsOption, preset {Host: "bing.com", Mux: true}) feeding transport/gost/websocket.go NewGostWebsocket.
+/// `plugin: gost-plugin` + `plugin-opts`, decoded exactly like Clash.Meta v1.19.33 adapter/outbound/shadowsocks
+/// (gostObfsOption, preset {Host: "bing.com", Mux: true}) feeding transport/gost/websocket NewGostWebsocket.
 ///
 /// Clash.Meta implements ONE gost-plugin mode — `websocket` — and rejects every other value at config load
 /// ("obfs mode error"); TLS and smux are the `tls` / `mux` booleans on top of it, so the four shapes are

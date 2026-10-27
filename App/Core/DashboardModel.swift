@@ -23,6 +23,14 @@ final class DashboardModel: ObservableObject {
     @Published var homeGroups: [HomeGroup] = []
     /// feat/home-groups: every non-hidden top-level group in GLOBAL order (candidates for Home).
     @Published var availableGroups: [String] = []
+    /// selfreview-g2 (F10): whether the first live /proxies read of this connection succeeded. Home keeps the offline
+    /// cards as a placeholder only while `.pending`; after `liveReadTimeout` without an answer (or on a failed read
+    /// with nothing loaded yet) it shows the error with 重试 instead of stale, untappable cards.
+    enum LiveRead: Equatable { case pending, loaded, failed(String) }
+    @Published var liveRead: LiveRead = .pending
+    static let liveReadTimeoutNs: UInt64 = 3_000_000_000
+    private var liveReadWatch: Task<Void, Never>?
+    private var lastLiveReadError = ""
 
     struct HomeGroup: Identifiable, Equatable {
         var id: String { name }
@@ -127,6 +135,14 @@ final class DashboardModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: pollInterval)
             }
         })
+        if liveRead != .loaded {
+            liveReadWatch?.cancel()
+            liveReadWatch = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: Self.liveReadTimeoutNs)
+                guard !Task.isCancelled, let self, self.running, self.liveRead == .pending else { return }
+                self.liveRead = .failed(self.lastLiveReadError)
+            }
+        }
         Task {
             if let cfg = try? await c.configs(), let m = cfg["mode"] as? String, self.mode != m.lowercased() { self.mode = m.lowercased() }
             // fix/nc-ui-smooth: Home's live policy cards right away instead of after the first 2 s poll round
@@ -219,12 +235,25 @@ final class DashboardModel: ObservableObject {
         if var t = lastTraffic { t.up = 0; t.down = 0; t.proxyUp = 0; t.proxyDown = 0; lastTraffic = t }
         homeGroups = []
         availableGroups = []
+        liveReadWatch?.cancel()
+        liveReadWatch = nil
+        lastLiveReadError = ""
+        if liveRead != .pending { liveRead = .pending }
         if !VPNManager.shared.isConnected { ConnectionAnalytics.shared.reset() }
     }
 
     /// Follows the first group from GLOBAL's order (usually the main "节点选择") down to a leaf node.
     func refreshSelectedNode() async {
-        guard let all = try? await ControllerClient.shared.proxies() else { return }
+        let all: [String: ProxyItem]
+        do {
+            all = try await ControllerClient.shared.proxies()
+        } catch {
+            lastLiveReadError = error.localizedDescription
+            // Only before the first good read: a later transient failure keeps the cards that are on screen.
+            if case .failed = liveRead { liveRead = .failed(lastLiveReadError) }
+            return
+        }
+        if liveRead != .loaded { liveRead = .loaded; liveReadWatch?.cancel() }
         let order = LiveGroupOrder.names(all)
         let firstGroup = order.first { all[$0]?.isGroup == true }
         var name = mode == "global" ? "GLOBAL" : (firstGroup ?? "GLOBAL")

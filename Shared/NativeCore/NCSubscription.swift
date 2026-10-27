@@ -39,7 +39,7 @@ enum NCSubscriptionParser {
         // converted afterwards. Member order and dedup numbering follow.
         var selfParsed: [NCProxy] = []
         var uriParsed: [NCProxy] = []
-        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https", "sudoku"]
+        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https", "openconnect", "anyconnect", "tt", "trusttunnel", "trust-tunnel", "masque", "sudoku"]
         for line in body.components(separatedBy: .newlines) {
             let l = line.trimmingCharacters(in: .whitespaces)
             if l.isEmpty || l.hasPrefix("#") || l.hasPrefix("//") || l.hasPrefix(";") || l.hasPrefix("[") {
@@ -70,13 +70,13 @@ enum NCSubscriptionParser {
     }
 
     /// The QX `type=host:port, …` keywords routed to NCQXImport.buildQXNode. A deliberate SUPERSET of bridge
-    /// nodes.go qxTypes (shadowsocks, vmess, vless, trojan, http, socks5, anytls): it adds every other type
+    /// nodes qxTypes (shadowsocks, vmess, vless, trojan, http, socks5, anytls): it adds every other type
     /// buildQXNode maps — `ss` (its shadowsocks alias), `snell` (psk / version), and `tuic` / `hysteria2`
     /// (password / token / uuid / sni, as the Surge spelling maps them; other keys verbatim).
     /// the old core sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
     /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
     static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
-                                           "snell", "tuic", "juicity", "hysteria2", "sudoku"]
+                                           "snell", "tuic", "juicity", "hysteria2", "openconnect", "anyconnect", "masque", "sudoku"]
 
     /// A `key=value` subscription line is QX-shaped when the key is a QX type keyword AND the value starts with
     /// `host:port` (or `[v6]:port`) before its first comma. A Surge / Loon line is `Name = type, host, port, …`:
@@ -136,6 +136,10 @@ enum NCSubscriptionParser {
         case "mieru", "mierus": return parseMieru(rest)
         case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
         case "naive+https", "naive+quic", "naive", "http2", "http3": return parseNaiveH2H3(rest, scheme: scheme)
+        case "openconnect", "anyconnect": return parseOpenConnect(rest, scheme: scheme)
+        case "tt": return NCTrustTunnel.parseDeepLink(uri)
+        case "trusttunnel", "trust-tunnel": return NCTrustTunnel.parseURI(uri)
+        case "masque": return NCMASQUE.parseShadowrocket(uri)
         case "sudoku": return parseSudoku(rest)
         default:
             // feat/nc-gost-relay: GOST relay (Clash.Meta `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
@@ -293,7 +297,7 @@ enum NCSubscriptionParser {
         // SIP002 plugin query: "<binary>[;arg=value…]" — the binary name
         // picks the plugin, the rest re-parses as a query string. A bare
         // binary without ";" (plugin=obfs-local) is a plugin too. Mirrors
-        // Clash.Meta common/convert/converter.go so links from any client land
+        // Clash.Meta common/convert/converter so links from any client land
         // in the same canonical shape as a Clash.Meta YAML node.
         if let plugin = p.query["plugin"], !plugin.isEmpty {
             let parts = plugin.split(separator: ";")
@@ -323,7 +327,7 @@ enum NCSubscriptionParser {
                 opts["mode"] = .string(arg("mode") ?? arg("obfs") ?? "websocket")
                 if let h = arg("host") ?? arg("obfs-host") { opts["host"] = .string(h) }
                 if let pa = arg("path") { opts["path"] = .string(pa) }
-                // Clash.Meta detects the TLS flag with strings.Contains over the
+                // Clash.Meta detects the TLS flag with a substring check over the
                 // whole plugin value — kept for byte-for-byte parity with
                 // Libmihome on the same link.
                 if plugin.contains("tls") { opts["tls"] = .bool(true) }
@@ -538,7 +542,7 @@ enum NCSubscriptionParser {
         return NCProxy(name: name, type: "trojan", fields: f)
     }
 
-    // MARK: XHTTP share-link options (feat/nc-xhttp; Clash.Meta common/convert/v.go)
+    // MARK: XHTTP share-link options (feat/nc-xhttp; Clash.Meta common/convert/v)
 
     /// Xray's former name for the transport.
     private static func xhttpAlias(_ net: String) -> String {
@@ -973,6 +977,12 @@ enum NCSubscriptionParser {
             }
             if jInt(o["mtu"]) > 0 { f["mtu"] = .number(Double(jInt(o["mtu"]))) }
             f["udp"] = .bool(true)
+        case "trusttunnel", "trust-tunnel":
+            typ = "trusttunnel"
+            if !jStr(o["username"]).isEmpty { f["username"] = .string(jStr(o["username"])) }
+            if !jStr(o["password"]).isEmpty { f["password"] = .string(jStr(o["password"])) }
+            if let quic = o["quic"] as? Bool { f["quic"] = .bool(quic) }
+            f["udp"] = .bool(o["udp"] as? Bool ?? true)
         default:
             return nil
         }
@@ -1409,6 +1419,58 @@ enum NCSubscriptionParser {
         if let hm = q["handshake-mode"] { f["handshake-mode"] = .string(hm) }
         let name = q["profile"] ?? (p.name.isEmpty ? "mieru \(p.host)" : p.name)
         return NCProxy(name: name, type: "mieru", fields: f)
+    }
+
+    private static func parseOpenConnect(_ rest: String, scheme: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty else { return nil }
+        let port = p.port > 0 ? p.port : NCOpenConnect.defaultPort
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(port))
+        ]
+        if !p.userinfo.isEmpty {
+            let creds = p.userinfo.split(separator: ":", maxSplits: 1)
+            let user = String(creds[0]).removingPercentEncoding ?? String(creds[0])
+            f["username"] = .string(user)
+            if creds.count > 1 {
+                let pass = String(creds[1]).removingPercentEncoding ?? String(creds[1])
+                f["password"] = .string(pass)
+            }
+        }
+        let q = p.query
+        if let u = q["username"] ?? q["user"], f["username"] == nil { f["username"] = .string(u) }
+        if let pw = q["password"] ?? q["pass"], f["password"] == nil { f["password"] = .string(pw) }
+        if let g = q["group"] ?? q["auth_group"] ?? q["auth-group"] { f["auth-group"] = .string(g) }
+        if let c = q["cookie"] { f["cookie"] = .string(c) }
+        if let s = q["sni"] ?? q["servername"] ?? q["peer"] { f["sni"] = .string(s) }
+        if let ins = q["insecure"] ?? q["allowInsecure"] ?? q["skip-cert-verify"] ?? q["skip_cert_verify"] {
+            f["skip-cert-verify"] = .bool(ins == "1" || ins.lowercased() == "true")
+        }
+        if let fp = q["fingerprint"] ?? q["server_cert_pin"] ?? q["server-cert-pin"] ?? q["cert_sha256"] {
+            f["server-cert-pin"] = .string(fp)
+        }
+        if let dtls = q["dtls"] {
+            f["dtls"] = .bool(dtls == "1" || dtls.lowercased() == "true")
+        }
+        if let m = q["mtu"], let n = Int(m) {
+            f["mtu"] = .number(Double(n))
+        }
+        if let ua = q["user_agent"] ?? q["user-agent"] {
+            f["user-agent"] = .string(ua)
+        }
+        if let lh = q["local_hostname"] ?? q["local-hostname"] {
+            f["local-hostname"] = .string(lh)
+        }
+
+        // Unsupported fields explicitly recorded so NCSupport.unsupportedReason can explain
+        if let csd = q["csd"] ?? q["csd_wrapper"] ?? q["csd-wrapper"] { f["csd-wrapper"] = .string(csd) }
+        if let hip = q["hip"] ?? q["hip_report"] ?? q["hip-report"] { f["hip"] = .string(hip) }
+        if let tncc = q["tncc"] { f["tncc"] = .string(tncc) }
+        if let tok = q["token"] ?? q["token_mode"] ?? q["totp"] { f["token-secret"] = .string(tok) }
+
+        let name = p.name.isEmpty ? "\(scheme) \(p.host)" : p.name
+        return NCProxy(name: name, type: "openconnect", fields: f)
     }
 
     private static func parseHysteria1(_ rest: String) -> NCProxy? {

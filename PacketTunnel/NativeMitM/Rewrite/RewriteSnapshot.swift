@@ -1,5 +1,5 @@
 // Native MitM stage 3a — the rewrite snapshot the old core exports and
-// small pieces of the old core's net/http behaviour the native rewrite engine has to reproduce byte for byte.
+// small pieces of the old core's HTTP behaviour the native rewrite engine has to reproduce byte for byte.
 //
 // Swift never parses Surge / Loon / QX / Egern / Stash text: it evaluates the Ruleset the old core compiled, in the old core's rule
 // order, with the old core's portability verdict per pattern. See NativeRewriteEngine.swift for what is decided natively and
@@ -7,7 +7,7 @@
 
 import Foundation
 
-// MARK: - Snapshot (JSON from the old core; field names = rewritesnap.go json tags)
+// MARK: - Snapshot (JSON from the old core; field names = rewritesnap json tags)
 
 struct RWSnapRegex: Decodable {
     var p: String
@@ -47,7 +47,7 @@ struct RWSnapLocal: Decodable {
     var file: RWSnapFile?
 }
 
-/// A Map Local answer read from disk at request time (handler.go serveLargeMapLocal / mapLocalData).
+/// A Map Local answer read from disk at request time (handler serveLargeMapLocal / mapLocalData).
 struct RWSnapFile: Decodable {
     var path: String
     var remote: Bool?
@@ -78,7 +78,7 @@ struct RWSnapRule: Decodable {
     var opsOK: Bool?
     var local: RWSnapLocal?
     var script: RWSnapScript?
-    // stage 3b body rules (bodysnap.go; NativeBodyRewrite.swift)
+    // stage 3b body rules (bodysnap; NativeBodyRewrite.swift)
     var body: [RWSnapBodyOp]?
     var jsonOps: [RWSnapJSONOp]?
     var jq: [RWSnapJQStep]?
@@ -112,7 +112,7 @@ struct RWSnapshot: Decodable {
     }
 }
 
-// MARK: - the old core net/http header semantics
+// MARK: - the old core HTTP header semantics
 
 /// ASCII helpers shared by the engine (inputs are gated to printable ASCII before any regex runs).
 enum RWAscii {
@@ -137,7 +137,7 @@ enum RWAscii {
         String(decoding: s.utf8.map { ($0 >= 0x41 && $0 <= 0x5A) ? $0 + 32 : $0 }, as: UTF8.self)
     }
     static func equalFold(_ a: String, _ b: String) -> Bool { lower(a) == lower(b) }
-    /// the old core strings.TrimSpace on ASCII input (callers gate non-ASCII away).
+    /// whitespace trim on ASCII input (callers gate non-ASCII away).
     static func trimSpace(_ s: String) -> String {
         let ws: Set<UInt8> = [0x20, 0x09, 0x0A, 0x0B, 0x0C, 0x0D]
         let b = Array(s.utf8)
@@ -187,7 +187,7 @@ struct CanonicalHeader: Equatable {
         for kv in pairs where kv.count == 2 { map[kv[0], default: []].append(kv[1]) }
     }
 
-    /// headerFromPairs (flow.go): key trimmed, empty keys skipped, Add.
+    /// headerFromPairs: key trimmed, empty keys skipped, Add.
     init(pairs: [[String]]) {
         for kv in pairs where kv.count == 2 {
             let k = RWAscii.trimSpace(kv[0])
@@ -232,7 +232,7 @@ struct CanonicalHeader: Equatable {
         return false
     }
 
-    /// flow.go flowRemoveHopByHop (httputil's list plus the headers Connection names).
+    /// flow flowRemoveHopByHop (the reverse proxy's list plus the headers Connection names).
     mutating func removeHopByHop() {
         for f in values("Connection") {
             for sf in f.split(separator: ",", omittingEmptySubsequences: false) {

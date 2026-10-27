@@ -1,6 +1,6 @@
 import Foundation
 
-/// Hysteria2 UDPMessage codec (apernet/hysteria PROTOCOL.md "UDP"; sing-quic hysteria2/packet.go).
+/// Hysteria2 UDPMessage codec (apernet/hysteria PROTOCOL.md "UDP"; sing-quic hysteria2/packet).
 /// Pure and allocation-light; shared by NCHysteria2Connection (datagram flow) and the tunnel's
 /// NCUDPHysteria2Session, and unit-testable from the app-hosted test bundle (it used to live in
 /// PacketTunnel/NativeCore/NCHysteria2UDP.swift, out of the tests' reach).

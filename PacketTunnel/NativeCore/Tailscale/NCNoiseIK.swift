@@ -4,7 +4,7 @@ import Foundation
 // MARK: - Noise_IK_25519_ChaChaPoly_BLAKE2s Handshake Engine (ts2021)
 //
 // Pure Swift implementation of the Noise IK handshake pattern used by Tailscale's
-// ts2021 control protocol (tailscale.com/control/controlhttp/ts2021.go).
+// ts2021 control protocol.
 //
 // Differences from WireGuard (Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s):
 // 1. Suite Identifier: WireGuard specifies "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";

@@ -5,7 +5,7 @@ import XCTest
 /// maintainer review rejected on three counts):
 ///
 /// 1. Mojibake — Build briefly decoded module files as Latin-1. the old core's
-///    mitm config.go Build does ParseText(string(b)): the module bytes
+///    mitm config Build does ParseText(string(b)): the module bytes
 ///    ARE the text and module files are UTF-8. The Latin-1 decode
 ///    re-read every multibyte sequence as separate characters, so all
 ///    Chinese content (comments, names, policy references) garbled and

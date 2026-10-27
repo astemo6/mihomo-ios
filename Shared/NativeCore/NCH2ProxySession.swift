@@ -273,7 +273,7 @@ final class NCH2ProxyStream: NCRelayStream {
     private var heldBytes = 0
     private var pendingSend = Data()
     private var pendingEntries: [NCPendingSendEntry] = []
-    private var payloadQueue: [Data] = []
+    private var payloadQueue: NCDeque<Data> = [] // F13
     private var queuedBytes = 0
     private var pendingHandler: ((Data?, Error?) -> Void)?
     private var failure: Error?

@@ -3,7 +3,7 @@ import Foundation
 // MARK: - DERP Frame Format & Incremental Codec
 //
 // Encodes and decodes Tailscale DERP (Designated Encrypted Relay for Packets) frames.
-// Reference: `tailscale.com/derp/derp.go` wire specification.
+// Reference: `tailscale.com/derp/derp` wire specification.
 //
 // Wire Frame Layout:
 // - Byte 0: 1-byte FrameType (see NCTailscaleConsts.DERPFrameType)

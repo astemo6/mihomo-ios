@@ -206,7 +206,7 @@ final class NCAnyTLSStream: NCRelayStream {
     private let target: NCTarget?
     let callerQueue: DispatchQueue
     private var targetWritten = false
-    private var payloadQueue: [Data] = []
+    private var payloadQueue: NCDeque<Data> = [] // F13
     private var queuedBytes = 0
     private var pendingHandler: ((Data?, Error?) -> Void)?
     private var failure: Error?

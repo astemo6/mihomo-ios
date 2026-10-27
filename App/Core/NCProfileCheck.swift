@@ -5,12 +5,12 @@ import Foundation
 /// connect does (YAML, the profile's overrides, NCRuntimeBuilder, then NCConfigValidator — Clash.Meta's
 /// executor.ParseWithBytes in the old core) and points at the line / column of the problem in the user's text.
 ///
-/// DIVERGENCES: yaml.v3 gave a node tree with positions and its own error text ("line N: …"); NCYAML now
+/// DIVERGENCES: the reference YAML library gave a node tree with positions and its own error text ("line N: …"); NCYAML now
 /// records the line for the failures it can localize (unclosed flow / quote, see NCYAMLError) and otherwise
-/// firstBadLine (the same binary search the old core used to refine yaml.v3's line) supplies it — either way the line
+/// firstBadLine (the same binary search the old core used to refine the reference YAML library's line) supplies it — either way the line
 /// is carried in the error message itself (「YAML 格式错误：第 N 行：无法解析」), not only in Result.line,
 /// and locate() finds the item in the text with a line scanner over the top-level block (column = the
-/// item's first key, as yaml.v3's mapping node reports it).
+/// item's first key, as the reference YAML library's mapping node reports it).
 enum NCProfileCheck {
 
     struct Result: Codable, Equatable {
@@ -69,7 +69,7 @@ enum NCProfileCheck {
         return s
     }
 
-    /// bridge ProbeGroup (probe.go): never counted as a user group.
+    /// bridge ProbeGroup: never counted as a user group.
     static let probeGroup = "TERN-PROBE"
 
     private static func isBlank(_ text: String) -> Bool {

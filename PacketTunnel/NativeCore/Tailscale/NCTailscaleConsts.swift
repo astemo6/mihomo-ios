@@ -18,21 +18,21 @@ enum NCTailscaleConsts {
     static let defaultControlURL: String = "https://controlplane.tailscale.com"
 
     /// Endpoint path to retrieve the control plane public key.
-    /// Official reference: `tailscale.com/control/controlhttp/client.go` (`GET /key?v=...`).
+    /// Official reference: `tailscale.com/control/controlhttp/client` (`GET /key?v=...`).
     static let keyPath: String = "/key"
 
     /// Endpoint path to upgrade to ts2021 Noise-encrypted control protocol session.
-    /// Official reference: `tailscale.com/control/controlhttp/ts2021.go` (`POST /ts2021`).
+    /// Official reference: `tailscale.com/control/controlhttp/ts2021` (`POST /ts2021`).
     static let ts2021Path: String = "/ts2021"
 
     /// HTTP Upgrade header value for the ts2021 control protocol session.
-    /// Official reference: `tailscale.com/control/controlhttp/ts2021.go` `upgradeHeader = "tailscale-control-protocol"`.
+    /// Official reference: `tailscale.com/control/controlhttp/ts2021` `upgradeHeader = "tailscale-control-protocol"`.
     static let upgradeHeaderValue: String = "tailscale-control-protocol"
 
     // MARK: - Noise Protocol & Prologue
 
     /// Noise protocol handshake suite identifier for ts2021.
-    /// Official reference: `tailscale.com/control/controlhttp/ts2021.go`.
+    /// Official reference: `tailscale.com/control/controlhttp/ts2021`.
     /// Pattern: IK (Initiator knows Responder static key in advance).
     /// DH: 25519 (X25519).
     /// Cipher: ChaChaPoly (ChaCha20-Poly1305).
@@ -40,13 +40,13 @@ enum NCTailscaleConsts {
     static let noiseProtocolName: String = "Noise_IK_25519_ChaChaPoly_BLAKE2s"
 
     /// Noise prologue literal mixed into the handshake state at initialization.
-    /// Official reference: `tailscale.com/control/controlhttp/ts2021.go` `earlyNoisePrologue = []byte("Tailscale Control Protocol v2021")`.
+    /// Official reference: `tailscale.com/control/controlhttp/ts2021` `earlyNoisePrologue` = "Tailscale Control Protocol v2021".
     static let noisePrologueLiteral: String = "Tailscale Control Protocol v2021"
 
     // MARK: - DERP (Designated Encrypted Relay for Packets)
 
     /// HTTP path for upgrading a connection to a DERP relay session.
-    /// Official reference: `tailscale.com/derp/derphttp/derphttp_client.go` (`GET /derp`).
+    /// Official reference: `tailscale.com/derp/derphttp/derphttp_client` (`GET /derp`).
     static let derpPath: String = "/derp"
 
     /// HTTP Upgrade header value for DERP sessions.
@@ -54,7 +54,7 @@ enum NCTailscaleConsts {
     static let derpUpgradeHeaderValue: String = "DERP"
 
     /// Official DERP frame type enumeration.
-    /// Official reference: `tailscale.com/derp/derp.go` `FrameType` definitions.
+    /// Official reference: `tailscale.com/derp/derp` `FrameType` definitions.
     enum DERPFrameType: UInt8, CaseIterable {
         /// ServerKey: 8-byte magic + 32-byte server public key. Sent by server upon connect.
         case serverKey = 0x01
@@ -126,7 +126,7 @@ enum NCTailscaleConsts {
     /// Aligns with old bridge specification: `tsWatchInterval = 2 * time.Second`.
     static let watchdogInterval: TimeInterval = 2.0
 
-    // MARK: - Error Text Formatting (Aligned with GoText / the old core Bridge)
+    // MARK: - Error Text Formatting (aligned with the official client / the retired bridge)
 
     /// Formats the refusal error message when memory is insufficient at startup.
     static func refusalErrorMessage(availableBytes: Int64) -> String {

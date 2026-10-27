@@ -481,7 +481,7 @@ final class NCController {
     private static let dnsTypes: [String: UInt16] = ["A": 1, "NS": 2, "CNAME": 5, "SOA": 6, "PTR": 12, "MX": 15, "TXT": 16,
                                                      "AAAA": 28, "SRV": 33, "SVCB": 64, "HTTPS": 65]
 
-    /// Clash.Meta hub/route/dns.go shape: {Status, Question:[{name,type,Class}], TC, RD, RA, AD, CD, Answer:[{name,type,TTL,data}]}.
+    /// Clash.Meta hub/route/dns shape: {Status, Question:[{name,type,Class}], TC, RD, RA, AD, CD, Answer:[{name,type,TTL,data}]}.
     private func respondDNSQuery(_ conn: NCLoopbackConn, query: [String: String]) {
         guard let name0 = query["name"]?.trimmingCharacters(in: .whitespaces), !name0.isEmpty else {
             respond(conn, status: 400, json: ["message": "name is required"]); return

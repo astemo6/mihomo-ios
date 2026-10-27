@@ -3,7 +3,7 @@ import XCTest
 
 /// fix/nc-silent-fail: nodes that used to look usable but connected wrongly — Trojan ws/grpc/h2, ws early data,
 /// v2ray-http-upgrade, http-opts (HTTP/1.1 obfs), Snell obfs-opts, smux/yamux, VMess alterId > 0, ECH, and the
-/// Vision / REALITY fingerprint fields. Wire shapes follow Clash.Meta v1.19.33 (transport/vmess/websocket.go, http.go).
+/// Vision / REALITY fingerprint fields. Wire shapes follow Clash.Meta v1.19.33.
 final class NativeCoreSilentFailTests: XCTestCase {
 
     // MARK: - Fake transport (callbacks on the test's serial queue, like a real stream on its connection queue)

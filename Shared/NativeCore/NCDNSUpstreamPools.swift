@@ -89,7 +89,7 @@ final class NCDNSUpstreamCoordinator {
 
     private let queue = DispatchQueue(label: "nc.dns.coordinator")
     private var entries: [String: Entry] = [:]
-    private var pending: [Entry] = []
+    private var pending: NCDeque<Entry> = [] // F13
     private var active = 0
 
     func submit(key: String, id: UInt16?, callerQueue: DispatchQueue,
@@ -257,7 +257,7 @@ final class NCDNSDoTPool {
     private final class Conn {
         var stream: NCDNSPoolStream?
         var connecting = false
-        var pending: [(query: Data, callerQueue: DispatchQueue, completion: (Data?) -> Void)] = []
+        var pending: NCDeque<(query: Data, callerQueue: DispatchQueue, completion: (Data?) -> Void)> = [] // F13
         var current: Current?
     }
     private var conns: [String: Conn] = [:]
@@ -426,7 +426,7 @@ final class NCDNSDoHPool {
     private final class Conn {
         var stream: NCDNSPoolStream?
         var connecting = false
-        var pending: [(query: Data, callerQueue: DispatchQueue, completion: (Data?) -> Void)] = []
+        var pending: NCDeque<(query: Data, callerQueue: DispatchQueue, completion: (Data?) -> Void)> = [] // F13
         var current: Current?
     }
     private var conns: [String: Conn] = [:]

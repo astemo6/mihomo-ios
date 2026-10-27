@@ -338,7 +338,7 @@ final class NCH3ProxyStream: NCRelayStream {
     private var padding: NCNaivePadding?
     private var held: [(Data, NCCallOnce)] = []
     private var heldBytes = 0
-    private var inbox: [Data] = []
+    private var inbox: NCDeque<Data> = [] // F13
     private var inboxBytes = 0
     private var pendingReceive: ((Data?, Error?) -> Void)?
     private var failure: Error?
