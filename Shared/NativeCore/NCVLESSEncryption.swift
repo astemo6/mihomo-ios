@@ -3,7 +3,7 @@ import CryptoKit
 
 /// VLESS encryption client "mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys…>[.<padding>]"
 /// (feat/nc-proto A6, based on astemo6/Muse NativeCore), ported from Clash.Meta v1.19.33 transport/vless/encryption
-/// (client.go / common.go / xor.go, itself from Xray-core). ML-KEM-768 is NCMLKEM768 (pure Swift), X25519 /
+/// (client / common / xor, itself from Xray-core). ML-KEM-768 is NCMLKEM768 (pure Swift), X25519 /
 /// AES-GCM from CryptoKit, BLAKE3 derive_key from NCBlake3. AEAD is AES-256-GCM (Apple CPUs have AES + PMULL,
 /// i.e. Clash.Meta's HasAESGCMHardwareSupport = true).
 final class NCVLESSEncClient {

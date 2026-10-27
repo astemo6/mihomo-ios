@@ -2,7 +2,7 @@ import Foundation
 
 /// GEOSITE database (GeoSite.dat, v2ray geosite protobuf format) with
 /// Clash.Meta's matching semantics (upstream Clash.Meta component/geodata +
-/// rules/common/geosite.go are the spec):
+/// rules/common/geosite are the spec):
 ///
 ///   GEOSITE,google,PROXY            — domain in category GOOGLE
 ///   GEOSITE,google@cn,PROXY         — only entries carrying attribute "cn"

@@ -3,7 +3,7 @@ import CryptoKit
 import CommonCrypto
 
 // kcptun packet crypto and Reed-Solomon FEC (kcp-go / klauspost/reedsolomon parity).
-// Reference: Clash.Meta transport/kcptun + metacubex/kcp-go (crypt.go, fec.go).
+// Reference: Clash.Meta transport/kcptun + metacubex/kcp-go.
 
 // MARK: - Options
 

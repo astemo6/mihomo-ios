@@ -3,7 +3,7 @@ import Foundation
 /// HPACK (RFC 7541): enough for tunnel clients — literal encoding without
 /// Huffman on the way out; full decoding (indexed / literal / dynamic
 /// table / Huffman strings) for server header blocks. Huffman tables
-/// generated from golang.org/x/net/http2/hpack (RFC 7541 Appendix B).
+/// transcribed from RFC 7541 Appendix B.
 enum NCHPACK {
     static let staticTable: [(String, String)] = [
         (":authority", ""), (":method", "GET"), (":method", "POST"), (":path", "/"),
@@ -259,6 +259,11 @@ extension NCHPACK {
         26, 27, 26, 26, 27, 27, 27, 27,
         27, 28, 27, 27, 27, 27, 27, 26,
     ]
+
+    /// EOS (symbol 256), kept out of the 256-entry tables above so `huffmanLookup` only ever yields bytes. The MitM
+    /// H2 decoder (HPACKHuffman) builds its tree from these tables plus EOS — one copy of RFC 7541 Appendix B.
+    static let huffmanEOSCode: UInt32 = 0x3fffffff
+    static let huffmanEOSLen: UInt8 = 30
 
     /// (code length << 32 | code) → symbol. A `static let` is initialised lazily and exactly once
     /// (swift_once / dispatch_once), so concurrent first decodes — the HTTP/2 and Hysteria2/QPACK

@@ -1,9 +1,8 @@
 import Foundation
 
 /// E-B1 stage 4: the runtime config builder — a port of
-/// the retired bridge + marshalConfig
-/// (runtimejson.go), the retired bridge's lowerForNative, and
-/// the dnsHijack helpers (netextras.go). The satellite steps live
+/// the retired bridge's marshalConfig, its lowerForNative, and
+/// the dnsHijack helpers. The satellite steps live
 /// in NCRuntimeSteps / NCRuntimeSubRules / NCRuntimeChains /
 /// NCRuntimeCustomRules / NCRuntimeDNS.
 ///
@@ -214,7 +213,7 @@ enum NCRuntimeBuilder {
         NCRuntimeSteps.capDNSCache(&dns)
         raw["dns"] = .object(dns)
 
-        // Sniffer (the default table is bridge.go's, identical to
+        // Sniffer (the default table is bridge's, identical to
         // the one NCSnifferConfig falls back to in the tunnel).
         var sn = raw.map("sniffer")
         sn["enable"] = .bool(core.sniffer)
@@ -285,13 +284,13 @@ enum NCRuntimeBuilder {
     }
 
     /// Sorted-keys JSON of the tree (the nativecore-runtime.json
-    /// shape; the old core marshals the same map with encoding/json).
+    /// shape; the old core marshals the same map as JSON).
     static func jsonData(_ raw: [String: NCJSONValue]) -> Data? {
         let any = NCJSONValue.object(raw).anyTree
         return try? JSONSerialization.data(withJSONObject: any, options: [.sortedKeys])
     }
 
-    // MARK: - DNS hijack (netextras.go)
+    // MARK: - DNS hijack
 
     static func validDNSHijack(_ s0: String) -> Bool {
         var d = s0.trimmingCharacters(in: .whitespaces)
@@ -317,7 +316,7 @@ enum NCRuntimeBuilder {
         return out
     }
 
-    // MARK: - GEOSITE lowering (nativeprep.go lowerForNative)
+    // MARK: - GEOSITE lowering (nativeprep lowerForNative)
 
     static func geositeProvider(_ code: String) -> String {
         "__geosite_" + code

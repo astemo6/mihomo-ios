@@ -2,7 +2,7 @@ import Foundation
 import Network
 
 /// TUIC UDP relay (feat/nc-proto2, based on astemo6/Muse NativeCore); wire format from Clash.Meta v1.19.33
-/// transport/tuic v4/v5 (protocol.go, packet.go, frag.go).
+/// transport/tuic v4/v5.
 ///
 ///   v5 Packet:     [5][2] assoc u16  pkt u16  frag_total u8  frag_id u8  size u16  ADDR  data
 ///   v4 Packet:     [4][2] assoc u32  len u16  ADDR  data            (no fragmentation)

@@ -204,12 +204,13 @@ final class VPNManager: ObservableObject {
         }
     }
 
-    /// The VPN configuration's server address / name. r7 (user 2026-10-21 「不用刻意保留」): renamed from
-    /// the pre-rename name (LegacyImport.vpnNames); existing configurations are matched by the tunnel bundle id (never by this name) and renamed in
-    /// place by fixStaleManager, so no second VPN profile appears and the widget / Control Center / intents
-    /// (which match the bundle id too) keep finding it.
+    /// The VPN configuration's server address / name. Configurations are matched by the tunnel bundle id (never by
+    /// this name); a stale one (re-signed build) is re-pointed / renamed in place by fixStaleManager, so no second
+    /// VPN profile appears and the widget / Control Center / intents (which match the bundle id too) keep finding it.
+    /// selfreview-g2: the pre-rename name is not matched any more — the new bundle id never sees the old app's
+    /// configurations (NE lists only this app's own).
     static let serverAddress = "Tern"
-    static let legacyServerAddresses: Set<String> = LegacyImport.vpnNames.union(["Tern"])
+    static let legacyServerAddresses: Set<String> = [serverAddress]
 
     /// This app's configuration: our tunnel bundle id first; then one carrying our (old or new) name, saved by a
     /// build with another tunnel bundle id (re-signing); then — NE only lists this app's own configurations —

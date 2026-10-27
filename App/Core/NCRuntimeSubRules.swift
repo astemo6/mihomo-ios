@@ -248,7 +248,7 @@ private func ncDedupeKey(_ p: [String: NCJSONValue]) -> String {
         let v = p.str(k)
         if !v.isEmpty { cred += k + "=" + v + ";" }
     }
-    // the old core fmt.Sprint(p["port"]). NCValueCoercion.sprint renders integral
+    // the old core's default text of p["port"]. NCValueCoercion.sprint renders integral
     // values as integers only inside Int64 range: the old
     // `n == floor(n) ? String(Int64(n))` trapped on a subscription node
     // with `port: 1e30` or `.inf` (floor(inf) == inf).
@@ -431,7 +431,7 @@ extension NCRuntimeSteps {
             guard m["proxies"] != nil else { continue }
             var out: [NCJSONValue] = []
             for p in m.list("proxies") {
-                // the old core reads members with fmt.Sprint; strings dominate.
+                // the old core reads members as default text; strings dominate.
                 let s: String
                 switch p {
                 case .string(let v): s = v

@@ -376,7 +376,7 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         defer { b.lock.unlock() }
         guard !b.failed else { return nil }
         // Valid UTF-8 only: invalid input goes to the old core host, whose U+FFFD replacement is the reference
-        // (strings.ToValidUTF8 — one U+FFFD per run of invalid bytes). Not String(data:encoding:), which drops a
+        // (one U+FFFD per run of invalid bytes). Not String(data:encoding:), which drops a
         // leading BOM that the old core's string(b) keeps: decode leniently, then accept only an exact round trip.
         return b.decoded.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> String? in
             let s = String(decoding: buf, as: UTF8.self)

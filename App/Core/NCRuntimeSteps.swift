@@ -88,7 +88,7 @@ enum NCRuntimeSteps {
         return u == "MATCH" || u == "FINAL"
     }
 
-    /// bridge splitRule (inspect.go): the policy a rule names.
+    /// bridge splitRule: the policy a rule names.
     static func ruleTargetOf(_ rule: String) -> String {
         let t = (rule.trimmingCharacters(in: .whitespaces)
             .split(separator: ",", maxSplits: 1).first.map(String.init) ?? "").uppercased()
@@ -110,7 +110,7 @@ enum NCRuntimeSteps {
         return fields.count > 1 ? String(fields[1]).trimmingCharacters(in: .whitespaces) : ""
     }
 
-    // MARK: - Profile rule overrides (profileruleoverrides.go)
+    // MARK: - Profile rule overrides
 
     private struct RuleRef: Hashable {
         var key: String
@@ -219,7 +219,7 @@ enum NCRuntimeSteps {
         return (edited, warnings)
     }
 
-    // MARK: - Provider overrides (provideroverrides.go)
+    // MARK: - Provider overrides
 
     static let providerLostKey = "x-tern-lost-provider"
 
@@ -363,9 +363,9 @@ enum NCRuntimeSteps {
         raw["proxy-groups"] = .array(groups)
     }
 
-    // MARK: - Rule-provider overrides (ruleprovideroverrides.go)
+    // MARK: - Rule-provider overrides
 
-    /// mitm ReorderSlots (order.go): the named items are sorted among
+    /// mitm ReorderSlots: the named items are sorted among
     /// the positions they already occupy; everything else stays.
     static func reorderSlots(
         _ items: [NCJSONValue],
@@ -497,7 +497,7 @@ enum NCRuntimeSteps {
         return (removed, warnings)
     }
 
-    // MARK: - Manual nodes + node subscriptions (diag.go / nodesubs.go)
+    // MARK: - Manual nodes + node subscriptions
 
     static let manualGroupName = "手动节点"
     static let probeGroup = "TERN-PROBE"
@@ -682,9 +682,9 @@ enum NCRuntimeSteps {
         return changed
     }
 
-    // MARK: - Group edits (groupedits.go)
+    // MARK: - Group edits
 
-    /// groupedits.go splitTopLevel: top-level comma split, parts
+    /// groupedits splitTopLevel: top-level comma split, parts
     /// untrimmed (callers rejoin with ",").
     static func splitTopLevel(_ s: String) -> [String] {
         var out: [String] = []
@@ -941,9 +941,9 @@ enum NCRuntimeSteps {
         return out
     }
 
-    // MARK: - Own-policy providers + Tailscale (ownpolicy.go / tailscale.go)
+    // MARK: - Own-policy providers + Tailscale
 
-    /// bridge truthyAny (chain.go).
+    /// bridge truthyAny.
     static func truthy(_ v: NCJSONValue?) -> Bool {
         switch v {
         case .bool(let b): return b

@@ -66,6 +66,13 @@ final class NCDataPlane {
     private var tracedIn = 0
     private var tracedOut = 0
     private var packetsOut = 0
+    // selfreview-g2: output batch (on `queue`), handed to writePackets once per queue turn.
+    private var outBatch: [Data] = []
+    private var outFamilies: [NSNumber] = []
+    private var outFlushScheduled = false
+    static let outBatchMax = 64
+    static let familyV4 = NSNumber(value: AF_INET)
+    static let familyV6 = NSNumber(value: AF_INET6)
     private var dnsServfail = 0
     // fix/nc-ctrl-bsd: per-connection outcome counters (+15 / +60 s statsLine) and the rate-limited
     // per-connection lines in NativeLogRing (→ /logs, 诊断包 core-log.txt). On `queue`; read racily for the log line.
@@ -222,8 +229,21 @@ final class NCDataPlane {
                 self.tracedOut += 1
                 StartupLog.write("pkt out #\(self.tracedOut): \(NCPacketTrace.summary(packet, checksums: true))", mirror: false)
             }
-            let family: NSNumber = (packet[0] >> 4) == 6 ? NSNumber(value: AF_INET6) : NSNumber(value: AF_INET)
-            flow.writePackets([packet], withProtocols: [family])
+            // selfreview-g2: packets lwIP emits during one queue turn (the ACKs for a readPackets batch, the segments
+            // one drain writes) go to NEPacketTunnelFlow in ONE writePackets call at the end of the turn, instead of
+            // one call (two one-element arrays + an NSNumber) per packet. Flushed early at outBatchMax.
+            self.outBatch.append(packet)
+            self.outFamilies.append((packet[0] >> 4) == 6 ? Self.familyV6 : Self.familyV4)
+            if self.outBatch.count >= Self.outBatchMax {
+                self.flushOutput(flow)
+            } else if !self.outFlushScheduled {
+                self.outFlushScheduled = true
+                self.queue.async { [weak self] in
+                    guard let self else { return }
+                    self.outFlushScheduled = false
+                    if let flow = self.flow { self.flushOutput(flow) } else { self.outBatch = []; self.outFamilies = [] }
+                }
+            }
         }
         stack.onTCPAccept = { [weak self] conn in self?.accept(conn) ?? false }
         stack.onTCPData = { [weak self] conn, data in self?.tcpData(conn, data) }
@@ -272,6 +292,14 @@ final class NCDataPlane {
                        leeway: fast ? .milliseconds(25) : .seconds(1))
     }
 
+    /// On `queue`: one writePackets call for everything batched since the last flush.
+    private func flushOutput(_ flow: NEPacketTunnelFlow) {
+        guard !outBatch.isEmpty else { return }
+        flow.writePackets(outBatch, withProtocols: outFamilies)
+        outBatch.removeAll(keepingCapacity: true)
+        outFamilies.removeAll(keepingCapacity: true)
+    }
+
     func stop() {
         queue.sync {
             timer?.cancel()
@@ -291,6 +319,7 @@ final class NCDataPlane {
             // believing `alive` with device ids the next stack never had.
             NCWGStack.shared.teardownAll()
             stack.stop()
+            if let flow { flushOutput(flow) } // the RSTs the aborts above emitted still reach the apps
             isRunning = false
         }
         flow = nil

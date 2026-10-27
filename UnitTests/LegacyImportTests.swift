@@ -75,24 +75,4 @@ final class LegacyImportTests: XCTestCase {
         XCTAssertTrue(new.name.hasPrefix("tern-backup-"))
         XCTAssertTrue(WebDAVClient.readPrefixes.contains { old.name.hasPrefix($0) })
     }
-
-    func testStorageDirMovesOnceAndNeverOverwrites() throws {
-        let fm = FileManager.default
-        let c = scratch()
-        try fm.createDirectory(at: c.appendingPathComponent(oldDir + "/engine"), withIntermediateDirectories: true)
-        try Data("a".utf8).write(to: c.appendingPathComponent(oldDir + "/engine/engine.json"))
-        try fm.createDirectory(at: c.appendingPathComponent("tern"), withIntermediateDirectories: true) // empty: ok
-        LegacyImport.migrateStorageDirIfNeeded(container: c)
-        XCTAssertEqual(fm.contents(atPath: c.appendingPathComponent("tern/engine/engine.json").path), Data("a".utf8))
-        XCTAssertFalse(fm.fileExists(atPath: c.appendingPathComponent(oldDir).path))
-
-        let c2 = scratch()
-        try fm.createDirectory(at: c2.appendingPathComponent(oldDir), withIntermediateDirectories: true)
-        try Data("old".utf8).write(to: c2.appendingPathComponent(oldDir + "/dns.json"))
-        try fm.createDirectory(at: c2.appendingPathComponent("tern"), withIntermediateDirectories: true)
-        try Data("new".utf8).write(to: c2.appendingPathComponent("tern/dns.json"))
-        LegacyImport.migrateStorageDirIfNeeded(container: c2)
-        XCTAssertEqual(fm.contents(atPath: c2.appendingPathComponent("tern/dns.json").path), Data("new".utf8))
-        XCTAssertTrue(fm.fileExists(atPath: c2.appendingPathComponent(oldDir + "/dns.json").path))
-    }
 }

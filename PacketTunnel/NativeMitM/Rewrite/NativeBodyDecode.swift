@@ -67,7 +67,7 @@ enum NativeBodyDecode {
         var members = 0
         while true {
             if pos == b.count && members > 0 { return .decoded(Data(out)) }
-            // readHeader: 10 bytes (0 left after a member: io.EOF, clean)
+            // readHeader: 10 bytes (0 left after a member: end of input, clean)
             guard pos + 10 <= b.count else { return .unsupported("gzip header") }
             guard b[pos] == 0x1F, b[pos + 1] == 0x8B, b[pos + 2] == 8 else { return .unsupported("gzip header") }
             let flg = b[pos + 3]

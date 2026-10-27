@@ -14,7 +14,7 @@ import Foundation
 //   AddrPort    = family(1: 4 or 6) || ip(4 or 16) || port(2, big-endian)
 //
 // The AddrPort family-byte framing and the ping/pong/callMeMaybe layouts
-// follow disco.go as published; without a live peer in this environment
+// follow disco as published; without a live peer in this environment
 // the byte layout is implemented from the spec and flagged in the phase
 // report as not interop-verified.
 

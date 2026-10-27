@@ -3,8 +3,8 @@ import XCTest
 @testable import Tern
 
 /// feat/nc-brook: Brook wire vectors + link / support gates. The vectors come from a Python port of
-/// txthinking/brook's streamclient.go / streamserver.go / packetclient.go / packetserver.go /
-/// simplestreamclient.go (HKDF-SHA256 + AES-256-GCM via `cryptography`, the old core semantics byte for byte:
+/// txthinking/brook's streamclient / streamserver / packetclient / packetserver /
+/// simplestreamclient (HKDF-SHA256 + AES-256-GCM via `cryptography`, the old core semantics byte for byte:
 /// work/brook/vectors.py in the project workspace). sing-box has no brook server, so there is no loopback case.
 final class NativeCoreBrookTests: XCTestCase {
 

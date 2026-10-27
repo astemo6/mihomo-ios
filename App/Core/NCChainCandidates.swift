@@ -3,7 +3,7 @@ import Foundation
 /// B5 (nc-dego-rest): 前置代理 / 代理链 candidates and the group 前置代理 store in Swift — ports of
 /// the retired bridge + SetGroupChain and the retired bridge, plus
 /// the retired bridge. The runtime config is built with NCRuntimeBuilder (#112) and the loop check
-/// walks NCChainGraph (#112, the chain.go graph), so the candidate lists match what a connect would build.
+/// walks NCChainGraph (#112, the chain graph), so the candidate lists match what a connect would build.
 enum NCChainCandidates {
 
     /// bridge chainCandidate (JSON tags name / type / group — the views decode ChainCandidate from these).

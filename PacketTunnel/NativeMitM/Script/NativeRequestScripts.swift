@@ -1,7 +1,7 @@
 // Native MitM final integration — http-request scripts in Swift (switch `nativeMitmScript`, default OFF).
 //
 // The rewrite engine stops at a request-phase script it has no outcome for (NativeRewriteEngine.decide with a
-// RequestScriptState → RequestScriptPause). This runs that script the way the old core's requestPhase does (handler.go):
+// RequestScriptState → RequestScriptPause). This runs that script the way the old core's requestPhase does:
 //
 //   1. the script slot (NativeScriptReserve: the same slots / large-bundle lock / queue; a refusal is a skip with
 //      reserveFailed's note and log line);
@@ -97,7 +97,7 @@ final class NativeRequestScripts {
             }
             ticket = a.ticket ?? 0
             if p.contentLength == 0 {
-                bodyOK = true // http.NoBody
+                bodyOK = true // no body at all
                 body = Data()
                 state.bodyLoaded = true
                 return run(p, slot: slot)

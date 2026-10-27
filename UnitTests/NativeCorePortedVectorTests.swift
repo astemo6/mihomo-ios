@@ -20,7 +20,7 @@ final class NativeCorePortedRuleVectorTests: XCTestCase {
         return c
     }
 
-    /// confimport_test.go's canonical list (policies renamed to the groups
+    /// confimport_test's canonical list (policies renamed to the groups
     /// the fixture defined). DOMAIN-SET / GEOIP resolve through the
     /// context's injected lookups, as the engine wires them.
     func testConfImportRuleList() {

@@ -8,7 +8,7 @@ import Foundation
 // ModuleGallery's generic JSON reader handles it (lists → items, first tag → category, author names, the loon://
 // install link → the plugin URL); this file only names the source. The plugins are Loon .lpx files in Loon's
 // 3.5.1 expression syntax and go through the same generic Loon parser as every other module (bridge
-// mitm/loonv2.go); lines Tern cannot run show under 暂不支持 in the preview, as for any module.
+// mitm/loonv2); lines Tern cannot run show under 暂不支持 in the preview, as for any module.
 // hub.kelee.one / kelee.one answer browsers and unknown User-Agents with a Cloudflare challenge (HTTP 403);
 // the gallery, preview and resource downloads already send a proxy client's User-Agent ("Surge iOS/3000").
 

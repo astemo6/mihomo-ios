@@ -1,7 +1,7 @@
 import Foundation
 
 /// v2ray-plugin http-upgrade transport (Clash.Meta transport/v2ray-plugin +
-/// transport/vmess websocket.go httpUpgrade): the SAME GET as the websocket
+/// transport/vmess websocket httpUpgrade): the SAME GET as the websocket
 /// handshake but without the Sec-WebSocket-* headers; once the server answers
 /// 101 with `Upgrade: websocket`, the connection is a raw byte stream — no
 /// RFC 6455 framing at all. With fast-open the stream is handed out before
@@ -152,7 +152,7 @@ final class NCV2RayUpgradeStream: NCRelayStream {
 /// Shadowsocks stream-plugin transport (simple-obfs http/tls, v2ray-plugin
 /// websocket). Wraps a connected stream to the SS server so the WHOLE SS
 /// byte stream — request head included — rides inside the plugin, matching
-/// Clash.Meta's adapter/outbound/shadowsocks.go StreamConnContext, which wraps
+/// Clash.Meta's adapter/outbound/shadowsocks StreamConnContext, which wraps
 /// the raw conn with the plugin before the SS codec sees it. TCP only; SS
 /// UDP sessions never go through a plugin (Clash.Meta parity).
 ///
@@ -238,7 +238,7 @@ final class NCSSPluginStream: NCRelayStream {
             let sink: NCRelayStream? = (upgrade as NCRelayStream?) ?? (ws as NCRelayStream?)
             guard let sink else { once.call(); return }
             if opts.mux {
-                // Clash.Meta mux.go NewMux pre-fills the create frame; the first
+                // Clash.Meta mux NewMux pre-fills the create frame; the first
                 // Write flushes create + data together.
                 if first {
                     sink.send(NCSSPlugin.V2RayMux.createFrame() + NCSSPlugin.V2RayMux.dataFrame(payload: data), completion: once.call)

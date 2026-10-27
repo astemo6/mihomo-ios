@@ -166,7 +166,7 @@ struct NCRuntimeSettings {
         return try? JSONDecoder().decode(NCCoreSecrets.self, from: data)
     }
 
-    /// bridge ensureControllerSecret (secretguard.go): without an overrides.json
+    /// bridge ensureControllerSecret: without an overrides.json
     /// nothing is persisted and a per-process secret is used; otherwise a new
     /// random secret is written back into secrets.json (other keys kept, file
     /// 0600). Review R-5: the read-modify-write holds secrets.json's NCPathLock

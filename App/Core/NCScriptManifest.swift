@@ -23,7 +23,7 @@
 //
 //   2. Resource Management & Script Loading:
 //      - the old core behavior: the old core uses `e.res = NewResources(home, e)` and calls `e.res.Get(sc.Path, sc.UpdateInterval)` to read
-//        local script files from `<home>/engine/scripts/` or download remote scripts via the old core `net/http` to `<home>/engine/cache/<sha1>`.
+//        local script files from `<home>/engine/scripts/` or download remote scripts over HTTP to `<home>/engine/cache/<sha1>`.
 //      - Swift behavior: Reuses `NCResources` from `NCRewriteSnapshot.swift` (`res.get(path:maxAge:)`), which reads local
 //        files from `<home>/engine/scripts/` or retrieves pre-cached files from `<home>/engine/cache/<sha1>`, fetching
 //        via synchronous `URLSession` if absent. Interval overrides from `cfg.scriptResources` are honored.

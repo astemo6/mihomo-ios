@@ -1,7 +1,7 @@
 import Foundation
 
-// KCP ARQ protocol (Skywind3000 ikcp / metacubex/kcp-go parity) and Snappy framing (RFC / golang/snappy).
-// Reference: kcp-go/kcp.go, transport/kcptun/comp.go.
+// KCP ARQ protocol (Skywind3000 ikcp parity, as kcptun speaks it) and Snappy framing (Snappy framing format).
+// Reference: kcp-go/kcp, transport/kcptun comp.
 
 // MARK: - CRC32C (Castagnoli) for Snappy
 
@@ -462,19 +462,18 @@ final class NCKCP {
         guard !rcv_queue.isEmpty else { return nil }
         let recover = rcv_queue.count >= Int(rcv_wnd)
         var result = Data()
-        while !rcv_queue.isEmpty {
-            let seg = rcv_queue.removeFirst()
+        // selfreview-g2: one removeFirst(k) for the message instead of an O(n) removeFirst() per fragment.
+        var taken = 0
+        while taken < rcv_queue.count {
+            let seg = rcv_queue[taken]
+            taken += 1
             result.append(seg.data)
             if seg.frg == 0 { break }
         }
+        rcv_queue.removeFirst(taken)
 
-        // Move ready segments from rcv_buf to rcv_queue
-        rcv_buf.sort { $0.sn < $1.sn }
-        while !rcv_buf.isEmpty && rcv_buf[0].sn == rcv_nxt && rcv_queue.count < Int(rcv_wnd) {
-            let seg = rcv_buf.removeFirst()
-            rcv_queue.append(seg)
-            rcv_nxt &+= 1
-        }
+        // Move ready segments from rcv_buf (kept sorted by parseData) to rcv_queue
+        moveReadySegments()
         // ikcp_recv fast recover: the window was full and has reopened -> send IKCP_CMD_WINS on the next flush.
         if recover && rcv_queue.count < Int(rcv_wnd) { probe |= 2 }
         return result.isEmpty ? nil : result
@@ -610,15 +609,27 @@ final class NCKCP {
         if Int32(bitPattern: sn &- (rcv_nxt + rcv_wnd)) >= 0 || Int32(bitPattern: sn &- rcv_nxt) < 0 {
             return
         }
-        if !rcv_buf.contains(where: { $0.sn == sn }) {
-            rcv_buf.append(newseg)
-            rcv_buf.sort { $0.sn < $1.sn }
+        // selfreview-g2: sorted insert by distance from rcv_nxt (binary search; wrap-safe like ikcp's _itimediff)
+        // instead of contains + append + a full sort per data segment.
+        let key = Int32(bitPattern: sn &- rcv_nxt)
+        var lo = 0, hi = rcv_buf.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if Int32(bitPattern: rcv_buf[mid].sn &- rcv_nxt) < key { lo = mid + 1 } else { hi = mid }
         }
-        while !rcv_buf.isEmpty && rcv_buf[0].sn == rcv_nxt && rcv_queue.count < Int(rcv_wnd) {
-            let seg = rcv_buf.removeFirst()
-            rcv_queue.append(seg)
+        if lo == rcv_buf.count || rcv_buf[lo].sn != sn { rcv_buf.insert(newseg, at: lo) }
+        moveReadySegments()
+    }
+
+    /// ikcp: in-order segments at the head of rcv_buf move to rcv_queue while the receive window has room.
+    private func moveReadySegments() {
+        var k = 0
+        while k < rcv_buf.count && rcv_buf[k].sn == rcv_nxt && rcv_queue.count < Int(rcv_wnd) {
+            rcv_queue.append(rcv_buf[k])
             rcv_nxt &+= 1
+            k += 1
         }
+        if k > 0 { rcv_buf.removeFirst(k) }
     }
 
     private func updateRTT(rtt: Int32) {
@@ -721,8 +732,10 @@ final class NCKCP {
         var cwndVal = min(snd_wnd, rmt_wnd)
         if nocwnd == 0 { cwndVal = min(cwnd, cwndVal) }
 
-        while Int32(bitPattern: snd_nxt &- (snd_una &+ cwndVal)) < 0 && !snd_queue.isEmpty {
-            let seg = snd_queue.removeFirst()
+        var moved = 0 // selfreview-g2: one removeFirst(moved) after the loop (was an O(n) removeFirst() per segment)
+        while Int32(bitPattern: snd_nxt &- (snd_una &+ cwndVal)) < 0 && moved < snd_queue.count {
+            let seg = snd_queue[moved]
+            moved += 1
             seg.conv = conv
             seg.cmd = 81 // IKCP_CMD_PUSH
             seg.sn = snd_nxt
@@ -735,6 +748,7 @@ final class NCKCP {
             seg.resendts = current &+ seg.rto
             snd_buf.append(seg)
         }
+        if moved > 0 { snd_queue.removeFirst(moved) }
 
         // 4. Flush snd_buf (retransmit / new transmit)
         var change = false

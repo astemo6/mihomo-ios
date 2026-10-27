@@ -90,7 +90,7 @@ final class NCTLSClientStream: NCRelayStream {
     private var certsDER: [Data] = []
     private var certVerify: (scheme: UInt16, signature: Data)?
     private var handshakeHandler: ((Error?) -> Void)?
-    private var plaintextOut: [Data] = []
+    private var plaintextOut: NCDeque<Data> = [] // F13: O(1) pops
     private var plaintextBytes = 0
     private var pendingReceive: ((Data?, Error?) -> Void)?
 
@@ -120,7 +120,7 @@ final class NCTLSClientStream: NCRelayStream {
     // detached and raw socket bytes are forwarded verbatim.
     private var spliced = false
     private var splicePending: ((Data?, Error?) -> Void)?
-    private var spliceOverflow: [Data] = []
+    private var spliceOverflow: NCDeque<Data> = [] // F13
     private var spliceBytes = 0
 
     /// ALPN the server selected (EncryptedExtensions in 1.3, ServerHello in 1.2); nil when it sent none.
@@ -1260,7 +1260,7 @@ final class NCTLSClientStream: NCRelayStream {
     /// Detach from the record layer (XTLS Vision commandDirect): returns the
     /// decrypted-but-unconsumed plaintext chunks and the unparsed raw tail —
     /// bytes past the last complete record, which after a splice are inner
-    /// plaintext (mirrors the old core tls.Conn's rawInput drain). From now on, raw
+    /// plaintext (mirrors the reference TLS connection's buffered-input drain). From now on, raw
     /// socket bytes are delivered verbatim through `receiveSpliced`.
     func spliceOut() -> (plaintext: [Data], rawTail: Data) {
         spliced = true
@@ -1270,7 +1270,7 @@ final class NCTLSClientStream: NCRelayStream {
         let tail = readOffset >= readBuffer.count ? Data() : Data(readBuffer[(readBuffer.startIndex + readOffset)...])
         readBuffer = Data()
         readOffset = 0
-        return (plain, tail)
+        return (Array(plain), tail)
     }
 
     /// One-shot verbatim receive for post-splice raw bytes.

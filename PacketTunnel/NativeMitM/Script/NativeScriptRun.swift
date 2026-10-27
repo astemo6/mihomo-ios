@@ -206,7 +206,7 @@ final class NativeScriptRun: JSCRun {
             return String(addBlob(Data(arg.utf8), temp: true))
         case "text":
             guard let id = Int64(arg), let d = useBlob(id) else { return "" }
-            return d.withUnsafeBytes { JSCScriptEngine.goText($0) }
+            return d.withUnsafeBytes { JSCScriptEngine.lenientUTF8Text($0) }
         case "http":
             startFetch(arg)
             return ""
@@ -489,14 +489,14 @@ final class NativeScriptRun: JSCRun {
                 let f = s.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" || $0 == "\u{0B}" || $0 == "\u{0C}" })
                 if f.count >= 2 { s = String(f[1]) }
             }
-            return goAtoi(s) ?? 0
+            return parseDecimalInt(s) ?? 0
         default:
             return 0
         }
     }
 
-    /// strconv.Atoi (optional sign, decimal digits, no spaces).
-    static func goAtoi(_ s: String) -> Int? {
+    /// decimal integer parse (optional sign, decimal digits, no spaces).
+    static func parseDecimalInt(_ s: String) -> Int? {
         var b = Substring(s)
         var neg = false
         if let f = b.first, f == "+" || f == "-" { neg = f == "-"; b = b.dropFirst() }
@@ -617,17 +617,17 @@ final class NativeScriptRun: JSCRun {
             var k = j
             while k < b.count && !isStop(b[k]) { k += 1 }
             if k > j && k < b.count && b[k] == UInt8(ascii: "=") {
-                out.append(goTrimSpace(b[start..<i]))
+                out.append(asciiTrimSpace(b[start..<i]))
                 start = j
             }
             i += 1
         }
-        out.append(goTrimSpace(b[start..<b.count]))
+        out.append(asciiTrimSpace(b[start..<b.count]))
         return out
     }
 
-    /// strings.TrimSpace on bytes (ASCII white space; the values here are header values).
-    static func goTrimSpace(_ s: ArraySlice<UInt8>) -> String {
+    /// whitespace trim on bytes (ASCII white space; the values here are header values).
+    static func asciiTrimSpace(_ s: ArraySlice<UInt8>) -> String {
         var lo = s.startIndex, hi = s.endIndex
         func ws(_ c: UInt8) -> Bool { c == 0x20 || (c >= 0x09 && c <= 0x0D) }
         while lo < hi && ws(s[lo]) { lo += 1 }

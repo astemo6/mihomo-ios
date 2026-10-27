@@ -6,7 +6,7 @@
 // second "NativeMitm" dir would silently merge into it). Lane subdirs: TLS/, HTTP/, Upstream/.
 //
 // Shape of one MitM connection (NativeMitmSession.swift):
-//   old engine (nativeterm.go) peeks ClientHello → MitmTLSFronting.listen(host, alpn) → loopback port
+//   old engine peeks ClientHello → MitmTLSFronting.listen(host, alpn) → loopback port
 //   → TLS lane terminates TLS, hands a decrypted ByteStream to acceptHandler
 //   → NativeMitmSession: HTTP lane parses heads/bodies, MitmFlowDriving asks the old core for every decision
 //     (rewrite / reject / redirect / map local / scripts / body lane all stay in the old core), upstream lane carries bytes

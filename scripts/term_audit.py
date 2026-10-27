@@ -16,6 +16,11 @@ repository URL, the subscription User-Agent option value (servers pick the forma
 retired core framework is not bundled — or the file is the one legacy-import spot (App/Core/LegacyImport.swift, which
 reads backups written by the pre-rename app) or this script.
 
+Path check (selfreview-g2, user 2026-10-27 「不要有mihomo路径」): a "mihomo/" path in any spelling fails in ANY tracked text
+file — even on an allow-listed line — except App/Core/LegacyImport.swift (which rewrites the entry paths of old backups
+to tern/ while decoding them) and this script. No directory on disk is named after the old app. Upstream URLs
+(…/MetaCubeX/mihomo/…) are not paths of ours and are allowed.
+
 Usage: scripts/term_audit.py [-q]
 """
 import glob, json, os, plistlib, re, sys
@@ -44,6 +49,8 @@ BRAND_OK = re.compile(r"MetaCubeX|General Public License|GPL|astemo6+/mihomo-ios
 # Repository-wide rename check (any tracked text file, code, comments and docs alike).
 REPO_BRAND = re.compile(r"mihomo", re.I)
 REPO_OK_FILES = {"App/Core/LegacyImport.swift", "scripts/term_audit.py"}
+# "mihomo/" as a path segment of ours (not Libmihomo/…, not mihomo-ios/…, not the upstream MetaCubeX/mihomo URL).
+PATH_BRAND = re.compile(r"(?<!MetaCubeX/)(?<![\w-])mihomo/", re.I)
 REPO_OK_LINE = re.compile(r"MetaCubeX|General Public License|\bGPL\b|astemo6+/mihomo-ios|SubscriptionUA|metaCore")
 # The IPA guards (retired core framework must not be bundled) keep the framework name, in these files only.
 REPO_OK_GUARD = {".github/workflows/ios.yml": re.compile(r"Libmihomo"), "scripts/ipa_size.py": re.compile(r"Libmihomo")}
@@ -109,7 +116,9 @@ def repo_hits():
             continue
         guard = REPO_OK_GUARD.get(rel)
         for n, line in enumerate(text.split("\n"), 1):
-            if REPO_BRAND.search(line) and not REPO_OK_LINE.search(line) and not (guard and guard.search(line)):
+            if PATH_BRAND.search(line):
+                hits.append((f"{rel}:{n} (old storage path)", line.strip()))
+            elif REPO_BRAND.search(line) and not REPO_OK_LINE.search(line) and not (guard and guard.search(line)):
                 hits.append((f"{rel}:{n}", line.strip()))
     return hits
 

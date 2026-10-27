@@ -246,7 +246,7 @@ enum NCMitmBuild {
                 }
                 let sub = NCEngineRuleset()
                 sub.parseText(moduleText(data), source: m.name, args: m.args ?? [:])
-                // mitm config.go Build: a module's skip-cert-verify=true
+                // mitm config Build: a module's skip-cert-verify=true
                 // propagates to the built ruleset (false never clears).
                 if sub.skipCertVerify == true { rs.skipCertVerify = true }
                 rs.rules.append(contentsOf: sub.rules)
@@ -326,9 +326,9 @@ enum NCMitmBuild {
             guard r.kind == "script", let sc = r.script else { return true }
             return scriptAllowed(cfg, path: sc.path) { _ in }
         }
-        // mitm config.go scriptAllowed mutates tasks too: a resource
+        // mitm config scriptAllowed mutates tasks too: a resource
         // interval override lands on the task's script before filtering
-        // (resources.go refreshes tasks by tk.Script.UpdateInterval).
+        // (resources refreshes tasks by tk.Script.UpdateInterval).
         for i in rs.tasks.indices {
             let key = rs.tasks[i].script?.path ?? rs.tasks[i].path
             if !key.isEmpty, let r = resources[key], r.interval > 0 {

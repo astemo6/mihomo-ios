@@ -1,7 +1,7 @@
 import XCTest
 @testable import Tern
 
-/// QUIC SNI sniffing (packet built independently with the old core x/crypto per
+/// QUIC SNI sniffing (packet built independently with an independent implementation per
 /// RFC 9001; intermediate keys cross-checked against RFC 9001 App. A),
 /// fake-IP v6, redir-host map, and ICMP echo replies.
 final class NativeCoreQUICFIPTests: XCTestCase {

@@ -192,7 +192,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     }
 
     /// A native script flow (lane s3-script). Its request-log "forward" is written only when the response is
-    /// handled natively; a response handed back to the old core gets a old flow (goID) and the old core writes the whole entry.
+    /// handled natively; a response handed back to the old core gets a old flow (innerFlowID) and the old core writes the whole entry.
     final class ScriptFlow {
         let plan: RewriteDecision.ResponsePlan
         let engine: NativeRewriteEngine
@@ -202,7 +202,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         let wall: Double
         let t0: UInt64
         var response: NativeScriptResponse?
-        var goID: Int64 = 0
+        var innerFlowID: Int64 = 0
         /// native-final: request scripts that ran natively (FlowHead.Scripted for a hand-back) and the client body
         /// Swift read for them (pushed to the old core if its request phase loads it again).
         var scripted: [[String: Any]] = []
@@ -230,7 +230,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         var respLength: Int64 = -1
         var respIn = Data()                // the upstream's response body as pushed
         var respOut = Data(), respOff = 0  // the rewritten response body (read .response)
-        var goID: Int64 = 0                // adopted: the old flow
+        var innerFlowID: Int64 = 0                // adopted: the old flow
         var pending: [Data] = []           // adopted: body pieces the old core has not taken yet ("more")
         var pendingWhich = FlowBodyWhich.response
         var pendingClose = false
@@ -504,7 +504,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             }
         }
         if let sf = scriptFlow(id) {
-            if sf.goID != 0 { return relabel(inner.await(sf.goID), id) }
+            if sf.innerFlowID != 0 { return relabel(inner.await(sf.innerFlowID), id) }
             guard let r = sf.response else { return FlowDecision(id: id, action: .error, note: "native script flow has no response") }
             if sf.closedWithError {
                 r.end()
@@ -521,7 +521,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         guard let bf = bodyFlow(id) else { return FlowDecision(id: id, action: .error, note: "native flow has no pending decision") }
         switch bf.stage {
         case .adopted:
-            return mapped(id, inner.await(bf.goID))
+            return mapped(id, inner.await(bf.innerFlowID))
         case .requestBody:
             guard let plan = bf.fwd.requestBody else { return FlowDecision(id: id, action: .error, note: "no request body plan") }
             switch NativeBodyExec.request(plan, body: bf.reqIn) {
@@ -592,7 +592,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         let chunk = 32 << 10
         while off < data.count {
             let piece = data.subdata(in: off..<min(off + chunk, data.count))
-            switch inner.write(bf.goID, which, piece) {
+            switch inner.write(bf.innerFlowID, which, piece) {
             case .taken:
                 off += piece.count
             case .stop:
@@ -609,7 +609,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
                 return false
             }
         }
-        if close { inner.closeBody(bf.goID, which, error: "") }
+        if close { inner.closeBody(bf.innerFlowID, which, error: "") }
         return true
     }
 
@@ -617,12 +617,12 @@ final class NativeRewriteDriver: MitmFlowDriving {
     private func adoptRequest(_ id: Int64, _ bf: BodyFlow, why: String) -> FlowDecision {
         adopted(why)
         var d = inner.requestPhase(head: bf.head, conn: bf.conn)
-        bf.goID = d.id
+        bf.innerFlowID = d.id
         bf.stage = .adopted
         bf.firstEvent = nil
         if d.action == .needBody {
             guard push(bf, .request, bf.reqIn, close: true) else { return FlowDecision(id: id, action: .error, note: "go flow gone") }
-            d = inner.await(bf.goID)
+            d = inner.await(bf.innerFlowID)
         }
         return mapped(id, d)
     }
@@ -634,29 +634,29 @@ final class NativeRewriteDriver: MitmFlowDriving {
         bf.firstEvent = nil
         bf.stage = .adopted
         var d = inner.requestPhase(head: bf.head, conn: bf.conn)
-        bf.goID = d.id
+        bf.innerFlowID = d.id
         if d.action == .needBody {
             guard push(bf, .request, bf.reqIn, close: true) else { return FlowDecision(id: id, action: .error, note: "go flow gone") }
-            d = inner.await(bf.goID)
+            d = inner.await(bf.innerFlowID)
             // whatever the old core would send upstream was already sent by Swift: drop its request body
             if d.action == .forward && d.body == .read {
                 for _ in 0..<10000 {
-                    if inner.read(bf.goID, .request, max: 128 << 10).isEmpty {
-                        if inner.readState(bf.goID, .request) != .again { break }
+                    if inner.read(bf.innerFlowID, .request, max: 128 << 10).isEmpty {
+                        if inner.readState(bf.innerFlowID, .request) != .again { break }
                     }
                 }
             }
         }
         guard d.action == .forward, let h = bf.respHead else {
-            inner.cancel(bf.goID, why: "native adopt: request phase changed")
+            inner.cancel(bf.innerFlowID, why: "native adopt: request phase changed")
             bf.stage = .failed
             return FlowDecision(id: id, action: .error, note: "adopt: inner driver answered \(d.action.rawValue)")
         }
-        var r = inner.responsePhase(bf.goID, head: h, length: bf.respLength)
+        var r = inner.responsePhase(bf.innerFlowID, head: h, length: bf.respLength)
         if !buffered { return mapped(id, r) }
         if r.action == .needBody {
             guard push(bf, .response, bf.respIn, close: true) else { return FlowDecision(id: id, action: .error, note: "go flow gone") }
-            r = inner.await(bf.goID)
+            r = inner.await(bf.innerFlowID)
         }
         if r.action == .respond && r.body == .upstream {
             // the old core would relay the upstream's body untouched — Swift already read it: serve those bytes
@@ -681,7 +681,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     private func bodyResponse(_ id: Int64, _ bf: BodyFlow, head: HTTPResponseHead, length: Int64) -> FlowDecision {
         switch bf.stage {
         case .adopted:
-            return mapped(id, inner.responsePhase(bf.goID, head: head, length: length))
+            return mapped(id, inner.responsePhase(bf.innerFlowID, head: head, length: length))
         case .forwarded:
             break
         default:
@@ -730,13 +730,13 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if let g = relayID(id) { return inner.write(g, which, data) }
         if let rf = reqScriptFlow(id) { return which == .request ? rf.rs.write(data) : .stop }
         if let sf = scriptFlow(id) {
-            if sf.goID != 0 { return inner.write(sf.goID, which, data) }
+            if sf.innerFlowID != 0 { return inner.write(sf.innerFlowID, which, data) }
             guard which == .response, let r = sf.response else { return .stop }
             return r.write(data)
         }
         guard let bf = bodyFlow(id) else { return .stop }
         switch (bf.stage, which) {
-        case (.adopted, _): return inner.write(bf.goID, which, data)
+        case (.adopted, _): return inner.write(bf.innerFlowID, which, data)
         case (.requestBody, .request):
             if bf.reqIn.count + data.count > NativeBodyRuntime.maxBody + 1 { return .stop }
             bf.reqIn.append(data)
@@ -754,12 +754,12 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if let g = relayID(id) { inner.closeBody(g, which, error: error); return }
         if let rf = reqScriptFlow(id) { if !error.isEmpty { rf.rs.pushError() }; return }
         if let sf = scriptFlow(id) {
-            if sf.goID != 0 { inner.closeBody(sf.goID, which, error: error); return }
+            if sf.innerFlowID != 0 { inner.closeBody(sf.innerFlowID, which, error: error); return }
             if !error.isEmpty { sf.closedWithError = true }
             return
         }
         guard let bf = bodyFlow(id) else { return }
-        if bf.stage == .adopted { inner.closeBody(bf.goID, which, error: error); return }
+        if bf.stage == .adopted { inner.closeBody(bf.innerFlowID, which, error: error); return }
         if !error.isEmpty && (bf.stage == .requestBody || bf.stage == .responseBody) { bf.stage = .failed }
     }
 
@@ -772,9 +772,9 @@ final class NativeRewriteDriver: MitmFlowDriving {
             return raw.subdata(in: bf.rawOff..<(bf.rawOff + n))
         }
         for _ in 0..<64 {
-            let d = inner.read(bf.goID, which, max: max)
+            let d = inner.read(bf.innerFlowID, which, max: max)
             if !d.isEmpty { return d }
-            guard inner.readState(bf.goID, which) == .more, feedPending(bf, which) else { return d }
+            guard inner.readState(bf.innerFlowID, which) == .more, feedPending(bf, which) else { return d }
         }
         return Data()
     }
@@ -783,7 +783,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     private func feedPending(_ bf: BodyFlow, _ which: FlowBodyWhich) -> Bool {
         guard bf.pendingWhich == which else { return false }
         if let next = bf.pending.first {
-            switch inner.write(bf.goID, which, next) {
+            switch inner.write(bf.innerFlowID, which, next) {
             case .taken: bf.pending.removeFirst()
             case .full: break
             case .stop, .gone: bf.pending.removeAll(); bf.pendingClose = false; return false
@@ -792,7 +792,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         }
         if bf.pendingClose {
             bf.pendingClose = false
-            inner.closeBody(bf.goID, which, error: "")
+            inner.closeBody(bf.innerFlowID, which, error: "")
             return true
         }
         return false
@@ -803,7 +803,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if which == .request, let b = servedRequestBody(id, max: max) { return b }
         if let g = relayID(id) { return inner.read(g, which, max: max) }
         if let sf = scriptFlow(id) {
-            if sf.goID != 0 { return inner.read(sf.goID, which, max: max) }
+            if sf.innerFlowID != 0 { return inner.read(sf.innerFlowID, which, max: max) }
             guard which == .response else { return Data() }
             lock.lock(); defer { lock.unlock() }
             let n = Swift.min(Swift.max(max, 1), sf.out.count - sf.offset)
@@ -853,14 +853,14 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if which == .request, hasServedRequestBody(id) { return .eof }
         if let g = relayID(id) { return inner.readState(g, which) }
         if let sf = scriptFlow(id) {
-            if sf.goID != 0 { return inner.readState(sf.goID, which) }
+            if sf.innerFlowID != 0 { return inner.readState(sf.innerFlowID, which) }
             return which == .response ? .eof : .failed("err: no body to read")
         }
         if let bf = bodyFlow(id) {
             switch bf.stage {
             case .adopted:
                 if which == .response, bf.rawServe != nil { return .eof }
-                let st = inner.readState(bf.goID, which)
+                let st = inner.readState(bf.innerFlowID, which)
                 if st == .more && feedPending(bf, which) { return .again }
                 return st
             case .forwarded, .responseBody, .responded: return .eof
@@ -879,7 +879,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if id >= 0 { return inner.upstreamFailed(id, why: why) }
         if let g = relayID(id) { return inner.upstreamFailed(g, why: why) }
         if let sf = scriptFlow(id) {
-            if sf.goID != 0 { return inner.upstreamFailed(sf.goID, why: why) }
+            if sf.innerFlowID != 0 { return inner.upstreamFailed(sf.innerFlowID, why: why) }
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
             sf.response?.end()
             // the deferred forward record first (the old core wrote it at FlowBegin), then the failure
@@ -889,7 +889,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
             return
         }
         if let bf = bodyFlow(id) {
-            if bf.stage == .adopted { return inner.upstreamFailed(bf.goID, why: why) }
+            if bf.stage == .adopted { return inner.upstreamFailed(bf.innerFlowID, why: why) }
             commitFirst(id, bf) // Swift forwarded it: the entry is native
         }
         emit(id, last: true) { c in NativeRequestEvent(k: c.key, ev: "upstream", ms: Self.ms(since: c.start), why: why) }
@@ -903,7 +903,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if let sf = scriptFlow(id) {
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
             sf.response?.end()
-            if sf.goID != 0 { return inner.end(sf.goID, sent: sent, error: error) }
+            if sf.innerFlowID != 0 { return inner.end(sf.innerFlowID, sent: sent, error: error) }
             if !hasLog(id) {
                 // ended before its native response was recorded: the forward record, then the end
                 if let key = emitFirst("forward", sf.log, engine: sf.engine, wall: sf.wall, t0: sf.t0) {
@@ -914,7 +914,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         }
         if let bf = bodyFlow(id) {
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
-            if bf.stage == .adopted || bf.stage == .failed && bf.goID != 0 { return inner.end(bf.goID, sent: sent, error: error) }
+            if bf.stage == .adopted || bf.stage == .failed && bf.innerFlowID != 0 { return inner.end(bf.innerFlowID, sent: sent, error: error) }
             commitFirst(id, bf)
         }
         lock.lock(); flows.removeValue(forKey: id); lock.unlock()
@@ -932,7 +932,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         if let sf = scriptFlow(id) {
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
             sf.response?.end()
-            if sf.goID != 0 { return inner.cancel(sf.goID, why: why) }
+            if sf.innerFlowID != 0 { return inner.cancel(sf.innerFlowID, why: why) }
             if !hasLog(id) {
                 // cancelled before its native response was recorded: the forward record, then the cancel
                 if let key = emitFirst("forward", sf.log, engine: sf.engine, wall: sf.wall, t0: sf.t0) {
@@ -943,7 +943,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         }
         if let bf = bodyFlow(id) {
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
-            if bf.stage == .adopted || bf.stage == .failed && bf.goID != 0 { return inner.cancel(bf.goID, why: why) }
+            if bf.stage == .adopted || bf.stage == .failed && bf.innerFlowID != 0 { return inner.cancel(bf.innerFlowID, why: why) }
             commitFirst(id, bf)
         }
         lock.lock(); flows.removeValue(forKey: id); lock.unlock()
@@ -1009,12 +1009,12 @@ final class NativeRewriteDriver: MitmFlowDriving {
     /// decides the same forward), then FlowResponse with the upstream's head. Every later call for id goes to it.
     private func handBack(_ id: Int64, _ sf: ScriptFlow, head: HTTPResponseHead, length: Int64, why: String) -> FlowDecision {
         countScript(handedBack: why)
-        let d = goBegin(sf.head, sf.conn, gen: sf.engine.generation, scripted: sf.scripted, clientBody: sf.clientBody, alreadySent: true)
+        let d = innerBegin(sf.head, sf.conn, gen: sf.engine.generation, scripted: sf.scripted, clientBody: sf.clientBody, alreadySent: true)
         guard d.action == .forward, d.id > 0 else {
             if d.id > 0 { inner.cancel(d.id, why: "native hand-back") }
             return FlowDecision(id: id, action: .error, note: "hand-back: inner driver answered \(d.action) (\(d.note ?? ""))")
         }
-        sf.goID = d.id
+        sf.innerFlowID = d.id
         return relabel(inner.responsePhase(d.id, head: head, length: length), id)
     }
 
@@ -1198,7 +1198,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         let held = rs.clientBytes
         let scripted = rs.scriptedForGo
         rs.end()
-        var d = goBegin(rf.head, rf.conn, gen: rf.engine.generation, scripted: scripted, clientBody: held, alreadySent: false)
+        var d = innerBegin(rf.head, rf.conn, gen: rf.engine.generation, scripted: scripted, clientBody: held, alreadySent: false)
         // the old core forwards the client body untouched but Swift holds it: serve those bytes
         var serve: Data?
         if d.action == .forward, d.body == .client, let b = held {
@@ -1222,7 +1222,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     /// MitmFlowBegin with FlowHead.Scripted; a request phase that loads the body again gets the bytes Swift holds.
     /// alreadySent: Swift already sent the request upstream (a response hand-back) — whatever request body the old core would
     /// send is drained.
-    private func goBegin(_ head: HTTPRequestHead, _ conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]], clientBody: Data?,
+    private func innerBegin(_ head: HTTPRequestHead, _ conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]], clientBody: Data?,
                          alreadySent: Bool) -> FlowDecision {
         guard !scripted.isEmpty, let starter = inner as? MitmScriptedFlowStarting else { return inner.requestPhase(head: head, conn: conn) }
         var d = starter.requestPhase(head: head, conn: conn, gen: gen, scripted: scripted)

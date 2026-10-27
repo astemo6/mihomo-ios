@@ -8,7 +8,7 @@ import Foundation
 // NCH3ProxySession.swift (h3, one QUIC connection, a bidi stream per flow).
 //
 // Wire references: klzgrad/naiveproxy (src/net/tools/naive/naive_protocol.h, naive_proxy_delegate.cc,
-// naive_connection.cc) and sing-box protocol/naive (inbound.go / inbound_conn.go: padding header,
+// naive_connection.cc) and sing-box protocol/naive (inbound / inbound_conn: padding header,
 // paddingCount = 8, [u16 len][u8 padSize][payload][padSize bytes]).
 
 /// Which carrier and which tunnel flavour a node uses.

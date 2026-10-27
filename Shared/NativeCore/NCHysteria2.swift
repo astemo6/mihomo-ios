@@ -167,7 +167,7 @@ enum NCHy2 {
     }
 
     /// QPACK static table, complete (RFC 9204 Appendix A, indices 0...98 —
-    /// generated from quic-go/qpack static_table.go). The table used to be a
+    /// generated from quic-go/qpack static_table). The table used to be a
     /// partial list with entries 2-14 missing, so every index past 1 was off
     /// (":method POST" was sent as 7 = "etag", ":scheme https" as 10).
     static let qpackStaticTable: [(name: String, value: String)] = [
@@ -1200,7 +1200,7 @@ final class NCHysteria2TCPStream: NCRelayStream {
     private var phase: Phase = .handshaking
     private var responseBuffer = Data()
     private var outbox = Data()
-    private var inbox: [Data] = []
+    private var inbox: NCDeque<Data> = [] // F13
     private var inboxBytes = 0
     private var pendingReceive: ((Data?, Error?) -> Void)?
     private var failure: Error?

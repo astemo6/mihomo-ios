@@ -1,7 +1,6 @@
 import Foundation
 
-/// Structured model for node ECH options (`ech-opts`), aligned with Clash.Meta's `ECHOptions`
-/// (adapter/outbound/ech.go).
+/// Structured model for node ECH options (`ech-opts`), aligned with Clash.Meta's `ECHOptions` (adapter/outbound ech).
 ///
 /// Sub-fields:
 /// - `enable`: whether ECH is enabled.

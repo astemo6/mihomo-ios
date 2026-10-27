@@ -348,7 +348,7 @@ enum NCTailscaleControlFraming {
     /// Strips the optional ts2021 "early payload" (`\xff\xff\xffTS` + 4-byte big-endian length) if present
     /// at the start of the decrypted stream before HTTP/2 framing begins.
     ///
-    /// Reference: `tailscale.com/control/ts2021/conn.go` `EarlyPayloadMagic = "\xff\xff\xffTS"`.
+    /// Reference: `tailscale.com/control/ts2021/conn` `EarlyPayloadMagic = "\xff\xff\xffTS"`.
     static func filterEarlyPayload(from streamData: inout Data, checked: inout Bool) -> Data? {
         if checked { return nil }
 

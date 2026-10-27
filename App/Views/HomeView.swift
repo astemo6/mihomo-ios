@@ -9,6 +9,7 @@ struct HomeView: View {
     @State private var mode = DashboardModel.shared.mode
     @State private var liveGroups = DashboardModel.shared.homeGroups
     @State private var liveAvailable = DashboardModel.shared.availableGroups
+    @State private var liveRead = DashboardModel.shared.liveRead
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var homeGroups = HomeGroupsStore.shared
     /// r7 P2-1: the 编辑首页面板 / 编辑首页策略 sheets live here. A card that opened one is often removed by the edit
@@ -43,6 +44,12 @@ struct HomeView: View {
 
     var disconnected: Bool { vpn.status == .disconnected || vpn.status == .invalid }
 
+    /// F10: the reason the first live /proxies read failed / timed out (nil while pending or loaded).
+    var liveReadError: String? {
+        if case .failed(let why) = liveRead { return why }
+        return nil
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -51,6 +58,10 @@ struct HomeView: View {
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
                     if vpn.isConnected && !liveGroups.isEmpty {
                         HomePolicySection(groups: liveGroups, live: true, available: liveAvailable)
+                    } else if vpn.isConnected, let why = liveReadError {
+                        // selfreview-g2 (F10): the first live read failed / timed out — say so instead of keeping
+                        // the offline placeholder on screen for the whole session.
+                        HomeLiveReadErrorCard(message: why)
                     } else if !offlineCards.isEmpty {
                         // fix/app-toggle-hitch: also while connecting — the policy section used to vanish for the
                         // whole connect and pop back when connected (a layout jump right after the tap).
@@ -118,6 +129,7 @@ struct HomeView: View {
                 }
             }
             .onReceive(DashboardModel.shared.$availableGroups.removeDuplicates()) { if $0 != liveAvailable { liveAvailable = $0 } }
+            .onReceive(DashboardModel.shared.$liveRead.removeDuplicates()) { if $0 != liveRead { liveRead = $0 } }
             .sheet(item: $editor.sheet) { which in
                 switch which {
                 case .panels: HomePanelsEditor().environmentObject(vpn).environmentObject(store)
@@ -216,6 +228,41 @@ struct ModeCard: View {
         .frame(minHeight: 44)
         .egernCard()
         .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in if mode != m { mode = m } }
+    }
+}
+
+/// selfreview-g2 (F10): Home's policy section when the first live /proxies read of a connection failed or timed out.
+struct HomeLiveReadErrorCard: View {
+    let message: String
+    @State private var retrying = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("无法读取策略组")
+                if !message.isEmpty {
+                    Text(verbatim: message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            Spacer(minLength: 8)
+            Button {
+                retrying = true
+                Task {
+                    await DashboardModel.shared.refreshSelectedNode()
+                    retrying = false
+                }
+            } label: {
+                if retrying { ProgressView() } else { Text("重试") }
+            }
+            .disabled(retrying)
+            .accessibilityIdentifier("home.policy.retry")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(minHeight: 44)
+        .egernCard()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("home.policy.error")
     }
 }
 

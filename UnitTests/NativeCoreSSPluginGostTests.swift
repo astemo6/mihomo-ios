@@ -1,9 +1,9 @@
 import XCTest
 @testable import Tern
 
-/// feat/nc-ss-plugins2: Shadowsocks gost-plugin (Clash.Meta v1.19.33 adapter/outbound/shadowsocks.go
-/// gostObfsOption + transport/gost/websocket.go NewGostWebsocket) and the kcptun gate.
-/// Expected wire bytes come from the smux v1 frame layout (metacubex/smux frame.go: ver | cmd | LE16 len |
+/// feat/nc-ss-plugins2: Shadowsocks gost-plugin (Clash.Meta v1.19.33 adapter/outbound/shadowsocks
+/// gostObfsOption + transport/gost/websocket NewGostWebsocket) and the kcptun gate.
+/// Expected wire bytes come from the smux v1 frame layout (metacubex/smux frame: ver | cmd | LE16 len |
 /// LE32 sid) and smux's client stream numbering (nextStreamID starts at 1, OpenStream adds 2 → 3), never
 /// from the Swift implementation under test.
 final class NativeCoreSSPluginGostTests: XCTestCase {

@@ -1,7 +1,7 @@
 import Foundation
 
 /// VLESS flow `xtls-rprx-vision` — pure-logic port of Clash.Meta's
-/// transport/vless/vision (padding.go / conn.go / filter.go).
+/// transport/vless/vision.
 ///
 /// The stream is reframed into padding frames:
 ///   [16B UUID — first frame only][1B command][u16be contentLen]
@@ -73,7 +73,7 @@ enum NCVisionError: Error, Equatable, LocalizedError {
     }
 }
 
-/// Port of filter.go's FilterTLS: watches the first few buffers of the
+/// Port of filter's FilterTLS: watches the first few buffers of the
 /// plaintext flow and classifies it (TLS? TLS 1.2+ ServerHello seen? TLS 1.3
 /// with an XTLS-capable cipher?). One instance per direction; a caller that
 /// wants Clash.Meta's exact shared-state behavior may share one instance
@@ -144,7 +144,7 @@ final class NCVisionFilter {
     }
 }
 
-/// Port of conn.go's WriteBuffer: frames outgoing plaintext (the first
+/// Port of conn's WriteBuffer: frames outgoing plaintext (the first
 /// chunk carries the VLESS request head) until the filter decides the flow
 /// can continue unframed (end) or spliced (direct).
 final class NCVisionWriter {
@@ -202,7 +202,7 @@ final class NCVisionWriter {
         return out
     }
 
-    /// padding.go's ApplyPadding. Padding bytes are zeros (the reader
+    /// padding's ApplyPadding. Padding bytes are zeros (the reader
     /// discards them unread, matching the old core semantics).
     private func applyPadding(content: [UInt8], command: UInt8, paddingTLS: Bool) -> [UInt8] {
         let contentLen = content.count
@@ -230,7 +230,7 @@ final class NCVisionWriter {
         return out
     }
 
-    /// padding.go's ReshapeBuffer: split chunks >= 8192-21 at the last TLS
+    /// padding's ReshapeBuffer: split chunks >= 8192-21 at the last TLS
     /// application-data record start (must land in (21, limit], else halve).
     private static func reshape(_ chunk: [UInt8]) -> [[UInt8]] {
         let limit = NCVision.bufferSize - NCVision.paddingHeaderLength
@@ -250,7 +250,7 @@ final class NCVisionWriter {
     }
 }
 
-/// Port of conn.go's ReadBuffer: parses padding frames out of the incoming
+/// Port of conn's ReadBuffer: parses padding frames out of the incoming
 /// stream and yields plaintext. After an end/direct frame's content is
 /// delivered, everything else passes through raw.
 struct NCVisionReader {

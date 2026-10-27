@@ -4,7 +4,7 @@ import UserNotifications
 import Darwin
 
 /// Posts local notifications for scripts ($notification.post / $notify) and, feat/loon-menu-notify, for the core's
-/// policy watcher events (policywatch.go), each behind its 更多 → 通知 switch. feat/native-core-eval: nothing calls it
+/// policy watcher events, each behind its 更多 → 通知 switch. feat/native-core-eval: nothing calls it
 /// through the old core any more; kept for the native policy watcher / script host to post through (not wired yet).
 final class ScriptNotifier: NSObject {
     func notify(_ payload: String?) {
@@ -169,7 +169,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let localProxyNeeded = proxyOnly || overrides.isMixed
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
         // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (old side,
-        // physiface.go). The VPN configuration's value is the one iOS enforces (overrides.json is logged next to it).
+        // physiface). The VPN configuration's value is the one iOS enforces (overrides.json is logged next to it).
         let includeAll = protocolConfiguration.includeAllNetworks
         // Gap D2: with includeAllNetworks the core's own sockets are bound to the physical interface (NCOutboundBinding).
         NCOutboundBinding.start(includeAllNetworks: includeAll && !proxyOnly)
