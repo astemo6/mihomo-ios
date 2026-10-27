@@ -48,8 +48,10 @@ runs:
         P="$GITHUB_WORKSPACE/build/products"
         rm -rf "$P"; mkdir -p "$P"
         A=$(ls "$RUNNER_TEMP"/tern-products-dl/products.tar.* | head -n1)
+        # Decompress to a file first: with `zstd -dc | tar -xf -`, bsdtar exits at the end-of-archive marker while zstd may
+        # still be writing the block padding → zstd EPIPE → the step failed under pipefail (mirror run 40525571482, e2e).
         case "$A" in
-          *.zst) zstd -dc -T0 "$A" | tar -xf - -C "$P" ;;
+          *.zst) zstd -d -q -T0 "$A" -o "$RUNNER_TEMP/products.tar"; tar -xf "$RUNNER_TEMP/products.tar" -C "$P"; rm -f "$RUNNER_TEMP/products.tar" ;;
           *) tar -xzf "$A" -C "$P" ;;
         esac
         rm -rf "$RUNNER_TEMP/tern-products-dl"
