@@ -271,6 +271,9 @@ enum NCQXImport {
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "masque":
+            report.warnings.append("quantumultx [server_local]: masque 协议在 Quantumult X 中无公开规范，已标记为不可用")
+            fields["unsupported"] = .string("Quantumult X 不支持 MASQUE 协议")
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.

@@ -39,7 +39,7 @@ enum NCSubscriptionParser {
         // converted afterwards. Member order and dedup numbering follow.
         var selfParsed: [NCProxy] = []
         var uriParsed: [NCProxy] = []
-        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https"]
+        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https", "masque"]
         for line in body.components(separatedBy: .newlines) {
             let l = line.trimmingCharacters(in: .whitespaces)
             if l.isEmpty || l.hasPrefix("#") || l.hasPrefix("//") || l.hasPrefix(";") || l.hasPrefix("[") {
@@ -76,7 +76,7 @@ enum NCSubscriptionParser {
     /// the old core sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
     /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
     static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
-                                           "snell", "tuic", "juicity", "hysteria2"]
+                                           "snell", "tuic", "juicity", "hysteria2", "masque"]
 
     /// A `key=value` subscription line is QX-shaped when the key is a QX type keyword AND the value starts with
     /// `host:port` (or `[v6]:port`) before its first comma. A Surge / Loon line is `Name = type, host, port, …`:
@@ -136,6 +136,7 @@ enum NCSubscriptionParser {
         case "mieru", "mierus": return parseMieru(rest)
         case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
         case "naive+https", "naive+quic", "naive", "http2", "http3": return parseNaiveH2H3(rest, scheme: scheme)
+        case "masque": return NCMASQUE.parseShadowrocket(uri)
         default:
             // feat/nc-gost-relay: GOST relay (Clash.Meta `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
             // and Shadowrocket's Relay links (relay://BASE64(user:pass@host:port)?tls=1&peer=…#name).

@@ -20,6 +20,7 @@ enum NCSupport {
         // feat/nc-naive-h2h3 (NCNaive / NCH2ProxySession / NCH3ProxySession): NaïveProxy (h2, or h3 with
         // quic: true) and Shadowrocket-style HTTP/2 / HTTP/3 CONNECT proxies.
         "naive", "http2", "h2", "http3", "h3",
+        "masque",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -32,7 +33,7 @@ enum NCSupport {
         guard types.contains(t) else {
             return "类型 \(t) 尚未接入"
         }
-        if t != "wireguard", t != "brook", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
+        if t != "wireguard", t != "brook", t != "masque", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
         if p.fields["network"]?.string?.lowercased() == "xhttp", let why = NCXHTTPConfig.unsupportedReason(p) {
@@ -83,6 +84,8 @@ enum NCSupport {
             if let why = sshUnsupported(p) { return why }
         case "wireguard":
             if let why = wireguardUnsupported(p) { return why }
+        case "masque":
+            if let why = masqueUnsupported(p) { return why }
         case "mieru":
             if let why = mieruUnsupported(p) { return why }
         case "brook":
@@ -255,6 +258,56 @@ enum NCSupport {
             }
         } else if p.server == nil || p.port == nil || (f["public-key"]?.string ?? "").isEmpty {
             return "WireGuard 缺少 server / port / public-key"
+        }
+        return nil
+    }
+
+    /// MASQUE (RFC 9298 CONNECT-UDP / RFC 9484 CONNECT-IP):
+    /// Requires server, port, and either (private-key, public-key, ip/ipv6) for WARP/CONNECT-IP
+    /// or (username/password) for RFC 9298 HTTP/3 proxying.
+    static func masqueUnsupported(_ p: NCProxy) -> String? {
+        if p.server == nil || (p.server ?? "").isEmpty || (p.port ?? 0) <= 0 {
+            return "MASQUE 缺少 server / port"
+        }
+        let f = p.fields
+        if let explicit = f["unsupported"]?.string, !explicit.isEmpty {
+            return explicit
+        }
+        let priv = f["private-key"]?.string ?? f["privateKey"]?.string ?? ""
+        let pub = f["public-key"]?.string ?? f["publicKey"]?.string ?? ""
+        let user = f["username"]?.string ?? ""
+        let pass = p.password ?? f["password"]?.string ?? ""
+        let hasKeys = !priv.isEmpty && !pub.isEmpty
+        let hasCreds = !user.isEmpty || !pass.isEmpty
+        if !hasKeys && !hasCreds {
+            return "MASQUE 缺少 private-key / public-key 或认证凭据"
+        }
+        if hasKeys && (f["ip"]?.string ?? "").isEmpty && (f["ipv6"]?.string ?? "").isEmpty && (f["network"]?.string ?? "") != "h3-l4proxy" {
+            return "MASQUE CONNECT-IP 缺少 ip / ipv6"
+        }
+        if let net = f["network"]?.string?.lowercased(), !net.isEmpty {
+            if net != "h3" && net != "quic" && net != "h2" && net != "h3-l4proxy" {
+                return "MASQUE network \(net) 尚未接入（仅支持 h3 / quic / h2 / h3-l4proxy）"
+            }
+        }
+        if let stack = f["ip-stack"]?.object?["mode"]?.string?.lowercased() ?? f["ip-stack"]?.string?.lowercased(), !stack.isEmpty {
+            if stack != "lwip" && stack != "system" {
+                return "MASQUE ip-stack \(stack) 尚未接入（仅支持 lwip / system）"
+            }
+        }
+        if let hopping = f["port-hopping"]?.string, !hopping.isEmpty {
+            return "MASQUE port-hopping 尚未接入"
+        }
+        // fix/nc-proto-masque-int: only RFC 9298 CONNECT-UDP (mode: connect-udp, QUIC) is wired, and only for UDP
+        // (NCUDPMASQUESession). WARP / CONNECT-IP keys and h3-l4proxy were shown available but every dial refused.
+        guard let cfg = NCMASQUE.Config(proxy: p) else { return "MASQUE 配置无效" }
+        switch cfg.mode {
+        case .connectUDP:
+            if cfg.network == "h2" { return "MASQUE over HTTP/2 尚未接入（仅 HTTP/3）" }
+        case .connectIP:
+            return "MASQUE CONNECT-IP（WARP）尚未接入：需隧道内 L3 网卡"
+        case .l4Proxy:
+            return "MASQUE h3-l4proxy 尚未接入"
         }
         return nil
     }

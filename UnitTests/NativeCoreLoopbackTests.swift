@@ -804,6 +804,48 @@ final class NativeCoreLoopbackTests: XCTestCase {
             XCTAssertEqual(from.port, Self.udpEchoPort)
         }
     }
+
+    // MARK: - MASQUE CONNECT-UDP (#160, RFC 9298) against masque-go's proxy on 18012
+
+    private static var masqueProxy: NCProxy {
+        Self.proxy(name: "loop-masque", type: "masque", port: 18012, extra: [
+            "mode": .string("connect-udp"),
+            "username": .string("loop"), "password": .string("loop"),
+            "uri": .string("https://\(Self.host):18012/.well-known/masque/udp/{target_host}/{target_port}/"),
+            "sni": .string("localhost"),
+            "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    /// The tunnel's NCUDPMASQUESession is a thin wrapper over exactly this call: Extended CONNECT
+    /// (:protocol connect-udp, the template path with its trailing slash — #160 got a 307 without it), then
+    /// HTTP Datagrams to the UDP echo; two concurrent flows on the shared connection must not cross.
+    func testMASQUEUDPEcho() throws {
+        func open(_ label: String) throws -> NCRelayStream {
+            let exp = self.expectation(description: "masque \(label)")
+            let box = LockedBox<(NCRelayStream?, Error?)>((nil, nil))
+            NCMASQUERegistry.masqueStream(proxy: Self.masqueProxy, target: NCTarget(host: Self.host, port: Self.udpEchoPort),
+                                          queue: DispatchQueue(label: "nc.loopback.masque.\(label)")) { s, e in
+                box.set((s, e)); exp.fulfill()
+            }
+            self.wait(for: [exp], timeout: 20)
+            let (s, e) = box.get()
+            if let e { throw e }
+            return try XCTUnwrap(s, "masque \(label): neither stream nor error")
+        }
+        let a = try open("a")
+        defer { a.cancel() }
+        let b = try open("b")
+        defer { b.cancel() }
+        for (stream, payload) in [(a, Self.dnsQuery), (b, Data((0..<1000).map { UInt8(($0 * 3 + 1) & 0xff) }))] {
+            let exp = self.expectation(description: "masque echo")
+            let box = LockedBox<Data?>(nil)
+            stream.receive { d, _ in box.set(d); exp.fulfill() }
+            stream.send(payload)
+            self.wait(for: [exp], timeout: 10)
+            XCTAssertEqual(box.get(), payload)
+        }
+    }
 }
 
 /// hy2-frag ladder rungs over one registered hysteria2 UDP session (see testHysteria2UDPEcho).

@@ -839,6 +839,15 @@ enum NCConnector {
                 return
             }
             juicityStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "masque":
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("masque over a chain transport")) }
+                return
+            }
+            // fix/nc-proto-masque-int: connect() carries TCP flows; a CONNECT-UDP stream would ship them as UDP
+            // datagrams to target:port. UDP flows use NCUDPMASQUESession (NCMASQUERegistry.masqueStream).
+            let why = NCSupport.unsupportedReason(proxy) ?? "MASQUE CONNECT-UDP 只承载 UDP，TCP 流请走其他策略"
+            queue.async { completion(nil, Failure.unsupported(why)) }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
