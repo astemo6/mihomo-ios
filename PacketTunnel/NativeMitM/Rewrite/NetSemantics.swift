@@ -174,7 +174,7 @@ enum NetURL {
         return (String(decoding: host, as: UTF8.self), String(decoding: b[(i + 1)...], as: UTF8.self))
     }
 
-    /// flow_request.go flowCleanQuery (httputil cleanQueryParams): a query with ";" or a bad escape is re-encoded
+    /// flow_request flowCleanQuery (httputil cleanQueryParams): a query with ";" or a bad escape is re-encoded
     /// from url.ParseQuery (unparsable parameters dropped). nil: not reproduced.
     static func cleanQuery(_ s: String) -> String? {
         let b = Array(s.utf8)
@@ -235,7 +235,7 @@ enum NetStatus {
         510: "Not Extended", 511: "Network Authentication Required",
     ]
 
-    /// resp.Status as flow.go runResponse builds it: fmt.Sprintf("%d %s", code, http.StatusText(code)).
+    /// resp.Status as flow runResponse builds it: fmt.Sprintf("%d %s", code, http.StatusText(code)).
     static func status(_ code: Int) -> String { "\(code) \(text[code] ?? "")" }
 }
 

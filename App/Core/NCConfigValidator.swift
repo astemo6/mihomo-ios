@@ -1,13 +1,13 @@
 import Foundation
 import CryptoKit
 
-/// B1 (native-only): the full config check — Swift port of bridge ValidateConfigIn / validateBytes (bridge.go) +
-/// parseRuntimeCached (validatecache.go), with Clash.Meta v1.19.33's `executor.ParseWithBytes` → config.ParseRawConfig
-/// replaced by `parse(_:)` below. Ported from the Clash.Meta sources the bridge linked (config/config.go parseProxies /
-/// parseRuleProviders / parseSubRules / parseRules / parseHosts / parseDNS / tunnels, config/utils.go
-/// proxyGroupsDagSort / validateDialerProxies, adapter/parser.go, adapter/outboundgroup/parser.go,
-/// adapter/provider/parser.go, rules/provider/parse.go, rules/parser.go, rules/logic/logic.go,
-/// rules/common/base.go ParseRulePayload, common/utils/ranges.go). Error texts are Clash.Meta's, so ProfileCheck's
+/// B1 (native-only): the full config check — Swift port of bridge ValidateConfigIn / validateBytes +
+/// parseRuntimeCached, with Clash.Meta v1.19.33's `executor.ParseWithBytes` → config.ParseRawConfig
+/// replaced by `parse(_:)` below. Ported from the Clash.Meta sources the bridge linked (config/config parseProxies /
+/// parseRuleProviders / parseSubRules / parseRules / parseHosts / parseDNS / tunnels, config/utils
+/// proxyGroupsDagSort / validateDialerProxies, adapter/parser, adapter/outboundgroup/parser,
+/// adapter/provider/parser, rules/provider/parse, rules/parser, rules/logic/logic,
+/// rules/common/base ParseRulePayload, common/utils/ranges). Error texts are Clash.Meta's, so ProfileCheck's
 /// locate patterns and FriendlyError hints keep matching.
 ///
 /// Used by every caller that had the old core parse: ProfileStore.validate (import / save), TestBridge.validate,
@@ -68,7 +68,7 @@ enum NCConfigValidator {
         return msg.isEmpty ? nil : msg
     }
 
-    // MARK: - parseRuntimeCached (validatecache.go)
+    // MARK: - parseRuntimeCached
 
     private static let cacheMax = 8
     private static let okTTL: TimeInterval = 600
@@ -110,7 +110,7 @@ enum NCConfigValidator {
 
     static let builtinProxies = ["DIRECT", "REJECT", "REJECT-DROP", "COMPATIBLE", "PASS", "PASS-RULE"]
 
-    /// adapter/parser.go ParseProxy's switch.
+    /// adapter/parser ParseProxy's switch.
     static let proxyTypes: Set<String> = [
         "ss", "ssr", "socks5", "http", "vmess", "vless", "snell", "trojan", "hysteria", "hysteria2", "wireguard",
         "tuic", "juicity", "shadowquic", "gost-relay", "direct", "dns", "reject", "rematch", "ssh", "mieru", "anytls", "sudoku",
@@ -298,7 +298,7 @@ enum NCConfigValidator {
         return ProxyResult(names: proxies, providerCount: pp.count + compatibleCount + 1)
     }
 
-    /// adapter/provider/parser.go ParseProxyProvider's failure paths (vehicle type, safe path).
+    /// adapter/provider/parser ParseProxyProvider's failure paths (vehicle type, safe path).
     static func proxyProviderError(_ v: NCJSONValue) -> String? {
         guard case .object(let m) = v else { return "unsupport vehicle type: " }
         let typ = scalar(m["type"]) ?? ""
@@ -324,7 +324,7 @@ enum NCConfigValidator {
         return "path is not subpath of home directory or SAFE_PATHS: \(full) \n allowed paths: [\(home)]"
     }
 
-    /// config/utils.go proxyGroupsDagSort: duplicate group names and member loops.
+    /// config/utils proxyGroupsDagSort: duplicate group names and member loops.
     static func proxyGroupsDagSort(_ groups: [NCJSONValue]) throws {
         var options: [String: [String]] = [:]
         var indegree: [String: Int] = [:]
@@ -482,7 +482,7 @@ enum NCConfigValidator {
         return out
     }
 
-    /// rules/common/base.go ParseRulePayload.
+    /// rules/common/base ParseRulePayload.
     static func parseRulePayload(_ ruleRaw: String, needTarget: Bool) -> (tp: String, payload: String, target: String, params: [String]) {
         var item = ruleRaw.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         let tp = item[0].uppercased()
@@ -516,7 +516,7 @@ enum NCConfigValidator {
     static let inTypes: Set<String> = ["HTTP", "HTTPS", "SOCKS4", "SOCKS5", "SOCKS", "SHADOWSOCKS", "VMESS", "VLESS",
         "REDIR", "TPROXY", "TROJAN", "TUNNEL", "TUN", "TUIC", "HYSTERIA2", "ANYTLS", "MIERU", "SUDOKU", "INNER"]
 
-    /// rules/parser.go ParseRule: nil = parses; providers collects RULE-SET names (nested in logic rules too).
+    /// rules/parser ParseRule: nil = parses; providers collects RULE-SET names (nested in logic rules too).
     static func parseRuleError(_ tp: String, _ payload: String, _ params: [String], subRules: Set<String>?,
                                providers: inout [String]) -> String? {
         if tp != "MATCH" && payload.isEmpty { return "missing subsequent parameters: \(tp)" }
@@ -575,7 +575,7 @@ enum NCConfigValidator {
         return nil
     }
 
-    /// rules/logic/logic.go parsePayload + payloadToRule.
+    /// rules/logic/logic parsePayload + payloadToRule.
     private static func logicError(_ payload: String, sub: Bool, providers: inout [String], count: inout Int) -> String? {
         guard payload.hasPrefix("("), payload.hasSuffix(")") else { return "payload format error" }
         let chars = Array(payload.utf8)
@@ -676,7 +676,7 @@ enum NCConfigValidator {
         return (scalar(v) ?? "").components(separatedBy: ";").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
-    /// config.go parseNameServer's scheme check (after parsePureDNSServer).
+    /// config parseNameServer's scheme check (after parsePureDNSServer).
     static func parseNameServer(_ servers: [String]) throws {
         for (idx, s0) in servers.enumerated() {
             var s = s0

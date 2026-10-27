@@ -60,7 +60,7 @@ func ncJSONString(_ any: Any) -> String {
     return String(decoding: d, as: UTF8.self)
 }
 
-/// bridge providerCache (inspect.go) — the file Clash.Meta reads for a provider: `path` resolved against the home
+/// bridge providerCache — the file Clash.Meta reads for a provider: `path` resolved against the home
 /// (C.Path.Resolve), else C.Path.GetPathByHash(prefix, url) = <home>/<rules|proxies>/<hex md5(url)> (Clash.Meta
 /// utils.MakeHash(...).String() is the MD5 hex). The url is the runtime one (mirrored / convert URL), as in the old core.
 func ncProviderCachePath(home: String, kind: String, _ m: [String: NCJSONValue]) -> String {

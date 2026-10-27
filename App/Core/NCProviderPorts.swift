@@ -1,9 +1,9 @@
 import Foundation
 
 /// nc-integrate B3: the app-side provider downloads in Swift — ports of the retired bridge (ProviderPlan,
-/// ProviderStore, MigrateProfileProviders), the converters ProviderStore uses (customrules.go convertListTo /
-/// convertNodesText, mitm/rules.go ConvertListLine, mitm/egern.go IsEgernRuleSet / ConvertEgernRuleSet,
-/// ownpolicy.go splitOwnPolicyList, runtimejson.go marshalProxiesYAML).
+/// ProviderStore, MigrateProfileProviders), the converters ProviderStore uses (customrules convertListTo /
+/// convertNodesText, mitm/rules ConvertListLine, mitm/egern IsEgernRuleSet / ConvertEgernRuleSet,
+/// ownpolicy splitOwnPolicyList, runtimejson marshalProxiesYAML).
 ///
 /// Reused Swift: NCRuntimeBuilder (runtime tree), NCEngineRuleset.convertRuleLine / splitTop (= mitm ConvertRuleLine / splitTop),
 /// NCRuntimeSteps.providerConvert / uniqueProviderName, NCRuleValidator.prettyProviderName,
@@ -234,7 +234,7 @@ enum NCProviderPorts {
         return buf
     }
 
-    // MARK: - ownpolicy.go
+    // MARK: - ownpolicy
 
     static let ownPolicyMaxParts = 32
 

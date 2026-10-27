@@ -3,7 +3,7 @@ import Network
 import os
 
 // kcptun smux multi-stream session, stream multiplexer, and node-shared UDP session lifecycle.
-// Reference: xtaci/smux + metacubex/smux (session.go, stream.go, frame.go), Clash.Meta transport/kcptun (client.go).
+// Reference: xtaci/smux + metacubex/smux, Clash.Meta transport/kcptun.
 //
 // Threading: every KCP / FEC / crypt / snappy / smux-parser touch runs on the session's own serial queue
 // (NCSessionQueues). Streams hand data and completions back on the queue of the caller that opened them.
@@ -29,7 +29,7 @@ final class NCKcptunSmuxStream: NCRelayStream {
     private var peerClosed = false
     private var failure: Error?
     private var closed = false
-    // smux v2 receive-side window accounting (stream.go numRead / incr).
+    // smux v2 receive-side window accounting (stream numRead / incr).
     private var numRead: UInt32 = 0
     private var incr: UInt32 = 0
     private let lock = NSLock()
@@ -211,7 +211,7 @@ final class NCKcptunSmuxSession {
         transport.sendFrames(frames, completion: completion)
     }
 
-    /// smux v2 cmdUPD: [consumed u32 LE][window u32 LE] (stream.go sendWindowUpdate).
+    /// smux v2 cmdUPD: [consumed u32 LE][window u32 LE] (stream sendWindowUpdate).
     func sendWindowUpdate(sid: UInt32, consumed: UInt32) {
         var frame = makeHeader(cmd: 4, sid: sid, len: 8)
         let window = UInt32(clamping: streamBuf)
@@ -245,7 +245,7 @@ final class NCKcptunSmuxSession {
             inOff += 8 + len
 
             guard ver == UInt8(truncatingIfNeeded: smuxVer) else {
-                // Version mismatch = desynced stream (session.go recvLoop returns ErrInvalidProtocol).
+                // Version mismatch = desynced stream (session recvLoop returns ErrInvalidProtocol).
                 transport?.fail(NCFramedRelay.err("kcptun: smux version \(ver) != \(smuxVer)"))
                 return
             }

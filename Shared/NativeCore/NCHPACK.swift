@@ -3,7 +3,7 @@ import Foundation
 /// HPACK (RFC 7541): enough for tunnel clients — literal encoding without
 /// Huffman on the way out; full decoding (indexed / literal / dynamic
 /// table / Huffman strings) for server header blocks. Huffman tables
-/// generated from golang.org/x/net/http2/hpack (RFC 7541 Appendix B).
+/// transcribed from RFC 7541 Appendix B.
 enum NCHPACK {
     static let staticTable: [(String, String)] = [
         (":authority", ""), (":method", "GET"), (":method", "POST"), (":path", "/"),

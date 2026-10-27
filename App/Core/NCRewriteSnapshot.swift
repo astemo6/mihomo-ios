@@ -1,5 +1,5 @@
 // App/Core/NCRewriteSnapshot.swift
-// E-B1b stage 2: Port of rewritesnap.go + bodysnap.go + exportsnap.go + config.go (:280, :436) + resources.go to Swift.
+// E-B1b stage 2: Port of rewritesnap + bodysnap + exportsnap + config (:280, :436) + resources to Swift.
 //
 // Sources:
 //   - the retired bridge (RewriteSnapshot, SnapRule, SnapLocal, SnapFile, SnapHeaderOp, SnapHost, snapRule, snapMapLocal, snapFile)
@@ -22,7 +22,7 @@
 //      - Swift behavior: NCEngineRule carries only pattern strings. All patterns are compiled and translated on the
 //        fly via NCRewriteICU.snapRegex and NCRewriteICU.snapTemplate. The re2 flag is auto-detected via isCompileURLRe
 //        for URL patterns, and false for header gate/ops. The replace flag is true for redirects and header ops,
-//        false for header gates and non-redirect URL matchers, exactly matching parse.go compilation paths.
+//        false for header gates and non-redirect URL matchers, exactly matching parse compilation paths.
 //      - Impact: Produces identical regex portability verdicts and ICU translations without holding native regexp handles.
 //
 //   2. Engine Snapshot Cache Omission:
@@ -1184,7 +1184,7 @@ private func compileFastRe(_ p: String) -> Bool {
     return true
 }
 
-// MARK: - RE2 AST and ICU Generator (bodysnap.go icuFromRE2)
+// MARK: - RE2 AST and ICU Generator (bodysnap icuFromRE2)
 
 private indirect enum RE2AST {
     case noMatch
@@ -2032,7 +2032,7 @@ private func parseJSONValueAndEncode(_ s: String) -> (String?, String?) {
     return (nil, "json value")
 }
 
-// MARK: - JQ Subset Parser (bodysnap.go snapJQ)
+// MARK: - JQ Subset Parser (bodysnap snapJQ)
 
 private func snapJQ(_ expr: String) -> ([NCSnapJQStep], String) {
     let stepsRaw = splitTopLevel(expr, separator: "|")
@@ -2398,7 +2398,7 @@ private func parseLoonJSONLine(_ line: String) -> [(op: String, path: String, va
     return out
 }
 
-// MARK: - Rule & Snapshot Construction (rewritesnap.go)
+// MARK: - Rule & Snapshot Construction
 
 private func isCompileURLRe(_ p: String) -> Bool {
     if p.isEmpty || p.contains("-[") {

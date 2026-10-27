@@ -1,7 +1,7 @@
 import Foundation
 
 /// B1 (native-only): 「导出最终配置（含覆写）」 — Swift port of the retired bridge (+ the
-/// portable-export clean-up of exportconfig.go portableProviders / stripAuthHeader / inlineFileProvider and
+/// portable-export clean-up of exportconfig portableProviders / stripAuthHeader / inlineFileProvider and
 /// stripAppInternalsNode). The runtime config (NCRuntimeBuilder.build, as a connect builds it) rendered for
 /// people: block YAML in Clash.Meta's conventional order — general keys, cache / GEO data, sniffer, tun, dns, hosts,
 /// proxies, proxy-providers, proxy-groups, rule-providers, rules, then everything else alphabetically — with a

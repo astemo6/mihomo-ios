@@ -640,7 +640,7 @@ final class NCProfileYAML {
 
     // MARK: - Scalar quoting (yaml.v3 equivalent)
 
-    /// Formats a string scalar the way yaml.v3's encoder chooses its style (encode.go stringv + libyaml
+    /// Formats a string scalar the way yaml.v3's encoder chooses its style (encode stringv + libyaml
     /// yaml_emitter_analyze_scalar / select_scalar_style):
     ///  - "" -> `""`
     ///  - contains a line break or a non-printable character (control chars, tab, DEL, BOM, NEL, LS, PS) ->

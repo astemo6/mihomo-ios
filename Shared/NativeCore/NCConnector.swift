@@ -1195,7 +1195,7 @@ enum NCConnector {
         switch network {
         case "ws":
             // fix/nc-silent-fail: every ws-opts mode — early data (max-early-data / ?ed=), v2ray-http-upgrade
-            // (+ fast-open). Trojan's default Host is its sni (Clash.Meta trojan.go).
+            // (+ fast-open). Trojan's default Host is its sni (Clash.Meta trojan).
             let defaultHost = proxy.type == "trojan" ? (proxy.fields["sni"]?.string ?? server) : server
             let ws = NCV2RayWSStream(raw: raw, options: NCWSTransportOptions.parse(proxy, defaultHost: defaultHost))
             ws.start { err in

@@ -1,6 +1,6 @@
 // Native MitM stage 3b — JSON exactly as the old core body rules see and write it.
 //
-// the old core decodes a body with encoding/json + UseNumber (r6limits.go
+// the old core decodes a body with encoding/json + UseNumber (r6limits
 // decodeJSONNumber: one value, only whitespace after it), edits the value tree (Loon json ops: jsonEdit; legacy jq
 // step lists: setpath / delpaths), and encodes it with encodeJSON (json.Encoder, SetEscapeHTML(false), no trailing newline).
 // This file reproduces that byte for byte:
@@ -327,7 +327,7 @@ enum BodyJSONKey: Decodable, Equatable {
     }
 }
 
-// MARK: - Loon json ops (handler.go jsonEdit)
+// MARK: - Loon json ops (handler jsonEdit)
 
 enum BodyJSONEdit {
     /// jsonEdit(v, p, op, val), the old core semantics.

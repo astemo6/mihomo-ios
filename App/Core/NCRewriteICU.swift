@@ -63,7 +63,7 @@ import Foundation
 struct NCSnapRegex: Codable, Equatable {
     var p: String                       // "p": the pattern as regexp2 compiled it
     var ok: Bool                        // "ok": Swift can match it on ASCII input via ICU
-    var icu: String?                    // "icu": explicit ICU translation (rewriteicu.go); nil when omitted
+    var icu: String?                    // "icu": explicit ICU translation; nil when omitted
     var slots: [Int]?                   // "slots": regexp2 capture slot -> ICU group index (nil when identity)
     var lit: String?                    // "lit": every match contains this literal ("" / nil when none known)
     var fold: Bool?                     // "fold": lit is compared ASCII case-insensitively (nil when false)

@@ -7,7 +7,7 @@
 
 import Foundation
 
-// MARK: - Snapshot (JSON from the old core; field names = rewritesnap.go json tags)
+// MARK: - Snapshot (JSON from the old core; field names = rewritesnap json tags)
 
 struct RWSnapRegex: Decodable {
     var p: String
@@ -47,7 +47,7 @@ struct RWSnapLocal: Decodable {
     var file: RWSnapFile?
 }
 
-/// A Map Local answer read from disk at request time (handler.go serveLargeMapLocal / mapLocalData).
+/// A Map Local answer read from disk at request time (handler serveLargeMapLocal / mapLocalData).
 struct RWSnapFile: Decodable {
     var path: String
     var remote: Bool?
@@ -78,7 +78,7 @@ struct RWSnapRule: Decodable {
     var opsOK: Bool?
     var local: RWSnapLocal?
     var script: RWSnapScript?
-    // stage 3b body rules (bodysnap.go; NativeBodyRewrite.swift)
+    // stage 3b body rules (bodysnap; NativeBodyRewrite.swift)
     var body: [RWSnapBodyOp]?
     var jsonOps: [RWSnapJSONOp]?
     var jq: [RWSnapJQStep]?
@@ -187,7 +187,7 @@ struct CanonicalHeader: Equatable {
         for kv in pairs where kv.count == 2 { map[kv[0], default: []].append(kv[1]) }
     }
 
-    /// headerFromPairs (flow.go): key trimmed, empty keys skipped, Add.
+    /// headerFromPairs: key trimmed, empty keys skipped, Add.
     init(pairs: [[String]]) {
         for kv in pairs where kv.count == 2 {
             let k = RWAscii.trimSpace(kv[0])
@@ -232,7 +232,7 @@ struct CanonicalHeader: Equatable {
         return false
     }
 
-    /// flow.go flowRemoveHopByHop (httputil's list plus the headers Connection names).
+    /// flow flowRemoveHopByHop (httputil's list plus the headers Connection names).
     mutating func removeHopByHop() {
         for f in values("Connection") {
             for sf in f.split(separator: ",", omittingEmptySubsequences: false) {

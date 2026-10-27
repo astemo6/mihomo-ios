@@ -1,7 +1,7 @@
 // Native MitM stage 3a — the rewrite decision engine in Swift.
 //
 // Evaluates the Ruleset snapshot the old core exports (RewriteSnapshot.swift) for one HTTP/1.1 request on a decrypted
-// connection and reproduces what the old flow API (the retired bridge / FlowResponse, i.e. handler.go
+// connection and reproduces what the old flow API (the retired bridge / FlowResponse, i.e. handler
 // requestPhase + flowOutbound and modifyResponse) would answer:
 //
 //   1. URL rewrite, first match: reject / reject-200 / reject-img / reject-dict / reject-array → local answer,
@@ -51,7 +51,7 @@ struct RewriteLog {
 }
 
 /// The outcome of one http-request script the native dispatcher ran (NativeRequestScripts.swift), applied by the
-/// engine where the old core's requestPhase applies it (handler.go: Match, abort, local answer, URL / method / headers / body).
+/// engine where the old core's requestPhase applies it (handler: Match, abort, local answer, URL / method / headers / body).
 struct RequestScriptOutcome {
     enum Kind { case skipped, failed, ran }
     struct Mock {
@@ -274,7 +274,7 @@ final class NativeRewriteEngine {
         self.init(snapshot: s)
     }
 
-    // MARK: - MitM host matching (config.go HostMatcher)
+    // MARK: - MitM host matching (config HostMatcher)
 
     func intercepts(host: String, port: Int) -> Bool {
         var h = RWAscii.lower(host)
@@ -335,7 +335,7 @@ final class NativeRewriteEngine {
         return host
     }
 
-    /// config.go globMatch: * and ? on bytes.
+    /// config globMatch: * and ? on bytes.
     static func glob(_ pat: String, _ s: String) -> Bool {
         if pat == "*" || pat == s { return true }
         let p = Array(pat.utf8), t = Array(s.utf8)
@@ -780,7 +780,7 @@ final class NativeRewriteEngine {
 
     // MARK: - Map Local from a file
 
-    /// the old core's file / URL Map Local (handler.go serveLargeMapLocal, then mapLocalData), read here from the same path.
+    /// the old core's file / URL Map Local (handler serveLargeMapLocal, then mapLocalData), read here from the same path.
     private func mapLocalFile(_ l: RWSnapLocal, _ f: RWSnapFile, _ logIn: RewriteLog) -> RewriteDecision {
         var log = logIn
         let fm = FileManager.default
@@ -868,7 +868,7 @@ final class NativeRewriteEngine {
         h.del("Transfer-Encoding")
         let ct = h.get("Content-Type")
         let media = RWAscii.lower(RWAscii.trimSpace(String(ct.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")))
-        // flow.go runResponse: an empty (Content-Length 0) body is http.NoBody, not the upstream's reader → "read"
+        // flow runResponse: an empty (Content-Length 0) body is http.NoBody, not the upstream's reader → "read"
         // (the old core hands back an empty body; the native driver serves it the same way).
         let mode: FlowBodyMode = noBody ? .none : (contentLength == 0 ? .read : .upstream)
         return RewriteResponse(action: .respond, status: status, headers: h.sortedPairs, bodyMode: mode,
@@ -898,7 +898,7 @@ final class NativeRewriteEngine {
         }
     }
 
-    /// handler.go applyHeaderOps for the ops the old core marked portable. false: an input Swift will not run a regex on.
+    /// handler applyHeaderOps for the ops the old core marked portable. false: an input Swift will not run a regex on.
     static func apply(_ ops: [RWSnapHeaderOp], to h: inout CanonicalHeader, firstLine: String) -> Bool {
         for op in ops {
             let name = op.name ?? "", value = op.value ?? ""
@@ -963,7 +963,7 @@ final class NativeRewriteEngine {
         return .local(l)
     }
 
-    /// handler.go writeLocal followed by flowWriter.commit.
+    /// handler writeLocal followed by flowWriter.commit.
     static func writeLocal(status: Int, header: CanonicalHeader, body: Data) -> RewriteDecision {
         var h = header
         h.del("Content-Encoding")
@@ -972,7 +972,7 @@ final class NativeRewriteEngine {
         return commitLocal(status: status, header: h, first: body.isEmpty ? nil : body)
     }
 
-    /// flow_request.go flowWriter.commit on the header snapshot taken at WriteHeader.
+    /// flow_request flowWriter.commit on the header snapshot taken at WriteHeader.
     static func commitLocal(status: Int, header: CanonicalHeader, first: Data?) -> RewriteDecision {
         var h = header
         let bodyOK = status >= 200 && status != 204 && status != 304

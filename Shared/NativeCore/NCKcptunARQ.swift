@@ -1,7 +1,7 @@
 import Foundation
 
-// KCP ARQ protocol (Skywind3000 ikcp / metacubex/kcp-go parity) and Snappy framing (RFC / golang/snappy).
-// Reference: kcp-go/kcp.go, transport/kcptun/comp.go.
+// KCP ARQ protocol (Skywind3000 ikcp parity, as kcptun speaks it) and Snappy framing (Snappy framing format).
+// Reference: kcp-go/kcp, transport/kcptun comp.
 
 // MARK: - CRC32C (Castagnoli) for Snappy
 

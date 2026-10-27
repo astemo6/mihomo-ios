@@ -70,7 +70,7 @@ enum NCSubscriptionParser {
     }
 
     /// The QX `type=host:port, …` keywords routed to NCQXImport.buildQXNode. A deliberate SUPERSET of bridge
-    /// nodes.go qxTypes (shadowsocks, vmess, vless, trojan, http, socks5, anytls): it adds every other type
+    /// nodes qxTypes (shadowsocks, vmess, vless, trojan, http, socks5, anytls): it adds every other type
     /// buildQXNode maps — `ss` (its shadowsocks alias), `snell` (psk / version), and `tuic` / `hysteria2`
     /// (password / token / uuid / sni, as the Surge spelling maps them; other keys verbatim).
     /// the old core sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
@@ -292,7 +292,7 @@ enum NCSubscriptionParser {
         // SIP002 plugin query: "<binary>[;arg=value…]" — the binary name
         // picks the plugin, the rest re-parses as a query string. A bare
         // binary without ";" (plugin=obfs-local) is a plugin too. Mirrors
-        // Clash.Meta common/convert/converter.go so links from any client land
+        // Clash.Meta common/convert/converter so links from any client land
         // in the same canonical shape as a Clash.Meta YAML node.
         if let plugin = p.query["plugin"], !plugin.isEmpty {
             let parts = plugin.split(separator: ";")
@@ -537,7 +537,7 @@ enum NCSubscriptionParser {
         return NCProxy(name: name, type: "trojan", fields: f)
     }
 
-    // MARK: XHTTP share-link options (feat/nc-xhttp; Clash.Meta common/convert/v.go)
+    // MARK: XHTTP share-link options (feat/nc-xhttp; Clash.Meta common/convert/v)
 
     /// Xray's former name for the transport.
     private static func xhttpAlias(_ net: String) -> String {

@@ -69,7 +69,7 @@ enum NCProfileCheck {
         return s
     }
 
-    /// bridge ProbeGroup (probe.go): never counted as a user group.
+    /// bridge ProbeGroup: never counted as a user group.
     static let probeGroup = "TERN-PROBE"
 
     private static func isBlank(_ text: String) -> Bool {

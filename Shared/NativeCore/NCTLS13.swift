@@ -3,7 +3,7 @@ import CryptoKit
 import Security
 
 /// TLS 1.3 (RFC 8446) key schedule and primitives, plus the REALITY client
-/// authentication math (aligned with Clash.Meta component/tls/reality.go, which
+/// authentication math (aligned with Clash.Meta component/tls/reality, which
 /// itself follows XTLS/REALITY). Pure value logic — the record/handshake
 /// state machine lives in NCTLSClient.swift.
 enum NCTLS13 {

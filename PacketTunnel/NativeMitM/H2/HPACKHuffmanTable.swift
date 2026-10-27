@@ -1,5 +1,5 @@
-// RFC 7541 Appendix B Huffman code, symbols 0…255 plus EOS (256). Generated from golang.org/x/net/http2/hpack
-// tables.go (huffmanCodes / huffmanCodeLen); the retired bridge this file against the old core's table.
+// RFC 7541 Appendix B Huffman code, symbols 0…255 plus EOS (256). Transcribed from
+// the RFC table (code and bit length per symbol).
 
 enum HPACKHuffmanTable {
     static let codes: [UInt32] = [

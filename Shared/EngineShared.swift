@@ -175,7 +175,7 @@ struct EngineConfig: Codable, Equatable {
 }
 
 /// Payload the old engine sends for $notification.post / $notify.
-/// feat/loon-menu-notify: the core's policy watcher (policywatch.go) sends its events through the same notifier with
+/// feat/loon-menu-notify: the core's policy watcher sends its events through the same notifier with
 /// a `kind` (policyChange / policyFailure / nodeFailure) and the names involved instead of finished text; the tunnel
 /// builds the localized notification. No `kind` = a script notification.
 struct ScriptNotification: Decodable {

@@ -2,7 +2,7 @@ import Foundation
 import CommonCrypto
 
 /// Pure Swift port of the bridge's module / rewrite text parser
-/// (the retired bridge + rules.go + tasks.go, driven by
+/// (the retired bridge + rules + tasks, driven by
 /// the retired bridge's EngineParseText / EngineParseLine). Produces the
 /// same ParsedEngineText the app consumed from the old core JSON.
 ///
@@ -493,7 +493,7 @@ extension NCEngineRuleset {
     }
 }
 
-// MARK: - Core rule translation (mitm rules.go)
+// MARK: - Core rule translation (mitm rules)
 
 extension NCEngineRuleset {
     static let surgeTypeMap: [String: String] = [
@@ -990,7 +990,7 @@ extension NCEngineRuleset {
     }
 }
 
-// MARK: - Tasks & panels (mitm tasks.go)
+// MARK: - Tasks & panels (mitm tasks)
 
 extension NCEngineRuleset {
     static func regex(_ pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression? {
@@ -1012,7 +1012,7 @@ extension NCEngineRuleset {
     /// names allowed in their fields. (the old core re-renders the parsed schedule;
     /// the stored form here is the whitespace-collapsed original.)
     static func cronValid(_ expr: String) -> Bool {
-        // mitm cron.go ParseCron: 5 fields, or 6 with leading seconds —
+        // mitm cron ParseCron: 5 fields, or 6 with leading seconds —
         // the 6th field is never a year. Ranges must satisfy a <= b
         // (parseField errors on a > b); values resolve through the
         // month / weekday name tables before bounds-checking.
@@ -1586,7 +1586,7 @@ extension NCEngineRuleset {
             if Self.disabledByParam(p) { return true }
             let isEvent = m[1].lowercased() == "network-changed"
             let sc = Self.scriptFromParams(name: p["tag"] ?? "", p: p)
-            // mitm parse.go passes event="network-changed" for BOTH the
+            // mitm parse passes event="network-changed" for BOTH the
             // network-changed and generic forms; addTask keeps it on the
             // task (see addTask's up-front event assignment).
             addTask(kind: isEvent ? "event" : "generic", cron: "", event: "network-changed",
@@ -1611,7 +1611,7 @@ extension NCEngineRuleset {
                 addHosts(v)
                 return
             case "skip-server-cert-verify", "skip-cert-verify", "skip_validating_cert":
-                // mitm parse.go: rs.SkipCertVerify = truthy(v) — the flag
+                // mitm parse: rs.SkipCertVerify = truthy(v) — the flag
                 // used to be discarded with the other ignored keys, so a
                 // module asking to skip verification never took effect.
                 skipCertVerify = Self.truthy(v)
@@ -2270,7 +2270,7 @@ extension NCEngineRuleset {
         return re.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1:")
     }
 
-    // MARK: Egern helpers (mitm_egern.go egernStr / egernBool / egernEmpty)
+    // MARK: Egern helpers (mitm_egern egernStr / egernBool / egernEmpty)
 
     static func egernStr(_ v: NCJSONValue?) -> String {
         guard let v else { return "" }
@@ -2769,7 +2769,7 @@ extension NCEngineRuleset {
                     if let s = h.string { addHosts(s) }
                 }
             }
-            // mitm parse.go parseStash: http.skip-cert-verify lands on the
+            // mitm parse parseStash: http.skip-cert-verify lands on the
             // ruleset, and header-rewrite lines parse after rewrite lines.
             if let scv = http["skip-cert-verify"]?.bool { skipCertVerify = scv }
             for key in ["rewrite", "url-rewrite", "header-rewrite"] {
@@ -2791,7 +2791,7 @@ extension NCEngineRuleset {
     }
 }
 
-// MARK: - Rewrite form conversion (mitm rewriteform.go)
+// MARK: - Rewrite form conversion (mitm rewriteform)
 
 /// Pure Swift port of mitm.LineFromForm / FormFromLine (driven through
 /// this file's ParseLine port): the visual rewrite editor's form model

@@ -1,7 +1,7 @@
 // Native MitM stage 3, lane s3-script — the response phase of a natively forwarded request whose response rules
 // include http-response scripts, in Swift.
 //
-// It reproduces what the old flow API answers for the same request (flow_request.go runResponse around handler.go
+// It reproduces what the old flow API answers for the same request (flow_request runResponse around handler
 // modifyResponse with the native body lane): header rules and scripts in rule order; the body loaded once, at the
 // first script that needs it, through the same admission (the old core: slots, budgets, locks, memory gates) into
 // NativeBodyStore (decoded there, the old core's lane rules); every skip / error path with the old core's own messages; $done applied

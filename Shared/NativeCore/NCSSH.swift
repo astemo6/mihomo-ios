@@ -3,7 +3,7 @@ import CryptoKit
 import Security
 import os
 
-/// SSH outbound (Clash.Meta v1.19.33 adapter/outbound/ssh.go: one shared client per proxy, a direct-tcpip channel per
+/// SSH outbound (Clash.Meta v1.19.33 adapter/outbound/ssh: one shared client per proxy, a direct-tcpip channel per
 /// flow) as a pure-Swift SSH-2 client (feat/nc-proto A3, based on astemo6/Muse NativeCore).
 /// Transport: curve25519-sha256 / ecdh-sha2-nistp256, host keys ssh-ed25519 / ecdsa-sha2-nistp256 /
 /// rsa-sha2-256/512 (signature always verified; `host-key` pins the blob like Clash.Meta; without a pin the first-seen

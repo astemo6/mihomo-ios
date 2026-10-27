@@ -2,7 +2,7 @@
 // for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 // Native MitM STAGE 2 — B9: one decrypted MitM connection, end to end (lane `wire`).
 //
-//   old engine (nativeterm.go: peek ClientHello, MitM host list, pinning memory) → MitmTLSFronting.listen →
+//   old engine (nativeterm: peek ClientHello, MitM host list, pinning memory) → MitmTLSFronting.listen →
 //   TLS lane terminates TLS → acceptHandler → NativeMitmSession:
 //     HTTPCodec parses the request head → MitmFlowDriving.requestPhase (the old core decided: rewrite / reject / redirect /
 //     map local / request script / admission — nothing is decided here) → [request body pushed to the old core when asked]
@@ -18,7 +18,7 @@
 // switch off goes to MitmFlowDriverAdapter exactly as before.
 //
 // Fallback: the session only exists after the old core handed the connection over (first byte from the TLS lane). Before
-// that every failure is the old core's first-byte fallback (nativeterm.go). The runtime switch (NativeMitmRuntime, default
+// that every failure is the old core's first-byte fallback. The runtime switch (NativeMitmRuntime, default
 // `defaultOn`, iOS 17+; app-group key nativeMitmStage2 overrides) decides whether the TLS front is registered at all; when off, or past the session cap, listen() answers 0
 // and the old core terminates TLS itself — the old path is the fallback for everything unsupported.
 // After the handover an error answers 502 if no response byte went out yet, else cuts the connection (never a

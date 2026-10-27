@@ -5,8 +5,8 @@ import Foundation
 /// retries over TCP, nothing is actually blocked. This tells those apart from real ad / privacy blocks and turns the
 /// core's rule text into something a person can read.
 ///
-/// Forms recognised (Clash.Meta logs a matched rule as `RuleType(payload)`, see rules/logic/logic.go Payload()):
-///   AND(((Network,udp) && (DstPort,443)))                                   memtune.go UDPFallbackRule
+/// Forms recognised (Clash.Meta logs a matched rule as `RuleType(payload)`, see rules/logic/logic Payload()):
+///   AND(((Network,udp) && (DstPort,443)))                                   memtune UDPFallbackRule
 ///   AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER)))))        mitm.QUICBlockAllRule (阻止 QUIC: 始终)
 ///   AND(((Network,udp) && (DstPort,443/8443) && (RuleSet,__mitm_hosts)…))  MitM hosts' QUIC
 /// and the config spellings users import: AND,((NETWORK,UDP),(DST-PORT,443)), Surge AND,((PROTOCOL,UDP),(DEST-PORT,443)),

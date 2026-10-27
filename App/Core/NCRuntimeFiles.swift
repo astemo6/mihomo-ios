@@ -12,7 +12,7 @@ import Foundation
 
 // MARK: - Tree accessors (bridge str / strList / boolOf / intOf)
 //
-// Review R-4: these follow the old core's inspect.go semantics on the go.yaml.in/yaml/v3
+// Review R-4: these follow the old core's inspect semantics on the go.yaml.in/yaml/v3
 // tree exactly. yaml v3 keeps `yes` / `on` / `no` / `off` as STRINGS (only
 // true/false are bools), so the old core helpers coerce:
 //   str(v)     string as-is; nil -> ""; anything else fmt.Sprint(v)
@@ -50,7 +50,7 @@ enum NCValueCoercion {
         return sprint(v)
     }
 
-    /// bridge truthy (nodes.go).
+    /// bridge truthy.
     static func truthy(_ s: String) -> Bool {
         switch s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "1", "true", "yes", "on": return true
@@ -265,7 +265,7 @@ enum NCRuntimeFiles {
         SHA256.hash(data: data).ncHex
     }
 
-    /// The bridge's writeAtomic (grouporder.go), review R-2: write to a UNIQUE
+    /// The bridge's writeAtomic, review R-2: write to a UNIQUE
     /// temp file in the same directory (".<base>.tmp<uuid>", O_EXCL), fsync,
     /// chmod 0644, then rename(2) over the target. rename is atomic on the same
     /// volume, so a reader (the tunnel) sees either the old or the new file —

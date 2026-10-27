@@ -41,7 +41,7 @@ enum NativeScriptRuntime {
     }
 }
 
-// MARK: - Answers (JSON from the old core; field names = nativescript.go json tags)
+// MARK: - Answers (JSON from the old core; field names = nativescript json tags)
 
 struct ScriptReserveAnswer: Decodable {
     var slot: Int64?
