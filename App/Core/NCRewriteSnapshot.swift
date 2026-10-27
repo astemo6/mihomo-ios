@@ -573,6 +573,10 @@ final class NCResources {
             path = String(path.dropFirst("file://".count))
         }
         if (path as NSString).isAbsolutePath {
+            // fix/nc-0.20.2: a script path saved by an older install's container is rebased under the current home.
+            if let r = NCPathContainment.rebaseForeignAbsolute(home: home, path, fallbackDir: "engine/scripts") {
+                return (home as NSString).appendingPathComponent(r)
+            }
             return path
         }
         let cleanP = ("/" + path as NSString).standardizingPath

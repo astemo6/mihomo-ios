@@ -319,10 +319,10 @@ enum NCConfigValidator {
 
     /// C.Path.IsSafePath: relative paths resolve under home; absolute ones must lie inside it.
     static func unsafePath(_ p: String) -> String? {
-        let home = AppShared.homeURL.standardizedFileURL.path
-        let full = p.hasPrefix("/") ? (p as NSString).standardizingPath
-            : ((home as NSString).appendingPathComponent(p) as NSString).standardizingPath
-        if full == home || full.hasPrefix(home + "/") { return nil }
+        // fix/nc-0.20.2: lexical containment, "/private/var" ≡ "/var" (standardizingPath folded it only for existing files).
+        let home = AppShared.homeURL.path
+        let full = NCPathContainment.clean(p, base: NCPathContainment.clean(home))
+        if NCPathContainment.isInside(home: home, p) { return nil }
         return "path is not subpath of home directory or SAFE_PATHS: \(full) \n allowed paths: [\(home)]"
     }
 

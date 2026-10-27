@@ -66,7 +66,14 @@ func ncJSONString(_ any: Any) -> String {
 func ncProviderCachePath(home: String, kind: String, _ m: [String: NCJSONValue]) -> String {
     let p = ncStr(m["path"])
     if !p.isEmpty {
-        if p.hasPrefix("/") { return p }
+        if p.hasPrefix("/") {
+            // fix/nc-0.20.2: an absolute path from an older install's container (delete + reinstall, re-signed build)
+            // is rebased under the current home; one already inside home is kept.
+            if let r = NCPathContainment.rebaseForeignAbsolute(home: home, p, fallbackDir: kind == "rule" ? "rules" : "proxies") {
+                return (home as NSString).appendingPathComponent(r)
+            }
+            return p
+        }
         return (home as NSString).appendingPathComponent(p)
     }
     let u = ncStr(m["url"])

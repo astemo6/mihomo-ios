@@ -54,7 +54,13 @@ struct NCProxy: Equatable {
     /// A port outside 0...65535 (a share link / subscription "port=70000") reads as absent, so the dial fails
     /// cleanly ("missing server/port") instead of being clamped to 65535 by the socket layer.
     var port: Int? { fields["port"]?.int.flatMap { (0...65535).contains($0) ? $0 : nil } }
-    var password: String? { fields["password"]?.string }
+    /// fix/nc-0.20.2: Snell's Clash field is `psk` (snell:// links, Clash YAML) while the Surge/QX importers write
+    /// `password`; either one is the key, so a psk-only node no longer fails with "snell missing psk".
+    var password: String? {
+        if let p = fields["password"]?.string, !p.isEmpty { return p }
+        if type == "snell", let p = fields["psk"]?.string, !p.isEmpty { return p }
+        return fields["password"]?.string
+    }
     var cipher: String? { fields["cipher"]?.string }
     var uuid: String? { fields["uuid"]?.string }
     var udp: Bool { fields["udp"]?.bool ?? false }

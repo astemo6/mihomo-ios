@@ -297,14 +297,14 @@ final class StorageModel: ObservableObject {
             for p in profiles {
                 let json = NCProviderPorts.providerPlan(home: home.path, profilePath: p)
                 if let arr = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] {
-                    for t in arr { if let path = t["path"] as? String { used.insert(URL(fileURLWithPath: path).standardizedFileURL.path) } }
+                    for t in arr { if let path = t["path"] as? String { used.insert(NCPathContainment.clean(path)) } }
                 }
             }
             // fix/nc-storage-other: one walk, allocated bytes, symlinks skipped, hard links once; every file lands in
             // exactly one category, so 其他 is an exact sum (it was size(container) + size(tmp) − Σ categories of
             // logical sizes).
             let s = StorageScan.scan(container: c, tmp: fm.temporaryDirectory)
-            let unused = s.providerFiles.filter { !used.contains($0.standardizedFileURL.path) }
+            let unused = s.providerFiles.filter { !used.contains(NCPathContainment.clean($0.path)) }
             let unusedBytes = unused.reduce(Int64(0)) { $0 + Self.size($1) }
             func b(_ k: StorageScan.Kind) -> Int64 { s.bytes[k] ?? 0 }
             let leftover = s.leftoverBytes

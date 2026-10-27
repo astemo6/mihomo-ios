@@ -1084,13 +1084,11 @@ enum NCRuntimeSteps {
             if dir.isEmpty {
                 dir = tailscaleStateDir(name)
             } else if (dir as NSString).isAbsolutePath {
-                let clean = (dir as NSString).standardizingPath
-                let homeClean = (home as NSString).standardizingPath
-                if home.isEmpty || !(clean + "/").hasPrefix(homeClean + "/") {
+                if home.isEmpty || !NCPathContainment.isInside(home: home, dir) {
                     dir = tailscaleStateDir(name)
                 }
             } else {
-                let c = (dir as NSString).standardizingPath
+                let c = NCPathContainment.cleanRelative(dir)
                 if c == ".." || c.hasPrefix("../") {
                     dir = tailscaleStateDir(name)
                 }
