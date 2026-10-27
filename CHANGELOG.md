@@ -2,6 +2,13 @@
 
 按时间倒序。安装包见 [GitHub Releases](https://github.com/astemo6/mihomo-ios/releases)。v0.19.21 及之前的版本内核均为 Clash.Meta v1.19.32，之后的版本见各版本说明；中间未单独发包的版本（如 0.18.1、0.19.1–0.19.5、0.19.9–0.19.10）并入其后第一个发布版本。
 
+## v0.20.1（NativeCore 预览版，预发布）
+
+- **QX `filter_remote` 没写 `force-policy` 时按列表内每行自己的策略分流**（与 QX 一致，以前整份列表走同一个策略）：配置里没有的策略自动建成手动选择组（备选为第一个手动选择组和 DIRECT，单个列表最多拆 32 个策略）；列表第一次下载并拆分之前，整份列表走第一个手动选择组。导入的配置、自定义规则和「资源」手动刷新都按这一方式处理；规则编辑器会提示，规则页说明文字同步更新。
+- 升级须知：已有的、没写 `force-policy` 的 QX 自定义远程列表缓存位置变了，升级后会重新下载一次，下载完成前暂走第一个手动选择组。
+- **MASQUE 支持 Cloudflare WARP**（cf-connect-ip）：客户端证书 mTLS（P-256 自签证书，按私钥缓存）+ 服务端公钥固定（不受 skip-cert-verify 影响）；私钥未登记时提示「服务端拒绝连接」，公钥不符立即报错。WARP 配置需用外部工具生成，App 内不做注册。已在 Cloudflare 真实端点验证（HTTPS、UDP DNS、1 MiB 下载、断线重连、错误密钥被拒），尚未在真机上验证。
+- 协议回环新增可选作业 `masque-warp`：临时注册免费 WARP 设备，测完即注销。
+
 ## v0.20.0（NativeCore 预览版，预发布）
 
 - **内核换成 NativeCore**：隧道和 App 不再包含旧内核，协议、规则、DNS、MitM 重写与脚本全部由纯 Swift（加 lwIP 与 WireGuard 的少量 C、脚本运行时 TernPrelude.js）实现，继续兼容 Clash.Meta 配置与 Surge / Loon / Quantumult X / Egern 的重写和脚本。
