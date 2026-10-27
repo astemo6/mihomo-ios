@@ -9,6 +9,11 @@ import UIKit
 // 「待重试（连接后自动下载）」 and fetched again when the VPN connects or the app comes back to the foreground.
 // An enabled remote module that has never been downloaded (imported 停用 and switched on later, or cut off by the
 // background-time limit) is fetched the same way — so a 停用 module is never downloaded until it is switched on.
+/// The background-task id, shared with its expiration handler.
+private final class BackgroundTaskToken {
+    var id = UIBackgroundTaskIdentifier.invalid
+}
+
 @MainActor
 final class BackgroundDownloads: ObservableObject {
     static let shared = BackgroundDownloads()
@@ -191,8 +196,7 @@ final class BackgroundDownloads: ObservableObject {
     /// Runs `work` with background execution time; when iOS takes it back, the rest is retried on the next
     /// foreground / connect (pending lists and never-downloaded modules are persisted state).
     private func withBackgroundTime<T>(_ name: String, _ work: () async -> T) async -> T {
-        final class Token { var id = UIBackgroundTaskIdentifier.invalid }
-        let token = Token()
+        let token = BackgroundTaskToken()
         token.id = UIApplication.shared.beginBackgroundTask(withName: name) {
             // time is up: what did not finish stays pending (see above)
             if token.id != .invalid { UIApplication.shared.endBackgroundTask(token.id); token.id = .invalid }
