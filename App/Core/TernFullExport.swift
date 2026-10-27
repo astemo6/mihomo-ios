@@ -676,7 +676,7 @@ enum TernFullExport {
 
         // [tern_data]
         for (k, v) in keyValues("tern_data") {
-            let rel = LegacyImport.mapPath(unesc(k)) // exports of the pre-rename app use the old storage dir
+            let rel = unesc(k)
             guard allDataFiles.contains(rel) else { continue } // unknown paths are never written
             p.dataFiles[rel] = try b64(v, "[tern_data] \(rel)")
         }

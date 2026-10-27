@@ -7,7 +7,7 @@ import CryptoKit
 /// - Official repository: SUDOKU-ASCII/sudoku (GPL-3.0)
 /// - Author: saba / saba-futai (active 2025-2026)
 /// - Reference implementations:
-///   - Server cores: SUDOKU-ASCII/sudoku (official tunnel core), MetaCubeX/mihomo (PR #2397 merged)
+///   - Server cores: SUDOKU-ASCII/sudoku (official tunnel core), Clash.Meta (PR #2397 merged)
 ///   - Swift: NodePassProject/Anywhere (open source on GitHub, GPL-3.0)
 /// - Design note: docs/nc-proto-sudoku.md
 enum NCSudoku {

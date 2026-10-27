@@ -58,7 +58,7 @@
 - 内核 **NativeCore**（纯 Swift）：共享层 `Shared/NativeCore/` 放配置规范模型、导入器、规则、DNS、协议与控制器协议，App 与隧道共用；`PacketTunnel/NativeCore/` 放数据面（lwIP）、拨号与引擎生命周期。隧道启动时由 `NativeCoreEngine` 加载经导入器归一的配置。
 - 设置文件（App Group 容器 `tern/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
-- 改名（2026-10-27）：Bundle ID `com.astemo6.tern`（`.tunnel` / `.widget`）、App Group `group.com.astemo6.tern`、URL scheme `tern://`、容器目录 `tern/`。这是一个新 App，旧版的数据不会自动带过来：在旧版里导出备份（文件 / WebDAV / 同步文件夹 / 完整导出），在 Tern 里「更多 → 备份与恢复」导入即可，旧格式的备份照常识别（`App/Core/LegacyImport.swift`）。
+- 改名（2026-10-27）：Bundle ID `com.astemo6.tern`（`.tunnel` / `.widget`）、App Group `group.com.astemo6.tern`、URL scheme `tern://`、容器目录 `tern/`。这是一个新 App，不读取改名前旧 App 的数据和备份：在 Tern 里重新配置（或重新导入订阅 / 配置链接）。备份与恢复、WebDAV、同步文件夹、完整导出只认 Tern 自己写的文件。
 
 ### 编程语言分工（现状）
 
