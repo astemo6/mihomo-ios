@@ -1,9 +1,20 @@
 # NativeCore: OpenConnect (AnyConnect 兼容) — design note (feat/nc-openconnect, based on astemo6/mihomo-ios NativeCore 6fd4bab)
 
-> **Status (fix/nc-proto-openconnect-int, 2026-10-27):** import / canonical fields / auth + CSTP framing are in;
-> the node is shown **unavailable** — CSTP DATA carries IP packets, so per-flow TCP needs a userspace TCP/IP stack
-> on the CSTP channel (an nc_wg-style lwIP netif, PacketTunnel only). The earlier loopback "echo" sent flow bytes as
-> DPD-REQ and read ocserv's DPD-RESP (and ocserv is not in Homebrew, so CI skipped it); both were removed.
+> **Status (fix/nc-openconnect-dp, 2026-10-27): available.** Real data plane: after `CONNECT /CSCOSSLC/tunnel` the
+> TLS stream is handed to `NCOCDevice` (PacketTunnel/NativeCore/NCOpenConnectNetif.swift), one lwIP netif per node
+> (lwip/nc_wg.c, shared with WireGuard via `NCLwIPDevice`) on X-CSTP-Address / -Address-IP6 with X-CSTP-MTU; lwIP
+> output → one CSTP DATA frame per TLS write, inbound DATA → `nc_wg_input` in place. Names resolve through X-CSTP-DNS
+> over the tunnel (system resolver fallback, fake-IP filtered). DPD-REQ after X-CSTP-DPD idle, dead after 2×DPD+5 s,
+> KEEPALIVE after X-CSTP-Keepalive; a lost channel reconnects with the webvpn cookie (re-auth on 401/403; same address
+> → flows survive), 6 tries with backoff; unused node torn down after 3 min; DISCONNECT 0xb0 on teardown. TCP goes
+> through `NCConnector.openconnectDialer` (NCWGTCPStream), UDP through NCUDPWireGuardSession with the OpenConnect
+> device. Tunnel-only (the App's 延迟测试 reports `NCOpenConnect.tunnelOnly`). DTLS stays off (Network.framework
+> cannot set the X-DTLS-App-ID session id). Split-include/exclude routes are parsed but not applied: Tern routes
+> per rule to the node, so all traffic sent to the node goes through it.
+> Verified against a real ocserv 1.6 (Alpine under QEMU on the macOS runner, tools/loopback/ocserv) by
+> proto-loopback.yml job `openconnect` → E2ETests/NCOpenConnectLoopbackTests.swift: 1 MiB TCP echo, HTTP fetch by
+> name (304000 B byte-exact), UDP echo, UDP DNS, X-CSTP-DNS resolution, DPD, reconnect keeping a live flow, wrong
+> password.
 
 Status 2026-10-26 (S2): 纯 Swift 会话层与数据泵落地（HTTPS XML 认证状态机、CONNECT 隧道协商、CSTP 8字节报文编解码与数据转发）、DTLS 1.2 显式回落 CSTP 状态机实现、NCConnector 真实分发接入、ocserv 回环测试体系建立（端口 18011 TCP+UDP 同口）。单测覆盖状态机、CSTP边界与回落判决；Xcode 单测待 CI。
 

@@ -105,6 +105,12 @@ These materials are strictly for loopback testing with self-signed TLS certifica
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.
+- **OpenConnect**: not sing-box — a real ocserv in an Alpine VM under QEMU
+  (`ocserv/start-ocserv-vm.sh`, cloud-init `ocserv/user-data`; TCP 443 →
+  127.0.0.1:18443), job `openconnect` in proto-loopback.yml, test class
+  `E2ETests/NCOpenConnectLoopbackTests.swift` (TernE2ETunnelTests, because the
+  netif is PacketTunnel code). Behind the tunnel: TCP echo :9000, UDP echo
+  :9001, dnsmasq :53 (`*.oc.test` → 10.77.0.1), busybox httpd :8080.
 - **Mieru**: sing-box has no mieru inbound, so there is no reference server;
   not covered rather than faked.
 
