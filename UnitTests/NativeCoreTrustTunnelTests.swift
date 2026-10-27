@@ -609,18 +609,90 @@ final class NativeCoreTrustTunnelTests: XCTestCase {
         XCTAssertEqual(status200, "200")
     }
 
-    // MARK: - fix/nc-proto-trusttunnel-int
+    // MARK: - fix/nc-trusttunnel-h3
 
-    /// The HTTP/3 track is not finished (no control stream, payload not in DATA frames, stream not retained
-    /// through the handshake): quic / network h3 nodes are shown unavailable, HTTP/2 stays available.
-    func testHTTP3TrackIsUnavailable() {
+    /// HTTP/3 runs on the shared H3 CONNECT stack now: quic / network h3 nodes are available.
+    func testHTTP3TrackIsAvailable() {
         let base: [String: NCJSONValue] = ["server": .string("1.2.3.4"), "port": .number(443),
                                            "username": .string("u"), "password": .string("p")]
         var quic = base; quic["quic"] = .bool(true)
         var h3 = base; h3["network"] = .string("h3")
         var h2 = base; h2["network"] = .string("h2")
-        XCTAssertNotNil(NCSupport.unsupportedReason(NCProxy(name: "q", type: "trusttunnel", fields: quic)))
-        XCTAssertNotNil(NCSupport.unsupportedReason(NCProxy(name: "h", type: "trusttunnel", fields: h3)))
+        var ws = base; ws["network"] = .string("ws")
+        XCTAssertNil(NCSupport.unsupportedReason(NCProxy(name: "q", type: "trusttunnel", fields: quic)))
+        XCTAssertNil(NCSupport.unsupportedReason(NCProxy(name: "h", type: "trusttunnel", fields: h3)))
         XCTAssertNil(NCSupport.unsupportedReason(NCProxy(name: "h2", type: "trusttunnel", fields: h2)))
+        XCTAssertNotNil(NCSupport.unsupportedReason(NCProxy(name: "ws", type: "trusttunnel", fields: ws)))
+    }
+
+    func testParamsQuicAndFallback() throws {
+        var f: [String: NCJSONValue] = ["server": .string("tt.example.com"), "port": .number(8443),
+                                        "username": .string("u"), "password": .string("p"), "quic": .bool(true)]
+        var p = try XCTUnwrap(NCTrustTunnelSessionManager.params(NCProxy(name: "n", type: "trusttunnel", fields: f)))
+        XCTAssertTrue(p.quic)
+        XCTAssertTrue(p.fallbackH2)
+        XCTAssertEqual(p.sni, "tt.example.com")
+        f["h2-fallback"] = .bool(false)
+        f.removeValue(forKey: "quic")
+        f["network"] = .string("h3")
+        p = try XCTUnwrap(NCTrustTunnelSessionManager.params(NCProxy(name: "n", type: "trusttunnel", fields: f)))
+        XCTAssertTrue(p.quic)
+        XCTAssertFalse(p.fallbackH2)
+        let o = try XCTUnwrap(NCTrustTunnelSessionManager.h3Options(p))
+        XCTAssertEqual(o.carrier, .h3)
+        XCTAssertEqual(o.port, 8443)
+        XCTAssertEqual(o.serverName, "tt.example.com")
+        XCTAssertFalse(o.naive)
+    }
+
+    func testAuthorityFormat() {
+        XCTAssertEqual(NCTrustTunnelSessionManager.authority(for: NCTarget(host: "example.com", port: 443)), "example.com:443")
+        XCTAssertEqual(NCTrustTunnelSessionManager.authority(for: NCTarget(host: "192.0.2.1", port: 80)), "192.0.2.1:80")
+        XCTAssertEqual(NCTrustTunnelSessionManager.authority(for: NCTarget(host: "2001:db8::1", port: 443)), "[2001:db8::1]:443")
+        XCTAssertEqual(NCTrustTunnelSessionManager.authority(for: NCTarget(host: "[2001:db8::1]", port: 443)), "[2001:db8::1]:443")
+        XCTAssertEqual(NCTrustTunnelSessionManager.authority(for: NCTarget(host: "_udp2", port: 0)), "_udp2")
+    }
+
+    /// H3 CONNECT headers go through the generic static-QPACK encoder: :method CONNECT indexed (15),
+    /// :authority / user-agent literal with static name ref (0 / 95), proxy-authorization literal name.
+    func testH3ConnectHeadersRoundTrip() throws {
+        let headers = NCTrustTunnelWire.connectHeaders(authority: "example.com:443", username: "u", password: "p")
+        let block = NCHTTPConnect.qpackEncode(headers)
+        let fields = try XCTUnwrap(NCHy2.qpackDecodeFieldSection(block))
+        XCTAssertEqual(fields.map { $0.name }, [":method", ":authority", "user-agent", "proxy-authorization"])
+        XCTAssertEqual(fields.map { $0.value }, ["CONNECT", "example.com:443", "iOS TrustTunnel", "Basic dTpw"])
+    }
+
+    /// _udp2 framing: client frames per §6.3; server frames (§6.4) split across reads reassemble; a bogus
+    /// length fails the stream instead of buffering forever.
+    func testUDPStreamFraming() throws {
+        final class Sink: NCRelayStream {
+            var sent: [Data] = []
+            var cancelled = false
+            func send(_ data: Data) { sent.append(data) }
+            func send(_ data: Data, completion: @escaping () -> Void) { sent.append(data); completion() }
+            func receive(_ handler: @escaping (Data?, Error?) -> Void) {}
+            func cancel() { cancelled = true }
+        }
+        let sink = Sink()
+        let s = NCTrustTunnelUDPStream(inner: sink, dst: try XCTUnwrap(NCIP("192.0.2.7")), dstPort: 53)
+        s.send(Data([1, 2, 3]))
+        var off = 0
+        let pkt = try XCTUnwrap(NCTrustTunnelWire.decodeClientPacket(data: try XCTUnwrap(sink.sent.first), offset: &off))
+        XCTAssertEqual(pkt.dstIP, NCTrustTunnelWire.padIPAddress("192.0.2.7"))
+        XCTAssertEqual(pkt.dstPort, 53)
+        XCTAssertEqual(pkt.payload, Data([1, 2, 3]))
+        XCTAssertEqual(pkt.appName, "")
+
+        let z = Data(count: 16)
+        var two = NCTrustTunnelWire.encodeServerPacket(srcIP: z, srcPort: 53, dstIP: z, dstPort: 1, payload: Data([9, 9]))
+        two.append(NCTrustTunnelWire.encodeServerPacket(srcIP: z, srcPort: 53, dstIP: z, dstPort: 1, payload: Data(repeating: 7, count: 500)))
+        XCTAssertNil(s.ingest(two.prefix(30)))
+        XCTAssertEqual(s.queued, 0)
+        XCTAssertNil(s.ingest(two.dropFirst(30).prefix(100)))
+        XCTAssertEqual(s.queued, 1)
+        XCTAssertNil(s.ingest(two.dropFirst(130)))
+        XCTAssertEqual(s.queued, 2)
+        XCTAssertNotNil(s.ingest(Data([0x7f, 0xff, 0xff, 0xff, 0])))
     }
 }

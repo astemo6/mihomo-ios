@@ -280,13 +280,10 @@ enum NCSupport {
         if p.fields["icmp"]?.bool == true {
             return "TrustTunnel icmp 尚未接入"
         }
-        // fix/nc-proto-trusttunnel-int (review of #161): the HTTP/3 track sends no control stream / SETTINGS,
-        // writes payload raw instead of in HTTP/3 DATA frames, and its stream object is not retained during
-        // the handshake (dial completes with neither stream nor error). Unavailable until that is redone.
-        let quic = p.fields["quic"]?.bool ?? false
+        // fix/nc-trusttunnel-h3: HTTP/3 (quic: true / network h3) runs on the shared NativeCore H3 CONNECT
+        // stack (NCH3ProxyConnection), with H2 fallback unless h2-fallback: false. TCP and UDP (_udp2).
         let net = (p.fields["network"]?.string ?? "").lowercased()
-        if quic || net == "h3" || net == "quic" { return "TrustTunnel HTTP/3（quic: true）尚未接入，请用 HTTP/2" }
-        if !net.isEmpty && net != "h2" && net != "tcp" { return "TrustTunnel network \(net) 尚未接入" }
+        if !net.isEmpty && !["h2", "tcp", "h3", "quic"].contains(net) { return "TrustTunnel network \(net) 尚未接入" }
         return nil
     }
 

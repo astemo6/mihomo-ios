@@ -3,145 +3,355 @@ import Network
 import Security
 import os
 
-/// TrustTunnel session layer: HTTP/2 over TLS (Track A) and HTTP/3 over QUIC (Track B).
+/// TrustTunnel session layer: HTTP/2 over TLS (Track A) and HTTP/3 over QUIC (Track B), TCP + UDP.
 ///
 /// Specification:
-/// - TrustTunnel Protocol Specification v1.0 (AdGuard VPN, Apache 2.0)
-/// - HTTP/2 (RFC 7540 / RFC 9113) with CONNECT method & Basic Auth
-/// - HTTP/3 (RFC 9114 / RFC 9220) with CONNECT method, QPACK (RFC 9204) & Basic Auth
+/// - TrustTunnel Protocol Specification v1.0 (AdGuard, Apache 2.0): CONNECT host:port per TCP flow,
+///   CONNECT `_udp2` carrying length-prefixed UDP packets (§6), Basic proxy-authorization.
+/// - Track A: HTTP/2 (RFC 9113) on the shared NCH2MuxCore.
+/// - Track B (fix/nc-trusttunnel-h3): HTTP/3 (RFC 9114) on the NativeCore H3 CONNECT stack
+///   (NCH3ProxyConnection: control stream + SETTINGS, DATA framing, static-only QPACK) — the same code the
+///   naive / Shadowrocket HTTP3 outbound runs. Optional H2 fallback when the QUIC connection cannot be
+///   established (`h2-fallback`, default true; spec §3.3), with a short back-off so a UDP-blocked network
+///   does not pay the QUIC timeout on every flow.
 /// - Threading: conforms to #116 pattern; all session/stream state is touched only on serial session queues.
+/// 需同步 feat/nc-kernel.
 public enum NCTrustTunnelSessionManager {
 
     private static var h2Sessions: [String: NCTrustTunnelH2Session] = [:]
-    private static var h3Sessions: [String: NCTrustTunnelH3Session] = [:]
+    private static var h3Conns: [String: NCH3ProxyConnection] = [:]
+    /// sessionKey → time until which H3 is skipped (H2 fallback in use after a failed QUIC dial).
+    private static var h3BackoffUntil: [String: Date] = [:]
     private static let lock = NSLock()
+    static var h3Backoff: TimeInterval = 60
 
     /// Clear all active sessions (for tests and network state resets).
     @discardableResult
     public static func reset() -> Int {
         lock.lock()
         let h2All = Array(h2Sessions.values)
-        let h3All = Array(h3Sessions.values)
+        let h3All = Array(h3Conns.values)
         h2Sessions.removeAll()
-        h3Sessions.removeAll()
+        h3Conns.removeAll()
+        h3BackoffUntil.removeAll()
         lock.unlock()
         for s in h2All { s.close() }
-        for s in h3All { s.close() }
+        for c in h3All { c.close() }
         return h2All.count + h3All.count
     }
 
-    /// Primary entry point for NCConnector dispatch.
+    struct Params {
+        var name: String
+        var server: String
+        var port: Int
+        var username: String
+        var password: String
+        var sni: String
+        var skipCert: Bool
+        var maxStreams: Int
+        var quic: Bool
+        var fallbackH2: Bool
+        var baseKey: String { "\(name)|\(server)|\(port)" }
+    }
+
+    static func params(_ proxy: NCProxy) -> Params? {
+        guard let server = proxy.server, !server.isEmpty else { return nil }
+        let f = proxy.fields
+        let net = (f["network"]?.string ?? "").lowercased()
+        let quic = f["quic"]?.bool ?? (net == "h3" || net == "quic")
+        let fallback = f["h2-fallback"]?.bool ?? f["fallback-h2"]?.bool ?? f["h2_fallback"]?.bool ?? true
+        return Params(
+            name: proxy.name,
+            server: server,
+            port: proxy.port ?? NCTrustTunnel.defaultPort,
+            username: f["username"]?.string ?? "",
+            password: proxy.password ?? f["password"]?.string ?? "",
+            sni: f["sni"]?.string ?? f["servername"]?.string ?? server,
+            skipCert: f["skip-cert-verify"]?.bool ?? false,
+            maxStreams: Int(f["max-streams"]?.number ?? 12),
+            quic: quic,
+            fallbackH2: fallback
+        )
+    }
+
+    /// `:authority` per spec §11.3: host:port, [v6]:port, or a bare reserved pseudo-host (`_udp2` …).
+    static func authority(for target: NCTarget) -> String {
+        let h = target.host
+        if h == NCTrustTunnelWire.udpPseudoHost || h == NCTrustTunnelWire.icmpPseudoHost
+            || h == NCTrustTunnelWire.checkPseudoHost {
+            return h
+        }
+        let bare = h.hasPrefix("[") && h.hasSuffix("]") ? String(h.dropFirst().dropLast()) : h
+        if case .v6? = NCIP(bare) { return "[\(bare)]:\(target.port)" }
+        return "\(bare):\(target.port)"
+    }
+
+    /// Primary entry point for NCConnector dispatch (TCP flows and the `_udp2` multiplexer stream).
     static func connect(
         proxy: NCProxy,
         target: NCTarget,
         queue: DispatchQueue,
         completion: @escaping (NCRelayStream?, Error?) -> Void
     ) {
-        guard let server = proxy.server, !server.isEmpty else {
+        guard let p = params(proxy) else {
             queue.async { completion(nil, NCConnector.Failure.handshake("trusttunnel missing server")) }
             return
         }
-        let port = proxy.port ?? NCTrustTunnel.defaultPort
-        let username = proxy.fields["username"]?.string ?? ""
-        let password = proxy.fields["password"]?.string ?? ""
-        let isQUIC = proxy.fields["quic"]?.bool ?? (proxy.fields["network"]?.string == "h3")
-        let sni = proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server
-        let skipCert = proxy.fields["skip-cert-verify"]?.bool ?? false
-        let maxStreams = Int(proxy.fields["max-streams"]?.number ?? 12)
-
-        let sessionKey = "\(proxy.name)|\(server)|\(port)|\(isQUIC ? "h3" : "h2")"
-
-        if isQUIC {
+        guard p.quic else {
+            connectH2(p, target: target, queue: queue, completion: completion)
+            return
+        }
+        if p.fallbackH2 {
             lock.lock()
-            let existing = h3Sessions[sessionKey]
-            if let existing, existing.isAlive {
-                lock.unlock()
-                existing.openStream(target: target, callerQueue: queue, completion: completion)
-                return
-            }
-            if let existing, existing.state == .connecting {
-                lock.unlock()
-                existing.whenReady(callerQueue: queue) { err in
-                    if let err {
-                        lock.lock()
-                        if h3Sessions[sessionKey] === existing { h3Sessions.removeValue(forKey: sessionKey) }
-                        lock.unlock()
-                        completion(nil, err)
-                    } else {
-                        existing.openStream(target: target, callerQueue: queue, completion: completion)
-                    }
-                }
-                return
-            }
-            let session = NCTrustTunnelH3Session(
-                key: sessionKey,
-                server: server,
-                port: port,
-                username: username,
-                password: password,
-                sni: sni,
-                skipCert: skipCert
-            )
-            h3Sessions[sessionKey] = session
+            let until = h3BackoffUntil[p.baseKey]
             lock.unlock()
+            if let until, until > Date() {
+                connectH2(p, target: target, queue: queue, completion: completion)
+                return
+            }
+        }
+        connectH3(p, target: target, queue: queue) { stream, err, connectionFailed in
+            if let stream { completion(stream, nil); return }
+            guard connectionFailed, p.fallbackH2 else { completion(nil, err); return }
+            lock.lock()
+            h3BackoffUntil[p.baseKey] = Date().addingTimeInterval(h3Backoff)
+            lock.unlock()
+            connectH2(p, target: target, queue: queue, completion: completion)
+        }
+    }
 
-            session.start { err in
-                if let err {
-                    lock.lock()
-                    if h3Sessions[sessionKey] === session { h3Sessions.removeValue(forKey: sessionKey) }
-                    lock.unlock()
-                    completion(nil, err)
+    /// UDP through the `_udp2` multiplexer stream (spec §6), one stream per tunnel UDP flow bound to `target`.
+    /// The stream is message oriented: one send = one datagram to `target`, one receive = one reply payload.
+    /// Domain targets are resolved here (the wire carries only IP addresses).
+    static func udpStream(
+        proxy: NCProxy,
+        target: NCTarget,
+        queue: DispatchQueue,
+        completion: @escaping (NCRelayStream?, Error?) -> Void
+    ) {
+        guard let port = UInt16(exactly: target.port), port != 0 else {
+            queue.async { completion(nil, NCConnector.Failure.handshake("trusttunnel udp: bad port")) }
+            return
+        }
+        func open(_ ip: NCIP) {
+            connect(proxy: proxy, target: NCTarget(host: NCTrustTunnelWire.udpPseudoHost, port: 0), queue: queue) { s, e in
+                guard let s else { completion(nil, e); return }
+                completion(NCTrustTunnelUDPStream(inner: s, dst: ip, dstPort: port), nil)
+            }
+        }
+        if let ip = NCIP(target.host) { open(ip); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ip = resolve(target.host)
+            queue.async {
+                guard let ip else {
+                    completion(nil, NCConnector.Failure.handshake("trusttunnel udp: cannot resolve \(target.host)"))
                     return
                 }
-                session.openStream(target: target, callerQueue: queue, completion: completion)
-            }
-        } else {
-            lock.lock()
-            let existing = h2Sessions[sessionKey]
-            if let existing, existing.isAlive && existing.activeStreamCount < maxStreams {
-                lock.unlock()
-                existing.openStream(target: target, callerQueue: queue, completion: completion)
-                return
-            }
-            if let existing, existing.state == .connecting {
-                lock.unlock()
-                existing.whenReady(callerQueue: queue) { err in
-                    if let err {
-                        lock.lock()
-                        if h2Sessions[sessionKey] === existing { h2Sessions.removeValue(forKey: sessionKey) }
-                        lock.unlock()
-                        completion(nil, err)
-                    } else {
-                        existing.openStream(target: target, callerQueue: queue, completion: completion)
-                    }
-                }
-                return
-            }
-            let session = NCTrustTunnelH2Session(
-                key: sessionKey,
-                server: server,
-                port: port,
-                username: username,
-                password: password,
-                sni: sni,
-                skipCert: skipCert,
-                maxStreams: maxStreams
-            )
-            h2Sessions[sessionKey] = session
-            lock.unlock()
-
-            session.start { err in
-                if let err {
-                    lock.lock()
-                    if h2Sessions[sessionKey] === session { h2Sessions.removeValue(forKey: sessionKey) }
-                    lock.unlock()
-                    completion(nil, err)
-                    return
-                }
-                session.openStream(target: target, callerQueue: queue, completion: completion)
+                open(ip)
             }
         }
     }
+
+    private static func resolve(_ host: String) -> NCIP? {
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_DGRAM
+        var res: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &res) == 0, let first = res else { return nil }
+        defer { freeaddrinfo(first) }
+        var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        guard getnameinfo(first.pointee.ai_addr, first.pointee.ai_addrlen, &buf, socklen_t(buf.count),
+                          nil, 0, NI_NUMERICHOST) == 0 else { return nil }
+        return NCIP(String(cString: buf))
+    }
+
+    // MARK: Track A dispatch
+
+    private static func connectH2(_ p: Params, target: NCTarget, queue: DispatchQueue,
+                                  completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        let sessionKey = p.baseKey + "|h2"
+        lock.lock()
+        let existing = h2Sessions[sessionKey]
+        if let existing, existing.isAlive && existing.activeStreamCount < p.maxStreams {
+            lock.unlock()
+            existing.openStream(target: target, callerQueue: queue, completion: completion)
+            return
+        }
+        if let existing, existing.state == .connecting {
+            lock.unlock()
+            existing.whenReady(callerQueue: queue) { err in
+                if let err {
+                    lock.lock()
+                    if h2Sessions[sessionKey] === existing { h2Sessions.removeValue(forKey: sessionKey) }
+                    lock.unlock()
+                    completion(nil, err)
+                } else {
+                    existing.openStream(target: target, callerQueue: queue, completion: completion)
+                }
+            }
+            return
+        }
+        let session = NCTrustTunnelH2Session(
+            key: sessionKey,
+            server: p.server,
+            port: p.port,
+            username: p.username,
+            password: p.password,
+            sni: p.sni,
+            skipCert: p.skipCert,
+            maxStreams: p.maxStreams
+        )
+        h2Sessions[sessionKey] = session
+        lock.unlock()
+
+        session.start { err in
+            if let err {
+                lock.lock()
+                if h2Sessions[sessionKey] === session { h2Sessions.removeValue(forKey: sessionKey) }
+                lock.unlock()
+                completion(nil, err)
+                return
+            }
+            session.openStream(target: target, callerQueue: queue, completion: completion)
+        }
+    }
+
+    // MARK: Track B dispatch
+
+    /// QUIC connection options for the shared H3 CONNECT stack (NCH2H3ProxyOptions has no memberwise init:
+    /// built through its own parser from an equivalent `http3` node). Credentials stay out of it: the
+    /// TrustTunnel CONNECT headers are built here (spec §5.1 user-agent + proxy-authorization).
+    static func h3Options(_ p: Params) -> NCH2H3ProxyOptions? {
+        NCH2H3ProxyOptions(proxy: NCProxy(name: p.name, type: "http3", fields: [
+            "server": .string(p.server), "port": .number(Double(p.port)),
+            "sni": .string(p.sni), "skip-cert-verify": .bool(p.skipCert),
+        ]))
+    }
+
+    /// completion(stream, error, connectionFailed): connectionFailed = the QUIC/H3 connection itself never
+    /// became ready (the only case H2 fallback applies to; a CONNECT rejection such as 407 is final).
+    private static func connectH3(_ p: Params, target: NCTarget, queue: DispatchQueue,
+                                  completion: @escaping (NCRelayStream?, Error?, Bool) -> Void) {
+        let key = p.baseKey + "|h3"
+        guard let options = h3Options(p) else {
+            queue.async { completion(nil, NCConnector.Failure.handshake("trusttunnel h3: bad server / port"), true) }
+            return
+        }
+        lock.lock()
+        let conn: NCH3ProxyConnection
+        var dial = false
+        if let e = h3Conns[key], e.state == .ready || e.state == .connecting || e.state == .idle,
+           e.state != .ready || e.load < NCH3ProxyConnection.maxStreams {
+            conn = e
+        } else {
+            conn = NCH3ProxyConnection(key: "tt.\(key)", options: options)
+            h3Conns[key] = conn
+            dial = true
+        }
+        lock.unlock()
+        if dial {
+            conn.onClosed = { [weak conn] in
+                lock.lock()
+                if let conn, h3Conns[key] === conn { h3Conns[key] = nil }
+                lock.unlock()
+            }
+            conn.start()
+        }
+        conn.whenReady(callerQueue: queue) { err in
+            if let err { completion(nil, err, true); return }
+            let headers = NCTrustTunnelWire.connectHeaders(authority: authority(for: target),
+                                                           username: p.username, password: p.password)
+            let box = NCTrustTunnelStreamBox()
+            let stream = conn.openStream(headers: headers, naive: false, callerQueue: queue) { err in
+                completion(err == nil ? box.get() : nil, err, false)
+            }
+            guard let stream else {
+                queue.async { completion(nil, NCConnector.Failure.handshake("trusttunnel h3: cannot open request stream"), false) }
+                return
+            }
+            box.set(stream)
+        }
+    }
+}
+
+/// Hands a stream created synchronously to its own (asynchronous) ready callback.
+private final class NCTrustTunnelStreamBox {
+    private let lock = NSLock()
+    private var stream: NCRelayStream?
+    func set(_ s: NCRelayStream) { lock.lock(); stream = s; lock.unlock() }
+    func get() -> NCRelayStream? { lock.lock(); defer { lock.unlock() }; return stream }
+}
+
+/// One tunnel UDP flow over a `_udp2` CONNECT stream (H2 or H3): datagrams are framed per spec §6.3 on the
+/// way out and §6.4 frames are reassembled from the byte stream on the way in. Memory: one reassembly
+/// buffer (bounded by one maximal frame) plus decoded payloads waiting for receive (bounded count).
+final class NCTrustTunnelUDPStream: NCRelayStream {
+    private let inner: NCRelayStream
+    private let dstIP: Data
+    private let dstPort: UInt16
+    private let srcIP = Data(count: 16)
+    private let srcPort: UInt16
+    private let lock = NSLock()
+    private var buffer = Data()
+    private var ready: NCDeque<Data> = []
+
+    static let maxFrame = 4 + 36 + 65535
+    static let maxQueued = 64
+
+    init(inner: NCRelayStream, dst: NCIP, dstPort: UInt16) {
+        self.inner = inner
+        self.dstIP = NCTrustTunnelWire.padIPAddress(dst.string) ?? Data(count: 16)
+        self.dstPort = dstPort
+        self.srcPort = UInt16.random(in: 1024...65535)
+    }
+
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        guard !data.isEmpty, data.count <= 65507 else { completion(); return }
+        inner.send(NCTrustTunnelWire.encodeClientPacket(srcIP: srcIP, srcPort: srcPort, dstIP: dstIP,
+                                                        dstPort: dstPort, payload: data),
+                   completion: completion)
+    }
+
+    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        lock.lock()
+        let first = ready.popFirst()
+        lock.unlock()
+        if let first { handler(first, nil); return }
+        inner.receive { [weak self] data, err in
+            guard let self else { handler(nil, err); return }
+            guard let data else { handler(nil, err); return }
+            if let bad = self.ingest(data) { self.inner.cancel(); handler(nil, bad); return }
+            self.receive(handler)
+        }
+    }
+
+    /// Appends stream bytes and decodes every complete frame; returns an error for a malformed length.
+    func ingest(_ data: Data) -> Error? {
+        lock.lock()
+        defer { lock.unlock() }
+        buffer.append(data)
+        var off = 0
+        while let pkt = NCTrustTunnelWire.decodeServerPacket(data: buffer, offset: &off) {
+            if ready.count < Self.maxQueued, !pkt.payload.isEmpty { ready.append(pkt.payload) }
+        }
+        buffer = off >= buffer.count ? Data() : Data(buffer[(buffer.startIndex + off)...])
+        if buffer.count >= 4 {
+            let b = buffer.startIndex
+            let len = Int(buffer[b]) << 24 | Int(buffer[b + 1]) << 16 | Int(buffer[b + 2]) << 8 | Int(buffer[b + 3])
+            if len < 36 || len + 4 > Self.maxFrame {
+                buffer = Data()
+                return NCConnector.Failure.handshake("trusttunnel udp: bad frame length \(len)")
+            }
+        }
+        return nil
+    }
+
+    /// Decoded payloads waiting for receive (tests).
+    var queued: Int { lock.lock(); defer { lock.unlock() }; return ready.count }
+
+    func cancel() { inner.cancel() }
 }
 
 // MARK: - Track A: HTTP/2 over TLS
@@ -294,12 +504,7 @@ final class NCTrustTunnelH2Session {
                 callerQueue.async { completion(nil, NCConnector.Failure.handshake("trusttunnel max-streams exceeded")) }
                 return
             }
-            let authority: String
-            if target.host == NCTrustTunnelWire.udpPseudoHost {
-                authority = NCTrustTunnelWire.udpPseudoHost
-            } else {
-                authority = "\(target.host):\(target.port)"
-            }
+            let authority = NCTrustTunnelSessionManager.authority(for: target)
             let headers = NCTrustTunnelWire.connectHeaders(
                 authority: authority,
                 username: self.username,
@@ -573,408 +778,3 @@ final class NCTrustTunnelH2Stream: NCRelayStream {
     }
 }
 
-// MARK: - Track B: HTTP/3 over QUIC
-
-final class NCTrustTunnelH3Session {
-    enum State { case connecting, ready, failed, closed }
-
-    let key: String
-    let server: String
-    let port: Int
-    let username: String
-    let password: String
-    let sni: String
-    let skipCert: Bool
-
-    let queue: DispatchQueue
-    private let snapshot = OSAllocatedUnfairLock(initialState: (state: State.connecting, tornDown: false))
-    var state: State { snapshot.withLock { $0.state } }
-    var isAlive: Bool { snapshot.withLock { $0.state == .ready && !$0.tornDown } }
-
-    private var group: NWConnectionGroup?
-    private var readyWaiters: [(queue: DispatchQueue, completion: (Error?) -> Void)] = []
-
-    init(
-        key: String,
-        server: String,
-        port: Int,
-        username: String,
-        password: String,
-        sni: String,
-        skipCert: Bool
-    ) {
-        self.key = key
-        self.server = server
-        self.port = port
-        self.username = username
-        self.password = password
-        self.sni = sni
-        self.skipCert = skipCert
-        self.queue = NCSessionQueues.make("nc.tt.h3.\(key)")
-    }
-
-    private func makeQUICOptions() -> NWProtocolQUIC.Options {
-        let quicOptions = NWProtocolQUIC.Options(alpn: ["h3"])
-        let tlsOptions = quicOptions.securityProtocolOptions
-        sec_protocol_options_set_tls_min_version(tlsOptions, .tlsProtocol13)
-        if !sni.isEmpty {
-            sec_protocol_options_set_tls_server_name(tlsOptions, sni)
-        }
-        if skipCert {
-            sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)
-        }
-        quicOptions.maxDatagramFrameSize = 1400
-        return quicOptions
-    }
-
-    func whenReady(callerQueue: DispatchQueue, completion: @escaping (Error?) -> Void) {
-        ncOnSessionQueue(queue) {
-            switch self.state {
-            case .ready:
-                callerQueue.async { completion(nil) }
-            case .failed, .closed:
-                callerQueue.async { completion(NCConnector.Failure.handshake("trusttunnel h3 session not ready")) }
-            case .connecting:
-                self.readyWaiters.append((callerQueue, completion))
-            }
-        }
-    }
-
-    func start(completion: @escaping (Error?) -> Void) {
-        ncOnSessionQueue(queue) {
-            let parameters = NWParameters(quic: self.makeQUICOptions())
-            parameters.allowLocalEndpointReuse = true
-            NCOutboundBinding.apply(parameters, host: self.server)
-
-            let endpoint = NWEndpoint.hostPort(
-                host: NWEndpoint.Host(self.server),
-                port: NWEndpoint.Port(rawValue: UInt16(clamping: self.port)) ?? .any
-            )
-            let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: parameters)
-            self.group = group
-
-            group.stateUpdateHandler = { [weak self] groupState in
-                guard let self else { return }
-                ncOnSessionQueue(self.queue) {
-                    switch groupState {
-                    case .ready:
-                        if self.state == .connecting {
-                            self.snapshot.withLock { $0.state = .ready }
-                            let waiters = self.readyWaiters
-                            self.readyWaiters = []
-                            completion(nil)
-                            for w in waiters { w.queue.async { w.completion(nil) } }
-                        }
-                    case .failed(let error):
-                        if self.state == .connecting {
-                            self.snapshot.withLock { $0.state = .failed; $0.tornDown = true }
-                            let waiters = self.readyWaiters
-                            self.readyWaiters = []
-                            completion(error)
-                            for w in waiters { w.queue.async { w.completion(error) } }
-                        } else {
-                            self.close()
-                        }
-                    default:
-                        break
-                    }
-                }
-            }
-            group.start(queue: self.queue)
-        }
-    }
-
-    func openStream(
-        target: NCTarget,
-        callerQueue: DispatchQueue,
-        completion: @escaping (NCRelayStream?, Error?) -> Void
-    ) {
-        ncOnSessionQueue(queue) {
-            guard self.isAlive, let group = self.group else {
-                callerQueue.async { completion(nil, NCConnector.Failure.handshake("trusttunnel h3 session closed")) }
-                return
-            }
-            guard let conn = group.extract(connectionTo: nil, using: nil) else {
-                callerQueue.async { completion(nil, NCConnector.Failure.handshake("trusttunnel h3 stream extract failed")) }
-                return
-            }
-            let stream = NCTrustTunnelH3Stream(
-                conn: conn,
-                target: target,
-                username: self.username,
-                password: self.password,
-                queue: self.queue,
-                callerQueue: callerQueue,
-                onConnect: completion
-            )
-            stream.begin()
-        }
-    }
-
-    func close() {
-        snapshot.withLock { $0.state = .closed; $0.tornDown = true }
-        ncOnSessionQueue(queue) {
-            self.group?.cancel()
-            self.group = nil
-        }
-    }
-}
-
-final class NCTrustTunnelH3Stream: NCRelayStream {
-    let conn: NWConnection
-    let target: NCTarget
-    let username: String
-    let password: String
-    let queue: DispatchQueue
-    let callerQueue: DispatchQueue
-    private var onConnect: ((NCRelayStream?, Error?) -> Void)?
-
-    private enum Phase { case handshaking, open, failed, closed }
-    private var phase: Phase = .handshaking
-
-    private var responseBuffer = Data()
-    private var outbox = Data()
-    private var outboxWaiters: [NCCallOnce] = []
-    private var inbox: [Data] = []
-    private var inboxBytes = 0
-    private var pendingReceive: ((Data?, Error?) -> Void)?
-    private var failure: Error?
-
-    static let maxQueuedBytes = 256 * 1024
-
-    init(
-        conn: NWConnection,
-        target: NCTarget,
-        username: String,
-        password: String,
-        queue: DispatchQueue,
-        callerQueue: DispatchQueue,
-        onConnect: @escaping (NCRelayStream?, Error?) -> Void
-    ) {
-        self.conn = conn
-        self.target = target
-        self.username = username
-        self.password = password
-        self.queue = queue
-        self.callerQueue = callerQueue
-        self.onConnect = onConnect
-    }
-
-    func begin() {
-        conn.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            ncOnSessionQueue(self.queue) {
-                switch state {
-                case .ready:
-                    let authority: String
-                    if self.target.host == NCTrustTunnelWire.udpPseudoHost {
-                        authority = NCTrustTunnelWire.udpPseudoHost
-                    } else {
-                        authority = "\(self.target.host):\(self.target.port)"
-                    }
-                    let qpack = NCTrustTunnelWire.qpackConnectHeaders(
-                        authority: authority,
-                        username: self.username,
-                        password: self.password
-                    )
-                    let frame = NCHy2.http3HeadersFrame(fieldSection: qpack)
-                    self.conn.send(content: frame, completion: .contentProcessed { [weak self] err in
-                        guard let self else { return }
-                        ncOnSessionQueue(self.queue) {
-                            if let err { self.fail(err); return }
-                            self.receiveHandshake()
-                        }
-                    })
-                case .failed(let err):
-                    self.fail(err)
-                default:
-                    break
-                }
-            }
-        }
-        conn.start(queue: queue)
-    }
-
-    private func receiveHandshake() {
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, err in
-            guard let self else { return }
-            ncOnSessionQueue(self.queue) {
-                if let content, !content.isEmpty {
-                    self.responseBuffer.append(content)
-                    if let parsed = self.tryParseH3Response() {
-                        if parsed.status == "200" {
-                            self.phase = .open
-                            if let cb = self.onConnect {
-                                self.onConnect = nil
-                                self.callerQueue.async { cb(self, nil) }
-                            }
-                            if !self.outbox.isEmpty {
-                                let w = self.outboxWaiters
-                                self.outboxWaiters = []
-                                let data = self.outbox
-                                self.outbox = Data()
-                                self.conn.send(content: data, completion: .contentProcessed { _ in
-                                    w.forEach { $0.call() }
-                                })
-                            }
-                            if !parsed.trailing.isEmpty {
-                                self.deliver(parsed.trailing)
-                            }
-                            self.receiveLoop()
-                            return
-                        } else if parsed.status == "407" {
-                            self.fail(NCConnector.Failure.handshake("trusttunnel: 407 Proxy Authentication Required"))
-                            return
-                        } else {
-                            self.fail(NCConnector.Failure.handshake("trusttunnel: HTTP \(parsed.status)"))
-                            return
-                        }
-                    } else if self.responseBuffer.count > Self.maxQueuedBytes {
-                        self.fail(NCConnector.Failure.handshake("trusttunnel h3 response overflow"))
-                        return
-                    }
-                }
-                if isComplete || err != nil {
-                    self.fail(err ?? NCConnector.Failure.handshake("trusttunnel h3 stream EOF during handshake"))
-                    return
-                }
-                self.receiveHandshake()
-            }
-        }
-    }
-
-    private func tryParseH3Response() -> (status: String, trailing: Data)? {
-        var off = 0
-        guard let (frameType, tLen) = NCHy2.varintDecode(responseBuffer, at: off) else { return nil }
-        off += tLen
-        guard let (frameLen, lLen) = NCHy2.varintDecode(responseBuffer, at: off) else { return nil }
-        off += lLen
-        guard responseBuffer.count >= off + Int(frameLen) else { return nil }
-
-        let payload = responseBuffer.subdata(in: (responseBuffer.startIndex + off)..<(responseBuffer.startIndex + off + Int(frameLen)))
-        let trailing = Data(responseBuffer.dropFirst(off + Int(frameLen)))
-
-        if frameType == 0x01 { // HEADERS
-            if let headers = NCHy2.qpackDecodeFieldSection(payload) {
-                let status = headers.first { $0.name == ":status" }?.value ?? ""
-                return (status, trailing)
-            }
-        }
-        return nil
-    }
-
-    private func receiveLoop() {
-        guard phase == .open else { return }
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, err in
-            guard let self else { return }
-            ncOnSessionQueue(self.queue) {
-                if let content, !content.isEmpty {
-                    self.deliver(content)
-                }
-                if isComplete || err != nil {
-                    self.phase = .closed
-                    self.drainWaiters()
-                    if let handler = self.pendingReceive {
-                        self.pendingReceive = nil
-                        self.callerQueue.async { handler(nil, err) }
-                    }
-                    return
-                }
-                if self.phase == .open {
-                    self.receiveLoop()
-                }
-            }
-        }
-    }
-
-    private func deliver(_ data: Data) {
-        if let handler = pendingReceive {
-            pendingReceive = nil
-            callerQueue.async { handler(data, nil) }
-        } else {
-            inbox.append(data)
-            inboxBytes += data.count
-        }
-    }
-
-    private func drainWaiters() {
-        let w = outboxWaiters
-        outboxWaiters = []
-        w.forEach { $0.call() }
-    }
-
-    private func fail(_ error: Error) {
-        guard phase != .closed && phase != .failed else { return }
-        phase = .failed
-        failure = error
-        drainWaiters()
-        if let cb = onConnect {
-            onConnect = nil
-            callerQueue.async { cb(nil, error) }
-        }
-        if let handler = pendingReceive {
-            pendingReceive = nil
-            callerQueue.async { handler(nil, error) }
-        }
-        conn.cancel()
-    }
-
-    // MARK: - NCRelayStream
-
-    func send(_ data: Data) { send(data, completion: {}) }
-
-    func send(_ data: Data, completion: @escaping () -> Void) {
-        let once = NCCallOnce(completion)
-        ncOnSessionQueue(queue) {
-            switch self.phase {
-            case .handshaking:
-                guard self.outbox.count + data.count <= Self.maxQueuedBytes else {
-                    once.call()
-                    self.fail(NCConnector.Failure.handshake("trusttunnel h3 outbox overflow"))
-                    return
-                }
-                self.outbox.append(data)
-                self.outboxWaiters.append(once)
-            case .open:
-                self.conn.send(content: data, completion: .contentProcessed { _ in once.call() })
-            case .failed, .closed:
-                once.call()
-            }
-        }
-    }
-
-    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
-        ncOnSessionQueue(queue) {
-            if !self.inbox.isEmpty {
-                let data = self.inbox.removeFirst()
-                self.inboxBytes -= data.count
-                self.callerQueue.async { handler(data, nil) }
-                return
-            }
-            if self.phase == .failed {
-                let err = self.failure
-                self.callerQueue.async { handler(nil, err) }
-                return
-            }
-            if self.phase == .closed {
-                self.callerQueue.async { handler(nil, nil) }
-                return
-            }
-            self.pendingReceive = handler
-        }
-    }
-
-    func cancel() {
-        ncOnSessionQueue(queue) {
-            if self.phase != .closed {
-                self.phase = .closed
-                self.drainWaiters()
-                if let handler = self.pendingReceive {
-                    self.pendingReceive = nil
-                    self.callerQueue.async { handler(nil, nil) }
-                }
-                self.conn.cancel()
-            }
-        }
-    }
-}
