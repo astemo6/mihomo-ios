@@ -89,23 +89,9 @@ extension TernUITests {
             guard let i = o.firstIndex(of: a), let j = o.firstIndex(of: b) else { return false }
             return i < j
         }
-        /// Brings `e` into the upper part of the screen when the page can scroll that far, so its long-press menu opens
-        /// below it instead of above, across the way to a card above (rel 0.20.2: a drag that slid over the menu
-        /// ended on 从首页移除).
-        func raise(_ e: XCUIElement) {
-            for _ in 0..<4 where e.exists && e.frame.midY > app.frame.height * 0.5 {
-                let y0 = e.frame.midY
-                app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.62))
-                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.42)))
-                usleep(800_000)
-                if abs(e.frame.midY - y0) < 4 { break } // end of the page
-            }
-        }
-        /// Long-press until the card lifts (0.7 s: the drag starts before the menu takes the finger), then drag slowly
-        /// onto `target` and hold; one retry (1.0 s press) towards the target's leading half.
+        /// Long-press (the menu preview lifts), then drag slowly onto `target` and hold; one retry from the target's edge.
         func drag(_ e: XCUIElement, onto target: XCUIElement, until done: () -> Bool) -> Bool {
-            raise(e)
-            e.press(forDuration: 0.7, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
+            e.press(forDuration: 1.0, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.6)
             usleep(1_500_000) // drop + 0.6 s save
             if done() { return true }
             warnings.append("[\(Env.tag)] home drag retry")
@@ -134,12 +120,15 @@ extension TernUITests {
         XCTAssertTrue(scrollTo(uptime), "运行时长 tile after the drag")
         XCTAssertLessThan(memory.frame.midX, uptime.frame.midX, "内存 drawn first")
 
-        // Full width: 内存 full, then drag 运行时长 onto it → 运行时长 first again.
-        memory.press(forDuration: 1.2)
+        // Full width: 运行时长 full (it moves to its own row below 内存), then drag 内存 down onto it → 运行时长 first.
+        // Dragged downwards on purpose: the cards sit low on the page, so their long-press menu opens above them, and
+        // a drag upwards slides over that menu instead of starting (rel 0.20.2 CI: it ended on 从首页移除).
+        uptime.press(forDuration: 1.2)
         XCTAssertTrue(tapIfExists(app.button(L("全宽显示")), timeout: 4), "全宽显示")
         usleep(900_000)
-        XCTAssertTrue(scrollTo(memory), "内存 full width")
-        XCTAssertTrue(drag(uptime, onto: memory) { before("uptime", "memory") }, "drag reordered (full): \(order())")
+        XCTAssertTrue(scrollTo(uptime), "运行时长 full width")
+        XCTAssertTrue(memory.exists, "内存 above it")
+        XCTAssertTrue(drag(memory, onto: uptime) { before("uptime", "memory") }, "drag reordered (full): \(order())")
         snap("home-drag-full")
         // The long-press menu no longer offers 在首页隐藏; removal is 从首页移除.
         uptime.press(forDuration: 1.2)
