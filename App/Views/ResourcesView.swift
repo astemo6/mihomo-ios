@@ -14,7 +14,7 @@ struct SourceFormatBadge: View {
             switch f {
             case "qx": return "QX"
             case "domainset": return "DOMAIN-SET"
-            case "list": return "LIST"
+            case "list", "list-own": return "LIST"
             case "js": return "JS"
             default: return f.uppercased()
             }

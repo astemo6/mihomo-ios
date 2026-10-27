@@ -31,7 +31,7 @@ Tern 是一个**全新的 App**：Bundle ID `com.astemo6.tern`（`.tunnel` / `.w
 - **导入**：Surge / Quantumult X / Loon / Stash / Egern 的配置、模块、插件、覆写，Clash.Meta YAML、订阅与分享链接，全部归一为同一份规范模型；`.conf` 导入先显示转换报告。
 - **重写 / 脚本 / MitM / 模块**：URL / 头部 / 内容 / jq 重写、本地映射、JS 脚本（Surge / QX / Loon / Egern API）、HTTPS 解密，模块库与策略映射。
 - **完整导出**：QuanX 风格的单文件导出，含节点、规则、重写、模块、MitM 主机名与 **CA（带口令的 p12）**，以及 `[tern_data]` 里的 Tern 设置；可在另一台设备上完整恢复。
-- QX `filter_remote` 与 QX 一致：没写 `force-policy` 时每行用自己的策略，配置里没有的策略会自动建成手动选择组；列表第一次下载完成之前不生效。
+- QX `filter_remote` 与 QX 一致：没写 `force-policy` 时按列表内每行自己的策略分流，配置里没有的策略会自动建成手动选择组（单个列表最多拆 32 个策略）；列表第一次下载并拆分完成之前，整份列表走第一个手动选择组。导入的配置与自定义规则、「资源」手动刷新都按这一方式处理。
 
 | 位置 | 内容 |
 | --- | --- |
@@ -127,7 +127,7 @@ NativeCore 出站协议（尚未接入的节点保留在配置中、显示为不
 | **OpenConnect**（新） | CSTP + **DTLS** 数据通道（DTLS 不通时回退 CSTP）、split-include / split-exclude 路由；不支持 OTP / 二次认证、ASA 旧式 DTLS |
 | **Sudoku**（新） | 与官方服务端 TCP 互通（握手、双向密钥轮换、自定义表）；不支持 UDP、HTTP 隧道模式（stream / poll / auto / ws）与 `multiplex: on` |
 | **TrustTunnel**（新） | HTTP/2 + **HTTP/3**，TCP + UDP；H3 连不上时回退 H2（`h2-fallback`，默认开） |
-| **MASQUE**（新） | CONNECT-UDP + **CONNECT-IP**（RFC 9484，TCP + UDP）；不支持 Cloudflare WARP |
+| **MASQUE**（新） | CONNECT-UDP + **CONNECT-IP**（RFC 9484，TCP + UDP）+ **Cloudflare WARP**（cf-connect-ip，客户端证书 mTLS + 服务端公钥固定）；WARP 配置需用外部工具生成（App 内不做注册） |
 | **Lua 自定义后端**（新） | Shadowrocket 风格 Lua 后端（精简 Lua 5.4） |
 
 **本机隧道（wloc，新，实验性）**：兼容 LocalDevVPN，把发往 `10.7.0.1`（可改）的包在隧道内反射回本机，供 wloc、StikDebug、SideStore 等工具使用，不经过规则与统计。默认关闭，入口「更多 → 高级设置 → 连接方式 → 本机隧道」，改后需重新连接；尚未经过真机验证。
@@ -203,7 +203,7 @@ NativeCore 出站协议（尚未接入的节点保留在配置中、显示为不
 ## 测试与 CI
 
 - **单元测试** `TernUnitTests`（`UnitTests/`、`AppTests/`）：协议编解码、导入器、规则、DNS、重写、脚本、完整导出等。
-- **协议回环** `proto-loopback.yml`：在 macOS runner 上起真实服务端——sing-box、官方 TrustTunnel endpoint、官方 Sudoku 服务端（从源码构建）、MASQUE 对端；OpenConnect（ocserv）与 MASQUE CONNECT-IP（connect-ip-go）跑在 QEMU 里的 Alpine 虚拟机中——由模拟器里的 NativeCore 实际拨号收发数据。
+- **协议回环** `proto-loopback.yml`：在 macOS runner 上起真实服务端——sing-box、官方 TrustTunnel endpoint、官方 Sudoku 服务端（从源码构建）、MASQUE 对端；OpenConnect（ocserv）与 MASQUE CONNECT-IP（connect-ip-go）跑在 QEMU 里的 Alpine 虚拟机中——由模拟器里的 NativeCore 实际拨号收发数据；可选作业 `masque-warp` 临时注册一个免费 WARP 设备，连接 Cloudflare 真实端点验证后注销。
 - **UI 测试** `ui-tests.yml`（Self-test）：模拟器 UI 测试，zh-Hans 与 en、浅色与深色；按改动自动选冒烟或完整矩阵，提交信息可用 `[shard:all|smoke|full]`、`[only:<测试>]`、`[unit:<类>]`、`[skip-ui]`。
 - **E2E 回放** `e2e-replay.yml`：用加密的真实配置（需要仓库 secret）回放启动、规则、DNS、MitM、脚本、重启与 reload，并按内核峰值内存判定内存门禁。
 - **Checks** `checks.yml`：`scripts/term_audit.py` 与 `tools/nc-stack-test`（lwIP 栈 C 代码的主机测试 + 压测）。
@@ -259,7 +259,7 @@ NativeCore 出站协议（尚未接入的节点保留在配置中、显示为不
 - 仅代理模式：不遵守系统代理的 App 与所有 UDP / QUIC 会直连；按 IP 的规则与 Fake-IP 不生效。
 - iCloud 备份需要签名里有 iCloud 容器权限；没有时可在「保存到文件」时选 iCloud 云盘。
 - MitM：HTTP/3（QUIC）无法解密，默认对 MitM 主机阻断 UDP 443（可按主机放行，或选择全部阻断）；证书固定的 App 会握手失败并被自动放行。
-- 协议缺口见「协议支持」：OpenConnect 无 OTP / ASA DTLS，Sudoku 无 UDP，MASQUE 无 WARP；TrustTunnel H3 不通时第一个连接最多等约 15 秒才回退 H2。
+- 协议缺口见「协议支持」：OpenConnect 无 OTP / ASA DTLS，Sudoku 无 UDP；TrustTunnel H3 不通时第一个连接最多等约 15 秒才回退 H2。
 - 本机隧道、Tailscale、MitM CA p12 尚未经过真机验证。
 
 ## 许可与致谢
