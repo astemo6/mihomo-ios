@@ -96,7 +96,6 @@ enum NCSupport {
             if NCH2H3ProxyOptions(proxy: p) == nil { return "\(t) 缺少 server / port" }
         case "sudoku":
             if let why = sudokuUnsupported(p) { return why }
-            return NCSudoku.interopUnavailable
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }

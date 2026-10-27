@@ -59,6 +59,55 @@ find_sing_box() {
     printf '%s' "$bin"
 }
 
+# fix/nc-sudoku-interop: the official Sudoku server (SUDOKU-ASCII/sudoku, pinned release) as the black-box
+# peer — sing-box has no sudoku inbound. One process per config in tools/loopback/sudoku/ (:18090–:18094).
+SUDOKU_VERSION="${SUDOKU_VERSION:-0.5.2.0}"
+find_sudoku() {
+    if [ -n "${SUDOKU_BIN:-}" ]; then
+        printf '%s' "$SUDOKU_BIN"
+        return
+    fi
+    local os arch
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    case "$(uname -m)" in
+        arm64|aarch64) arch="arm64" ;;
+        x86_64|amd64)  arch="amd64" ;;
+        *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+    local bin="$RUN/bin/sudoku"
+    if [ ! -x "$bin" ]; then
+        log "downloading sudoku v${SUDOKU_VERSION} (${os}-${arch})"
+        # Flat tarball: sudoku server.config.json client.config.json CONFIG-README*.md
+        curl -fsSL "https://github.com/SUDOKU-ASCII/sudoku/releases/download/v${SUDOKU_VERSION}/sudoku-${os}-${arch}.tar.gz" \
+            | tar -xz -C "$RUN/bin" sudoku
+        chmod +x "$bin" 2>/dev/null || true
+    fi
+    [ -x "$bin" ] || return 1
+    printf '%s' "$bin"
+}
+
+start_sudoku() {
+    local sk cfg name
+    sk="$(find_sudoku)" || { log "sudoku binary unavailable — sudoku loopback tests will fail"; return 0; }
+    for cfg in "$DIR"/sudoku/*.json; do
+        name="sudoku-$(basename "$cfg" .json)"
+        nohup "$sk" -c "$cfg" >"$RUN/$name.log" 2>&1 &
+        echo $! > "$RUN/$name.pid"
+    done
+    local p
+    for p in 18090 18091 18092 18093 18094; do wait_tcp "$p" || true; done
+    log "sudoku v${SUDOKU_VERSION}: entropy :18090 ascii-packed :18091 directional-none :18092 rotation :18093 closed-fallback :18094"
+}
+
+stop_sudoku() {
+    local f
+    for f in "$RUN"/sudoku-*.pid; do
+        [ -e "$f" ] || continue
+        if alive "$f"; then kill "$(cat "$f")" 2>/dev/null || true; fi
+        rm -f "$f"
+    done
+}
+
 gen_cert() {
     if [ -f "$RUN/cert.pem" ] && [ -f "$RUN/key.pem" ]; then
         return
@@ -184,6 +233,7 @@ do_start() {
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
     start_hy2_ref_client "$sb"
+    start_sudoku
     log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 echo :18080/:18081 blackhole :18082"
 }
 
@@ -237,6 +287,7 @@ quic_debug_summary() {
 do_stop() {
     local f
     stop_hy2_ref_client
+    stop_sudoku
     stop_wire_capture
     quic_debug_summary
     for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do

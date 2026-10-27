@@ -1,0 +1,23 @@
+{
+  "mode": "server",
+  "transport": "tcp",
+  "local_port": 18093,
+  "fallback_address": "127.0.0.1:18080",
+  "key": "3388f6b59b225f4e41cd14f445b73b6568711ce536832217b15649253612451d",
+  "aead": "chacha20-poly1305",
+  "suspicious_action": "fallback",
+  "padding_min": 10,
+  "padding_max": 30,
+  "custom_table": "",
+  "custom_tables": [
+    "xpxvvpvv",
+    "vxpvxvvp"
+  ],
+  "ascii": "prefer_entropy",
+  "enable_pure_downlink": false,
+  "multiplex": "off",
+  "httpmask": {
+    "disable": false,
+    "mode": "legacy"
+  }
+}

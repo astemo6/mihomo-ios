@@ -844,10 +844,8 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported(why)) }
                 return
             }
-            // fix/nc-proto-sudoku-int (review of #162): the clean-room data plane does not interoperate with the
-            // official server (key schedule, ECDH rekey, math/rand v1 table, padding-aware decode differ), so the
-            // node is unavailable rather than dialling into a handshake timeout.
-            queue.async { completion(nil, Failure.unsupported(NCSudoku.interopUnavailable)) }
+            // fix/nc-sudoku-interop: wire-compatible with the official server (NCSudokuWire / NCSudokuSession).
+            sudokuStream(proxy: proxy, target: target, transport: transport, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }

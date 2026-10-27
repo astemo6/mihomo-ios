@@ -1116,3 +1116,121 @@ extension NativeCoreLoopbackTests {
         try self.assertEcho(stream, payload: Self.sfPayload)
     }
 }
+
+// MARK: - fix/nc-sudoku-interop: the official Sudoku server (tools/loopback/sudoku/*.json, :18090–:18094)
+
+extension NativeCoreLoopbackTests {
+    /// Split ("available") private key of the loopback master key pair; the servers hold the master public key
+    /// 3388f6b5…451d, so this also exercises the client's key normalisation (Ed25519 r·B + k·B).
+    private static let sudokuKey = "e2eac3d4c0036ceb028048417bf2bf7c213681e145603c38ec8bffadb2e40c014130de746760b7dc9b515545f47e29df255687fe3ee972c2c517264f6a37b60b"
+    private static var sudokuEcho: NCTarget { NCTarget(host: "127.0.0.1", port: 18080) }
+    /// Large enough to span many records and TCP reads (server-side padding lands between clue bytes).
+    private static let sudokuPayload = Data((0..<96_000).map { UInt8(($0 * 31 + 7) & 0xff) })
+
+    private static func sudokuProxy(_ name: String, _ port: Int, _ extra: [String: NCJSONValue]) -> NCProxy {
+        var f: [String: NCJSONValue] = ["server": .string("127.0.0.1"), "port": .number(Double(port)),
+                                        "key": .string(Self.sudokuKey)]
+        for (k, v) in extra { f[k] = v }
+        return NCProxy(name: name, type: "sudoku", fields: f)
+    }
+
+    func testSudokuServerPortsReachable() {
+        for port in 18090...18094 {
+            let ok = LockedBox(false)
+            let exp = self.expectation(description: "sudoku port \(port)")
+            let once = NCCallOnce { exp.fulfill() }
+            let fired = LockedBox(false)
+            let conn = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: UInt16(port))!, using: .tcp)
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    ok.set(true)
+                    if !fired.get() { fired.set(true); once.call() }
+                case .failed, .cancelled:
+                    if !fired.get() { fired.set(true); once.call() }
+                default: break
+                }
+            }
+            conn.start(queue: DispatchQueue(label: "nc.loopback.sudoku.ports"))
+            self.wait(for: [exp], timeout: 5)
+            conn.stateUpdateHandler = nil
+            conn.cancel()
+            XCTAssertTrue(ok.get(), "official sudoku server 127.0.0.1:\(port) not accepting")
+        }
+    }
+
+    /// prefer_entropy, chacha20-poly1305, legacy HTTP mask, pure downlink, server pads 10–30 %.
+    func testSudokuTCPEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku", 18090, ["aead-method": .string("chacha20-poly1305"),
+                                                        "table-type": .string("prefer_entropy")])
+        XCTAssertNil(NCSupport.unsupportedReason(p))
+        let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sudokuPayload)
+        try self.assertEcho(stream, payload: Data("second round".utf8))
+    }
+
+    /// prefer_ascii, aes-128-gcm, no HTTP mask, packed (bandwidth-optimised) downlink.
+    func testSudokuASCIIPackedDownlinkEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-ascii", 18091, [
+            "aead-method": .string("aes-128-gcm"), "table-type": .string("prefer_ascii"),
+            "enable-pure-downlink": .bool(false), "http-mask": .bool(false),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sudokuPayload)
+    }
+
+    /// up_ascii_down_entropy with a custom x/p/v layout, aead none (raw passthrough), official nested httpmask block.
+    func testSudokuDirectionalCustomNoneEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-dir", 18092, [
+            "aead-method": .string("none"), "table-type": .string("up_ascii_down_entropy"),
+            "custom-table": .string("xpxvvpvv"), "httpmask": .object(["disable": .bool(true)]),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sudokuPayload)
+    }
+
+    /// custom-tables rotation: each dial picks one table and announces it with the ClientHello table hint.
+    func testSudokuCustomTablesRotationEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-rot", 18093, [
+            "custom-tables": .array([.string("xpxvvpvv"), .string("vxpvxvvp")]), "enable-pure-downlink": .bool(false),
+        ])
+        for _ in 0..<4 {
+            let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+            try self.assertEcho(stream, payload: Data(Self.sudokuPayload.prefix(8192)))
+            stream.cancel()
+        }
+    }
+
+    /// A key the server does not hold is rejected by the server itself: it cannot open the ClientHello, treats
+    /// the connection as suspicious after its 5 s handshake window and hands it to the fallback — the echo
+    /// backend reflects our own records (they fail authentication), the closed fallback drops the socket.
+    /// Either way the client reports that verdict well inside its own 10 s deadline, never a timeout.
+    func testSudokuWrongKeyRejected() throws {
+        var bad = Self.sudokuKey
+        bad.removeLast(2)
+        bad += "0c" // still a canonical split key, different master public key
+        for (port, expected) in [(18090, "无法认证"), (18094, "关闭了连接")] {
+            let p = Self.sudokuProxy("loop-sudoku-badkey-\(port)", port, ["key": .string(bad)])
+            let t0 = Date()
+            XCTAssertThrowsError(try self.connect(proxy: p, target: Self.sudokuEcho, timeout: 15)) { err in
+                let msg = err.localizedDescription
+                XCTAssertTrue(msg.contains(expected), "port \(port): \(msg)")
+                XCTAssertFalse(msg.contains("timeout"), "port \(port): \(msg)")
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(t0), 9.5, "port \(port): rejection should come from the server")
+        }
+    }
+
+    /// The master public key itself as the client key (no private key to normalise) also interoperates.
+    func testSudokuPublicKeyAsClientKeyEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-pub", 18090, [
+            "key": .string("3388f6b59b225f4e41cd14f445b73b6568711ce536832217b15649253612451d"),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Data(Self.sudokuPayload.prefix(4096)))
+    }
+}
