@@ -410,7 +410,7 @@ final class NativeCoreSudokuTests: XCTestCase {
 
     /// user_hash = SHA256(private-key bytes)[:8] — the value the ClientHello
     /// carries and the official server logs / whitelists on
-    /// (upstream internal/tunnel/kip.go kipUserHashFromPrivateKey).
+    /// (upstream internal/tunnel/kip kipUserHashFromPrivateKey).
     func testUserHashDerivationVectors() {
         // 128-hex split ("available") key → SHA256(decoded 64 bytes)[:8]
         XCTAssertEqual(self.hex(NCSudoku.deriveUserHash(from: Self.vectorKey128)), "5254fd3ed5acedc6")
@@ -421,7 +421,7 @@ final class NativeCoreSudokuTests: XCTestCase {
     }
 
     /// The ECDH primitive the official handshake derives its session keys
-    /// from (upstream internal/tunnel/session_keys.go x25519SharedSecret),
+    /// from (upstream internal/tunnel/session_keys x25519SharedSecret),
     /// pinned against RFC 7748 §6.1.
     func testX25519KeyAgreementRFC7748Vector() throws {
         let aliceSk = try Curve25519.KeyAgreement.PrivateKey(
@@ -441,7 +441,7 @@ final class NativeCoreSudokuTests: XCTestCase {
 
     /// ClientHello wire bytes: KIP frame ("kip" + 0x01 + u16 BE len) over the
     /// 68-byte payload timestamp(8 BE) ‖ user_hash(8) ‖ nonce(16) ‖ pub(32) ‖
-    /// features(4=0) — upstream kip.go EncodePayload without the optional
+    /// features(4=0) — upstream kip EncodePayload without the optional
     /// table hint.
     func testClientHelloLayoutBytes() {
         let nonce = Data((0..<16).map { UInt8($0) })

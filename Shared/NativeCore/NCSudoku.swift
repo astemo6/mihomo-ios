@@ -7,13 +7,13 @@ import CryptoKit
 /// - Official repository: SUDOKU-ASCII/sudoku (GPL-3.0)
 /// - Author: saba / saba-futai (active 2025-2026)
 /// - Reference implementations:
-///   - Go: SUDOKU-ASCII/sudoku (official tunnel core), MetaCubeX/mihomo (PR #2397 merged)
+///   - Server cores: SUDOKU-ASCII/sudoku (official tunnel core), MetaCubeX/mihomo (PR #2397 merged)
 ///   - Swift: NodePassProject/Anywhere (open source on GitHub, GPL-3.0)
 /// - Design note: docs/nc-proto-sudoku.md
 enum NCSudoku {
     /// fix/nc-proto-sudoku-int: shown for every otherwise valid node until the data plane interoperates with the
     /// official server (docs/nc-proto-sudoku.md §2.6 / S3 list).
-    static let interopUnavailable = "Sudoku 数据面尚未与官方服务端互通（密钥调度 / ECDH 换钥 / math/rand 表 / 填充解码待实现）"
+    static let interopUnavailable = "Sudoku 数据面尚未与官方服务端互通（密钥调度 / ECDH 换钥 / 随机置换表 / 填充解码待实现）"
 
 
     /// Supported AEAD encryption methods.

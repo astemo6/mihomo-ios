@@ -16,7 +16,7 @@ Per S1 constraints, no Lua source code is vendored and no third-party dependenci
   - **Compiled arm64 Binary Size (.text)**: Trimmed embedded core is estimated at **~110 KB – 135 KB** (full vanilla is ~180 KB – 220 KB). Against the existing ~3.3 MB PacketTunnel binary, the incremental footprint is **+3.6%**.
   - **Runtime Working Memory (RAM)**: Single Lua instance baseline is **~150 KB – 350 KB** (peak working set under 500 KB with custom hard limit). Against the iOS Network Extension **50 MB jetsam hard limit**, an active Lua backend consumes **< 0.7%**.
   - **Comparison with Existing JSC**: JSC consumes **1.5 MB – 4.0 MB** heap per `JSContext` and mandates a **1 MB thread stack** (`JSCThread`), whereas Lua requires **< 1/10th** of the memory, operates directly on dispatch queues without dedicated thread stacks, and has zero conservative stack-scanning panics.
-  - **Incremental Cost of Second Runtime**: Zero memory overhead when no Lua node is configured; ~300 KB when active. Memory and execution queues are completely isolated from JSC and Go.
+  - **Incremental Cost of Second Runtime**: Zero memory overhead when no Lua node is configured; ~300 KB when active. Memory and execution queues are completely isolated from JSC.
 
 ---
 
@@ -297,7 +297,7 @@ extension NCProxy {
    - Integrate with `NativeCoreLoopbackTests.swift`.
 
 ### 7.2 Loopback Testing Strategy
-- Loopback test server in `tools/loopback/` running a reference Lua-compatible echo server (e.g., Python or Go TCP mock server verifying handshake and XOR/AES cipher frame exchange).
+- Loopback test server in `tools/loopback/` running a reference Lua-compatible echo server (e.g., a Python TCP mock server verifying handshake and XOR/AES cipher frame exchange).
 - Automated CI test exercising `NativeCoreLoopbackTests.testLuaCustomBackendEcho()`.
 
 ### 7.3 Rollback & Fail-Safe Strategy

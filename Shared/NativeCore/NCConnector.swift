@@ -882,7 +882,7 @@ enum NCConnector {
                 return
             }
             // fix/nc-proto-sudoku-int (review of #162): the clean-room data plane does not interoperate with the
-            // official server (key schedule, ECDH rekey, math/rand v1 table, padding-aware decode differ), so the
+            // official server (key schedule, ECDH rekey, table PRNG, padding-aware decode differ), so the
             // node is unavailable rather than dialling into a handshake timeout.
             queue.async { completion(nil, Failure.unsupported(NCSudoku.interopUnavailable)) }
         default:
