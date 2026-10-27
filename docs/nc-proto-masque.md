@@ -1,6 +1,6 @@
 # NativeCore: MASQUE (RFC 9298 / RFC 9484) — design note (feat/nc-masque, based on 6fd4bab)
 
-> **Status (feat/nc-masque-warp, 2026-10-28):** Cloudflare WARP MASQUE (**cf-connect-ip**) is implemented
+> **Status (feat/nc-masque-warp, 2026-10-27):** Cloudflare WARP MASQUE (**cf-connect-ip**) is implemented
 > and wired to the L3 CONNECT-IP data plane:
 > - Client mTLS identity: `NCMASQUEWarp` (Shared/NativeCore/NCMASQUEWarp.swift) parses client ECDSA P-256 private
 >   keys (PKCS#8, SEC 1, or PEM; standard or URL-safe base64), generates an ephemeral self-signed client certificate

@@ -315,7 +315,7 @@ final class NCMASQUEConnection {
 
         if config.isWarp {
             guard let identity = cachedIdentity ?? NCMASQUEWarp.makeLocalIdentity(config: config) else {
-                finishStart(NCMASQUEWarpError.warpIdentityFailed(NCMASQUEWarp.warpIdentityFailed))
+                finishStart(NCMASQUEWarp.WarpError.warpIdentityFailed(NCMASQUEWarp.warpIdentityFailed))
                 return
             }
             cachedIdentity = identity
