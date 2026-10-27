@@ -574,3 +574,107 @@ final class E2EStackWatch {
         return parts.joined(separator: " < ")
     }
 }
+
+/// fix-tls-c: what a node's TLS server presents, read straight from the runner (not through the tunnel) with a
+/// Network.framework client that accepts any chain but evaluates it first: negotiated TLS version, chain summary
+/// (count, leaf key type, self-signed, validity), SecTrust's verdict for the SNI (masked), whether the leaf's subject
+/// summary equals the SNI, and the issuer (the next certificate's subject summary; names with a dot are masked).
+/// Never prints the server, the SNI or a credential.
+enum E2ECertProbe {
+    struct Result {
+        var tlsVersion = "-"
+        var chain = "-"
+        var trust = "-"
+        var subject = "-"
+        var issuer = "-"
+        var error: String?
+        var line: String {
+            if let error, chain == "-" { return "probe: \(error)" }
+            return "probe: TLS \(tlsVersion), \(chain), subject \(subject), issuer \(issuer), SecTrust \(trust)"
+        }
+    }
+
+    final class Box {
+        private let lock = NSLock()
+        private var chain: [SecCertificate] = []
+        private var ok = false
+        private var reason: String?
+        private var done = false
+        func set(_ c: [SecCertificate], _ o: Bool, _ r: String?) {
+            lock.lock(); if !done { chain = c; ok = o; reason = r; done = true }; lock.unlock()
+        }
+        func get() -> (chain: [SecCertificate], ok: Bool, reason: String?, done: Bool) {
+            lock.lock(); defer { lock.unlock() }; return (chain, ok, reason, done)
+        }
+    }
+
+    static func mask(_ s: String) -> String {
+        s.contains(".") || s.contains(":") ? "<name>" : String(s.prefix(40))
+    }
+
+    static func inspect(host: String, port: Int, sni: String?, timeout: TimeInterval = 8) -> Result {
+        var res = Result()
+        let q = DispatchQueue(label: "e2e.certprobe")
+        let tls = NWProtocolTLS.Options()
+        let sec = tls.securityProtocolOptions
+        let name = (sni?.isEmpty == false) ? sni! : host
+        if NCIP(name) == nil { sec_protocol_options_set_tls_server_name(sec, name) }
+        let box = Box()
+        sec_protocol_options_set_verify_block(sec, { _, trustRef, complete in
+            let trust = sec_trust_copy_ref(trustRef).takeRetainedValue()
+            let chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate]) ?? []
+            var err: CFError?
+            let ok = SecTrustEvaluateWithError(trust, &err)
+            box.set(chain, ok, err.map { NCCertSummary.maskTrustError(($0 as Error).localizedDescription) })
+            complete(true)
+        }, q)
+        let conn = NWConnection(to: NCStream.endpoint(host, port: port), using: NWParameters(tls: tls, tcp: NWProtocolTCP.Options()))
+        let state = E2EHarness.Flag()
+        let failure = E2EController.StringBox()
+        conn.stateUpdateHandler = { st in
+            switch st {
+            case .ready: state.set(1)
+            case .failed(let e): failure.set("\(e)"); state.set(2)
+            case .waiting(let e): failure.set("waiting: \(e)"); state.set(2)
+            default: break
+            }
+        }
+        conn.start(queue: q)
+        _ = E2ENet.waitUntil(timeout) { state.get() != 0 }
+        if state.get() == 1,
+           let meta = conn.metadata(definition: NWProtocolTLS.definition) as? NWProtocolTLS.Metadata {
+            switch sec_protocol_metadata_get_negotiated_tls_protocol_version(meta.securityProtocolMetadata) {
+            case .TLSv13: res.tlsVersion = "1.3"
+            case .TLSv12: res.tlsVersion = "1.2"
+            default: res.tlsVersion = "older / other"
+            }
+        }
+        conn.cancel()
+        let b = box.get()
+        if b.done {
+            res.chain = NCCertSummary.describe(chain: b.chain)
+            res.trust = b.ok ? "ok" : "rejected (\(b.reason ?? "no reason"))"
+            if let leaf = b.chain.first {
+                let subj = (SecCertificateCopySubjectSummary(leaf) as String?) ?? ""
+                if subj.isEmpty {
+                    res.subject = "empty"
+                } else if subj.caseInsensitiveCompare(name) == .orderedSame {
+                    res.subject = "= SNI"
+                } else if NCIP(subj) != nil {
+                    res.subject = "an IP"
+                } else if subj.hasPrefix("*."), name.lowercased().hasSuffix(String(subj.dropFirst(1)).lowercased()) {
+                    res.subject = "wildcard of SNI"
+                } else {
+                    res.subject = "other name"
+                }
+            }
+            if b.chain.count > 1 {
+                res.issuer = mask((SecCertificateCopySubjectSummary(b.chain[1]) as String?) ?? "?")
+            } else if let leaf = b.chain.first {
+                res.issuer = NCCertSummary.leaf(leaf).selfSigned ? "self" : "not sent"
+            }
+        }
+        if state.get() != 1 { res.error = failure.get() ?? "no TLS handshake within \(Int(timeout)) s" }
+        return res
+    }
+}

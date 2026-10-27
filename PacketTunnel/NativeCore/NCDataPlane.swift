@@ -474,13 +474,14 @@ final class NCDataPlane {
         let derefed = engine.derefFakeIP(conn.dst)
         let fakeDomain = derefed.host != conn.dst.host ? derefed.host : nil
         // fix/nc-tls-scripts: a fake-ip destination nobody was given (stale DNS cache of an app, lost / evicted
-        // mapping) is refused at the SYN — false makes the C stack tcp_abort the new PCB (RST) — like Clash.Meta's
+        // mapping) is refused at accept — false makes the C stack tcp_abort the new PCB, so the app sees an RST right
+        // after the 3-way handshake (lwIP calls accept() once the handshake completes), before any byte — like Clash.Meta's
         // "fake DNS record missing". Before, the flow was accepted and its SNI / Host sniffed, so a request carrying
         // a Host header was served (自检: "无映射的 Fake-IP：HTTP/1.1 204", "fake-ip unmapped reset 0") and the app
         // never re-resolved. NCFakeIPPool.refusesAtAccept is the same decision, unit-tested.
         if fakeDomain == nil, let ip = conn.dst.ip, engine.isFakeAddress(ip) {
             fakeUnmappedReset &+= 1
-            connLog("[TCP] \(conn.dst.host):\(conn.dst.port) refused: fake-ip without a domain mapping — RST to the SYN, the app re-resolves", level: "warning")
+            connLog("[TCP] \(conn.dst.host):\(conn.dst.port) refused: fake-ip without a domain mapping — RST right after the handshake, the app re-resolves", level: "warning")
             return false
         }
         let s = TCPSession(conn: conn, target: derefed, ruleDomain: fakeDomain)

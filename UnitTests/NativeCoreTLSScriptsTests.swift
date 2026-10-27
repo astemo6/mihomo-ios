@@ -408,7 +408,7 @@ final class NativeCoreTLSScriptsTests: XCTestCase {
         let pool = NCFakeIPPool(range: "198.18.0.1/16")
         let mapped = pool.address(for: "www.gstatic.com")
         XCTAssertFalse(pool.refusesAtAccept(mapped), "a mapped fake IP is served")
-        XCTAssertTrue(pool.refusesAtAccept(NCIP("198.18.251.77")!), "an address nobody was given is refused at the SYN")
+        XCTAssertTrue(pool.refusesAtAccept(NCIP("198.18.251.77")!), "an address nobody was given is refused at accept")
         XCTAssertFalse(pool.refusesAtAccept(NCIP("1.1.1.1")!), "real addresses are not the pool's business")
         pool.flush()
         XCTAssertTrue(pool.refusesAtAccept(mapped), "after a flush the old address is stale")

@@ -313,6 +313,9 @@ enum NCQXImport {
         if let v = take("fast-open") ?? take("tfo"), let b = NCConfImport.boolValue(v) { fields["tfo"] = .bool(b) }
         if let v = take("tls-verification"), let b = NCConfImport.boolValue(v) {
             fields["skip-cert-verify"] = .bool(!b) // QX spells verification positively
+            // fix-tls-c: kept as a marker so the QX provider default (qxRemoteTLSDefault) still sees "this node asked for
+            // verification" after the App stored the body as Clash YAML (NCProviderPorts.convertNodesText).
+            if b { fields["tls-verification"] = .bool(true) }
         }
         if fields["skip-cert-verify"] == nil, let v = take("skip-cert-verify"), let b = NCConfImport.boolValue(v) {
             fields["skip-cert-verify"] = .bool(b)
@@ -359,6 +362,27 @@ enum NCQXImport {
                 fields["fingerprint"] = .string(hex)
             }
         }
+    }
+
+    /// fix-tls-c — Quantumult X `[server_remote]` semantics for every node of such a provider, whatever format the panel
+    /// answered in (QX lines, share links, base64, Clash YAML, JSON): certificate verification is OFF unless the node says
+    /// `tls-verification=true`. QX lines already get it from applyQXTLSDefaults; this covers the rest. E2E 40543432526:
+    /// 17/33 SelfBuild nodes reached the dialer with skip-cert-verify false and failed `tls · -9808` (boringssl
+    /// CERTIFICATE_VERIFY_FAILED from the verify callback), while QX on the same device accepts them.
+    /// Left alone: non-TLS nodes, REALITY (authenticates the server itself), a node already skipping verification, a node
+    /// carrying the `tls-verification: true` marker, and a node with a certificate pin (the pin is its own check).
+    /// Returns the changed node, or nil when nothing changes.
+    static func qxRemoteTLSDefault(_ p: NCProxy) -> NCProxy? {
+        let f = p.fields
+        if f["reality-opts"] != nil { return nil }
+        let alwaysTLS: Set<String> = ["trojan", "https", "anytls", "hysteria", "hysteria2", "hy2", "tuic", "juicity"]
+        let tls = alwaysTLS.contains(p.type) || (f["tls"].flatMap(NCProxy.truthy) ?? false)
+        guard tls, !p.skipCertVerify else { return nil }
+        if let v = f["tls-verification"], NCProxy.truthy(v) == true { return nil }
+        if NCConnector.parsePinnedCertSHA256(p) != nil { return nil }
+        var out = f
+        out["skip-cert-verify"] = .bool(true)
+        return NCProxy(name: p.name, type: p.type, fields: out)
     }
 
     /// QX transport spelling: `obfs=ws` (+ obfs-host/obfs-uri) or

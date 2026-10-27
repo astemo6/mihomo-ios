@@ -288,7 +288,8 @@ final class NCFakeIPPool {
 
     /// fix/nc-tls-scripts (自检「断开重连与旧 Fake-IP 处理」FAIL, device build506): a TCP SYN to an address inside the
     /// fake range that this pool has no domain for (an app's DNS cache from an older session / an evicted entry) is
-    /// refused at accept time — RST to the SYN, before any byte — the way Clash.Meta drops "fake DNS record missing".
+    /// refused at accept time — an RST right after the 3-way handshake (the C stack accepts once it completes), before
+    /// any byte — the way Clash.Meta drops "fake DNS record missing".
     /// Before, the flow was accepted and its Host / SNI was sniffed; an HTTP request with a Host header was then
     /// served (HTTP 204), so the app kept using the stale address. Pure, for the unit tests. 需同步 feat/nc-kernel.
     func refusesAtAccept(_ ip: NCIP) -> Bool {

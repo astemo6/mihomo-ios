@@ -10,6 +10,42 @@ final class NCStream {
     let conn: NWConnection
     let queue: DispatchQueue
     private var cancelled = false
+    /// fix-tls-c: set by the TLS init — whether the certificate is verified, and SecTrust's reason when it was rejected.
+    /// nil for plain TCP / caller-built parameters.
+    private var tlsDiag: TLSDiag?
+
+    final class TLSDiag {
+        let verify: Bool
+        private let lock = NSLock()
+        private var reason: String?
+        init(verify: Bool) { self.verify = verify }
+        func set(_ r: String) { lock.lock(); reason = r; lock.unlock() }
+        var rejected: String? { lock.lock(); defer { lock.unlock() }; return reason }
+    }
+
+    /// fix-tls-c: a TLS connect failure that says how the certificate was handled:
+    /// "-9808: bad certificate format · verify on: “<cert>” certificate is not trusted · chain 1, leaf RSA-2048
+    /// self-signed, valid …" (skip-cert-verify was false) or "… · skip-cert-verify on" (then it was not a trust decision).
+    struct TLSConnectError: Error, LocalizedError, CustomStringConvertible {
+        let underlying: NWError
+        let text: String
+        var errorDescription: String? { text }
+        var description: String { text }
+    }
+
+    /// The error handed to `ready` for a failed connect: TLS failures carry the verification mode (and the rejection
+    /// reason); everything else is the NWError itself.
+    func annotate(_ e: NWError) -> Error {
+        guard case .tls = e, let d = tlsDiag else { return e }
+        var t = e.debugDescription
+        if d.verify {
+            t += " · verify on"
+            if let r = d.rejected { t += ": " + r }
+        } else {
+            t += " · skip-cert-verify on"
+        }
+        return TLSConnectError(underlying: e, text: t)
+    }
     /// fix/nc-mem-4: counted in NCMemTrace (DEBUG) from start() until deinit.
     private var traced = false
 
@@ -40,6 +76,21 @@ final class NCStream {
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, complete in
                 complete(true)
+            }, queue)
+            tlsDiag = TLSDiag(verify: false)
+        } else {
+            // fix-tls-c: the system's own decision (same SecTrust object, SSL policy for the SNI), evaluated here so a
+            // rejection can name its reason and the chain. Before, a verification-on node failed with a bare
+            // `-9808: bad certificate format` (boringssl CERTIFICATE_VERIFY_FAILED) and nothing said why.
+            let diag = TLSDiag(verify: true)
+            tlsDiag = diag
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, trustRef, complete in
+                let trust = sec_trust_copy_ref(trustRef).takeRetainedValue()
+                // Called on `queue` (the verify block's queue), which SecTrustEvaluateAsyncWithError requires.
+                SecTrustEvaluateAsyncWithError(trust, queue) { t, ok, err in
+                    if !ok { diag.set(NCCertSummary.trustFailure(trust: t, error: err)) }
+                    complete(ok)
+                }
             }, queue)
         }
         let params = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
@@ -106,8 +157,9 @@ final class NCStream {
                 fired = true
                 trace?.end("connect", error: e)
                 trace?.connectFailed(e)
-                trace?.fail("connect \(label): \(NCDialTrace.describe(e))")
-                ready(e)
+                let out = self?.annotate(e) ?? e
+                trace?.fail("connect \(label): \(NCDialTrace.describe(out))")
+                ready(out)
             case .cancelled:
                 fired = true
                 trace?.end("connect")

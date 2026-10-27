@@ -13,26 +13,58 @@ import Foundation
 /// suffixes, like the reference apps do.
 enum NCSubscriptionParser {
     static func parse(_ text: String) -> [NCProxy] {
+        parseDetailed(text, qxRemote: false).nodes
+    }
+
+    /// fix-tls-c: what a provider body was, for the provider log line and the E2E node-tls row
+    /// ("Clash YAML", "JSON", "base64 share links", "QX lines", "Surge lines", "share links + QX lines", …), and how many
+    /// nodes got the QX `[server_remote]` TLS default.
+    struct Parsed {
+        var nodes: [NCProxy]
+        var format: String
+        var qxTLSDefaulted: Int
+    }
+
+    /// `qxRemote`: the body belongs to a Quantumult X `[server_remote]` provider, so every node that did not come from a
+    /// QX line (those get QX semantics in buildQXNode) gets NCQXImport.qxRemoteTLSDefault — verification off unless the
+    /// node says `tls-verification=true` — the way QX treats whatever the panel answered.
+    static func parseDetailed(_ text: String, qxRemote: Bool) -> Parsed {
+        var defaulted = 0
+        func qx(_ ns: [NCProxy]) -> [NCProxy] {
+            guard qxRemote else { return ns }
+            return ns.map { n in
+                guard let c = NCQXImport.qxRemoteTLSDefault(n) else { return n }
+                defaulted += 1
+                return c
+            }
+        }
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("\u{FEFF}") { trimmed.removeFirst() }
         if trimmed.hasPrefix("proxies:") || trimmed.contains("\nproxies:") {
-            if let nodes = parseClashYAML(trimmed) { return dedup(nodes) }
+            if let nodes = parseClashYAML(trimmed) {
+                let ns = dedup(qx(nodes))
+                return Parsed(nodes: ns, format: "Clash YAML", qxTLSDefaulted: defaulted)
+            }
         }
         // the retired bridge parseNodeText: JSON is tried on the raw text, then
         // unconditionally on the base64-decoded text (a padded JSON blob used
         // to fall through here because the first branch required no "=").
         if let jsonNodes = parseJSONNodes(trimmed) {
-            return dedup(jsonNodes)
+            let ns = dedup(qx(jsonNodes))
+            return Parsed(nodes: ns, format: "JSON", qxTLSDefaulted: defaulted)
         }
         var body = trimmed
         if let decoded = tryB64Text(body), let jsonNodes = parseJSONNodes(decoded) {
-            return dedup(jsonNodes)
+            let ns = dedup(qx(jsonNodes))
+            return Parsed(nodes: ns, format: "base64 JSON", qxTLSDefaulted: defaulted)
         }
+        var base64 = false
         if !body.contains("://") && !body.contains("=") {
-            if let decoded = tryB64Text(body) { body = decoded }
+            if let decoded = tryB64Text(body) { body = decoded; base64 = true }
         } else if let decoded = tryB64Text(body), decoded.contains("://") {
-            body = decoded
+            body = decoded; base64 = true
         }
+        var nURI = 0, nQX = 0, nSurge = 0
         // the retired bridge parseNodeText order: self-parsed lines (QX / Surge
         // named lines and the wireguard / snell / ssh / socks-http schemes)
         // come first in line order; all other :// URIs are collected and
@@ -47,7 +79,9 @@ enum NCSubscriptionParser {
             }
             if let sep = l.range(of: "://") {
                 let scheme = l[..<sep.lowerBound].lowercased()
-                guard let n = parseURI(l) else { continue }
+                guard let n0 = parseURI(l) else { continue }
+                nURI += 1
+                let n = qx([n0])[0]
                 if selfSchemes.contains(scheme) { selfParsed.append(n) } else { uriParsed.append(n) }
             } else if let eq = l.firstIndex(of: "=") {
                 // the retired bridge: the key before "=" picks the dialect —
@@ -59,14 +93,19 @@ enum NCSubscriptionParser {
                 let key = l[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
                 var dummy = NCImportReport()
                 if Self.isQXNodeLine(key: key, value: l[l.index(after: eq)...]) {
-                    if let qx = NCQXImport.buildQXNode(line: l, report: &dummy) { selfParsed.append(qx) }
+                    if let q = NCQXImport.buildQXNode(line: l, report: &dummy) { selfParsed.append(q); nQX += 1 }
                 } else if let parsed = NCConfImport.parseNamedNodeLine(l),
                           let surge = NCConfImport.buildSurgeLikeNode(name: parsed.name, positional: parsed.positional, kv: parsed.kv, order: parsed.order, report: &dummy) {
-                    selfParsed.append(surge)
+                    selfParsed.append(qx([surge])[0]); nSurge += 1
                 }
             }
         }
-        return dedup(selfParsed + uriParsed)
+        var kinds: [String] = []
+        if nURI > 0 { kinds.append("share links") }
+        if nQX > 0 { kinds.append("QX lines") }
+        if nSurge > 0 { kinds.append("Surge lines") }
+        let format = (base64 ? "base64 " : "") + (kinds.isEmpty ? "no node lines" : kinds.joined(separator: " + "))
+        return Parsed(nodes: dedup(selfParsed + uriParsed), format: format, qxTLSDefaulted: defaulted)
     }
 
     /// The QX `type=host:port, …` keywords routed to NCQXImport.buildQXNode. A deliberate SUPERSET of bridge
@@ -1599,6 +1638,29 @@ final class NCNodeSubscriptionStore {
         return [primary, isQXUA ? clashUserAgent : qxUserAgent]
     }
 
+    /// fix-tls-c: a Quantumult X `[server_remote]` provider — imported by NCQXImport (`x-origin: qx`), by the App's QX
+    /// import (`x-convert: nodes`: only [server_remote] lines get that kind), or fetched with a QuanX User-Agent header.
+    /// Its nodes get QX's TLS default (NCQXImport.qxRemoteTLSDefault) whatever format the panel answered in.
+    static func isQXRemote(_ sub: NCNodeSubscription) -> Bool {
+        if (sub.fields["x-origin"]?.string ?? "").lowercased() == "qx" { return true }
+        if (sub.fields["x-convert"]?.string ?? "").lowercased() == "nodes" { return true }
+        if let h = sub.fields["header"]?.object {
+            for (k, v) in h where k.lowercased() == "user-agent" {
+                let ua = v.array?.compactMap { $0.string }.first ?? v.string ?? ""
+                if ua.lowercased().contains("quantumult") { return true }
+            }
+        }
+        return false
+    }
+
+    /// "proxy provider SelfBuild: body base64 share links, QX TLS default: 17 node(s) verification off" — logged after
+    /// the node-count line (the E2E node-tls row reads it).
+    static func formatLine(_ name: String, _ p: NCSubscriptionParser.Parsed, qxRemote: Bool) -> String {
+        var s = "proxy provider \(name): body \(p.format)"
+        if qxRemote { s += ", QX TLS default: \(p.qxTLSDefaulted) node(s) verification off" }
+        return s
+    }
+
     static func shouldRetryUA(status: Int) -> Bool {
         [401, 403, 406, 451].contains(status) || (200..<300).contains(status)
     }
@@ -1629,9 +1691,14 @@ final class NCNodeSubscriptionStore {
     }
 
     private func cacheFile(for name: String) -> URL {
+        dir.appendingPathComponent(Self.cacheFileName(for: name))
+    }
+
+    /// The raw-body cache file of a provider inside the store's directory (the E2E node-tls row reads it too).
+    static func cacheFileName(for name: String) -> String {
         var hash: UInt64 = 0xcbf29ce484222325
         for b in name.utf8 { hash = (hash ^ UInt64(b)) &* 0x100000001b3 }
-        return dir.appendingPathComponent(String(format: "sub-%016llx.txt", hash))
+        return String(format: "sub-%016llx.txt", hash)
     }
 
     private func providerFile(_ sub: NCNodeSubscription) -> URL? {
@@ -1671,15 +1738,20 @@ final class NCNodeSubscriptionStore {
             }
             var nodes: [NCProxy] = []
             var source = ""
+            let qxRemote = Self.isQXRemote(sub)
+            var parsed: NCSubscriptionParser.Parsed?
             if vehicle == "HTTP", let text = try? String(contentsOf: cacheFile(for: sub.name), encoding: .utf8) {
-                nodes = NCSubscriptionParser.parse(text); source = "cache"
+                parsed = NCSubscriptionParser.parseDetailed(text, qxRemote: qxRemote); source = "cache"
+                nodes = parsed?.nodes ?? []
             }
             if nodes.isEmpty, let f = providerFile(sub), let text = try? String(contentsOf: f, encoding: .utf8) {
-                nodes = NCSubscriptionParser.parse(text); source = vehicle == "HTTP" ? "app download" : "file"
+                parsed = NCSubscriptionParser.parseDetailed(text, qxRemote: qxRemote); source = vehicle == "HTTP" ? "app download" : "file"
+                nodes = parsed?.nodes ?? []
             }
             if !nodes.isEmpty {
                 set(sub, nodes: nodes)
                 log("proxy provider \(sub.name): \(nodes.count) nodes (\(source))")
+                if let parsed { log(Self.formatLine(sub.name, parsed, qxRemote: qxRemote)) }
             } else if vehicle != "HTTP" {
                 log("proxy provider \(sub.name): no nodes — file \(sub.fields["path"]?.string ?? "?") missing or unreadable")
             }
@@ -1726,10 +1798,12 @@ final class NCNodeSubscriptionStore {
                 completion?()
                 return
             }
-            let nodes = NCSubscriptionParser.parse(text)
+            let qxRemote = Self.isQXRemote(sub)
+            let parsed = NCSubscriptionParser.parseDetailed(text, qxRemote: qxRemote)
+            let nodes = parsed.nodes
             guard !nodes.isEmpty else {
                 let have = self.allNodes()[sub.name]?.count ?? 0
-                self.log("proxy provider \(sub.name): fetched \(data.count) B but no nodes recognised, keeping \(have) cached nodes")
+                self.log("proxy provider \(sub.name): fetched \(data.count) B (\(parsed.format)) but no nodes recognised, keeping \(have) cached nodes")
                 completion?()
                 return
             }
@@ -1743,6 +1817,7 @@ final class NCNodeSubscriptionStore {
                 try? mdata.write(to: self.dir.appendingPathComponent("meta.json"), options: .atomic)
             }
             self.log("proxy provider \(sub.name): \(nodes.count) nodes (fetched)")
+            self.log(Self.formatLine(sub.name, parsed, qxRemote: qxRemote))
             completion?()
         }
     }
