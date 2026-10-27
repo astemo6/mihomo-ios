@@ -512,8 +512,10 @@ final class NCResources {
 
     /// fix/nc-open-6-10 #8: download every distinct remote resource in `paths` that has no cached copy yet, up to
     /// `maxConcurrent` at once (was: one at a time, inside the sequential manifest / snapshot build). Returns once
-    /// all finished or `deadline` passed (stragglers keep running and land in the cache for the next prepare; the
-    /// build then reads whatever is cached and fetches nothing it already saw fail).
+    /// all finished or `deadline` passed. selfreview-g2 (F15): at the deadline the downloads still running are
+    /// cancelled and no new one starts (they used to keep a worker blocked past it); a cancelled download is not
+    /// recorded as a failure, so the next prepare tries it again. The build then reads whatever is cached and fetches
+    /// nothing it already saw fail.
     func prefetch(_ paths: [String], maxConcurrent: Int = 6, deadline: TimeInterval = 15) {
         var seen = Set<String>()
         var todo: [String] = []
@@ -527,6 +529,7 @@ final class NCResources {
         // caller's QoS. Was one block per URL parked on a semaphore — every waiting block held a GCD thread, and the
         // workers ran on an unspecified-QoS queue while the (user-initiated) prepare blocked on them: a priority
         // inversion the Thread Performance Checker reports, and up to N idle threads on a large module set.
+        let end = DispatchTime.now() + deadline
         let group = DispatchGroup()
         let qos = DispatchQoS.QoSClass(rawValue: qos_class_self()) ?? .utility
         let q = DispatchQueue.global(qos: qos == .unspecified ? .utility : qos)
@@ -538,14 +541,14 @@ final class NCResources {
                 defer { group.leave() }
                 while true {
                     cur.lock.lock()
-                    guard cur.index < todo.count else { cur.lock.unlock(); return }
+                    guard cur.index < todo.count, DispatchTime.now() < end else { cur.lock.unlock(); return }
                     let u = todo[cur.index]; cur.index += 1
                     cur.lock.unlock()
-                    _ = try? self.fetch(u)
+                    _ = try? self.fetch(u, deadline: end)
                 }
             }
         }
-        _ = group.wait(timeout: .now() + deadline)
+        _ = group.wait(timeout: end + .milliseconds(200)) // workers return right after the deadline cancels them
     }
 
     static func isRemote(_ p: String) -> Bool {
@@ -620,7 +623,8 @@ final class NCResources {
         }
     }
 
-    func fetch(_ urlString: String) throws -> Data {
+    /// `deadline`: the download is cancelled when it passes (thrown as a cancellation, not recorded as a failure).
+    func fetch(_ urlString: String, deadline: DispatchTime? = nil) throws -> Data {
         guard let url = URL(string: urlString) else {
             throw NSError(domain: "NCResources", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL: \(urlString)"])
         }
@@ -634,7 +638,13 @@ final class NCResources {
             lock.lock(); failed[urlString] = e; skippedRecentFailure += 1; lock.unlock()
             throw e
         }
-        var req = URLRequest(url: url, timeoutInterval: fetchTimeout)
+        var timeout = fetchTimeout
+        if let deadline {
+            let left = Double(Int64(deadline.uptimeNanoseconds) - Int64(DispatchTime.now().uptimeNanoseconds)) / 1e9
+            guard left > 0 else { throw CancellationError() }
+            timeout = min(timeout, left)
+        }
+        var req = URLRequest(url: url, timeoutInterval: timeout)
         req.setValue("Surge iOS/3000 Tern", forHTTPHeaderField: "User-Agent")
         var resultData: Data?
         var resultError: Error?
@@ -654,7 +664,14 @@ final class NCResources {
             sem.signal()
         }
         task.resume()
-        sem.wait()
+        if let deadline {
+            if sem.wait(timeout: deadline) == .timedOut {
+                task.cancel() // the completion still runs (cancelled); nothing below reads its results
+                throw CancellationError()
+            }
+        } else {
+            sem.wait()
+        }
 
         if let data = resultData {
             let cp = cachePath(urlString)
