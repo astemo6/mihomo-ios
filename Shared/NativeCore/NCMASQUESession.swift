@@ -267,6 +267,7 @@ final class NCMASQUEConnection {
     private var waiters: [(Error?) -> Void] = []
     private var startCompletion: ((Error?) -> Void)?
     private var handshakeOpened = false
+    private var cachedIdentity: SecIdentity?
     private let lock = NSLock()
 
     var isAlive: Bool {
@@ -312,6 +313,14 @@ final class NCMASQUEConnection {
         startCompletion = completion
         lock.unlock()
 
+        if config.isWarp {
+            guard let identity = cachedIdentity ?? NCMASQUEWarp.makeLocalIdentity(config: config) else {
+                finishStart(NCMASQUEWarpError.warpIdentityFailed(NCMASQUEWarp.warpIdentityFailed))
+                return
+            }
+            cachedIdentity = identity
+        }
+
         ncOnSessionQueue(queue) { self.startOnQueue() }
     }
 
@@ -320,10 +329,37 @@ final class NCMASQUEConnection {
         let quicOptions = NWProtocolQUIC.Options(alpn: alpn)
         let tlsOptions = quicOptions.securityProtocolOptions
         sec_protocol_options_set_tls_min_version(tlsOptions, .tlsProtocol13)
-        if let sni = config.sni, !sni.isEmpty {
-            sec_protocol_options_set_tls_server_name(tlsOptions, sni)
+        let effectiveSNI = (config.sni != nil && !config.sni!.isEmpty)
+            ? config.sni
+            : (config.isWarp ? NCMASQUE.defaultWarpSNI : nil)
+        if let effectiveSNI, !effectiveSNI.isEmpty {
+            sec_protocol_options_set_tls_server_name(tlsOptions, effectiveSNI)
         }
-        if config.skipCertVerify {
+        if config.isWarp {
+            if let identity = cachedIdentity ?? NCMASQUEWarp.makeLocalIdentity(config: config) {
+                cachedIdentity = identity
+                if let sid = sec_identity_create(identity) {
+                    sec_protocol_options_set_local_identity(tlsOptions, sid)
+                }
+            }
+            // Server SPKI pinning: overrides skipCertVerify (pinning is always enforced for WARP)
+            let configuredPoint = config.publicKey.flatMap { NCMASQUEWarp.publicPoint(fromConfiguredKey: $0) }
+            sec_protocol_options_set_verify_block(tlsOptions, { _, trustRef, complete in
+                guard let expectedPoint = configuredPoint else {
+                    complete(false)
+                    return
+                }
+                let secTrust = sec_trust_copy_ref(trustRef).takeRetainedValue()
+                let chain = (SecTrustCopyCertificateChain(secTrust) as? [SecCertificate]) ?? []
+                guard let leaf = chain.first else {
+                    complete(false)
+                    return
+                }
+                let leafDER = SecCertificateCopyData(leaf) as Data
+                let matched = NCMASQUEWarp.peerPointMatches(leafCertDER: leafDER, configuredPoint: expectedPoint)
+                complete(matched)
+            }, queue)
+        } else if config.skipCertVerify {
             sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)
         }
         quicOptions.maxDatagramFrameSize = 1400

@@ -162,7 +162,8 @@ final class NCMASQUEIPTunnel {
             if let u = self.config.username, let p = self.config.password {
                 extra.append(("authorization", "Basic " + Data("\(u):\(p)".utf8).base64EncodedString()))
             }
-            let fields = NCMASQUE.qpackEncodeExtendedConnect(protocolValue: "connect-ip", authority: authority,
+            let proto = self.config.isWarp ? "cf-connect-ip" : "connect-ip"
+            let fields = NCMASQUE.qpackEncodeExtendedConnect(protocolValue: proto, authority: authority,
                                                              path: path, extraHeaders: extra)
             var frame = NCMASQUE.varintEncode(0x01)
             frame.append(NCMASQUE.varintEncode(UInt64(fields.count)))
@@ -210,7 +211,13 @@ final class NCMASQUEIPTunnel {
                     return "HTTP \(status)"
                 }
                 gotHeaders = true
-                if config.ip != nil || config.ipv6 != nil {
+                if config.isWarp {
+                    fallbackAddress()
+                    if !gotAddress {
+                        finishStart(.failure(NCConnector.Failure.handshake("MASQUE WARP 缺少本地 IP 地址")))
+                        return "MASQUE WARP 缺少本地 IP 地址"
+                    }
+                } else if config.ip != nil || config.ipv6 != nil {
                     connection.queue.asyncAfter(deadline: .now() + 3) { [weak self] in self?.fallbackAddress() }
                 }
                 continue
@@ -264,7 +271,7 @@ final class NCMASQUEIPTunnel {
     }
 
     /// The proxy assigned nothing: use the node's configured address (WARP-style profiles carry it).
-    private func fallbackAddress() {
+    func fallbackAddress() {
         guard !gotAddress, !isClosed else { return }
         var p = params
         if let v4 = config.ip, let ip = NCIP(stripPrefix(v4)) { p.ipv4 = ip.string }

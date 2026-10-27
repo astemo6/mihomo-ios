@@ -356,9 +356,12 @@ enum NCSupport {
         case .connectUDP:
             if cfg.network == "h2" { return "MASQUE over HTTP/2 尚未接入（仅 HTTP/3）" }
         case .connectIP:
-            // fix/nc-masque-ip: RFC 9484 CONNECT-IP over HTTP/3 with a lwIP netif (PacketTunnel). WARP profiles
-            // (key pair → Cloudflare cf-connect-ip + mTLS) are not wired.
-            if hasKeys { return NCMASQUE.warpUnavailable }
+            // fix/nc-masque-warp: Cloudflare WARP profiles validate private/public key structures via NCMASQUEWarp.
+            if hasKeys {
+                if let err = NCMASQUEWarp.validate(privateKey: priv, publicKey: pub) {
+                    return err
+                }
+            }
             if cfg.network == "h2" { return "MASQUE CONNECT-IP over HTTP/2 尚未接入（仅 HTTP/3）" }
         case .l4Proxy:
             return "MASQUE h3-l4proxy 尚未接入"
