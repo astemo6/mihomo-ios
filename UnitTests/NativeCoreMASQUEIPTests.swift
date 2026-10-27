@@ -337,8 +337,12 @@ final class NativeCoreMASQUEIPTests: XCTestCase {
 
     func testWARPNCSupportValidation() {
         let validWarp = warpNode()
-        XCTAssertNil(NCSupport.masqueUnsupported(validWarp))
-        XCTAssertNil(NCSupport.unsupportedReason(validWarp))
+        XCTAssertNil(NCSupport.masqueUnsupported(validWarp), "structurally valid: the connector dials it")
+        if NCMASQUE.warpVerified {
+            XCTAssertNil(NCSupport.unsupportedReason(validWarp))
+        } else {
+            XCTAssertEqual(NCSupport.unsupportedReason(validWarp), NCMASQUE.warpUnverified)
+        }
 
         // Invalid private key -> warpKeyInvalid
         let badPriv = warpNode(["private-key": .string("INVALID_PRIV_KEY")])
@@ -374,5 +378,60 @@ final class NativeCoreMASQUEIPTests: XCTestCase {
         let customSNINode = warpNode(["sni": .string("custom.sni.example.com")])
         let customCfg = try XCTUnwrap(NCMASQUE.Config(proxy: customSNINode))
         XCTAssertEqual(customCfg.sni, "custom.sni.example.com")
+    }
+
+    // MARK: - Review fixes (feat/nc-masque-warp)
+
+    /// One identity per private key, shared across connections (no PKCS#12 rebuild per dial); rebuilt after max age.
+    func testWARPIdentityCacheReuseAndExpiry() throws {
+        let cfg = try XCTUnwrap(NCMASQUE.Config(proxy: warpNode()))
+        let t0 = Date()
+        let a = try XCTUnwrap(NCMASQUEWarp.cachedIdentity(config: cfg, now: t0))
+        let b = try XCTUnwrap(NCMASQUEWarp.cachedIdentity(config: cfg, now: t0.addingTimeInterval(60)))
+        XCTAssertTrue(a === b, "same key within max age must reuse the identity")
+        let c = try XCTUnwrap(NCMASQUEWarp.cachedIdentity(config: cfg, now: t0.addingTimeInterval(NCMASQUEWarp.identityMaxAge + 1)))
+        XCTAssertFalse(a === c, "an identity older than max age is rebuilt")
+        // Concurrent callers (start() on the caller queue, makeQUICOptions() on the session queue) never crash.
+        DispatchQueue.concurrentPerform(iterations: 16) { _ in
+            XCTAssertNotNil(NCMASQUEWarp.cachedIdentity(config: cfg))
+        }
+    }
+
+    /// The client certificate is backdated one hour (device clock skew) and valid 25 h in total.
+    func testWARPClientCertificateValidityBackdated() throws {
+        let key = try XCTUnwrap(NCMASQUEWarp.parsePrivateKey(Self.keyAPKCS8Base64))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let der = try XCTUnwrap(NCMASQUEWarp.makeClientCertificateDER(privateKey: key, notBefore: now))
+        XCTAssertNotNil(SecCertificateCreateWithData(nil, der as CFData))
+        let before = NCMASQUEWarp.derUTCTime(now.addingTimeInterval(-3600))
+        let after = NCMASQUEWarp.derUTCTime(now.addingTimeInterval(24 * 3600))
+        XCTAssertNotNil(der.range(of: before + after), "validity must be [now − 1 h, now + 24 h]")
+    }
+
+    /// WARP pinning cannot be switched off: skip-cert-verify on a WARP node keeps the node a WARP node.
+    func testWARPSkipCertVerifyDoesNotDisablePinning() throws {
+        let cfg = try XCTUnwrap(NCMASQUE.Config(proxy: warpNode(["skip-cert-verify": .bool(true)])))
+        XCTAssertTrue(cfg.isWarp)
+        XCTAssertTrue(cfg.skipCertVerify)
+        // The pin comparison itself: a different key never matches.
+        let keyA = try XCTUnwrap(NCMASQUEWarp.publicPoint(fromConfiguredKey: Self.keyASPKIBase64))
+        let keyB = try XCTUnwrap(NCMASQUEWarp.publicPoint(fromConfiguredKey: Self.keyBSPKIBase64))
+        XCTAssertNotEqual(keyA, keyB)
+    }
+
+    /// Non-WARP CONNECT-IP nodes (no key pair) keep `connect-ip`, no identity and the 3 s ADDRESS_ASSIGN wait.
+    func testNonWARPConnectIPUnchanged() throws {
+        let cfg = try XCTUnwrap(NCMASQUE.Config(proxy: node()))
+        XCTAssertFalse(cfg.isWarp)
+        XCTAssertNil(NCMASQUEWarp.cachedIdentity(config: cfg))
+        XCTAssertNotEqual(cfg.sni, NCMASQUE.defaultWarpSNI)
+    }
+
+    /// The WARP error texts are distinct per failure (key / pin / identity / server refusal).
+    func testWARPErrorTextsDistinct() {
+        let all = [NCMASQUEWarp.warpKeyInvalid, NCMASQUEWarp.warpPublicKeyInvalid, NCMASQUEWarp.warpPinMismatch,
+                   NCMASQUEWarp.warpIdentityFailed, NCMASQUEWarp.warpRejected, NCMASQUE.warpUnverified]
+        XCTAssertEqual(Set(all).count, all.count)
+        XCTAssertEqual(NCMASQUEWarp.WarpError.warpRejected().errorDescription, NCMASQUEWarp.warpRejected)
     }
 }

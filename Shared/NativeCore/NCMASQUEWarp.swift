@@ -11,6 +11,7 @@ enum NCMASQUEWarp {
     static let warpPublicKeyInvalid = "MASQUE WARP 公钥无效（需 P-256 SPKI 或 65 字节未压缩点）"
     static let warpPinMismatch = "MASQUE WARP 服务端证书公钥不匹配（固定校验失败）"
     static let warpIdentityFailed = "MASQUE WARP 客户端证书或身份构造失败"
+    static let warpRejected = "MASQUE WARP 服务端拒绝连接（客户端私钥未登记或已失效）"
 
     // MARK: - Error Types
 
@@ -19,13 +20,15 @@ enum NCMASQUEWarp {
         case warpPublicKeyInvalid(String = NCMASQUEWarp.warpPublicKeyInvalid)
         case warpPinMismatch(String = NCMASQUEWarp.warpPinMismatch)
         case warpIdentityFailed(String = NCMASQUEWarp.warpIdentityFailed)
+        case warpRejected(String = NCMASQUEWarp.warpRejected)
 
         var errorDescription: String? {
             switch self {
             case .warpKeyInvalid(let s),
                  .warpPublicKeyInvalid(let s),
                  .warpPinMismatch(let s),
-                 .warpIdentityFailed(let s):
+                 .warpIdentityFailed(let s),
+                 .warpRejected(let s):
                 return s
             }
         }
@@ -143,9 +146,9 @@ enum NCMASQUEWarp {
         // Empty issuer & subject
         let emptyName = derSeq([])
 
-        // Validity: notBefore to notBefore + 24 h
+        // Validity: notBefore − 1 h (device clock skew) to notBefore + 24 h
         let notAfter = notBefore.addingTimeInterval(24 * 3600)
-        let validity = derSeq([derUTCTime(notBefore), derUTCTime(notAfter)])
+        let validity = derSeq([derUTCTime(notBefore.addingTimeInterval(-3600)), derUTCTime(notAfter)])
 
         // Version 3: [0] EXPLICIT INTEGER 2
         let versionV3 = derExplicit(0, derInteger(bigEndian: Data([0x02])))
@@ -221,6 +224,31 @@ enum NCMASQUEWarp {
             return nil
         }
         return makeLocalIdentity(privateKey: privKey, certDER: certDER)
+    }
+
+    // MARK: - Identity Cache
+
+    /// One identity per WARP private key, shared by every NCMASQUEConnection (each dial / redial builds a new
+    /// connection; PKCS#12 export + import is not free). Rebuilt after 12 h so the 24 h certificate never expires in
+    /// use. Thread-safe: start() runs on the caller's queue, makeQUICOptions() on the session queue. ≤ 4 entries.
+    private static let identityLock = NSLock()
+    private static var identityCache: [String: (identity: SecIdentity, built: Date)] = [:]
+    static let identityMaxAge: TimeInterval = 12 * 3600
+
+    static func cachedIdentity(config: NCMASQUE.Config, now: Date = Date()) -> SecIdentity? {
+        guard let key = config.privateKey, !key.isEmpty else { return nil }
+        identityLock.lock()
+        if let hit = identityCache[key], now.timeIntervalSince(hit.built) < identityMaxAge {
+            identityLock.unlock()
+            return hit.identity
+        }
+        identityLock.unlock()
+        guard let built = makeLocalIdentity(config: config) else { return nil }
+        identityLock.lock()
+        if identityCache.count >= 4, identityCache[key] == nil { identityCache.removeAll() }
+        identityCache[key] = (built, now)
+        identityLock.unlock()
+        return built
     }
 
     // MARK: - Configuration Validation

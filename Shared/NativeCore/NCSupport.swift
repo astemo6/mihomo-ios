@@ -101,6 +101,10 @@ enum NCSupport {
             if NCMASQUE.Config(proxy: p)?.mode == .connectIP, !NCMASQUE.connectIPVerified {
                 return NCMASQUE.connectIPUnverified
             }
+            // feat/nc-masque-warp: WARP stays unavailable until the real Cloudflare interop is green (warpVerified).
+            if NCMASQUE.Config(proxy: p)?.isWarp == true, !NCMASQUE.warpVerified {
+                return NCMASQUE.warpUnverified
+            }
         case "mieru":
             if let why = mieruUnsupported(p) { return why }
         case "brook":

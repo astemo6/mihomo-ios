@@ -51,8 +51,8 @@ final class NativeCoreMASQUETests: XCTestCase {
 
         // Validate NCSupport marks this fully supported
         let reason = NCSupport.unsupportedReason(node)
-        // fix/nc-proto-masque-int: WARP (CONNECT-IP) parses fully but is shown unavailable — no L3 path yet.
-        XCTAssertEqual(reason?.contains("CONNECT-IP"), true, "\(String(describing: reason))")
+        // feat/nc-masque-warp: the placeholder keys here are not real P-256 keys → the WARP key check refuses the node.
+        XCTAssertEqual(reason, NCMASQUEWarp.warpKeyInvalid, "\(String(describing: reason))")
     }
 
     func testShadowrocketMASQUEParsingAndEncoding() {
@@ -74,8 +74,8 @@ final class NativeCoreMASQUETests: XCTestCase {
         XCTAssertEqual(proxy.fields["congestion-controller"]?.string, "bbr")
         XCTAssertEqual(proxy.fields["flag"]?.string, "CDN")
 
-        // WARP key pair = CONNECT-IP: parsed, shown unavailable (fix/nc-proto-masque-int)
-        XCTAssertEqual(NCSupport.unsupportedReason(proxy)?.contains("CONNECT-IP"), true)
+        // WARP key pair = CONNECT-IP: parsed; placeholder keys → refused by the WARP key check (feat/nc-masque-warp)
+        XCTAssertEqual(NCSupport.unsupportedReason(proxy), NCMASQUEWarp.warpKeyInvalid)
 
         // Round-trip encode to share link
         do {
@@ -451,7 +451,8 @@ final class NativeCoreMASQUETests: XCTestCase {
             XCTAssertNil(stream)
             XCTAssertNotNil(error)
             let desc = error?.localizedDescription ?? ""
-            XCTAssertTrue(desc.contains("CONNECT-IP"), "Error must explicitly explain CONNECT-IP limitation: \(desc)")
+            // feat/nc-masque-warp: placeholder keys → the connector refuses with the WARP key error (no dial).
+            XCTAssertTrue(desc.contains("WARP"), "Error must explain the WARP key problem: \(desc)")
             exp.fulfill()
         }
 

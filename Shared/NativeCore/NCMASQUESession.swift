@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 import os
 
 /// MASQUE (RFC 9298 CONNECT-UDP / RFC 9484 CONNECT-IP) session and data plane connector.
@@ -267,7 +268,11 @@ final class NCMASQUEConnection {
     private var waiters: [(Error?) -> Void] = []
     private var startCompletion: ((Error?) -> Void)?
     private var handshakeOpened = false
-    private var cachedIdentity: SecIdentity?
+    /// WARP: set by the TLS verify block when the server key did not match `public-key` (read under `lock`).
+    private var pinMismatch = false
+    /// WARP: the server key matched; a QUIC failure before `.ready` after this is the server refusing our client
+    /// certificate (key not enrolled) — reported as NCMASQUEWarp.warpRejected.
+    private var pinMatched = false
     private let lock = NSLock()
 
     var isAlive: Bool {
@@ -313,12 +318,10 @@ final class NCMASQUEConnection {
         startCompletion = completion
         lock.unlock()
 
-        if config.isWarp {
-            guard let identity = cachedIdentity ?? NCMASQUEWarp.makeLocalIdentity(config: config) else {
-                finishStart(NCMASQUEWarp.WarpError.warpIdentityFailed(NCMASQUEWarp.warpIdentityFailed))
-                return
-            }
-            cachedIdentity = identity
+        // WARP: build (or reuse) the mTLS identity before dialing, so a bad key fails here with its own message.
+        if config.isWarp, NCMASQUEWarp.cachedIdentity(config: config) == nil {
+            finishStart(NCMASQUEWarp.WarpError.warpIdentityFailed(NCMASQUEWarp.warpIdentityFailed))
+            return
         }
 
         ncOnSessionQueue(queue) { self.startOnQueue() }
@@ -336,15 +339,14 @@ final class NCMASQUEConnection {
             sec_protocol_options_set_tls_server_name(tlsOptions, effectiveSNI)
         }
         if config.isWarp {
-            if let identity = cachedIdentity ?? NCMASQUEWarp.makeLocalIdentity(config: config) {
-                cachedIdentity = identity
+            if let identity = NCMASQUEWarp.cachedIdentity(config: config) {
                 if let sid = sec_identity_create(identity) {
                     sec_protocol_options_set_local_identity(tlsOptions, sid)
                 }
             }
             // Server SPKI pinning: overrides skipCertVerify (pinning is always enforced for WARP)
             let configuredPoint = config.publicKey.flatMap { NCMASQUEWarp.publicPoint(fromConfiguredKey: $0) }
-            sec_protocol_options_set_verify_block(tlsOptions, { _, trustRef, complete in
+            sec_protocol_options_set_verify_block(tlsOptions, { [weak self] _, trustRef, complete in
                 guard let expectedPoint = configuredPoint else {
                     complete(false)
                     return
@@ -357,6 +359,11 @@ final class NCMASQUEConnection {
                 }
                 let leafDER = SecCertificateCopyData(leaf) as Data
                 let matched = NCMASQUEWarp.peerPointMatches(leafCertDER: leafDER, configuredPoint: expectedPoint)
+                if let self {
+                    self.lock.lock()
+                    if matched { self.pinMatched = true } else { self.pinMismatch = true }
+                    self.lock.unlock()
+                }
                 complete(matched)
             }, queue)
         } else if config.skipCertVerify {
@@ -456,8 +463,17 @@ final class NCMASQUEConnection {
         }
     }
 
-    private func finishStart(_ error: Error?) {
+    private func finishStart(_ failure: Error?) {
         lock.lock()
+        // WARP: a handshake that died in the pinning check reports that, not Network.framework's generic TLS error.
+        var error = failure
+        if failure != nil, config.isWarp, state == .connecting {
+            if pinMismatch {
+                error = NCMASQUEWarp.WarpError.warpPinMismatch(NCMASQUEWarp.warpPinMismatch)
+            } else if pinMatched, failure is NWError {
+                error = NCMASQUEWarp.WarpError.warpRejected(NCMASQUEWarp.warpRejected)
+            }
+        }
         if let error {
             state = .failed
         } else {

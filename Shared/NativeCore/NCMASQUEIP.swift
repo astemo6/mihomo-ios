@@ -29,6 +29,14 @@ extension NCMASQUE {
     /// WARP key and server-key pinning — not wired.
     static let warpUnavailable = "MASQUE WARP（Cloudflare 私有 cf-connect-ip + mTLS 客户端证书）尚未接入；通用 RFC 9484 CONNECT-IP 请用 mode: connect-ip + uri"
 
+    /// feat/nc-masque-warp: WARP profiles (cf-connect-ip + mTLS identity + server-key pinning, NCMASQUEWarp.swift) are
+    /// wired, but NCSupport shows them unavailable until the real Cloudflare interop (proto-loopback.yml job
+    /// `masque-warp`) is green. The connector still dials them so the interop can run.
+    static let warpVerified = false
+
+    /// Shown by NCSupport for a valid WARP node while `warpVerified` is false.
+    static let warpUnverified = "MASQUE WARP（Cloudflare cf-connect-ip）验证中：真实 Cloudflare 端点互通通过前暂不可用"
+
     /// `:authority` and `:path` for the CONNECT-IP request: taken from the URI template (RFC 9484 §3), whose
     /// variables {target} / {ipproto} expand to `*` (full tunnel). A path-only template uses server:port.
     static func connectIPRequestTarget(_ cfg: Config) -> (authority: String, path: String) {
