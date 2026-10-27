@@ -1127,12 +1127,21 @@ extension NativeCoreLoopbackTests {
     /// Plain HTTP origin (python http.server) started next to the Sudoku servers.
     private static var sudokuHTTPOrigin: NCTarget { NCTarget(host: "127.0.0.1", port: 18095) }
     /// Large enough to span many records and TCP reads (server-side padding lands between clue bytes).
-    private static let sudokuPayload = Data((0..<96_000).map { UInt8(($0 * 31 + 7) & 0xff) })
+    private static let sudokuPayload: Data = {
+        var bytes = [UInt8](repeating: 0, count: 96_000)
+        for i in 0..<bytes.count { bytes[i] = UInt8(truncatingIfNeeded: i &* 31 &+ 7) }
+        return Data(bytes)
+    }()
     /// tools/loopback/start-servers.sh writes the same 48 KiB page.
     private static let sudokuPage: Data = {
-        var d = Data("tern-sudoku-loopback-ok\n".utf8)
-        d.append(contentsOf: (0..<(48 * 1024 - 24)).map { UInt8(0x21 + ($0 * 7) % 94) })
-        return d
+        var bytes = Array("tern-sudoku-loopback-ok\n".utf8)
+        let marker = bytes.count
+        bytes.reserveCapacity(48 * 1024)
+        for i in 0..<(48 * 1024 - marker) {
+            let v: Int = 0x21 + (i * 7) % 94
+            bytes.append(UInt8(v))
+        }
+        return Data(bytes)
     }()
 
     private static func sudokuProxy(_ name: String, _ port: Int, _ extra: [String: NCJSONValue]) -> NCProxy {
