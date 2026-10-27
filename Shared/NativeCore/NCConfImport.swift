@@ -633,6 +633,8 @@ enum NCConfImport {
                 }
             }
         }
+        // applyScript etc. write cfg.report directly (lua script warnings): keep them, do not overwrite.
+        report.warnings = cfg.report.warnings + report.warnings
         cfg.report = report
         return cfg
     }
@@ -698,6 +700,8 @@ enum NCConfImport {
                 }
             }
         }
+        // applyScript etc. write cfg.report directly (lua script warnings): keep them, do not overwrite.
+        report.warnings = cfg.report.warnings + report.warnings
         cfg.report = report
         return cfg
     }

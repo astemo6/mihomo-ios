@@ -151,6 +151,11 @@ final class NCLuaEngine {
     func attach(context: NCLuaHostContext, settings: [(String, NCLuaSettingValue)]) {
         let L = state
         nc_lua_set_context_ptr(L, Unmanaged.passUnretained(context).toOpaque())
+        // Shadowrocket always exposes `settings` (scripts read settings.x unguarded): an empty table when the
+        // node carries no extra fields.
+        let missing = lua_getglobal(L, "settings") != LUA_TTABLE
+        lua_settop(L, -2)
+        if missing { lua_createtable(L, 0, 0); lua_setglobal(L, "settings") }
         for (key, value) in settings {
             switch value {
             case .string(let s): nc_lua_set_table_string(L, "settings", nil, key, s)
