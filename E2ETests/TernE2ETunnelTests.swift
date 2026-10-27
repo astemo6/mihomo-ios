@@ -42,6 +42,10 @@ final class TernE2ETunnelTests: XCTestCase {
         home = relocate(home: h, from: ho["container"] as? String)
         sample = E2EReport.env("TERN_E2E_SAMPLE") == "1"
         r.addSecrets(runtimeSecrets())
+        // fix/nc-mem-4: the Thread Performance Checker (libRPAC) must not be in this process — its report makes XCTest
+        // symbolicate the Debug bundle on the main thread (+55 MB transient). e2e-replay.yml strips it from the xctestrun.
+        let rpac = (0..<_dyld_image_count()).contains { i in _dyld_get_image_name(i).map { String(cString: $0).contains("RPAC") } ?? false }
+        r.note("Thread Performance Checker (libRPAC) loaded: \(rpac ? "yes — expect a symbolication transient" : "no")")
         let mem = E2EMemory()
         mem.start()
         let stacks = E2EStackWatch() // fix/nc-mem-4 diagnostic
