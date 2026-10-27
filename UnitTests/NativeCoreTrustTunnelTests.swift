@@ -675,10 +675,12 @@ final class NativeCoreTrustTunnelTests: XCTestCase {
             func cancel() { cancelled = true }
         }
         let sink = Sink()
-        let s = NCTrustTunnelUDPStream(inner: sink, dst: try XCTUnwrap(NCIP("192.0.2.7")), dstPort: 53)
+        let dst = try XCTUnwrap(NCIP("192.0.2.7"))
+        let s = NCTrustTunnelUDPStream(inner: sink, dst: dst, dstPort: 53)
         s.send(Data([1, 2, 3]))
+        let frame = try XCTUnwrap(sink.sent.first)
         var off = 0
-        let pkt = try XCTUnwrap(NCTrustTunnelWire.decodeClientPacket(data: try XCTUnwrap(sink.sent.first), offset: &off))
+        let pkt = try XCTUnwrap(NCTrustTunnelWire.decodeClientPacket(data: frame, offset: &off))
         XCTAssertEqual(pkt.dstIP, NCTrustTunnelWire.padIPAddress("192.0.2.7"))
         XCTAssertEqual(pkt.dstPort, 53)
         XCTAssertEqual(pkt.payload, Data([1, 2, 3]))
