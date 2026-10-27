@@ -103,6 +103,8 @@ enum SettingsSearchIndex {
           ["TUN", "VPN 混合", "仅代理", "代理模式", "增强模式", "阻止 QUIC", "QUIC", "STUN", "直连时丢弃 STUN", "UDP 回落", "UDP", "重置 VPN 配置", "proxy only", "mixed", "VPN", "connection mode"]),
         e("lanSharing", "局域网共享", conn, "wifi", .teal, .connection,
           ["局域网", "共享", "热点", "HTTP 代理", "SOCKS", "端口", "认证", "LAN", "share", "allow lan", "hotspot", "proxy port"]),
+        e("localDeviceTunnel", "本机隧道", conn, "iphone.radiowaves.left.and.right", .teal, .connection,
+          ["本机隧道", "LocalDevVPN", "StosVPN", "wloc", "虚拟定位", "StikDebug", "SideStore", "JIT", "侧载", "10.7.0.1", "local device tunnel", "loopback", "sideload"]),
         e("blockWebRTC", "阻止 WebRTC", conn, "video.slash", .blue, .connection,
           ["WebRTC", "STUN", "TURN", "PCDN", "P2P", "打洞", "IP 泄露", "泄漏", "上传", "webrtc leak", "ip leak", "hole punching"]),
         e("tunnel", "隧道", adv, "network.badge.shield.half.filled", .blue, .tunnel,

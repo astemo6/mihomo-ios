@@ -29,6 +29,7 @@ struct ConnectionView: View {
             routesSection
             onDemandSection
             lanSection
+            localDeviceTunnelSection
             saveSection
             resetSection
         }
@@ -317,6 +318,28 @@ struct ConnectionView: View {
         .listRowBackground(Theme.card)
     }
 
+    /// 本机隧道 (LocalDevVPN compatible): Tern's VPN also reflects the peer address back to the device
+    /// (NCLocalDeviceTunnel) so wloc / StikDebug / SideStore work without LocalDevVPN holding the VPN slot.
+    var localDeviceTunnelSection: some View {
+        Section {
+            Toggle("本机隧道（兼容 LocalDevVPN）", isOn: $o.localDeviceTunnel).accessibilityIdentifier("conn.localDeviceTunnel")
+            if o.localDeviceTunnel {
+                LabeledContent("隧道地址") {
+                    TextField(NCLocalDeviceTunnel.defaultPeer, text: $o.localDeviceTunnelPeer)
+                        .multilineTextAlignment(.trailing).font(.body.monospaced())
+                        .keyboardType(.numbersAndPunctuation).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("conn.localDeviceTunnelPeer")
+                }
+                if !NCLocalDeviceTunnel.isValidPeer(o.localDeviceTunnelPeer) {
+                    Text("隧道地址无效，修改前不会应用。").font(.caption).foregroundStyle(Theme.warn)
+                }
+            }
+        } header: { Text("本机隧道") } footer: {
+            Text("开启后，Tern 的 VPN 同时提供 LocalDevVPN 同款本机隧道：发往隧道地址（默认 10.7.0.1）的连接会回到本机，wloc 标准版、StikDebug、SideStore 等侧载工具无需再开 LocalDevVPN。地址默认与 LocalDevVPN 一致，与其他工具冲突时可修改（工具里也要改成同一地址）。这部分流量不经过规则，也不计入连接和流量统计。修改后重新连接生效。")
+        }
+        .listRowBackground(Theme.card)
+    }
+
     @ViewBuilder var saveSection: some View {
         if hasInvalid || status != nil || (needsReconnect && vpn.isConnected) {
         Section {
@@ -362,6 +385,7 @@ struct ConnectionView: View {
     var hasInvalid: Bool {
         !RouteSpec.invalid(o.includedRoutes).isEmpty || !RouteSpec.invalid(o.excludedRoutes).isEmpty
             || !DNSHijackSpec.invalid(o.dnsHijack).isEmpty
+            || (o.localDeviceTunnel && !NCLocalDeviceTunnel.isValidPeer(o.localDeviceTunnelPeer))
     }
 
     func countRow(_ title: String, _ lines: [String], invalid: Bool? = nil) -> some View {
@@ -413,6 +437,9 @@ struct ConnectionView: View {
         cur.notDefaultRoute = o.notDefaultRoute
         cur.hideVPNIcon = o.hideVPNIcon
         cur.dnsHijack = o.dnsHijack
+        cur.localDeviceTunnel = o.localDeviceTunnel
+        let peer = o.localDeviceTunnelPeer.trimmingCharacters(in: .whitespaces)
+        cur.localDeviceTunnelPeer = NCLocalDeviceTunnel(peer: peer)?.peerString ?? NCLocalDeviceTunnel.defaultPeer
         let onDemandChanged = onDemand != savedOnDemand
         // r7 R7A-2: nothing changed on the page, but the VPN configuration may still carry another scope (restored
         // backup, older build) — re-apply it then instead of returning, so the page can always fix it.
@@ -431,6 +458,7 @@ struct ConnectionView: View {
         let reconnect = old.tunnelMode != cur.tunnelMode || old.ipv6Mode != cur.ipv6Mode || old.includedRoutes != cur.includedRoutes
             || old.excludedRoutes != cur.excludedRoutes || old.skipProxy != cur.skipProxy
             || old.notDefaultRoute != cur.notDefaultRoute || old.hideVPNIcon != cur.hideVPNIcon || old.dnsHijack != cur.dnsHijack
+            || old.localDeviceTunnel != cur.localDeviceTunnel || old.localDeviceTunnelPeer != cur.localDeviceTunnelPeer
         // 仅代理 never carries includeAllNetworks / enforceRoutes (VPNManager.applyScope); the scope switches
         // themselves are applied by 高级设置 → 隧道.
         let scopeChanged = old.tunnelMode != cur.tunnelMode

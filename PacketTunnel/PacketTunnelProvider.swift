@@ -187,6 +187,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(Self.error("启动超时（30 秒）。请到 更多 → 诊断 查看启动日志"))
         }
 
+        // 本机隧道: the data plane copies this once at start (reflection runs before lwIP, outside the rules).
+        NCLocalDeviceTunnelState.active = NCLocalDeviceTunnel.from(enabled: overrides.localDeviceTunnel, peer: overrides.localDeviceTunnelPeer)
+        if let t = NCLocalDeviceTunnelState.active { StartupLog.write("local device tunnel (LocalDevVPN compatible): on, peer \(t.peerString)/32") }
         StartupLog.write("applying tunnel network settings")
         setTunnelNetworkSettings(Self.networkSettings(overrides)) { [weak self] error in
             guard let self else { return }
@@ -294,8 +297,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     static func networkSettings(_ o: CoreOverrides) -> NEPacketTunnelNetworkSettings {
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["198.18.0.1"], subnetMasks: ["255.255.0.0"])
+        // 本机隧道 (LocalDevVPN compatible): the peer /32 always goes into the tunnel, where the data plane reflects
+        // it back to the device before lwIP (NCLocalDeviceTunnel); it is carved out of the excluded routes below.
+        let local = NCLocalDeviceTunnel.from(enabled: o.localDeviceTunnel, peer: o.localDeviceTunnelPeer)
+        let localRoute = local.map { [NEIPv4Route(destinationAddress: $0.peerString, subnetMask: "255.255.255.255")] } ?? []
         if o.isProxyOnly {
-            ipv4.includedRoutes = []
+            ipv4.includedRoutes = localRoute
             settings.ipv4Settings = ipv4
             settings.proxySettings = systemProxy(o)
             return settings
@@ -308,11 +315,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let exc = o.excludedRoutes.compactMap(RouteSpec.init)
         let inc4 = inc.filter { !$0.isV6 }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
         if noDefault, let fake = RouteSpec(CoreOverrides.fakeIPRoute) {
-            ipv4.includedRoutes = [NEIPv4Route(destinationAddress: fake.address, subnetMask: fake.mask)] + inc4
+            ipv4.includedRoutes = [NEIPv4Route(destinationAddress: fake.address, subnetMask: fake.mask)] + inc4 + localRoute
         } else {
-            ipv4.includedRoutes = inc4.isEmpty ? [NEIPv4Route.default()] : inc4
+            ipv4.includedRoutes = (inc4.isEmpty ? [NEIPv4Route.default()] : inc4) + localRoute
         }
-        var exc4 = exc.filter { !$0.isV6 }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
+        let excLines = local.map { $0.carve(excluded: o.excludedRoutes) } ?? o.excludedRoutes
+        var exc4 = excLines.compactMap(RouteSpec.init).filter { !$0.isV6 }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
         // 隐藏 VPN 图标 (experimental): the 0.0.0.0/31 exclusion trick; needs checking on each iOS version.
         if o.hideVPNIcon { exc4.append(NEIPv4Route(destinationAddress: "0.0.0.0", subnetMask: "255.255.255.254")) }
         ipv4.excludedRoutes = exc4
