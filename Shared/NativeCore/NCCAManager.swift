@@ -29,7 +29,7 @@ public struct CAInfoModel: Codable, Equatable, Sendable {
 }
 
 /// Swift CA and Leaf Certificate Manager for Native MitM.
-/// Replaces Go's CA management (`bridge/mitm/ca.go`) and leaf certificate issuance (`LibmihomoMitmLeafIdentity`).
+/// Replaces the old core's CA management and leaf certificate issuance.
 /// Loads or generates the CA in `<home>/engine/ca` and signs per-host leaf certificates.
 public final class NCCAManager {
     public static let shared = NCCAManager()
@@ -40,6 +40,12 @@ public final class NCCAManager {
     private var caKey: SecKey?
 
     public init() {}
+
+    /// fix/nc-e2e-real: GET /mitm/status caLoaded — a CA is in memory and can sign leaves.
+    public var hasIssuer: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return issuer != nil
+    }
 
     /// Root directory for CA files (<home>/engine/ca).
     public static func caDir(home: String) -> URL {
@@ -60,7 +66,7 @@ public final class NCCAManager {
             return loaded
         }
         // Never replace a CA that exists but could not be read: the user trusts that certificate (installed profile).
-        // feat/native-core-eval: Go's CA (bridge/mitm/ca.go) is PKCS#8 — read by loadCA below, EC P-256 or (gap C7)
+        // feat/native-core-eval: the old core's CA is PKCS#8 — read by loadCA below, EC P-256 or (gap C7)
         // RSA, e.g. a p12 exported by another app and imported; anything else keeps MitM off with a log line.
         let dir = Self.caDir(home: home)
         if FileManager.default.fileExists(atPath: dir.appendingPathComponent("ca.pem").path)
@@ -69,7 +75,10 @@ public final class NCCAManager {
             return nil
         }
         do {
-            let generated = try Self.generateCA(home: home)
+            // feat/nc-e2e: no reload here — generateCA's reloadCA takes `lock`, which this function already holds
+            // (NSLock is not recursive): ensureCA on a home without a CA deadlocked forever (E2E replay run
+            // 40264987994: stage 1 hung 600 s in ensureCA; in the tunnel, leafP12 → ensureCA would hang the MitM flow).
+            let generated = try Self.generateCA(home: home, reload: false)
             caCert = generated.caCert
             caKey = generated.caKey
             initIssuerLocked(cert: generated.caCert, key: generated.caKey)
@@ -137,7 +146,7 @@ public final class NCCAManager {
               let cert = SecCertificateCreateWithData(nil, certDER as CFData) else {
             return nil
         }
-        // gap C7 (astemo6/Muse NativeCore): an RSA CA — PKCS#8 with rsaEncryption (Go's ImportP12 writes that for a
+        // gap C7 (astemo6/Muse NativeCore): an RSA CA — PKCS#8 with rsaEncryption (the old core's ImportP12 writes that for a
         // p12 from another app) or a PKCS#1 "RSA PRIVATE KEY" block. Security takes the PKCS#1 RSAPrivateKey DER.
         if let pkcs1 = extractPEMContent(keyData, label: "RSA PRIVATE KEY")
             ?? extractPEMContent(keyData, label: "PRIVATE KEY").flatMap({ Self.rsaPKCS1(fromPKCS8: $0) }) {
@@ -159,7 +168,7 @@ public final class NCCAManager {
             kSecAttrKeySizeInBits as String: 256,
         ]
         var err: Unmanaged<CFError>?
-        // Security wants X9.63 (04 || X || Y || K); Go writes PKCS#8 (RFC 5208) wrapping an RFC 5915 ECPrivateKey.
+        // Security wants X9.63 (04 || X || Y || K); the old core writes PKCS#8 (RFC 5208) wrapping an RFC 5915 ECPrivateKey.
         guard let x963 = Self.x963(fromPKCS8OrSEC1: keyDER, certDER: certDER),
               let key = SecKeyCreateWithData(x963 as CFData, keyAttrs as CFDictionary, &err) else {
             return nil
@@ -218,15 +227,15 @@ public final class NCCAManager {
         \t<array>
         \t\t<dict>
         \t\t\t<key>PayloadCertificateFileName</key>
-        \t\t\t<string>mihomo-ca.cer</string>
+        \t\t\t<string>tern-ca.cer</string>
         \t\t\t<key>PayloadContent</key>
         \t\t\t<data>\(b64)</data>
         \t\t\t<key>PayloadDescription</key>
-        \t\t\t<string>Mihomo MitM 根证书</string>
+        \t\t\t<string>Tern MitM 根证书</string>
         \t\t\t<key>PayloadDisplayName</key>
         \t\t\t<string>\(escapedName)</string>
         \t\t\t<key>PayloadIdentifier</key>
-        \t\t\t<string>com.astemo6.mihomo.ca.\(u2_8)</string>
+        \t\t\t<string>com.astemo6.tern.ca.\(u2_8)</string>
         \t\t\t<key>PayloadType</key>
         \t\t\t<string>com.apple.security.root</string>
         \t\t\t<key>PayloadUUID</key>
@@ -240,7 +249,7 @@ public final class NCCAManager {
         \t<key>PayloadDisplayName</key>
         \t<string>\(escapedName)</string>
         \t<key>PayloadIdentifier</key>
-        \t<string>com.astemo6.mihomo.ca-profile.\(u1_8)</string>
+        \t<string>com.astemo6.tern.ca-profile.\(u1_8)</string>
         \t<key>PayloadRemovalDisallowed</key>
         \t<false/>
         \t<key>PayloadType</key>
@@ -268,8 +277,10 @@ public final class NCCAManager {
         return try NCPKCS12Exporter.shared.export(leafDER: caDER, leafKey: caKey, caDER: Data(), password: password)
     }
 
-    /// Imports CA cert + private key from PKCS#12, replacing current CA files.
-    public static func importP12(home: String, data: Data, password: String) throws {
+    /// feat/nc-full-export: decodes + validates a PKCS#12 CA (cert + private key) without touching the CA files.
+    /// Returns the PEM bytes `importP12` writes (ca.pem, ca.key). The full export (.conf) validates its p12 with this
+    /// before anything is written, then writes the files in one staged step.
+    public static func pemPair(fromP12 data: Data, password: String) throws -> (pemCert: Data, pemKey: Data) {
         var rawItems: CFArray?
         let options: [String: Any] = [kSecImportExportPassphrase as String: password]
         let status = SecPKCS12Import(data as CFData, options as CFDictionary, &rawItems)
@@ -296,8 +307,12 @@ public final class NCCAManager {
         try validateCAPair(cert: cert, certDER: certDER, key: key)
 
         let pkcs8 = try exportPKCS8(from: key)
-        let pemKey = formatPEM(pkcs8, label: "PRIVATE KEY")
-        let pemCert = formatPEM(certDER, label: "CERTIFICATE")
+        return (formatPEM(certDER, label: "CERTIFICATE"), formatPEM(pkcs8, label: "PRIVATE KEY"))
+    }
+
+    /// Imports CA cert + private key from PKCS#12, replacing current CA files.
+    public static func importP12(home: String, data: Data, password: String) throws {
+        let (pemCert, pemKey) = try pemPair(fromP12: data, password: password)
 
         let dir = caDir(home: home)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -314,7 +329,7 @@ public final class NCCAManager {
     public static func trustChain(home: String) -> (leafDER: Data, caDER: Data, hostname: String)? {
         guard let (caCert, caKey) = loadCA(home: home) else { return nil }
         let caDER = SecCertificateCopyData(caCert) as Data
-        let host = "mitm-trust-check.mihomo.local"
+        let host = "mitm-trust-check.tern.local"
         do {
             let issuer = try LeafCertIssuer(caCertificate: caCert, caPrivateKey: caKey)
             let leaf = try issuer.issueLeafCertificate(for: host)
@@ -348,7 +363,8 @@ public final class NCCAManager {
 
     /// Generates a new 10-year ECDSA P-256 root CA in Swift and writes to disk.
     @discardableResult
-    public static func generateCA(home: String) throws -> (caCert: SecCertificate, caKey: SecKey) {
+    /// `reload: false` only from `ensureCA`, which holds `lock` and installs the result itself.
+    public static func generateCA(home: String, reload: Bool = true) throws -> (caCert: SecCertificate, caKey: SecKey) {
         let dir = caDir(home: home)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
 
@@ -419,7 +435,7 @@ public final class NCCAManager {
         try writeAtomic(url: keyURL, data: pemKey, posixPermissions: 0o600)
         try writeAtomic(url: pemURL, data: pemCert, posixPermissions: 0o644)
 
-        shared.reloadCA(home: home)
+        if reload { shared.reloadCA(home: home) }
 
         return (caCert, caKey)
     }
@@ -508,10 +524,17 @@ public final class NCCAManager {
     // MARK: - Validation & Export Helpers
 
     private static func validateCAPair(cert: SecCertificate, certDER: Data, key: SecKey) throws {
-        guard let attrs = SecKeyCopyAttributes(key) as? [CFString: Any],
-              (attrs[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeECSECPrimeRandom as String),
-              (attrs[kSecAttrKeySizeInBits] as? Int) == 256 else {
+        // fix/nc-rsa-ca: EC P-256 (Tern / the old core CA) or RSA 2048/3072/4096 (QuanX [mitm] passphrase + p12, other apps).
+        guard let attrs = SecKeyCopyAttributes(key) as? [CFString: Any] else {
             throw NSError(domain: "TernCA", code: -1, userInfo: [NSLocalizedDescriptionKey: "CA 私钥类型不支持"])
+        }
+        let keyType = attrs[kSecAttrKeyType] as? String
+        let bits = (attrs[kSecAttrKeySizeInBits] as? Int) ?? (attrs[kSecAttrKeySizeInBits] as? NSNumber)?.intValue ?? 0
+        let isEC = keyType == (kSecAttrKeyTypeECSECPrimeRandom as String) && bits == 256
+        let isRSA = keyType == (kSecAttrKeyTypeRSA as String) && [2048, 3072, 4096].contains(bits)
+        guard isEC || isRSA else {
+            throw NSError(domain: "TernCA", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "CA 私钥类型不支持（仅支持 EC P-256 或 RSA 2048/3072/4096）"])
         }
         guard let certPub = SecCertificateCopyKey(cert),
               let keyPub = SecKeyCopyPublicKey(key),
@@ -610,6 +633,10 @@ public final class NCCAManager {
         var err: Unmanaged<CFError>?
         guard let ext = SecKeyCopyExternalRepresentation(key, &err) as Data? else {
             throw LeafCertError.keyGenerationFailed
+        }
+        // fix/nc-rsa-ca: an RSA key exports PKCS#1 — wrap it as PKCS#8 (what loadCA's rsaPKCS1(fromPKCS8:) and the old core read).
+        if DER.isRSAKey(key) {
+            return DER.pkcs8RSA(pkcs1: ext)
         }
         if ext.first == 0x30 {
             return ext

@@ -1,16 +1,16 @@
-// Native MitM stage 3b — body rewrites (regex / Loon json / jq subset) in Swift, for requests the native rewrite
+// Native MitM stage 3b — body rewrites (regex / Loon json / jq) in Swift, for requests the native rewrite
 // engine forwards itself (switch `nativeMitmBody`, default OFF; it only acts when `nativeMitmRewrite` is on too).
 //
-// What Go does for a body rule (bridge/mitm/handler.go requestPhase / modifyResponse + applyBodyRule) is replayed
-// on the rules Go exported as portable (bodysnap.go): the request body is read whole (≤ 256 KB, known length),
+// What the old core does for a body rule is replayed
+// on the rules the old core exported as portable: the request body is read whole (≤ 256 KB, known length),
 // the response body is read whole (≤ 256 KB announced length), decoded (NativeBodyDecode), every matching rule
 // applied in rule order with header rules in between, and the result sent with Content-Length — the same bytes,
-// status and headers the Go flow API would produce (UnitTests/NativeMitmBodyTests.swift replays Go-generated
+// status and headers the old flow API would produce (UnitTests/NativeMitmBodyTests.swift replays old-core-generated
 // cases byte for byte).
 //
 // The moment anything is uncertain — the body is not UTF-8 for a regex, not JSON for a json / jq rule, a jq step
-// would error, an encoding is not decoded exactly like Go, the body is larger than 256 KB, a regex runs too long —
-// the result is .handBack and NativeRewriteDriver gives the exchange to the Go flow ("adopt").
+// would error, an encoding is not decoded exactly like the old core, the body is larger than 256 KB, a regex runs too long —
+// the result is .handBack and NativeRewriteDriver gives the exchange to the old flow ("adopt").
 
 import Foundation
 
@@ -19,9 +19,9 @@ import Foundation
 enum NativeBodyRuntime {
     /// App-group key; default OFF. Needs `nativeMitmRewrite` on as well (the body rules ride on its decisions).
     static let defaultsKey = "nativeMitmBody"
-    /// Bodies above this (raw or decoded) are left to Go.
+    /// Bodies above this (raw or decoded) are left to the old core.
     static let maxBody = 256 << 10
-    /// A regex body rewrite slower than this is abandoned and the exchange handed to Go (RE2 is linear; ICU
+    /// A regex body rewrite slower than this is abandoned and the exchange handed to the old core (RE2 is linear; ICU
     /// backtracks).
     static var regexBudget: TimeInterval = 0.25
 
@@ -46,7 +46,7 @@ enum NativeBodyRuntime {
     }
 }
 
-// MARK: - Snapshot additions (bodysnap.go)
+// MARK: - Snapshot additions
 
 struct RWSnapReplPart: Decodable {
     var l: String?
@@ -57,6 +57,12 @@ struct RWSnapBodyOp: Decodable {
     var icu: String?
     var parts: [RWSnapReplPart]?
     var skip: Bool?
+    /// native-only (lane regexp2): an op the snapshot could not spell as explicit ICU is exported as its source — the
+    /// pattern `p` and the raw replacement `repl` (regexp2's path: Replace(body, repl, -1, -1)), or with `re2` the
+    /// RE2 pattern of the old core's fast path and its parsed `parts`. RX2ICU translates it when the rule is built.
+    var p: String?
+    var repl: String?
+    var re2: Bool?
 }
 
 struct RWSnapJSONOp: Decodable {
@@ -73,7 +79,7 @@ struct RWSnapJQStep: Decodable {
     var cond: RWSnapJQCond?
 }
 
-/// A select() condition (bodysnap.go SnapJQCond).
+/// A select() condition (bodysnap SnapJQCond).
 final class RWSnapJQCond: Decodable {
     var k: String
     var a: RWSnapJQCond?
@@ -87,7 +93,7 @@ final class RWSnapJQCond: Decodable {
 
 final class NativeBodyRule {
     enum Part { case lit(String), group(Int) }
-    enum RegexOp { case skip, replace(NSRegularExpression, [Part]) }
+    enum RegexOp { case skip, replace(NSRegularExpression, [Part]), rx2(RWRegex, RWSnapTemplate) }
     enum JQStep { case set([BodyJSONKey], BodyJSON), del([[BodyJSONKey]]), filter([BodyJSONKey], BodyJQ.Cond) }
 
     let index: Int
@@ -95,8 +101,10 @@ final class NativeBodyRule {
     private(set) var regexOps: [RegexOp] = []
     private(set) var jsonOps: [(op: String, path: [BodyJSONKey], value: BodyJSON)] = []
     private(set) var jqSteps: [JQStep] = []
+    /// fix/nc-jq-full: the full jq filter (NativeJQ), compiled once per rule
+    private(set) var jqProgram: NativeJQ.Program?
 
-    /// nil: Go did not mark the rule portable, or Swift cannot build it exactly (then Go handles the request).
+    /// nil: the old core did not mark the rule portable, or Swift cannot build it exactly (then the old core handles the request).
     init?(_ r: RWSnapRule) {
         guard r.bodyOK == true else { return nil }
         index = r.i
@@ -105,6 +113,11 @@ final class NativeBodyRule {
         case "body":
             for op in r.body ?? [] {
                 if op.skip == true { regexOps.append(.skip); continue }
+                if (op.icu ?? "").isEmpty, let src = op.p, !src.isEmpty {
+                    guard let built = NativeBodyRule.sourceOp(src, op) else { return nil }
+                    regexOps.append(built)
+                    continue
+                }
                 guard let icu = op.icu, !icu.isEmpty, let re = try? NSRegularExpression(pattern: icu, options: []) else { return nil }
                 var parts: [Part] = []
                 for p in op.parts ?? [] {
@@ -121,6 +134,15 @@ final class NativeBodyRule {
                 jsonOps.append((op.op, op.path, v))
             }
         case "jq":
+            if let src = r.jqx {
+                do {
+                    jqProgram = try NativeJQ.compile(src)
+                } catch {
+                    NativeBodyRule.warn("jq rule #\(r.i) not loaded (\(error)) — its bodies pass through unchanged")
+                    return nil
+                }
+                break
+            }
             for s in r.jq ?? [] {
                 switch s.op {
                 case "set":
@@ -140,9 +162,40 @@ final class NativeBodyRule {
         }
     }
 
-    enum Applied { case body(Data), handBack(String) }
+    /// A source-exported op (see RWSnapBodyOp.p): regexp2 → RWRegex + regexp2's replacement program; RE2 → an
+    /// ICU expression with the old core's parsed parts. nil: RX2ICU / ICU refuse it (the rule stays skipped).
+    static func sourceOp(_ p: String, _ op: RWSnapBodyOp) -> RegexOp? {
+        if op.re2 == true {
+            guard let t = RX2ICU.translate(p, dialect: .re2).0,
+                  let re = try? NSRegularExpression(pattern: t.icu, options: []), re.numberOfCaptureGroups == t.groups else { return nil }
+            var parts: [Part] = []
+            for x in op.parts ?? [] {
+                if x.g < 0 { parts.append(.lit(x.l ?? "")) } else {
+                    guard x.g <= t.groups else { return nil }
+                    parts.append(.group(x.g))
+                }
+            }
+            return .replace(re, parts)
+        }
+        guard let t = RX2ICU.translate(p).0 else { return nil }
+        let src = RWSnapRegex(p: p, ok: true, icu: t.icu, slots: t.identity ? nil : t.slots, lit: nil, fold: nil,
+                              groups: t.groups, named: t.names.isEmpty ? nil : true, empty: nil)
+        let rx = RWRegex(src)
+        guard rx.compiles else { return nil }
+        // a replacement regexp2 rejects makes the old core's rule fail (skipped): the same here
+        guard case (let tp?, false) = RX2ICU.template(op.repl ?? "", t) else { return nil }
+        return .rx2(rx, tp)
+    }
 
-    /// applyBodyRule(rule, body) where Go succeeds; .handBack where Go would fail (it then skips the rule — a
+    /// skipped: the rule did not apply (jq: body not JSON / filter error / no output) — the body stays as it was and
+    /// the rule is not listed as matched (a warning goes to the log).
+    enum Applied { case body(Data), handBack(String), skipped(String) }
+
+    static func warn(_ line: String) {
+        NCDiagLimiter.shared.line("[Rewrite] \(line)", level: "warning")
+    }
+
+    /// applyBodyRule(rule, body) where the old core succeeds; .handBack where the old core would fail (it then skips the rule — a
     /// result Swift does not reproduce) or where Swift cannot be sure.
     func apply(_ body: Data) -> Applied {
         switch kind {
@@ -153,6 +206,16 @@ final class NativeBodyRule {
             guard let out = v.encoded() else { return .handBack("encode") }
             return .body(out)
         case "jq":
+            if let prog = jqProgram {
+                switch NativeJQ.apply(prog, body: body) {
+                case .body(let out):
+                    return .body(out)
+                case .skip(let why):
+                    NativeRewriteEngine.noteSkip("jq: " + why)
+                    NativeBodyRule.warn("jq rule #\(index) skipped, body passed through: \(why)")
+                    return .skipped(why)
+                }
+            }
             guard var v = BodyJSON.parse(body) else { return .handBack("not json") }
             do {
                 for s in jqSteps {
@@ -172,14 +235,35 @@ final class NativeBodyRule {
         }
     }
 
-    /// Go's regexp ReplaceAll(body, template) for each op in turn (RE2 matches are never empty here: Go only takes
-    /// the RE2 path for non-nullable patterns and Go marks nullable ones not portable).
+    /// the old core's regexp ReplaceAll(body, template) for each op in turn (RE2 matches are never empty here: the old core only takes
+    /// the RE2 path for non-nullable patterns and the old core marks nullable ones not portable).
     private func applyRegex(_ body: Data) -> Applied {
         let bytes = [UInt8](body)
         guard BodyJSON.validUTF8(bytes) else { return .handBack("not utf-8") }
         var s = String(decoding: bytes, as: UTF8.self)
         let deadline = Date().addingTimeInterval(NativeBodyRuntime.regexBudget)
         for op in regexOps {
+            if case .rx2(let rx, let tp) = op {
+                // regexp2 Replace(s, repl, -1, -1): every match, empty ones included, walked like regexp2 does
+                guard let re = rx.regex else { return .handBack("regex") }
+                let ns = s as NSString
+                var out = ""
+                var last = 0
+                var slow = false, bad = false
+                re.enumerateMatches(in: s, options: [.reportProgress], range: NSRange(location: 0, length: ns.length)) { m, _, stop in
+                    if Date() > deadline { slow = true; stop.pointee = true; return }
+                    guard let m = m else { return }
+                    guard let rep = rx.run(tp, m, ns) else { bad = true; stop.pointee = true; return }
+                    out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+                    out += rep
+                    last = m.range.location + m.range.length
+                }
+                if slow { return .handBack("regex time") }
+                if bad { return .handBack("replacement") }
+                out += ns.substring(from: last)
+                s = out
+                continue
+            }
             guard case .replace(let re, let parts) = op else { continue }
             let ns = s as NSString
             var out = ""
@@ -211,7 +295,7 @@ final class NativeBodyRule {
     }
 }
 
-// MARK: - Request body (handler.go requestPhase, body rules on a request Swift forwards)
+// MARK: - Request body (handler requestPhase, body rules on a request Swift forwards)
 
 struct NativeRequestBodyPlan {
     var rules: [NativeBodyRule]
@@ -219,7 +303,7 @@ struct NativeRequestBodyPlan {
 }
 
 enum NativeRequestBodyResult {
-    /// The body to send (Go: setBody after each rule; mode read, or none when it ended up empty).
+    /// The body to send (the old core: setBody after each rule; mode read, or none when it ended up empty).
     case body(Data)
     case handBack(String)
 }
@@ -232,6 +316,7 @@ enum NativeBodyExec {
             switch r.apply(b) {
             case .body(let nb): b = nb
             case .handBack(let why): return .handBack(why)
+            case .skipped: continue
             }
         }
         return .body(b)
@@ -249,9 +334,9 @@ enum NativeBodyExec {
 
     enum ResponseResult { case native(Response), handBack(String) }
 
-    /// Whether the response head lets Swift take the body (else the exchange is handed to Go before any byte).
+    /// Whether the response head lets Swift take the body (else the exchange is handed to the old core before any byte).
     static func responseHeadOK(status: Int, headers: [[String]], length: Int64, method: String) -> String? {
-        let h = GoHeader(pairs: headers)
+        let h = CanonicalHeader(pairs: headers)
         if status == 101 { return "upgrade" }
         if method == "HEAD" || status == 204 || status == 304 || (100..<200).contains(status) { return "no body" }
         if !h.values("Transfer-Encoding").isEmpty { return "chunked" }
@@ -269,7 +354,7 @@ enum NativeBodyExec {
     /// runResponse + modifyResponse for a plan of header and body rules, on the whole raw (still encoded) body.
     static func response(_ steps: [RewriteDecision.ResponseStep], status: Int, headers: [[String]], length: Int64,
                          raw: Data) -> ResponseResult {
-        var h = GoHeader(pairs: headers)
+        var h = CanonicalHeader(pairs: headers)
         var contentLength = length
         if !h.values("Transfer-Encoding").isEmpty { return .handBack("chunked") }
         let clh = h.get("Content-Length")
@@ -289,7 +374,7 @@ enum NativeBodyExec {
             switch step {
             case .header(let ops, let i):
                 rules.append(i)
-                guard NativeRewriteEngine.apply(ops, to: &h, firstLine: "HTTP/1.1 " + GoStatus.status(status)) else { return .handBack("header op input") }
+                guard NativeRewriteEngine.apply(ops, to: &h, firstLine: "HTTP/1.1 " + NetStatus.status(status)) else { return .handBack("header op input") }
             case .body(let rule):
                 if !loaded {
                     loaded = true
@@ -308,6 +393,8 @@ enum NativeBodyExec {
                     setBody(nb)
                 case .handBack(let why):
                     return .handBack(why)
+                case .skipped:
+                    break
                 }
             }
         }

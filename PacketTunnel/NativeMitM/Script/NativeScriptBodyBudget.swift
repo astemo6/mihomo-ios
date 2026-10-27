@@ -1,20 +1,20 @@
 // NativeCore (feat/native-core-eval) — script body admission by ACTUAL decoded size (astemo6/Muse, 2026-10-25).
 //
-// The Go-era admission (bridge/mitm/largebody.go, ported in 11347ec) estimated a body before reading it
+// The old-core admission estimated a body before reading it
 // (br × 8, gzip × 6) and refused it when reserve + 3 × estimate did not fit. On device (v0.19.26, 3–4 MB available
-// under the Go core) a 147 KB br YouTube response was estimated at ~1.2 MB and skipped although it would have fit.
+// under the old core) a 147 KB br YouTube response was estimated at ~1.2 MB and skipped although it would have fit.
 //
 // NativeCore streams instead: a body is admitted when its raw length fits (no ratio guess), every byte the store
 // appends — raw as received, decoded as the decoder produces it — is charged here, and the load stops only when the
 // bytes actually produced would leave less than `reserve` available or exceed the shared budget / the script's
 // max-size. Shared by all concurrent script bodies (`hardMax`).
 //
-// Numbers (c): NativeCore has no garbage-collected Go heap to overshoot (Go needed 3 MB free for GC headroom), and
+// Numbers (c): NativeCore has no garbage-collected old heap to overshoot (the old core needed 3 MB free for GC headroom), and
 // malloc'd decode buffers show up in os_proc_available_memory at once, so the reserve is 1.5 MB — the extension's
 // own allocations between two 64 KB decoder steps plus JavaScriptCore's next block. The decode is checked live per
 // chunk, so no copy factor is applied up front; the script run itself is bounded by the governor / memLow.
 //
-// Pure Foundation, no #if: built into the tunnel (TERN_NO_GO NativeScriptHost / NativeBodyStore) and the app target
+// Pure Foundation, no #if: built into the tunnel (NativeScriptHost / NativeBodyStore) and the app target
 // (UnitTests/NativeScriptBodyBudgetTests.swift).
 
 import Foundation
@@ -22,7 +22,7 @@ import os
 
 final class NativeScriptBodyBudget {
     struct Config {
-        /// kept available while a body loads (Go: 3 MB largeBodyReserve, 4 MB before v0.19.25)
+        /// kept available while a body loads (the old core: 3 MB largeBodyReserve, 4 MB before v0.19.25)
         var reserve: Int64 = 1_536 << 10
         /// all script bodies loading / held at once (raw + decoded)
         var hardMax: Int64 = 8 << 20
@@ -66,7 +66,7 @@ final class NativeScriptBodyBudget {
 
     /// Whether a script run (its setup JSON of `bytes`) may start: setup + slack above the reserve. The shared body
     /// budget is not consulted (the body was admitted / charged on its own); used instead of the governor's 4.5 MB
-    /// small-work floor in the Go-free tunnel.
+    /// small-work floor in the native-only tunnel.
     func roomForRun(bytes: Int64) -> Bool {
         guard let avail = available() else { return true }
         return avail - max(bytes, 0) - config.admitSlack >= config.reserve
@@ -178,8 +178,8 @@ extension NativeScriptBodyBudget {
     }
 }
 
-// Defaults so the Go-backed app build (GoScriptHost, the Go NativeBodyStore) and the unit-test fakes need nothing new.
-extension ScriptGoHost {
+// Defaults so the old-core app build (NativeScriptHost, the old core NativeBodyStore) and the unit-test fakes need nothing new.
+extension ScriptHostAPI {
     /// The streaming charge bodyAdmit opened for ticket (NativeCore only).
     func bodyCharge(ticket: Int64) -> NativeBodyCharge? { nil }
 }

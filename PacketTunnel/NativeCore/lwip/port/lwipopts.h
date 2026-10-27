@@ -12,18 +12,29 @@
 #define LWIP_SOCKET 0
 #define LWIP_CALLBACK_API 1
 
-/* Memory */
+/* Memory — byte accounting in docs/nativecore-memory-budget.md (nc-memory audit).
+   Static total of heap + pools below is ≈540 KB. Per-connection TCP payload
+   (windows) is drawn from the shared heap/pool, not allocated per PCB. */
 #define MEM_LIBC_MALLOC 0
 #define MEMP_MEM_MALLOC 0
 #define MEM_ALIGNMENT 8
-#define MEM_SIZE (384 * 1024)
+/* nc-memory: 384K → 320K (−64 KB). Heap consumers here are PBUF_RAM send copies
+   (bounded by TCP_SND_BUF per conn, back-pressured by the Swift outbox cap) and
+   small structs; 320K still holds ~13 full send windows concurrently. */
+#define MEM_SIZE (320 * 1024)
 #define MEMP_NUM_PBUF 96
-#define PBUF_POOL_SIZE 96
+/* nc-memory: 96 → 80 (−16 × ~2.1 KB ≈ −33 KB of pool payload+headers). The pool
+   is shared by TUN + WireGuard netifs and all TCP/UDP payload; 80 × 2048 B =
+   160 KB of payload absorbs bursts of ~7 full receive windows. */
+#define PBUF_POOL_SIZE 80
 #define PBUF_POOL_BUFSIZE 2048
-#define MEMP_NUM_TCP_PCB 96
-#define MEMP_NUM_TCP_PCB_LISTEN 48
+/* feat/nc-wg: +32 TCP / +16 UDP PCBs for WireGuard client flows (nc_wg.c), ~8 KB. */
+#define MEMP_NUM_TCP_PCB 128
+/* nc-memory: 48 → 24 (−24 × ~104 B ≈ −2.4 KB). Listening PCBs are one per
+   listen port on the stack queue; nothing here opens dozens of listeners. */
+#define MEMP_NUM_TCP_PCB_LISTEN 24
 #define MEMP_NUM_TCP_SEG 128
-#define MEMP_NUM_UDP_PCB 48
+#define MEMP_NUM_UDP_PCB 64
 #define MEMP_NUM_RAW_PCB 8
 #define MEMP_NUM_NETBUF 0
 #define MEMP_NUM_NETCONN 0
@@ -40,6 +51,10 @@
 #define LWIP_IPV6 1
 #define LWIP_TCP 1
 #define LWIP_UDP 1
+/* e2e-real-3: one UDP pcb per client flow, all bound to the same local dst:port (198.18.0.2:53, a QUIC server:443).
+   Without SO_REUSE every bind after the first returns ERR_USE → only the first DNS socket ever got answers.
+   udp_input still picks the fully matching connected pcb first. */
+#define SO_REUSE 1
 #define LWIP_ICMP 1
 #define LWIP_ICMP6 1
 #define LWIP_RAW 1
@@ -91,7 +106,10 @@
 #define CHECKSUM_CHECK_ICMP6 1
 
 #define LWIP_TCPIP_CORE_LOCKING 0
-#define LWIP_SINGLE_NETIF 1
+/* feat/nc-wg: WireGuard devices are extra netifs (nc_wg.c); TUN stays the default netif.
+   Scopes off: no link-local traffic on either kind of netif, keep ip6_addr_t as before. */
+#define LWIP_SINGLE_NETIF 0
+#define LWIP_IPV6_SCOPES 0
 #define PBUF_LINK_HLEN 0
 #define IP_SOF_BROADCAST 0
 #define LWIP_BROADCAST_PING 0

@@ -1,6 +1,6 @@
 import Foundation
 
-/// First-packet protocol sniffing (mihomo's sniffer is the behavioral spec):
+/// First-packet protocol sniffing (Clash.Meta's sniffer is the behavioral spec):
 /// TLS ClientHello -> SNI (and ALPN), plain HTTP -> Host. QUIC initial-packet
 /// SNI arrives with the QUIC batch; until then QUIC flows fall back to IP rules.
 enum NCSniffer {

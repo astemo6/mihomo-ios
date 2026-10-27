@@ -18,7 +18,7 @@ struct CustomRule: Codable, Identifiable, Hashable {
     }
 }
 
-/// Result of custom rule validation (mirrors Go's ruleCheck in bridge/customrules.go).
+/// Result of custom rule validation.
 struct RuleCheck: Codable, Hashable {
     var id: String?
     var line: String?
@@ -65,7 +65,7 @@ enum RuleValidationError: LocalizedError {
 
 // MARK: - NCRuleValidator
 
-/// Pure Swift rule validator replacing bridge/customrules.go (CheckRuleLine, CheckCustomRules).
+/// Pure Swift rule validator replacing the retired bridge (CheckRuleLine, CheckCustomRules).
 enum NCRuleValidator {
 
     // MARK: - Type Maps & Tables
@@ -83,8 +83,8 @@ enum NCRuleValidator {
     ]
 
     static let unsupportedTypes: [String: String] = [
-        "USER-AGENT": "mihomo 不支持 USER-AGENT 规则（可用 MitM 重写代替）",
-        "URL-REGEX": "mihomo 规则不匹配 URL；REJECT 类策略会转为 MitM URL 重写",
+        "USER-AGENT": "不支持 USER-AGENT 规则（可用 MitM 重写代替）",
+        "URL-REGEX": "分流规则不匹配 URL；REJECT 类策略会转为 MitM URL 重写",
         "CELLULAR-RADIO": "iOS 扩展内无法获取蜂窝制式",
         "DEVICE-NAME": "不支持",
         "SUBNET": "不支持（Surge 网络条件规则）",
@@ -340,6 +340,25 @@ enum NCRuleValidator {
         return (sp, true)
     }
 
+    /// The provider kind of a QX remote-list line: "list" with a non-empty `force-policy` (every line goes to that
+    /// policy), otherwise "list-own" — like Quantumult X, each line of the list keeps its own policy (the download
+    /// splits it per policy, NCProviderPorts.splitOwnPolicyList; NCRuntimeSteps.expandOwnPolicyProviders creates a
+    /// manual-select group for a policy the config lacks). The same kind the App's QX import uses.
+    static func qxRemoteKind(_ line: String) -> String {
+        for p in line.split(separator: ",", omittingEmptySubsequences: false).dropFirst() {
+            let t = p.trimmingCharacters(in: .whitespaces)
+            guard let eq = t.firstIndex(of: "=") else { continue }
+            guard t[..<eq].trimmingCharacters(in: .whitespaces).lowercased() == "force-policy" else { continue }
+            let v = t[t.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+            if !v.isEmpty { return "list" }
+        }
+        return "list-own"
+    }
+
+    /// The note shown for a QX remote list without force-policy (rule editor).
+    static let qxRemoteOwnNote = "未指定 force-policy：按列表内每行自己的策略分流；配置中不存在的策略自动创建为手动选择组"
+
     static func convertRuleLine(_ rawLine: String) throws -> RuleConv? {
         var line = rawLine.trimmingCharacters(in: .whitespaces)
         if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") || line.hasPrefix("//") {
@@ -448,7 +467,7 @@ enum NCRuleValidator {
 
     static func providerNameFor(url: String, kind: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data((kind + "|" + url).utf8))
-        let hex = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+        let hex = digest.prefix(4).ncHex
         return "custom-" + hex
     }
 
@@ -504,12 +523,13 @@ enum NCRuleValidator {
             var interval = r.interval ?? 0
 
             if let (sp, ok) = parseQXRemote(line), ok {
-                conv = RuleConv(rule: "", type: "RULE-SET", policy: sp.policy, options: "", remoteURL: sp.url, remoteKind: "list", tag: sp.tag, unsupported: "", note: "")
+                let kind = qxRemoteKind(line)
+                conv = RuleConv(rule: "", type: "RULE-SET", policy: sp.policy, options: "", remoteURL: sp.url, remoteKind: kind, tag: sp.tag, unsupported: "", note: "")
                 if interval == 0 {
                     interval = sp.interval
                 }
-                if !line.lowercased().contains("force-policy") {
-                    ck.note = "QX 远程列表未指定 force-policy：整份列表使用 proxy（第一个手动选择组），列表内各行的策略被忽略"
+                if kind == "list-own" {
+                    ck.note = qxRemoteOwnNote
                 }
             } else {
                 do {
@@ -582,23 +602,13 @@ enum NCRuleValidator {
         return (try? JSONDecoder().decode(CustomRulesFile.self, from: data))?.rules ?? []
     }
 
-    // MARK: - Public API (Replacing Libmihomo)
+    // MARK: - Public API
 
     /// Check one rule line in the editor against the active profile.
     static func checkRuleLine(homeDir: String, profilePath: String, line: String) -> RuleCheck {
         var context = loadProfileContext(homeDir: homeDir, profilePath: profilePath)
         let checks = convertCustom(rules: [CustomRule(id: "1", line: line, enabled: true)], context: &context)
         return checks.first ?? RuleCheck(id: "1", line: line, enabled: true)
-    }
-
-    /// JSON string result of checkRuleLine, matching the bridge format.
-    static func checkRuleLineJSON(homeDir: String, profilePath: String, line: String) -> String {
-        let check = checkRuleLine(homeDir: homeDir, profilePath: profilePath, line: line)
-        let enc = JSONEncoder()
-        guard let data = try? enc.encode(check), let str = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return str
     }
 
     /// Check all rules in <home>/rules.json against the profile.
@@ -608,13 +618,4 @@ enum NCRuleValidator {
         return convertCustom(rules: rules, context: &context)
     }
 
-    /// JSON string result of checkCustomRules, matching the bridge format.
-    static func checkCustomRulesJSON(homeDir: String, profilePath: String) -> String {
-        let checks = checkCustomRules(homeDir: homeDir, profilePath: profilePath)
-        let enc = JSONEncoder()
-        guard let data = try? enc.encode(checks), let str = String(data: data, encoding: .utf8) else {
-            return "[]"
-        }
-        return str
-    }
 }

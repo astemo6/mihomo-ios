@@ -1,7 +1,7 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
-/// feat/native-core-eval: $persistentStore in the Go-free tunnel (NCPersistentStore = bridge/mitm/store.go semantics).
+/// feat/native-core-eval: $persistentStore in the native-only tunnel.
 final class NativeCorePersistentStoreTests: XCTestCase {
     private var dir: URL!
     private var file: URL { dir.appendingPathComponent("engine/store.json") }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure Swift helpers for copying per-profile settings and selections, matching bridge/grouporder.go.
+/// Pure Swift helpers for copying per-profile settings and selections, matching the retired bridge.
 enum NCProfileCopy {
 
     static let profileSettingFiles = ["group-edits.json", "groups.json", "subscriptions.json", "netpolicy.json"]

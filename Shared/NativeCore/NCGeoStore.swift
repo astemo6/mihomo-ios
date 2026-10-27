@@ -4,7 +4,7 @@ import JavaScriptCore
 import Darwin
 #endif
 
-/// NCGeoFile represents one geo database entry matching Go's geoFile JSON structure.
+/// NCGeoFile represents one geo database entry matching the old core's geoFile JSON structure.
 public struct NCGeoFile: Codable, Equatable, Identifiable {
     public var id: String { kind }
     public var kind: String
@@ -64,7 +64,7 @@ public enum NCGeoError: LocalizedError, Equatable {
     }
 }
 
-/// Result returned by locationRun matching Go's geoResult JSON structure.
+/// Result returned by locationRun matching the old core's geoResult JSON structure.
 public struct NCGeoLocationResult: Codable, Equatable {
     public var title: String?
     public var subtitle: String?
@@ -88,7 +88,7 @@ public struct NCGeoLocationResult: Codable, Equatable {
 }
 
 /// Pure Swift implementation of geo database info, download mirror URLs, file installation,
-/// and exit IP location checking script execution. Pure Swift replacement for legacy Go bridge Geo calls.
+/// and exit IP location checking script execution. Pure Swift replacement for legacy old bridge Geo calls.
 public enum NCGeoStore {
     public static let knownKinds: [NCGeoFile] = [
         NCGeoFile(kind: "mmdb", file: "geoip.metadb", remote: "geoip.metadb"),
@@ -97,7 +97,7 @@ public enum NCGeoStore {
         NCGeoFile(kind: "geoip", file: "GeoIP.dat", remote: "geoip.dat")
     ]
 
-    /// Finds file in dir case-insensitively, matching mihomo's findCI behavior.
+    /// Finds file in dir case-insensitively, matching Clash.Meta's findCI behavior.
     public static func findCI(dir: String, name: String) -> String {
         let fm = FileManager.default
         if let entries = try? fm.contentsOfDirectory(atPath: dir) {
@@ -145,7 +145,7 @@ public enum NCGeoStore {
         knownKinds.map { describe(homeDir: homeDir, template: $0) }
     }
 
-    /// Returns JSON array string matching Go's GeoInfo(homeDir).
+    /// Returns JSON array string matching the old core's GeoInfo(homeDir).
     public static func info(homeDir: String) -> String {
         let list = files(homeDir: homeDir)
         let encoder = JSONEncoder()
@@ -208,7 +208,7 @@ public enum NCGeoStore {
         }
     }
 
-    /// Constructs mirror download URL for kind, mirror mode, and custom base. Matches Go's GeoMirrorURL.
+    /// Constructs mirror download URL for kind, mirror mode, and custom base. Matches the old core's GeoMirrorURL.
     public static func mirrorURL(kind: String, mirror: String, base: String) -> String {
         guard let remote = remoteFileName(for: kind) else { return "" }
         return effectiveBase(mirror: mirror, base: base) + remote
@@ -237,7 +237,7 @@ public enum NCGeoStore {
     }
 
     /// Validates a downloaded database file at path and atomically moves it into homeDir.
-    /// Matches Go's GeoInstallFile. Always deletes path before returning.
+    /// Matches the old core's GeoInstallFile. Always deletes path before returning.
     @discardableResult
     public static func installFile(homeDir: String, kind: String, path: String) throws -> String {
         guard let target = knownKinds.first(where: { $0.kind == kind }) else {
@@ -288,7 +288,7 @@ public enum NCGeoStore {
     }
 
     /// Runs a QX geo_location_checker script on an API reply body using JavaScriptCore.
-    /// Returns geoResult as JSON matching Go's GeoLocationRun.
+    /// Returns geoResult as JSON matching the old core's GeoLocationRun.
     public static func locationRun(homeDir: String, code: String, apiURL: String, body: String) -> String {
         let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedCode.isEmpty {

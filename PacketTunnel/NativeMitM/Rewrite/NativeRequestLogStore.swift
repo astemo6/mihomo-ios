@@ -1,8 +1,8 @@
-// NativeCore (feat/native-core-eval, gap C4) — the Go-free tunnel's request log and log stream
+// NativeCore (feat/native-core-eval, gap C4) — the native-only tunnel's request log and log stream
 // (astemo6/Muse NativeCore, 2026-10-25).
 //
-// NativeRequestLogStore is the NativeRequestRecorder's sink in TERN_NO_GO: it folds the recorder's events into entries
-// with the semantics of bridge/mitm/nativerecord.go applyNative (drop / local / forward open an entry; response /
+// NativeRequestLogStore is the NativeRequestRecorder's sink in the native tunnel: it folds the recorder's events into entries
+// with the semantics of the retired bridge (drop / local / forward open an entry; response /
 // end / cancel / upstream / error / abort finish it), keeps the OPEN entries (≤ 256, with headers) and the last 200
 // summaries (no headers) in memory, and appends every finished entry to the App Group ring
 // (NativeRequestLogFile, 2 × 256 KB on disk). The controller serves /mitm/requests from it; the app falls back to
@@ -10,7 +10,6 @@
 //
 // NativeLogRing keeps the last general log lines (StartupLog.tap) and script console lines in memory for
 // /hark/logs, /mitm/logs and the live /logs websocket (NCController polls `since(seq)` once a second).
-#if TERN_NO_GO
 import Foundation
 
 final class NativeRequestLogStore: NativeRequestLogSink {
@@ -99,7 +98,7 @@ final class NativeRequestLogStore: NativeRequestLogSink {
         return out
     }
 
-    // MARK: events (nativerecord.go applyNative)
+    // MARK: events (nativerecord applyNative)
 
     private func apply(_ r: Event) -> Bool {
         switch r.ev {
@@ -191,7 +190,7 @@ final class NativeRequestLogStore: NativeRequestLogSink {
         }
     }
 
-    /// status -1 keeps the entry's status (Go finishAt).
+    /// status -1 keeps the entry's status (the old core finishAt).
     private func finish(_ entry: NativeRequestLogEntry, status: Int, ms: Double) {
         var e = entry
         if status >= 0 { e.status = status }
@@ -220,6 +219,12 @@ final class NativeRequestLogStore: NativeRequestLogSink {
         return out
     }
 
+    /// fix/nc-mitm-live: labels for the [REWRITE] diagnostics line.
+    func ruleLabels(_ rules: [Int]) -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        return labelsLocked(nil, rules)
+    }
+
     /// Rule labels of the current snapshot (script name, else kind + pattern), cached per generation.
     private func labelsLocked(_ gen: Int64?, _ rules: [Int]?) -> [String] {
         guard let rules, !rules.isEmpty else { return [] }
@@ -238,12 +243,12 @@ final class NativeRequestLogStore: NativeRequestLogSink {
     }
 }
 
-/// In-memory log lines for the controller's history endpoints and live stream (no Go log ring in NativeCore).
+/// In-memory log lines for the controller's history endpoints and live stream (no the old core log ring in NativeCore).
 final class NativeLogRing {
     static let shared = NativeLogRing()
 
     struct Line { var seq: UInt64; var time: Int64; var type: String; var payload: String }
-    struct ScriptLine { var id: Int64; var time: Double; var script: String; var level: String; var msg: String }
+    struct ScriptLine { var id: Int64; var time: Double; var script: String; var level: String; var msg: String; var count: Int = 1 }
 
     let generalMax = 400
     let scriptMax = 300
@@ -252,9 +257,16 @@ final class NativeLogRing {
     private var scripts: [ScriptLine] = []
     private var seq: UInt64 = 0
     private var scriptSeq: Int64 = 0
+    /// fix/nc-e2e-real: GET /mitm/notifications (脚本通知 page answered 404 on the native core) — the last
+    /// `noticeMax` $notification.post / $notify calls, newest last.
+    struct Notice { var time: Double; var script: String; var title: String; var subtitle: String; var body: String; var url: String }
+    private var notices: [Notice] = []
+    private let noticeMax = 100
 
     /// Wires StartupLog into the ring (once, at tunnel start).
     static func install() {
+        // fix/nc-mitm-live: the per-flow diagnostics limiter writes here
+        NCDiagLimiter.shared.sink = { type, payload in NativeLogRing.shared.add(type: type, payload: payload) }
         StartupLog.tap = { tag, msg in
             let lvl = msg.contains("失败") || msg.lowercased().contains("error") ? "error"
                 : (msg.contains("跳过") || msg.lowercased().contains("warn") ? "warning" : "info")
@@ -276,7 +288,16 @@ final class NativeLogRing {
         let m = msg.count > 2000 ? String(msg.prefix(2000)) + "…" : msg
         lock.lock()
         scriptSeq += 1
-        scripts.append(ScriptLine(id: scriptSeq, time: Date().timeIntervalSince1970, script: script, level: level, msg: m))
+        if let last = scripts.last, last.script == script, last.level == level, last.msg == m {
+            // fix/nc-mitm-live: repeats fold into the last line (×N on the 脚本日志 page); the new id makes `since` pollers see it
+            var l = last
+            l.count += 1
+            l.id = scriptSeq
+            l.time = Date().timeIntervalSince1970
+            scripts[scripts.count - 1] = l
+        } else {
+            scripts.append(ScriptLine(id: scriptSeq, time: Date().timeIntervalSince1970, script: script, level: level, msg: m))
+        }
         if scripts.count > scriptMax { scripts.removeFirst(scripts.count - scriptMax) }
         lock.unlock()
         add(type: level == "warn" ? "warning" : (level == "log" ? "info" : level), payload: "[Script] \(script): \(m)")
@@ -292,7 +313,50 @@ final class NativeLogRing {
         return scripts.filter { $0.id > s }
     }
 
+    /// fix/nc-ctrl-bsd: writes the ring (≤ generalMax lines, oldest first) to `<home>/diag/core-log.txt`, plus the
+    /// memory snapshot to `diag/memory.txt` when given — what 诊断包 reads. Nothing wrote these files in the native core
+    /// (the old core's diag dump went away with it), so both sections were always empty. Returns the line count.
+    @discardableResult
+    func dumpDiagnostics(home: URL, memory: String? = nil) -> Int {
+        let dir = home.appendingPathComponent("diag", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        lock.lock()
+        let lines = general
+        lock.unlock()
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm:ss.SSS"
+        var text = ""
+        text.reserveCapacity(lines.count * 120)
+        for l in lines {
+            text += "\(f.string(from: Date(timeIntervalSince1970: Double(l.time) / 1000))) [\(l.type)] \(l.payload)\n"
+        }
+        try? Data(text.utf8).write(to: dir.appendingPathComponent("core-log.txt"), options: .atomic)
+        if let memory { try? Data(memory.utf8).write(to: dir.appendingPathComponent("memory.txt"), options: .atomic) }
+        return lines.count
+    }
+
     func clearGeneral() { lock.lock(); general.removeAll(); lock.unlock() }
     func clearScripts() { lock.lock(); scripts.removeAll(); lock.unlock() }
+
+    func addNotice(script: String, title: String, subtitle: String, body: String, url: String) {
+        func cap(_ v: String) -> String { v.count > 1000 ? String(v.prefix(1000)) + "…" : v }
+        lock.lock()
+        notices.append(Notice(time: Date().timeIntervalSince1970, script: script, title: cap(title), subtitle: cap(subtitle),
+                              body: cap(body), url: String(url.prefix(2000))))
+        if notices.count > noticeMax { notices.removeFirst(notices.count - noticeMax) }
+        lock.unlock()
+    }
+
+    /// Newest first, the App's ScriptNotice shape (subtitle / body / url omitted when empty).
+    func noticesJSON() -> [[String: Any]] {
+        lock.lock(); let list = notices; lock.unlock()
+        return list.reversed().map { n in
+            var o: [String: Any] = ["time": n.time, "script": n.script, "title": n.title]
+            if !n.subtitle.isEmpty { o["subtitle"] = n.subtitle }
+            if !n.body.isEmpty { o["body"] = n.body }
+            if !n.url.isEmpty { o["url"] = n.url }
+            return o
+        }
+    }
 }
-#endif

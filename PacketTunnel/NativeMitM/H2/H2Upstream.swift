@@ -1,7 +1,7 @@
 // Native MitM stage 3 lane s3-h2: the origin side of a native HTTP/2 session.
 //
 // The origin speaks h2 or HTTP/1.1 — whatever it negotiates via ALPN. HTTPS origins are opened offering
-// "h2, http/1.1" through the Go relay (UpstreamConnection, so mihomo's rules / proxies still pick the route);
+// "h2, http/1.1" through the old relay (UpstreamConnection, so Clash.Meta's rules / proxies still pick the route);
 // an h2 origin gets one multiplexed H2Connection (client role) per authority per session, shared by that
 // session's streams; an HTTP/1.1 origin gets one pooled connection per in-flight stream (UpstreamPool, exactly
 // like the stage-2 session). Plain-http forward URLs (a rewrite to http://) always use HTTP/1.1.
@@ -10,9 +10,6 @@
 // responseBody / onHead and never which protocol carried it.
 
 import Foundation
-#if !TERN_NO_GO
-import Libmihomo
-#endif
 
 /// An opened origin connection.
 final class H2UpstreamTransport {
@@ -36,7 +33,7 @@ protocol H2UpstreamOpening: AnyObject {
     func open(host: String, port: Int, tls: Bool, offerH2: Bool, completion: @escaping (Result<H2UpstreamTransport, Error>) -> Void)
 }
 
-/// Production: through the Go relay. h2 offers dial a dedicated UpstreamConnection; HTTP/1.1 goes through the
+/// Production: through the old relay. h2 offers dial a dedicated UpstreamConnection; HTTP/1.1 goes through the
 /// stage-2 pool (UpstreamPoolConnector); an h2 offer the origin answered with http/1.1 is handed back to the pool.
 final class H2RelayUpstreamOpener: H2UpstreamOpening {
     let pool: UpstreamPool
@@ -57,12 +54,12 @@ final class H2RelayUpstreamOpener: H2UpstreamOpening {
             }
             return
         }
-        #if TERN_NO_GO
-        // Gap C6 (astemo6/Muse NativeCore): the dedicated h2 dial below has no relay in the Go-free tunnel and went
+        // Gap C6 (astemo6/Muse NativeCore): the dedicated h2 dial below has no relay in the native-only tunnel and went
         // straight to the origin whatever the rules said. Only a DIRECT route keeps it; a proxied (or rejected)
         // origin goes through NCUpstreamConnector — rules, groups, the proxy, origin TLS over the relay — offering
         // "h2, http/1.1"; NCTLSClientStream reports the origin's ALPN, so an h2 origin gets the multiplexed h2
         // connection here too (feat/nc-proto2) and an h1 origin the per-stream HTTP/1.1 path.
+        #if TERN_TUNNEL // NativeCoreEngine / NCUpstreamConnector are tunnel-target only (the app builds this for tests)
         if let engine = NativeCoreEngine.active {
             let ctx = engine.matchContext(domain: NCIP(host) == nil ? host : nil, ip: NCIP(host), dstPort: port, network: "tcp")
             if case .direct = engine.resolve(ctx) {} else {
@@ -536,14 +533,10 @@ final class H2UpstreamManager: H2ConnectionOwner {
     }
 }
 
-/// The relay port for h2 upstreams: Go's CONNECT relay in the app-hosted tests; in the Go-free tunnel there is no relay
+/// The relay port for h2 upstreams: the old core's CONNECT relay in the app-hosted tests; in the native-only tunnel there is no relay
 /// (native h2 is not offered there — NativeH2Runtime.enabled stays false — so this is never dialled).
 enum H2UpstreamRelay {
     static func port(_ pool: UpstreamPool) -> Int {
-        #if TERN_NO_GO
         return pool.relayPort() > 0 ? pool.relayPort() : 0
-        #else
-        return Int(LibmihomoMitmRelayPort())
-        #endif
     }
 }

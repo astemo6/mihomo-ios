@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// Snell (Surge) protocol, versions 1–5 as mihomo implements them:
+/// Snell (Surge) protocol, versions 1–5 as Clash.Meta implements them:
 ///
 /// - KDF: Argon2id(psk, salt, time=3, mem=8 KiB, lanes=1, out=32), key
 ///   truncated to the cipher size. Salt is 16 bytes per stream direction.
@@ -34,7 +34,7 @@ enum NCSnell {
         out.append(0x01) // protocol version byte (always 1 on the wire)
         out.append(version == 2 ? 0x05 : 0x01)
         out.append(0x00) // clientID length
-        let hostBytes = Data(host.utf8)
+        let hostBytes = Data(host.utf8.prefix(255)) // u8 length; connectViaProxy already rejects longer targets
         out.append(UInt8(hostBytes.count))
         out.append(hostBytes)
         out.appendBE16(UInt16(clamping: port))
@@ -82,7 +82,8 @@ enum NCSnell {
                 out.append(contentsOf: bytes)
             }
         } else {
-            let host = Data(target.host.utf8)
+            // u8 length: UDP targets do not pass connectViaProxy's isWireEncodable check, so cap here (no trap).
+            let host = Data(target.host.utf8.prefix(255))
             out.append(UInt8(host.count))
             out.append(host)
         }

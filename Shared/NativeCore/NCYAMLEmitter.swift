@@ -1,8 +1,8 @@
 import Foundation
 
-/// A minimal YAML emitter for mihomo configurations and proxy nodes:
+/// A minimal YAML emitter for Clash.Meta configurations and proxy nodes:
 /// emits block mappings, sequences, and scalars (strings, numbers, booleans, null)
-/// compatible with both Go's yaml.v3 and NCYAML.
+/// compatible with both the old core's the reference YAML library and NCYAML.
 enum NCYAMLEmitter {
 
     /// Emit an arbitrary object (dictionary, array, primitive, or NCJSONValue) as a YAML string.
@@ -67,7 +67,7 @@ enum NCYAMLEmitter {
     }
 
     private static func emitNumber(_ d: Double, out: inout String) {
-        if d.isFinite && d == floor(d) && d >= Double(Int64.min) && d <= Double(Int64.max) {
+        if d.isFinite && d == floor(d) && d >= Double(Int64.min) && d < Double(Int64.max) {
             out.append(String(Int64(d)))
         } else {
             out.append(String(d))
@@ -87,13 +87,15 @@ enum NCYAMLEmitter {
 
         for (idx, key) in keys.enumerated() {
             guard let val = dict[key] else { continue }
-            if idx > 0 || (indent > 0 && !out.hasSuffix("\n") && !out.isEmpty) {
-                // If out doesn't end with newline, we may be on a "- " sequence prefix
-                if !out.hasSuffix("\n") && idx > 0 {
-                    out.append("\n")
-                    out.append(pad)
-                }
-            } else if indent > 0 && out.hasSuffix("\n") {
+            // fix/nc-e2e-real (E2E replay 40268229079: a QX import kept 1 of 9 proxies, 0 of 29 groups, 0 of 85
+            // rules): every key after the first of a NESTED mapping was written at column 0 (only the first got
+            // `pad`), e.g. a ws node's `ws-opts: {headers: {Host}, path}` emitted `path:` as a top-level key, which
+            // ended `proxies:` after the first node and everything below it (the NCYAML parser stops at the
+            // indented line that follows). Every key of a nested mapping starts on its own line at `pad`.
+            if idx > 0 && !out.hasSuffix("\n") && !out.isEmpty {
+                out.append("\n")
+            }
+            if (idx > 0 || indent > 0) && out.hasSuffix("\n") {
                 out.append(pad)
             }
 

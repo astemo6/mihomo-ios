@@ -3,9 +3,9 @@ import Foundation
 /// Canonical (source-neutral) config model for the native core.
 ///
 /// Design: docs/native-config-model.md. The user's direction is that the
-/// native core is NOT bounded by mihomo: the internal model takes the union
+/// native core is NOT bounded by Clash.Meta: the internal model takes the union
 /// of Quantumult X / Loon / Surge semantics, and every source format
-/// (mihomo YAML included) is just an importer into this model. Engines
+/// (Clash.Meta YAML included) is just an importer into this model. Engines
 /// consume only this model; adding a format means adding an importer.
 ///
 /// Nodes reuse `NCProxy` (type + parameter bag) and rules stay raw strings
@@ -54,7 +54,8 @@ struct NCDNSServerRef: Equatable {
                 let tail = rest[rest.index(after: close)...]
                 if tail.hasPrefix(":"), let p = Int(tail.dropFirst()) { port = p }
             }
-        } else if let colon = rest.lastIndex(of: ":"), let p = Int(rest[rest.index(after: colon)...]) {
+        } else if rest.filter({ $0 == ":" }).count == 1, // bare IPv6 (several colons) carries no port
+                  let colon = rest.lastIndex(of: ":"), let p = Int(rest[rest.index(after: colon)...]) {
             host = String(rest[..<colon])
             port = p
         }
@@ -78,8 +79,18 @@ struct NCHostEntry: Equatable {
     let value: String
     var kind: Kind {
         if value.lowercased().hasPrefix("server:") { return .dnsServer }
-        if NCIP(value) != nil { return .address }
+        if !addresses.isEmpty { return .address }
         return .alias
+    }
+    /// Static addresses of an address entry. `value` may list several,
+    /// comma-separated (Clash.Meta `hosts: {name: [ip4, ip6]}`), so a dual-stack
+    /// entry answers both A and AAAA.
+    var addresses: [NCIP] {
+        if let one = NCIP(value) { return [one] }
+        guard value.contains(",") else { return [] }
+        let list = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        let ips = list.compactMap { NCIP($0) }
+        return ips.count == list.count ? ips : []
     }
     var dnsServer: NCDNSServerRef? {
         guard kind == .dnsServer else { return nil }
@@ -88,7 +99,7 @@ struct NCHostEntry: Equatable {
 }
 
 /// A remote node subscription: QX [server_remote], Loon [Remote Proxy],
-/// mihomo proxy-providers, Surge external policy sources — one concept.
+/// Clash.Meta proxy-providers, Surge external policy sources — one concept.
 struct NCNodeSubscription: Equatable {
     let name: String
     let url: String
@@ -188,7 +199,7 @@ struct NCDNSModel: Equatable {
     }
 }
 
-/// MitM configuration parsed from canonical sources (Surge / Loon [Mitm], QX [mitm], mihomo mitm:).
+/// MitM configuration parsed from canonical sources (Surge / Loon [Mitm], QX [mitm], Clash.Meta mitm:).
 struct NCMitmConfig: Equatable {
     var enabled: Bool = false
     var hostnames: [String] = []
@@ -246,6 +257,19 @@ struct NCScriptRule: Equatable {
     var requiresBody: Bool = false
     var timeoutMs: Int64 = 10000
     var extra: [String: String] = [:]
+
+    var isLua: Bool {
+        extra["engine"]?.lowercased() == "lua" || (scriptPath?.lowercased().hasSuffix(".lua") ?? false) || type.lowercased() == "lua"
+    }
+
+    var isPendingS2: Bool {
+        extra["status"] == "pending_s2"
+    }
+}
+
+extension NCProxy {
+    var isLua: Bool { type.lowercased() == "lua" }
+    var isLuaPendingS2: Bool { fields["lua-status"]?.string == "pending_s2" }
 }
 
 /// Non-fatal import findings: unmapped parameters and unrecognized sections
@@ -256,7 +280,7 @@ struct NCImportReport: Equatable {
 }
 
 struct NCCanonicalConfig: Equatable {
-    var sourceFormat: String // "mihomo" | "surge" | "loon" | "quantumultx"
+    var sourceFormat: String // "clash" | "surge" | "loon" | "quantumultx"
     var mode: String = "rule"
     var logLevel: String = "info"
     var ipv6: Bool = false
@@ -310,15 +334,18 @@ struct NCCanonicalConfig: Equatable {
     }
 }
 
-// MARK: - mihomo importer (NCConfig → canonical)
+// MARK: - Clash.Meta importer (NCConfig → canonical)
 
 extension NCCanonicalConfig {
-    static func from(mihomo cfg: NCConfig) -> NCCanonicalConfig {
-        var out = NCCanonicalConfig(sourceFormat: "mihomo")
+    static func from(clash cfg: NCConfig) -> NCCanonicalConfig {
+        var out = NCCanonicalConfig(sourceFormat: "clash")
         out.mode = cfg.mode
         out.logLevel = cfg.logLevel
         out.ipv6 = cfg.ipv6
         out.nodes = cfg.proxies
+        for p in cfg.proxies where p.isLua {
+            out.report.warnings.append("node '\(p.name)': lua proxy backend recognized")
+        }
         out.rules = cfg.rules
         out.groups = cfg.groups.map { g in
             let kind: NCGroupKind
@@ -369,18 +396,31 @@ extension NCCanonicalConfig {
         if let hosts = cfg.raw["hosts"]?.object {
             out.hosts = hosts.keys.sorted().map { key in
                 let v = hosts[key]
-                let value = v?.string ?? v?.array?.compactMap { $0.string }.first ?? ""
+                // Every address is kept (dual-stack entries list v4 and v6).
+                let value = v?.string ?? (v?.array?.compactMap { $0.string }.joined(separator: ",") ?? "")
                 return NCHostEntry(pattern: key, value: value)
             }
         }
 
         // proxy-providers → node subscriptions
         if let providers = cfg.raw["proxy-providers"]?.object {
+            // fix/nc-ruleset-convert: `type: file` providers (the App's 节点订阅 → ./nodesubs/<id>.yaml) have a
+            // path and no url; they used to be dropped here, so every group fed only by them was empty in the
+            // tunnel. http providers keep their url (a old-core loopback /nodes/convert URL is unwrapped at fetch
+            // time) and their path (the App downloads them there too). The provider's own filter /
+            // exclude-filter apply to its nodes (Clash.Meta semantics); exclude-type / override in the store.
             out.subscriptions = providers.keys.sorted().compactMap { name in
-                guard let o = providers[name]?.object, let url = o["url"]?.string else { return nil }
+                guard let o = providers[name]?.object else { return nil }
+                let vehicle = o["type"]?.string?.lowercased() ?? ""
+                let url = o["url"]?.string ?? ""
+                let path = o["path"]?.string ?? ""
+                if url.isEmpty && path.isEmpty && vehicle != "inline" { return nil }
+                let inc = o["filter"]?.string, exc = o["exclude-filter"]?.string
                 return NCNodeSubscription(
                     name: name, url: url,
                     interval: o["interval"]?.int ?? 86400,
+                    includeRegex: (inc?.isEmpty ?? true) ? nil : inc,
+                    excludeRegex: (exc?.isEmpty ?? true) ? nil : exc,
                     fields: o)
             }
         }

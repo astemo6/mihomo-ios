@@ -3,7 +3,7 @@
 // A body moves from a source to a sink, one chunk at a time, pulled only when the sink took the previous one —
 // so every hop applies back-pressure: client DATA is granted window only after it moved on (H2InboundBody →
 // H2Connection.consumed), an h2 sink waits for .writable when the peer's window is closed, an HTTP/1.1 upstream
-// waits for its socket, Go's flow pipes answer "full". Nothing here buffers more than one chunk per hop beyond
+// waits for its socket, the old core's flow pipes answer "full". Nothing here buffers more than one chunk per hop beyond
 // what the h2 windows already bound.
 //
 // All callbacks run on the session queue and are always asynchronous (no recursion through pump()).
@@ -78,8 +78,6 @@ final class H2InboundBody: H2BodySource {
     }
 
     var isEnded: Bool { ended || failure != nil }
-    var bufferedBytes: Int { buffered }
-    var endTrailers: HTTPHeaderList? { trailers }
 
     func push(_ d: Data) {
         guard !ended, failure == nil else { onConsumed(d.count); return }
@@ -165,7 +163,7 @@ final class H2PrependSource: H2BodySource {
     func abandon() { first = nil; rest?.abandon() }
 }
 
-/// A body held by Go in NativeBodyStore (flow decision body "lane"). The handle belongs to Go (freed at FlowEnd).
+/// A body held by the old core in NativeBodyStore (flow decision body "lane"). The handle belongs to the old core (freed at FlowEnd).
 final class H2LaneSource: H2BodySource {
     private let queue: DispatchQueue
     private let bodies: NativeBodyReading
@@ -229,18 +227,5 @@ final class H2StreamSink: H2BodySink {
     func kill() {
         dead = true
         if let cb = waiting { waiting = nil; conn.queue.async { cb(false) } }
-    }
-}
-
-/// Collects a body in memory (tests, small diagnostics).
-final class H2CollectSink: H2BodySink {
-    private let queue: DispatchQueue
-    private(set) var data = Data()
-    private(set) var trailers: HTTPHeaderList?
-    private(set) var finished = false
-    init(queue: DispatchQueue) { self.queue = queue }
-    func write(_ d: Data, _ cb: @escaping (Bool) -> Void) { data.append(d); queue.async { cb(true) } }
-    func finish(trailers: HTTPHeaderList?, _ cb: @escaping (Bool) -> Void) {
-        self.trailers = trailers; finished = true; queue.async { cb(true) }
     }
 }

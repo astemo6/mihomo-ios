@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import Network
 
-// feat/nc-wg (based on astemo6/Muse NativeCore): WireGuard outbound for the Go-free tunnel.
+// feat/nc-wg (based on astemo6/Muse NativeCore): WireGuard outbound for the native-only tunnel.
 //
 // docs/nc-proto-wireguard-tuic-udp.md §2, option (a): each WireGuard node is an extra lwIP netif (lwip/nc_wg.c)
 // in the same lwIP instance as the TUN. NativeCore opens TCP / UDP client PCBs bound to that netif; the netif's
@@ -11,7 +11,8 @@ import Network
 //
 // Covered: several peers (allowed-ips, longest prefix), pre-shared keys, `reserved` (WARP), mtu,
 // persistent-keepalive, cookie replies (mac2), rekey / expiry / retry timers, replay window, AmneziaWG 1.0
-// (jc / jmin / jmax junk, s1 / s2 padding, h1–h4 headers), remote-dns-resolve over the tunnel.
+// (jc / jmin / jmax junk, s1 / s2 padding, h1–h4 headers) and 2.0 (h1–h4 header ranges, s3 / s4 padding;
+// i1–i5 signature packets are not implemented), remote-dns-resolve over the tunnel.
 //
 // Threading: everything here (and every nc_wg_* call) runs on NCLwIP.queue, the queue the TUN data plane also
 // uses — lwIP is single-threaded. Callers on other queues get their completions on their own queue.
@@ -19,6 +20,90 @@ import Network
 /// The one queue lwIP runs on (TUN data plane + WireGuard devices).
 enum NCLwIP {
     static let queue = DispatchQueue(label: "nc.dataplane", qos: .userInitiated)
+}
+
+/// fix/nc-openconnect-dp: one extra lwIP netif (nc_wg.c) whatever carries its IP packets — WireGuard peers
+/// (NCWGDevice) or an OpenConnect CSTP channel (NCOCDevice, NCOpenConnectNetif.swift). NCWGTCPStream and
+/// NCUDPWireGuardSession only need this much, so both protocols share them (and the C bridge). NCLwIP.queue only.
+protocol NCLwIPDevice: AnyObject {
+    var devID: Int32 { get }
+    var alive: Bool { get }
+    var has4: Bool { get }
+    var has6: Bool { get }
+    var lastUse: Date { get set }
+    func retain()
+    func release()
+    /// Name -> addresses for flows from this netif; `done` on NCLwIP.queue.
+    func resolve(_ host: String, _ done: @escaping ([NCIP]) -> Void)
+    /// An IP packet lwIP emits on this netif (valid only during the call).
+    func lwipOutput(_ pkt: UnsafeBufferPointer<UInt8>)
+    /// Error-message prefix for flows on this netif ("wireguard", "openconnect"). fix/nc-oc-dtls.
+    var label: String { get }
+}
+
+extension NCLwIPDevice {
+    var label: String { "wireguard" }
+
+    /// The address family to dial for this device: v4 when the interface has one.
+    func pick(_ ips: [NCIP]) -> NCIP? {
+        if has4, let v4 = ips.first(where: { $0.isV4 }) { return v4 }
+        if has6, let v6 = ips.first(where: { !$0.isV4 }) { return v6 }
+        return nil
+    }
+
+    /// A/AAAA over UDP through this netif (plain / udp:// server IPs; others are skipped). NCLwIP.queue.
+    func dnsOverTunnel(_ host: String, servers: [String], _ done: @escaping ([NCIP]) -> Void) {
+        let ips: [NCIP] = servers.compactMap { s in
+            var t = s.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("udp://") { t = String(t.dropFirst(6)) }
+            if t.contains("://") { return nil }
+            if let ip = NCIP(t) { return ip }
+            if t.hasPrefix("["), let close = t.firstIndex(of: "]") { return NCIP(String(t[t.index(after: t.startIndex)..<close])) }
+            if let colon = t.lastIndex(of: ":"), t.filter({ $0 == ":" }).count == 1 { return NCIP(String(t[..<colon])) }
+            return nil
+        }.filter { $0.isV4 ? has4 : has6 }
+        let qtype: UInt16 = has4 ? 1 : 28
+        retain()
+        func attempt(_ i: Int) {
+            guard alive, i < ips.count else { release(); done([]); return }
+            let server = ips[i]
+            let sock = nc_wg_udp_open(devID, server.isV4 ? 0 : 1)
+            guard sock != 0 else { attempt(i + 1); return }
+            let qid = UInt16.random(in: 0...UInt16.max)
+            var q: [UInt8] = [UInt8(qid >> 8), UInt8(qid & 0xff), 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]
+            for label in host.split(separator: ".") {
+                let b = Array(label.utf8).prefix(63)
+                q.append(UInt8(b.count))
+                q += b
+            }
+            q += [0, UInt8(qtype >> 8), UInt8(qtype & 0xff), 0, 1]
+            var finished = false
+            let finishOnce: ([NCIP]?) -> Void = { [weak self] result in
+                guard !finished else { return }
+                finished = true
+                NCWGStack.shared.udp.removeValue(forKey: sock)
+                nc_wg_udp_close(sock)
+                if let result, !result.isEmpty {
+                    self?.release()
+                    done(result)
+                } else {
+                    attempt(i + 1)
+                }
+            }
+            NCWGStack.shared.udp[sock] = { _, _, data in
+                guard let r = NCWGDevice.parseDNS(data, id: qid, qtype: qtype) else { return }
+                finishOnce(r)
+            }
+            let b = server.bytes + [UInt8](repeating: 0, count: 16 - server.bytes.count)
+            _ = b.withUnsafeBufferPointer { bp in
+                q.withUnsafeBufferPointer { qp in
+                    nc_wg_udp_send(sock, bp.baseAddress, server.isV4 ? 0 : 1, 53, qp.baseAddress, UInt32(qp.count))
+                }
+            }
+            NCLwIP.queue.asyncAfter(deadline: .now() + 2.5) { finishOnce(nil) }
+        }
+        attempt(0)
+    }
 }
 
 // MARK: - Config
@@ -34,9 +119,18 @@ struct NCWGConfig {
     }
 
     struct Amnezia {
+        /// AmneziaWG magic header (h1–h4): a single value, or — AWG 2.0 — an inclusive range the
+        /// sender picks a fresh value from for every packet; the receiver accepts any value in range.
+        struct Header {
+            let lo: UInt32, hi: UInt32
+            func pick() -> UInt32 { lo == hi ? lo : UInt32.random(in: lo...hi) }
+            func contains(_ v: UInt32) -> Bool { v >= lo && v <= hi }
+            func isSingle(_ v: UInt32) -> Bool { lo == hi && lo == v }
+        }
         let jc: Int, jmin: Int, jmax: Int
-        let s1: Int, s2: Int
-        let h1: UInt32, h2: UInt32, h3: UInt32, h4: UInt32
+        /// Random-prefix lengths: s1 initiation, s2 response, s3 cookie reply, s4 transport (AWG 2.0).
+        let s1: Int, s2: Int, s3: Int, s4: Int
+        let h1: Header, h2: Header, h3: Header, h4: Header
     }
 
     let privateKey: [UInt8]
@@ -73,13 +167,6 @@ struct NCWGConfig {
         }
         guard out.count == 3 else { return nil }
         return out.allSatisfy({ $0 == 0 }) ? nil : out
-    }
-
-    static func uint32(_ v: NCJSONValue?) -> UInt32? {
-        guard let v else { return nil }
-        if let n = v.number, n >= 0, n <= Double(UInt32.max) { return UInt32(n) }
-        if let s = v.string, let n = UInt32(s.trimmingCharacters(in: .whitespaces)) { return n }
-        return nil
     }
 
     static func cidrs(_ v: NCJSONValue?) -> [NCCIDR] {
@@ -121,22 +208,34 @@ struct NCWGConfig {
         }
         var awg: Amnezia?
         if let o = f["amnezia-wg-option"]?.object {
-            for k in ["h1", "h2", "h3", "h4"] {
-                if let s = o[k]?.string, s.contains("-") { return (nil, "AmneziaWG 2.0 头部范围 \(k) 尚未接入") }
-            }
-            if (o["s3"]?.int ?? 0) != 0 || (o["s4"]?.int ?? 0) != 0 { return (nil, "AmneziaWG 2.0 s3 / s4 尚未接入") }
             let jc = max(0, min(o["jc"]?.int ?? 0, 128))
             let jmin = max(0, min(o["jmin"]?.int ?? 0, 1280))
             let jmax = max(jmin, min(o["jmax"]?.int ?? 0, 1280))
             let s1 = max(0, min(o["s1"]?.int ?? 0, 1132))
             let s2 = max(0, min(o["s2"]?.int ?? 0, 1188))
-            func h(_ k: String, _ d: UInt32) -> UInt32 {
-                let v = uint32(o[k]) ?? 0
-                return v == 0 ? d : v
+            let s3 = max(0, min(o["s3"]?.int ?? 0, 1216))
+            let s4 = max(0, min(o["s4"]?.int ?? 0, 32))
+            // h1–h4: a number / numeric string is a single value; "lo-hi" is an AWG 2.0 range.
+            // 0 (or an unparseable value) keeps the standard WireGuard header, as before.
+            func h(_ k: String, _ d: UInt32) -> Amnezia.Header {
+                let single = Amnezia.Header(lo: d, hi: d)
+                guard let v = o[k] else { return single }
+                if let n = v.number, n > 0, n <= Double(UInt32.max) {
+                    let x = UInt32(n); return Amnezia.Header(lo: x, hi: x)
+                }
+                guard let s = v.string?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return single }
+                if let x = UInt32(s) { return x == 0 ? single : Amnezia.Header(lo: x, hi: x) }
+                let parts = s.split(separator: "-", omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                if parts.count == 2, let lo = UInt32(parts[0]), let hi = UInt32(parts[1]), lo > 0, lo <= hi {
+                    return Amnezia.Header(lo: lo, hi: hi)
+                }
+                return single
             }
-            let a = Amnezia(jc: jc, jmin: jmin, jmax: jmax, s1: s1, s2: s2,
+            let a = Amnezia(jc: jc, jmin: jmin, jmax: jmax, s1: s1, s2: s2, s3: s3, s4: s4,
                             h1: h("h1", 1), h2: h("h2", 2), h3: h("h3", 3), h4: h("h4", 4))
-            let standard = a.jc == 0 && a.s1 == 0 && a.s2 == 0 && a.h1 == 1 && a.h2 == 2 && a.h3 == 3 && a.h4 == 4
+            let standard = a.jc == 0 && a.s1 == 0 && a.s2 == 0 && a.s3 == 0 && a.s4 == 0
+                && a.h1.isSingle(1) && a.h2.isSingle(2) && a.h3.isSingle(3) && a.h4.isSingle(4)
             awg = standard ? nil : a
         }
         let mtu = f["mtu"]?.int ?? 1408
@@ -193,10 +292,12 @@ final class NCWGStack {
     private var installed = false
     private var devices: [String: NCWGDevice] = [:]
     fileprivate var byDev: [Int32: NCWGDevice] = [:]
+    /// fix/nc-openconnect-dp: non-WireGuard netifs (OpenConnect) by device id.
+    fileprivate var others: [Int32: NCLwIPDevice] = [:]
     fileprivate var tcp: [UInt32: NCWGTCPStream] = [:]
-    fileprivate var udp: [UInt32: (NCIP, Int, [UInt8]) -> Void] = [:]
+    var udp: [UInt32: (NCIP, Int, [UInt8]) -> Void] = [:]
 
-    private func install() {
+    func install() {
         guard !installed else { return }
         var cbs = nc_wg_callbacks()
         cbs.output = ncwgOnOutput
@@ -207,6 +308,18 @@ final class NCWGStack {
         cbs.udp_recv = ncwgOnUDP
         nc_wg_set_callbacks(&cbs, nil)
         installed = true
+    }
+
+    /// nc-lifecycle: tear down every device (tunnel stop / plane teardown).
+    /// Caller holds NCLwIP.queue, like device(for:). Each device's timers,
+    /// peer connections and lwIP-side registration live until teardown()
+    /// runs; the udp handler map is dropped with them.
+    func teardownAll() {
+        dispatchPrecondition(condition: .onQueue(NCLwIP.queue))
+        let all = Array(devices.values)
+        devices.removeAll()
+        udp.removeAll()
+        for d in all { d.teardown() }
     }
 
     /// The shared device for a node (created on first use). NCLwIP.queue.
@@ -231,12 +344,36 @@ final class NCWGStack {
         if devices[d.key] === d { devices.removeValue(forKey: d.key) }
         byDev.removeValue(forKey: d.devID)
     }
+
+    func registerDevice(_ d: NCWGDevice) {
+        install()
+        byDev[d.devID] = d
+    }
+
+    func unregisterDevice(_ d: NCWGDevice) {
+        byDev.removeValue(forKey: d.devID)
+    }
+
+    /// fix/nc-openconnect-dp: an OpenConnect netif (its packets go to lwipOutput). NCLwIP.queue.
+    func registerOther(_ d: NCLwIPDevice) {
+        install()
+        others[d.devID] = d
+    }
+
+    func unregisterOther(_ d: NCLwIPDevice) {
+        if others[d.devID] === d { others.removeValue(forKey: d.devID) }
+    }
 }
 
 @_cdecl("ncwgOnOutput")
 func ncwgOnOutput(_ ctx: UnsafeMutableRawPointer?, _ dev: Int32, _ pkt: UnsafePointer<UInt8>?, _ len: UInt32) {
-    guard let pkt, let d = NCWGStack.shared.byDev[dev] else { return }
-    d.output([UInt8](UnsafeBufferPointer(start: pkt, count: Int(len))))
+    guard let pkt else { return }
+    if let d = NCWGStack.shared.byDev[dev] {
+        d.output([UInt8](UnsafeBufferPointer(start: pkt, count: Int(len))))
+    } else if let o = NCWGStack.shared.others[dev] {
+        // fix/nc-openconnect-dp: framed straight from lwIP's buffer (no intermediate copy).
+        o.lwipOutput(UnsafeBufferPointer(start: pkt, count: Int(len)))
+    }
 }
 
 @_cdecl("ncwgOnConnected")
@@ -252,7 +389,7 @@ func ncwgOnRecv(_ ctx: UnsafeMutableRawPointer?, _ conn: UInt32, _ data: UnsafeP
 
 @_cdecl("ncwgOnSent")
 func ncwgOnSent(_ ctx: UnsafeMutableRawPointer?, _ conn: UInt32, _ len: UInt32) {
-    NCWGStack.shared.tcp[conn]?.flush()
+    NCWGStack.shared.tcp[conn]?.lwipSent(Int(len))
 }
 
 @_cdecl("ncwgOnErr")
@@ -273,7 +410,7 @@ func ncwgOnUDP(_ ctx: UnsafeMutableRawPointer?, _ sock: UInt32, _ src: UnsafePoi
 // MARK: - Device
 
 /// One WireGuard interface (node): lwIP netif + peers + timers. NCLwIP.queue only.
-final class NCWGDevice {
+final class NCWGDevice: NCLwIPDevice {
     let key: String
     let name: String
     let cfg: NCWGConfig
@@ -285,7 +422,7 @@ final class NCWGDevice {
     private var timer: DispatchSourceTimer?
     private(set) var alive = true
     private var users = 0
-    fileprivate var lastUse = Date()
+    var lastUse = Date()
     private var dnsCache: [String: ([NCIP], Date)] = [:]
 
     var has4: Bool { cfg.ip4 != nil }
@@ -349,11 +486,65 @@ final class NCWGDevice {
         peer.sendPacket(pkt)
     }
 
+    /// Optional extra inbound filter, consulted after the cryptokey source
+    /// check in `input(_:from:)`. The Tailscale client installs it to enforce
+    /// the control-delivered PacketFilter ACLs; returning false drops the
+    /// packet. Nil means no extra filtering (plain WireGuard behavior).
+    var inboundPacketHook: (([UInt8]) -> Bool)?
+
     /// A decrypted packet from `peer`: accepted only when its source is in the peer's allowed-ips.
     fileprivate func input(_ pkt: [UInt8], from peer: NCWGPeer) {
         guard alive, let src = NCWGDevice.address(pkt, source: true),
               routes.first(where: { $0.0.contains(src) })?.1 === peer else { return }
+        if let hook = inboundPacketHook, !hook(pkt) { return }
         pkt.withUnsafeBufferPointer { nc_wg_input(devID, $0.baseAddress, UInt32($0.count)) }
+    }
+
+    /// Finds peer whose AllowedIPs contains destination IP.
+    func peer(for ip: NCIP) -> NCWGPeer? {
+        routes.first(where: { $0.0.contains(ip) })?.1
+    }
+
+    /// Feeds incoming raw WireGuard packet (e.g. from DERP) into the peer matching public key.
+    func handleIncomingPacket(from peerPublicKey: [UInt8], data: [UInt8]) {
+        guard alive else { return }
+        guard let peer = peers.first(where: { $0.cfg.publicKey == peerPublicKey }) else { return }
+        peer.handleIncomingPacket(data)
+    }
+
+    /// Count of peers that currently have an active WireGuard session.
+    var activeRelayCount: Int {
+        peers.filter { $0.hasSession }.count
+    }
+
+    /// Dynamically update peers (for Tailscale netmap updates). Runs on NCLwIP.queue.
+    func updatePeers(_ newPeers: [NCWGConfig.Peer], customSender: ((NCWGPeer, [UInt8]) -> Void)? = nil) {
+        dispatchPrecondition(condition: .onQueue(NCLwIP.queue))
+        guard alive else { return }
+        let newKeys = Set(newPeers.map { $0.publicKey })
+        for p in peers where !newKeys.contains(p.cfg.publicKey) {
+            p.close()
+        }
+        var updated: [NCWGPeer] = []
+        for pcfg in newPeers {
+            if let existing = peers.first(where: { $0.cfg.publicKey == pcfg.publicKey }) {
+                updated.append(existing)
+            } else {
+                let p = NCWGPeer(device: self, cfg: pcfg)
+                if let customSender {
+                    p.customSender = { [weak p] bytes in
+                        guard let p else { return }
+                        customSender(p, bytes)
+                    }
+                }
+                updated.append(p)
+            }
+        }
+        self.peers = updated
+        var newRoutes: [(NCCIDR, NCWGPeer)] = []
+        for p in peers { for c in p.cfg.allowed { newRoutes.append((c, p)) } }
+        newRoutes.sort { $0.0.bits > $1.0.bits }
+        self.routes = newRoutes
     }
 
     static func address(_ p: [UInt8], source: Bool) -> NCIP? {
@@ -394,12 +585,8 @@ final class NCWGDevice {
         StartupLog.write("wireguard: \(name) idle, interface removed")
     }
 
-    /// The address family to dial for this device: v4 when the interface has one.
-    func pick(_ ips: [NCIP]) -> NCIP? {
-        if has4, let v4 = ips.first(where: { $0.isV4 }) { return v4 }
-        if has6, let v6 = ips.first(where: { !$0.isV4 }) { return v6 }
-        return nil
-    }
+    /// NCLwIPDevice: WireGuard routes by cryptokey (output(_:) copies once for the peer's encryption).
+    func lwipOutput(_ pkt: UnsafeBufferPointer<UInt8>) { output([UInt8](pkt)) }
 
     // MARK: Name resolution
 
@@ -437,7 +624,7 @@ final class NCWGDevice {
         }
     }
 
-    private static func systemResolve(_ host: String) -> [NCIP] {
+    static func systemResolve(_ host: String) -> [NCIP] {
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = SOCK_STREAM
@@ -462,60 +649,6 @@ final class NCWGDevice {
             p = ai.pointee.ai_next
         }
         return out
-    }
-
-    /// A/AAAA over UDP through this WireGuard interface (plain / udp:// server IPs; others are skipped).
-    private func dnsOverTunnel(_ host: String, servers: [String], _ done: @escaping ([NCIP]) -> Void) {
-        let ips: [NCIP] = servers.compactMap { s in
-            var t = s.trimmingCharacters(in: .whitespaces)
-            if t.hasPrefix("udp://") { t = String(t.dropFirst(6)) }
-            if t.contains("://") { return nil }
-            if let ip = NCIP(t) { return ip }
-            if t.hasPrefix("["), let close = t.firstIndex(of: "]") { return NCIP(String(t[t.index(after: t.startIndex)..<close])) }
-            if let colon = t.lastIndex(of: ":"), t.filter({ $0 == ":" }).count == 1 { return NCIP(String(t[..<colon])) }
-            return nil
-        }.filter { $0.isV4 ? has4 : has6 }
-        let qtype: UInt16 = has4 ? 1 : 28
-        retain()
-        func attempt(_ i: Int) {
-            guard alive, i < ips.count else { release(); done([]); return }
-            let server = ips[i]
-            let sock = nc_wg_udp_open(devID, server.isV4 ? 0 : 1)
-            guard sock != 0 else { attempt(i + 1); return }
-            let qid = UInt16.random(in: 0...UInt16.max)
-            var q: [UInt8] = [UInt8(qid >> 8), UInt8(qid & 0xff), 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]
-            for label in host.split(separator: ".") {
-                let b = Array(label.utf8).prefix(63)
-                q.append(UInt8(b.count))
-                q += b
-            }
-            q += [0, UInt8(qtype >> 8), UInt8(qtype & 0xff), 0, 1]
-            var finished = false
-            let finishOnce: ([NCIP]?) -> Void = { [weak self] result in
-                guard !finished else { return }
-                finished = true
-                NCWGStack.shared.udp.removeValue(forKey: sock)
-                nc_wg_udp_close(sock)
-                if let result, !result.isEmpty {
-                    self?.release()
-                    done(result)
-                } else {
-                    attempt(i + 1)
-                }
-            }
-            NCWGStack.shared.udp[sock] = { _, _, data in
-                guard let r = NCWGDevice.parseDNS(data, id: qid, qtype: qtype) else { return }
-                finishOnce(r)
-            }
-            let b = server.bytes + [UInt8](repeating: 0, count: 16 - server.bytes.count)
-            _ = b.withUnsafeBufferPointer { bp in
-                q.withUnsafeBufferPointer { qp in
-                    nc_wg_udp_send(sock, bp.baseAddress, server.isV4 ? 0 : 1, 53, qp.baseAddress, UInt32(qp.count))
-                }
-            }
-            NCLwIP.queue.asyncAfter(deadline: .now() + 2.5) { finishOnce(nil) }
-        }
-        attempt(0)
     }
 
     static func parseDNS(_ d: [UInt8], id: UInt16, qtype: UInt16) -> [NCIP]? {
@@ -611,6 +744,15 @@ final class NCWGPeer {
     private var lastSentData = Date.distantPast
     private var lastRecvAny = Date.distantPast
     private var lastRecvData = Date.distantPast
+    var customSender: (([UInt8]) -> Void)?
+
+    var hasSession: Bool {
+        usable(current) != nil
+    }
+
+    func handleIncomingPacket(_ d0: [UInt8]) {
+        received(d0)
+    }
 
     init(device: NCWGDevice, cfg: NCWGConfig.Peer) {
         self.device = device
@@ -664,16 +806,17 @@ final class NCWGPeer {
         k.sendCounter += 1
         guard let sealed = NCWGCrypto.seal(key: k.send, counter: counter, plain, aad: []) else { return }
         var msg = [UInt8](repeating: 0, count: 16)
-        if let a = amnezia { putLE32(&msg, 0, a.h4) } else { msg[0] = 4 }
+        if let a = amnezia { putLE32(&msg, 0, a.h4.pick()) } else { msg[0] = 4 }
         putLE32(&msg, 4, k.remoteIndex)
         putLE64(&msg, 8, counter)
         msg += sealed
         applyReserved(&msg)
+        if let a = amnezia, a.s4 > 0 { msg = randomBytes(a.s4) + msg } // AWG 2.0 transport prefix
         sendRaw(msg)
         lastSentAny = Date()
     }
 
-    /// WARP-style `reserved`: bytes 1–3 of every message we send (after the MACs, as mihomo / sing-box do).
+    /// WARP-style `reserved`: bytes 1–3 of every message we send (after the MACs, as Clash.Meta / sing-box do).
     private func applyReserved(_ msg: inout [UInt8]) {
         guard amnezia == nil, let r = cfg.reserved, msg.count >= 4 else { return }
         msg[1] = r[0]; msg[2] = r[1]; msg[3] = r[2]
@@ -707,7 +850,7 @@ final class NCWGPeer {
         var local = UInt32.random(in: 1...UInt32.max)
         while local == current?.localIndex || local == previous?.localIndex { local = UInt32.random(in: 1...UInt32.max) }
         var msg = [UInt8](repeating: 0, count: 148)
-        if let a = amnezia { putLE32(&msg, 0, a.h1) } else { msg[0] = 1 }
+        if let a = amnezia { putLE32(&msg, 0, a.h1.pick()) } else { msg[0] = 1 }
         putLE32(&msg, 4, local)
         msg.replaceSubrange(8..<40, with: ephPub)
         msg.replaceSubrange(40..<88, with: encStatic)
@@ -736,12 +879,14 @@ final class NCWGPeer {
     private func received(_ d0: [UInt8]) {
         var d = d0
         if let a = amnezia {
-            if d.count == 92 + a.s2, le32(d, a.s2) == a.h2 {
+            // AWG 2.0: the header value only has to fall inside the configured range, and the
+            // cookie / transport messages carry their own s3 / s4 random prefixes.
+            if d.count == 92 + a.s2, a.h2.contains(le32(d, a.s2)) {
                 handleResponse(Array(d[a.s2...]))
-            } else if d.count == 64, le32(d, 0) == a.h3 {
-                handleCookie(d)
-            } else if d.count >= 32, le32(d, 0) == a.h4 {
-                handleTransport(d)
+            } else if d.count == 64 + a.s3, a.h3.contains(le32(d, a.s3)) {
+                handleCookie(Array(d[a.s3...]))
+            } else if d.count >= 32 + a.s4, a.h4.contains(le32(d, a.s4)) {
+                handleTransport(Array(d[a.s4...]))
             }
             return
         }
@@ -861,6 +1006,10 @@ final class NCWGPeer {
     // MARK: UDP to the endpoint
 
     private func sendRaw(_ bytes: [UInt8]) {
+        if let customSender {
+            customSender(bytes)
+            return
+        }
         if conn == nil { openConnection() }
         conn?.send(content: Data(bytes), completion: .idempotent)
     }
@@ -908,7 +1057,7 @@ final class NCWGPeer {
 /// on NCLwIP.queue; completions go to `callerQueue`. Receive-side backpressure: the lwIP window is reopened only
 /// for bytes handed to a receive handler.
 final class NCWGTCPStream: NCRelayStream {
-    private let device: NCWGDevice
+    private let device: NCLwIPDevice
     private let callerQueue: DispatchQueue
     private var connID: UInt32 = 0
     private var connected = false
@@ -918,21 +1067,29 @@ final class NCWGTCPStream: NCRelayStream {
     private var failure: Error?
     private var inbox = Data()
     private var outbox = Data()
+    /// nc-sessions-flow (approximation): send completions by cumulative offset. WireGuard gives no
+    /// per-send completion signal, so a completion fires once its bytes were written into the lwIP
+    /// send buffer AND the in-flight (written, not yet tcp_sent-acked) total is below 64 KB; above
+    /// that it waits for acks to drain. Fired on callerQueue like this stream's other completions.
+    private var sendWaiters: [(end: Int, once: NCCallOnce)] = []
+    private var appendedTotal = 0
+    private var writtenTotal = 0
+    private var ackedTotal = 0
     private var handler: ((Data?, Error?) -> Void)?
     private var onConnect: ((Error?) -> Void)?
 
-    init(device: NCWGDevice, callerQueue: DispatchQueue) {
+    init(device: NCLwIPDevice, callerQueue: DispatchQueue) {
         self.device = device
         self.callerQueue = callerQueue
     }
 
     /// NCLwIP.queue. The device was retained by the caller; this stream releases it once.
-    fileprivate func start(ip: NCIP, port: Int, completion: @escaping (Error?) -> Void) {
+    func start(ip: NCIP, port: Int, completion: @escaping (Error?) -> Void) {
         onConnect = completion
         let b = ip.bytes
         connID = b.withUnsafeBufferPointer { nc_wg_tcp_connect(device.devID, $0.baseAddress, ip.isV4 ? 0 : 1, UInt16(clamping: port)) }
         guard connID != 0 else {
-            finishConnect(NCConnector.Failure.handshake("wireguard: no lwIP PCB for \(ip.string):\(port)"))
+            finishConnect(NCConnector.Failure.handshake("\(device.label): no lwIP PCB for \(ip.string):\(port)"))
             releaseDevice()
             return
         }
@@ -943,7 +1100,7 @@ final class NCWGTCPStream: NCRelayStream {
             nc_wg_tcp_abort(self.connID)
             self.connID = 0
             self.closed = true
-            self.finishConnect(NCConnector.Failure.handshake("wireguard: connect timeout (no handshake / no answer)"))
+            self.finishConnect(NCConnector.Failure.handshake("\(self.device.label): connect timeout (no handshake / no answer)"))
             self.releaseDevice()
         }
     }
@@ -987,7 +1144,8 @@ final class NCWGTCPStream: NCRelayStream {
 
     fileprivate func lwipError(_ err: Int32) {
         connID = 0
-        let e = NCConnector.Failure.handshake("wireguard: connection reset (lwIP \(err))")
+        drainSendWaiters()
+        let e = NCConnector.Failure.handshake("\(device.label): connection reset (lwIP \(err))")
         if !connected {
             closed = true
             finishConnect(e)
@@ -1003,14 +1161,24 @@ final class NCWGTCPStream: NCRelayStream {
 
     fileprivate func flush() {
         guard connected, connID != 0, !outbox.isEmpty else { return }
-        while !outbox.isEmpty {
+        let before = outbox.count
+        defer {
+            writtenTotal += before - outbox.count
+            checkSendWaiters()
+        }
+        // nc-perf: write from a running offset instead of copying the remainder per partial
+        // write (a Data(dropFirst) per tcp_write is O(n^2) for a large outbox); compact once.
+        var off = 0
+        while off < outbox.count {
             let n = outbox.withUnsafeBytes { raw -> Int32 in
-                nc_wg_tcp_write(connID, raw.bindMemory(to: UInt8.self).baseAddress, UInt32(raw.count))
+                nc_wg_tcp_write(connID, raw.bindMemory(to: UInt8.self).baseAddress?.advanced(by: off), UInt32(raw.count - off))
             }
             if n < 0 { outbox.removeAll(); return }
-            if n == 0 { return } // send buffer full: the next tcp_sent continues
-            outbox = outbox.count == Int(n) ? Data() : Data(outbox.dropFirst(Int(n)))
+            if n == 0 { break } // send buffer full: the next tcp_sent continues
+            off += Int(n)
         }
+        if off == outbox.count { outbox = Data() }
+        else if off > 0 { outbox = Data(outbox.dropFirst(off)) }
     }
 
     private func deliver(_ h: @escaping (Data?, Error?) -> Void) {
@@ -1028,12 +1196,51 @@ final class NCWGTCPStream: NCRelayStream {
         }
     }
 
+    /// NCLwIP.queue: the peer acked `len` more bytes (the C tcp_sent callback).
+    fileprivate func lwipSent(_ len: Int) {
+        ackedTotal += len
+        flush()
+        checkSendWaiters()
+    }
+
+    /// NCLwIP.queue.
+    private func checkSendWaiters() {
+        let inflight = writtenTotal - ackedTotal
+        let due = sendWaiters.filter { $0.end <= writtenTotal && (inflight < 65536 || $0.end <= ackedTotal) }
+        guard !due.isEmpty else { return }
+        sendWaiters.removeAll { w in due.contains { $0.end == w.end && $0.once === w.once } }
+        callerQueue.async { due.forEach { $0.once.call() } }
+    }
+
+    /// NCLwIP.queue: fire every pending send completion (teardown: the bytes will never be acked,
+    /// but no sender may be left waiting).
+    private func drainSendWaiters() {
+        let all = sendWaiters
+        sendWaiters = []
+        if !all.isEmpty { callerQueue.async { all.forEach { $0.once.call() } } }
+    }
+
     // NCRelayStream
 
     func send(_ data: Data) {
         NCLwIP.queue.async { [self] in
             guard !closed, !data.isEmpty else { return }
             device.lastUse = Date()
+            outbox.append(data)
+            flush()
+        }
+    }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        NCLwIP.queue.async { [self] in
+            guard !closed, !data.isEmpty else {
+                callerQueue.async { once.call() }
+                return
+            }
+            device.lastUse = Date()
+            appendedTotal += data.count
+            sendWaiters.append((appendedTotal, once))
             outbox.append(data)
             flush()
         }
@@ -1047,6 +1254,7 @@ final class NCWGTCPStream: NCRelayStream {
         NCLwIP.queue.async { [self] in
             guard !closed else { return }
             closed = true
+            drainSendWaiters()
             if connID != 0 {
                 NCWGStack.shared.tcp.removeValue(forKey: connID)
                 nc_wg_tcp_close(connID)
@@ -1058,7 +1266,7 @@ final class NCWGTCPStream: NCRelayStream {
                 handler = nil
                 callerQueue.async { h(nil, nil) }
             }
-            finishConnect(NCConnector.Failure.handshake("wireguard: cancelled"))
+            finishConnect(NCConnector.Failure.handshake("\(device.label): cancelled"))
             releaseDevice()
         }
     }
@@ -1070,18 +1278,31 @@ final class NCWGTCPStream: NCRelayStream {
 final class NCUDPWireGuardSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let queue: DispatchQueue
-    private var device: NCWGDevice?
+    private var device: NCLwIPDevice?
     private var sock4: UInt32 = 0
     private var sock6: UInt32 = 0
     private var cancelled = false
 
-    init(proxy: NCProxy, queue: DispatchQueue) {
+    /// `acquire` (NCLwIP.queue) yields the node's netif device: WireGuard by default; fix/nc-openconnect-dp passes
+    /// NCOCStack's for OpenConnect, whose device may still be connecting (its resolve waits for the tunnel).
+    init(proxy: NCProxy, queue: DispatchQueue,
+         acquire: ((NCProxy) -> (NCLwIPDevice?, String?))? = nil) {
         self.queue = queue
         NCLwIP.queue.async { [self] in
             guard !cancelled else { return }
-            let (d, why) = NCWGStack.shared.device(for: proxy)
+            let d: NCLwIPDevice?
+            let why: String?
+            if let acquire {
+                let r = acquire(proxy)
+                d = r.0
+                why = r.1
+            } else {
+                let r = NCWGStack.shared.device(for: proxy)
+                d = r.0
+                why = r.1
+            }
             if let d { d.retain(); device = d }
-            else { StartupLog.write("wireguard: \(proxy.name) UDP unavailable: \(why ?? "-")") }
+            else { StartupLog.write("\(proxy.type): \(proxy.name) UDP unavailable: \(why ?? "-")") }
         }
     }
 
@@ -1138,6 +1359,20 @@ final class NCUDPWireGuardSession: NCUDPSession {
 // MARK: - Connector entry
 
 extension NCConnector {
+    /// Hooks wireguardStream into the shared connector (NCConnector lives in Shared/, compiled into the App too).
+    static func installWireGuardDialer() {
+        wireguardDialer = { proxy, target, queue, completion in
+            wireguardStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        }
+    }
+
+    /// Hooks tailscaleStream into the shared connector.
+    static func installTailscaleDialer() {
+        tailscaleDialer = { proxy, target, queue, completion in
+            NCTailscaleClient.dial(proxy: proxy, target: target, queue: queue, completion: completion)
+        }
+    }
+
     /// TCP through a WireGuard node (feat/nc-wg). Completion on `queue`, exactly once.
     static func wireguardStream(proxy: NCProxy, target: NCTarget, queue: DispatchQueue,
                                 completion: @escaping (NCRelayStream?, Error?) -> Void) {

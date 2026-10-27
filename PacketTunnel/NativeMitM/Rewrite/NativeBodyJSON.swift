@@ -1,20 +1,18 @@
-// Native MitM stage 3b — JSON exactly as the Go body rules see and write it.
+// Native MitM body rules — the JSON model the body rewrites (Loon json ops, jq step lists, NativeJQ) read and write.
 //
-// Go (bridge/mitm/handler.go applyBodyRule) decodes a body with encoding/json + UseNumber (r6limits.go
-// decodeJSONNumber: one value, only whitespace after it), edits the value tree (Loon json ops: jsonEdit; jq: gojq
-// setpath / delpaths), and encodes it with encodeJSON (json.Encoder, SetEscapeHTML(false), no trailing newline).
-// This file reproduces that byte for byte:
+// A body is decoded with numbers kept as their literal text (one value, only whitespace after it), edited as a value
+// tree (Loon json ops: jsonEdit; jq step lists: setpath / delpaths) and encoded without HTML escaping and without a
+// trailing newline. The rules of this encoder:
 //
-//   - strings and object keys are kept as raw UTF-8 bytes (Swift String equality / ordering is Unicode-canonical,
-//     Go's is bytewise: "é" and "e\u{301}" are two keys in Go);
-//   - numbers keep their literal text (json.Number is written back verbatim);
-//   - objects are written with keys sorted bytewise (Go sorts map keys), duplicates resolved last-wins;
-//   - strings are escaped like encoding/json's appendString without HTML escaping (\b \f \n \r \t, \u00XX for the
-//     other control bytes, \" \\, \u2028 / \u2029).
+//   - strings and object keys are kept as raw UTF-8 bytes (Swift String equality / ordering is Unicode-canonical;
+//     here comparison is bytewise: "é" and "e\u{301}" are two different keys);
+//   - numbers keep their literal text (written back verbatim, no re-formatting);
+//   - objects are written with keys sorted bytewise, duplicates resolved last-wins;
+//   - strings are escaped without HTML escaping (\b \f \n \r \t, \u00XX for the other control bytes, \" \\,
+//     \u2028 / \u2029).
 //
-// Anything where Go would do something Swift does not reproduce returns nil from the parser (the caller hands the
-// request back to Go): syntax errors, invalid UTF-8 or lone surrogate escapes (Go silently substitutes U+FFFD),
-// nesting deeper than 512 (Go allows 10000).
+// Input the model does not accept makes the parser return nil and the rule is skipped (noted in the request log):
+// syntax errors, invalid UTF-8 or lone surrogate escapes, nesting deeper than 512.
 
 import Foundation
 
@@ -25,9 +23,9 @@ indirect enum BodyJSON: Equatable {
     case string([UInt8])            // UTF-8 bytes (decoded escapes)
     case array([BodyJSON])
     case object([[UInt8]: BodyJSON])
-    case deleted                    // gojq's delpaths marker (never encoded)
+    case deleted                    // delpaths marker (never encoded)
 
-    // MARK: parse (encoding/json + UseNumber, then "only whitespace after the value")
+    // MARK: parse (numbers kept as their literal text, then "only whitespace after the value")
 
     static func parse(_ data: Data) -> BodyJSON? {
         let bytes = [UInt8](data)
@@ -207,7 +205,7 @@ indirect enum BodyJSON: Equatable {
             return nil
         }
 
-        /// Length of the valid UTF-8 sequence at b[i] (nil: invalid, Go's utf8.DecodeRune would give RuneError/1).
+        /// Length of the valid UTF-8 sequence at b[i] (nil: invalid, a decoder would substitute U+FFFD).
         static func utf8Len(_ b: [UInt8], _ i: Int) -> Int? {
             let c = b[i]
             func cont(_ k: Int, _ lo: UInt8 = 0x80, _ hi: UInt8 = 0xBF) -> Bool { i + k < b.count && b[i + k] >= lo && b[i + k] <= hi }
@@ -224,7 +222,7 @@ indirect enum BodyJSON: Equatable {
         }
     }
 
-    /// Valid UTF-8 the way Go's utf8.Valid sees it.
+    /// Valid UTF-8 (RFC 3629: no overlongs, no surrogates, ≤ U+10FFFF).
     static func validUTF8(_ b: [UInt8]) -> Bool {
         var i = 0
         while i < b.count {
@@ -235,7 +233,7 @@ indirect enum BodyJSON: Equatable {
         return true
     }
 
-    // MARK: encode (encodeJSON: json.Encoder, SetEscapeHTML(false), trailing newline trimmed)
+    // MARK: encode (encodeJSON: no HTML escaping, trailing newline trimmed)
 
     /// nil when the tree still holds a delete marker (never happens after a completed delpaths).
     func encoded() -> Data? {
@@ -268,7 +266,7 @@ indirect enum BodyJSON: Equatable {
                 continue
             }
             guard let n = Parser.utf8Len(s, i) else {
-                out.append(contentsOf: Array("\\ufffd".utf8)) // unreachable for parsed input; Go's rule
+                out.append(contentsOf: Array("\\ufffd".utf8)) // unreachable for parsed input
                 i += 1
                 continue
             }
@@ -284,7 +282,7 @@ indirect enum BodyJSON: Equatable {
         out.append(UInt8(ascii: "\""))
     }
 
-    /// Go's map key order: bytewise (strings.Compare).
+    /// Object key order: bytewise.
     static func keyLess(_ a: [UInt8], _ b: [UInt8]) -> Bool { a.lexicographicallyPrecedes(b) }
 
     private func encode(into out: inout [UInt8]) -> Bool {
@@ -315,7 +313,7 @@ indirect enum BodyJSON: Equatable {
     }
 }
 
-/// One path component (string key or array index) as Go exported it.
+/// One path component (string key or array index) as the snapshot carries it.
 enum BodyJSONKey: Decodable, Equatable {
     case key([UInt8])
     case index(Int)
@@ -327,10 +325,10 @@ enum BodyJSONKey: Decodable, Equatable {
     }
 }
 
-// MARK: - Loon json ops (handler.go jsonEdit)
+// MARK: - Loon json ops (handler jsonEdit)
 
 enum BodyJSONEdit {
-    /// jsonEdit(v, p, op, val), Go semantics.
+    /// jsonEdit(v, p, op, val): Loon json-op semantics.
     static func edit(_ v: BodyJSON, _ p: ArraySlice<BodyJSONKey>, _ op: String, _ val: BodyJSON) -> BodyJSON {
         guard let first = p.first else {
             return (op == "replace" || op == "add") ? val : v
@@ -365,13 +363,13 @@ enum BodyJSONEdit {
     }
 }
 
-// MARK: - jq subset (gojq setpath / delpaths)
+// MARK: - legacy jq step lists (snapshots without `jqx`; full jq filters run in NativeJQ.swift)
 
 enum BodyJQ {
     struct Failure: Error {}
     static let maxIndex = 0x20000000
 
-    /// gojq update(v, path, n): n == .deleted marks for delpaths. Throws where gojq errors.
+    /// update(v, path, n): n == .deleted marks for delpaths. Throws where jq errors.
     static func update(_ v: BodyJSON, _ path: ArraySlice<BodyJSONKey>, _ n: BodyJSON) throws -> BodyJSON {
         guard let first = path.first else { return n }
         let deleting = n == .deleted
@@ -449,7 +447,7 @@ enum BodyJQ {
         return deleteEmpty(u)
     }
 
-    // MARK: P |= map(select(C)) (gojq _modify with getpath, map = [.[] | f], select = if f then . else empty end)
+    // MARK: P |= map(select(C)) (_modify with getpath, map = [.[] | f], select = if f then . else empty end)
 
     indirect enum Cond {
         case or(Cond, Cond), and(Cond, Cond), not(Cond)
@@ -522,7 +520,7 @@ enum BodyJQ {
     }
 
     static func filter(_ v: BodyJSON, _ path: [BodyJSONKey], _ c: Cond) throws -> BodyJSON {
-        guard case .array(let a) = try get(v, path) else { throw Failure() } // map over an object / null / scalar: Go
+        guard case .array(let a) = try get(v, path) else { throw Failure() } // map over an object / null / scalar: a jq error
         let kept = try a.filter { try eval(c, $0) }
         return try setpath(v, path, .array(kept))
     }

@@ -444,9 +444,16 @@ ip4_input_accept(struct netif *netif)
      that is what makes a stock lwIP terminate arbitrary destinations. */
   {
     extern int nc_lwip_dest_ours(const ip4_addr_t *dest);
-    if ((netif_is_up(netif)) && nc_lwip_dest_ours(ip4_current_dest_addr())) {
+    /* feat/nc-wg: only the TUN netif ("tn"); WireGuard netifs ("wg") accept their own address only. */
+    if ((netif_is_up(netif)) && netif->name[0] == 't' && netif->name[1] == 'n' &&
+        nc_lwip_dest_ours(ip4_current_dest_addr())) {
       return 1;
     }
+  }
+  /* fix/nc-tcp0: drop-reason counter (nc_get_stats) — a TUN packet nobody terminates. */
+  {
+    extern void nc_lwip_count_not_ours(int is6);
+    if (netif->name[0] == 't' && netif->name[1] == 'n') nc_lwip_count_not_ours(0);
   }
   return 0;
 }

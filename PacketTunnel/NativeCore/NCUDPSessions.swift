@@ -205,93 +205,20 @@ final class NCUDPSocks5Session: NCUDPSession {
     }
 }
 
-/// One-shot upstream DNS forwarding over UDP, with TCP retry on truncation.
-/// Used for queries the fake-IP responder declines (filter hosts, non-A types).
-final class NCDNSForwarder {
-    private let queue: DispatchQueue
-
-    init(queue: DispatchQueue) {
-        self.queue = queue
-    }
-
-    func forward(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) {
-        let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
-        let conn = NWConnection(host: NWEndpoint.Host(server), port: nwPort, using: NCOutboundBinding.params(.udp, host: server))
-        var done = false
-        func finish(_ data: Data?) {
-            guard !done else { return }
-            done = true
-            conn.cancel()
-            completion(data)
-        }
-        conn.stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                conn.send(content: query, completion: .contentProcessed { _ in
-                    conn.receiveMessage { data, _, _, _ in
-                        guard let data else {
-                            finish(nil)
-                            return
-                        }
-                        // Truncated bit (TC) set: retry over TCP like resolvers do.
-                        if data.count > 2, data[2] & 0x02 != 0 {
-                            Self.forwardTCP(query, server: server, port: port, queue: self.queue) { finish($0 ?? data) }
-                        } else {
-                            finish(data)
-                        }
-                    }
-                })
-            case .failed:
-                finish(nil)
-            default:
-                break
-            }
-        }
-        conn.start(queue: queue)
-        queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
-    }
-
-    static func forwardTCP(_ query: Data, server: String, port: Int = 53, queue: DispatchQueue, completion: @escaping (Data?) -> Void) {
-        let conn = NWConnection(host: NWEndpoint.Host(server), port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any, using: NCOutboundBinding.params(.tcp, host: server))
-        var done = false
-        func finish(_ data: Data?) {
-            guard !done else { return }
-            done = true
-            conn.cancel()
-            completion(data)
-        }
-        conn.stateUpdateHandler = { state in
-            if case .ready = state {
-                var framed = Data()
-                framed.appendBE16(UInt16(query.count))
-                framed.append(query)
-                conn.send(content: framed, completion: .contentProcessed { _ in
-                    conn.receive(minimumIncompleteLength: 2, maximumLength: 2) { lenData, _, _, _ in
-                        guard let lenData, lenData.count == 2 else { finish(nil); return }
-                        let len = Int(lenData[0]) << 8 | Int(lenData[1])
-                        conn.receive(minimumIncompleteLength: len, maximumLength: len) { data, _, _, _ in
-                            finish(data)
-                        }
-                    }
-                })
-            } else if case .failed = state {
-                finish(nil)
-            }
-        }
-        conn.start(queue: queue)
-        queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
-    }
-}
-
 /// Shadowsocks UDP: every datagram is an independent SIP022 AEAD packet
-/// (fresh salt, target header inside), so the stream encoder/decoder are
-/// re-created per packet.
+/// (fresh salt, single zero-nonce seal, target header inside) — see
+/// NCShadowsocks.udpPacketEncode / udpPacketDecode. The TCP stream codec
+/// does NOT apply here: its length-chunk framing fails AEAD verification
+/// at the server and is dropped silently (fix/nc-ss-udp).
 final class NCUDPSSSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let conn: NWConnection
-    private let cipher: String
-    private let password: String
+    /// Classic AEAD: cipher spec + EVP_BytesToKey master key, computed once
+    /// per session (the per-datagram work is only the HKDF subkey + seal).
+    private let aead: (spec: NCShadowsocks.CipherSpec, master: Data)?
     private var cancelled = false
+    /// First undecodable reply per session is logged; the rest stay silent.
+    private var dropLogged = false
     /// Set for 2022-blake3-* ciphers: per-session packet crypto (one UDP
     /// session per app flow, matching the session model of the spec).
     private let ss2022: NCSS2022UDPCrypto?
@@ -301,13 +228,14 @@ final class NCUDPSSSession: NCUDPSession {
               let server = proxy.server, let port = proxy.port,
               NCShadowsocks.spec(for: cipherName) != nil || NCSS2022.isMethod2022(cipherName)
         else { return nil }
-        self.cipher = cipherName
-        self.password = pw
         if NCSS2022.isMethod2022(cipherName) {
             guard let crypto = NCSS2022UDPCrypto(method: cipherName, password: pw) else { return nil }
             ss2022 = crypto
+            aead = nil
         } else {
+            guard let spec = NCShadowsocks.spec(for: cipherName) else { return nil }
             ss2022 = nil
+            aead = (spec, NCShadowsocks.masterKey(password: pw, keyLen: spec.keyLen))
         }
         conn = NWConnection(host: NWEndpoint.Host(server),
                             port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
@@ -324,9 +252,12 @@ final class NCUDPSSSession: NCUDPSession {
             if let data {
                 if let ss2022 {
                     if let decoded = ss2022.decodePacket(data) { self.onReply(decoded.1) }
-                } else if let dec = NCSSDecoder(cipher: cipher, password: password),
-                          let plain = dec.feed(data), let payload = Self.stripTargetHeader(plain) {
+                } else if let aead, let plain = NCShadowsocks.udpPacketDecode(spec: aead.spec, master: aead.master, packet: data),
+                          let payload = Self.stripTargetHeader(plain) {
                     self.onReply(payload)
+                } else if !self.dropLogged {
+                    self.dropLogged = true
+                    NSLog("[NCUDPSSSession] dropped undecodable SS UDP reply (%d bytes); further drops silent", data.count)
                 }
             }
             if error == nil { self.receiveLoop() }
@@ -357,10 +288,10 @@ final class NCUDPSSSession: NCUDPSession {
             conn.send(content: packet, completion: .idempotent)
             return
         }
-        guard let enc = NCSSEncoder(cipher: cipher, password: password) else { return }
         var plain = target.atypEncoded
         plain.append(data)
-        guard plain.count <= 0x3fff, let packet = enc.encode(plain) else { return }
+        guard let aead, let packet = NCShadowsocks.udpPacketEncode(spec: aead.spec, master: aead.master, plain: plain)
+        else { return }
         conn.send(content: packet, completion: .idempotent)
     }
 
@@ -377,6 +308,15 @@ final class NCUDPMuxSession: NCUDPSession {
     private var stream: NCMuxStream?
     private var pending: [(Data, NCTarget)] = []
     private var buffer = Data()
+    // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
+    // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
     private var requestWritten = false
     private var cancelled = false
 
@@ -384,7 +324,7 @@ final class NCUDPMuxSession: NCUDPSession {
         guard let server = proxy.server, let port = proxy.port else { return }
         NCConnector.muxSession(proxy: proxy, server: server, port: port, queue: queue) { [weak self] session, _ in
             guard let self, !self.cancelled, let session else { return }
-            let stream = session.openStream(target: NCMux.destination, rawMode: true)
+            let stream = session.openStream(target: NCMux.destination, callerQueue: queue, rawMode: true)
             self.stream = stream
             let queued = self.pending
             self.pending = []
@@ -399,22 +339,30 @@ final class NCUDPMuxSession: NCUDPSession {
             guard let data else { return }
             self.buffer.append(data)
             self.drain()
+            // nc-memory: an unparseable first frame never drains this buffer; a legal
+            // frame is <= 64 KB, so past 128 KB of residue the session is dead weight.
+            if self.buffered > 128 * 1024 { self.cancel(); return }
             self.receiveLoop()
         }
     }
 
     private func drain() {
         // The stream status byte is consumed inside NCMuxStream; what
-        // arrives here is pure packet frames.
-        while let (_, payload, consumed) = NCMux.parseUDPPacketFrame(buffer) {
-            buffer = Data(buffer.dropFirst(consumed))
+        // arrives here is pure packet frames. parseUDPPacketFrame reads
+        // startIndex-relative, so it takes the un-consumed slice as-is.
+        defer { compactBuffer() }
+        while let (_, payload, consumed) = NCMux.parseUDPPacketFrame(buffer[bufferOffset...]) {
+            bufferOffset += consumed
             onReply(payload)
         }
     }
 
     func send(_ data: Data, to target: NCTarget) {
         if stream == nil {
-            pending.append((data, target))
+            // nc-memory: pre-connect queue cap, same shape as the Hy2 (64) / Mieru (32) UDP
+            // sessions — packets arriving while the session dials are dropped past the cap
+            // instead of accumulating for the whole handshake.
+            if pending.count < 64 { pending.append((data, target)) }
             return
         }
         sendNow(data, to: target)
@@ -445,6 +393,15 @@ final class NCUDPAnyTLSSession: NCUDPSession {
     private var stream: NCAnyTLSStream?
     private var pending: [(Data, NCTarget)] = []
     private var buffer = Data()
+    // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
+    // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
     private var requestWritten = false
     private var cancelled = false
     private let flowTarget: NCTarget
@@ -454,7 +411,7 @@ final class NCUDPAnyTLSSession: NCUDPSession {
         guard let server = proxy.server, let port = proxy.port else { return }
         NCConnector.anytlsSession(proxy: proxy, server: server, port: port, queue: queue) { [weak self] session, _ in
             guard let self, !self.cancelled, let session else { return }
-            self.stream = session.openStream(target: NCUoT.magicTarget)
+            self.stream = session.openStream(target: NCUoT.magicTarget, callerQueue: queue)
             let queued = self.pending
             self.pending = []
             for (data, t) in queued { self.sendNow(data, to: t) }
@@ -467,17 +424,57 @@ final class NCUDPAnyTLSSession: NCUDPSession {
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             self.buffer.append(data)
-            while let (_, payload, consumed) = NCUoT.parsePacket(self.buffer) {
-                self.buffer = Data(self.buffer.dropFirst(consumed))
+            while let (_, payload, consumed) = Self.parseUoTPacket(self.buffer, at: self.bufferOffset) {
+                self.bufferOffset += consumed
                 self.onReply(payload)
             }
+            self.compactBuffer()
+            // nc-memory: an unparseable first frame never drains this buffer; a legal
+            // frame is <= 64 KB, so past 128 KB of residue the session is dead weight.
+            if self.buffered > 128 * 1024 { self.cancel(); return }
             self.receiveLoop()
         }
     }
 
+    /// NCUoT.parsePacket's wire layout ([family][addr][port][len][payload]) read at an offset
+    /// into the session's rebased buffer — parsePacket itself indexes from 0, so it cannot take
+    /// the un-consumed slice; the two must be kept in sync (nc-perf).
+    private static func parseUoTPacket(_ data: Data, at off: Int) -> (NCTarget, Data, Int)? {
+        guard data.count - off >= 1 else { return nil }
+        let family = data[off]
+        var pos = off + 1
+        let host: String
+        switch family {
+        case 0x00:
+            guard data.count - pos >= 4 else { return nil }
+            host = (0..<4).map { String(data[pos + $0]) }.joined(separator: ".")
+            pos += 4
+        case 0x01:
+            guard data.count - pos >= 16 else { return nil }
+            host = NCIP.v6([UInt8](data[pos..<(pos + 16)])).string
+            pos += 16
+        case 0x02:
+            guard data.count - pos >= 1 else { return nil }
+            let len = Int(data[pos])
+            pos += 1
+            guard data.count - pos >= len else { return nil }
+            host = String(decoding: data[pos..<(pos + len)], as: UTF8.self)
+            pos += len
+        default:
+            return nil
+        }
+        guard data.count - pos >= 4 else { return nil }
+        let port = Int(data[pos]) << 8 | Int(data[pos + 1])
+        let len = Int(data[pos + 2]) << 8 | Int(data[pos + 3])
+        pos += 4
+        guard data.count - pos >= len else { return nil }
+        return (NCTarget(host: host, port: port), Data(data[pos..<(pos + len)]), pos + len - off)
+    }
+
     func send(_ data: Data, to target: NCTarget) {
         if stream == nil {
-            pending.append((data, target))
+            // nc-memory: pre-connect queue cap (see NCUDPMuxSession.send).
+            if pending.count < 64 { pending.append((data, target)) }
             return
         }
         sendNow(data, to: target)
@@ -504,12 +501,18 @@ final class NCUDPAnyTLSSession: NCUDPSession {
 final class NCUDPSnellSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let raw: NCStream
+    /// fix/nc-silent-fail: what the Snell frames ride — `raw`, or `raw` inside the obfs-opts simple-obfs
+    /// wrapper (Clash.Meta applies obfs to the UDP connection too: ListenPacketContext → StreamConnContext).
+    private let wire: NCRelayStream
     private let version: Int
     private let encoder: NCSnellStreamEncoder?
     private let decoder: NCSnellStreamDecoder?
     private let v4Writer: NCSnellV4Writer?
     private let v4Reader: NCSnellV4Reader?
     private var cancelled = false
+    /// fix/nc-silent-fail: set when the dial fails — the session is dead and send() drops instead of
+    /// encoding into a never-connected stream until the idle reap (NCUDPTrojanSession marks dead alike).
+    private var dead = false
 
     init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let password = proxy.password, let server = proxy.server, let port = proxy.port
@@ -530,19 +533,25 @@ final class NCUDPSnellSession: NCUDPSession {
             decoder = NCSnellStreamDecoder(psk: psk, version: version)
         }
         raw = NCStream(to: server, port: port, queue: queue)
+        if let obfs = NCConnector.snellObfsOptions(proxy) {
+            wire = NCSSPluginStream(raw: raw, options: obfs, serverPort: String(port))
+        } else {
+            wire = raw
+        }
         raw.start { [weak self] err in
-            guard let self, err == nil else { return }
+            guard let self else { return }
+            guard err == nil else { self.dead = true; return }
             if let v4Writer {
-                if let wire = v4Writer.write(NCSnell.udpHeader()) { self.raw.send(wire) }
+                if let w = v4Writer.write(NCSnell.udpHeader()) { self.wire.send(w) }
             } else if let encoder {
-                if let wire = encoder.encode(NCSnell.udpHeader()) { self.raw.send(wire) }
+                if let w = encoder.encode(NCSnell.udpHeader()) { self.wire.send(w) }
             }
             self.receiveLoop()
         }
     }
 
     private func receiveLoop() {
-        raw.receive { [weak self] data, error in
+        wire.receive { [weak self] data, error in
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             if let v4Reader {
@@ -566,17 +575,18 @@ final class NCUDPSnellSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
+        guard !dead, !cancelled else { return }
         let frame = NCSnell.udpFrame(target: target, payload: data)
         if let v4Writer {
-            if let wire = v4Writer.frame(frame) { raw.send(wire) }
+            if let w = v4Writer.frame(frame) { wire.send(w) }
         } else if let encoder {
-            if let wire = encoder.encode(frame) { raw.send(wire) }
+            if let w = encoder.encode(frame) { wire.send(w) }
         }
     }
 
     func cancel() {
         cancelled = true
-        raw.cancel()
+        wire.cancel()
     }
 }
 
@@ -584,35 +594,72 @@ final class NCUDPSnellSession: NCUDPSession {
 /// framed as ATYP + length + CRLF + payload.
 final class NCUDPTrojanSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
-    private let raw: NCStream
+    /// fix/nc-silent-fail: the stream once dialed — TLS, or TLS / REALITY + the ws / grpc / h2 transport
+    /// (NCConnector.trojanTransportBase, as TCP uses). Datagrams sent before then wait in `pending` (capped), so
+    /// none can overtake the request head.
+    private var stream: NCRelayStream?
+    private var pending: [Data] = []
+    private var dead = false
+    static let maxPending = 64
     private var buffer = Data()
+    // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
+    // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
     private var cancelled = false
 
     init(proxy: NCProxy, firstTarget: NCTarget, queue: DispatchQueue) {
-        raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
-                       tlsServerName: proxy.fields["sni"]?.string ?? proxy.server ?? "",
-                       allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                       queue: queue)
-        raw.start { [weak self] err in
-            guard let self, err == nil, let password = proxy.password else { return }
-            self.raw.send(NCTrojan.requestHead(password: password, target: firstTarget, udp: true))
+        let server = proxy.server ?? ""
+        let port = proxy.port ?? 0
+        let ready: (NCRelayStream?, Error?) -> Void = { [weak self] s, err in
+            guard let self else { s?.cancel(); return }
+            guard let s, err == nil, !self.cancelled, let password = proxy.password else {
+                s?.cancel()
+                self.dead = true
+                self.pending = []
+                return
+            }
+            self.stream = s
+            s.send(NCTrojan.requestHead(password: password, target: firstTarget, udp: true))
+            let queued = self.pending
+            self.pending = []
+            for d in queued { s.send(d) }
             self.receiveLoop()
+        }
+        if NCConnector.trojanUsesTransport(proxy) || NCConnector.realityParams(proxy) != nil {
+            NCConnector.trojanTransportBase(proxy: proxy, server: server, port: port, queue: queue, completion: ready)
+        } else {
+            let raw = NCStream(to: server, port: port,
+                               tlsServerName: proxy.fields["sni"]?.string ?? server,
+                               allowInsecure: proxy.skipCertVerify,
+                               queue: queue)
+            raw.start { err in ready(err == nil ? raw : nil, err) }
         }
     }
 
     private func receiveLoop() {
-        raw.receive { [weak self] data, error in
+        guard let stream else { return }
+        stream.receive { [weak self] data, error in
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             self.buffer.append(data)
             self.parseFrames()
+            // nc-memory: an unparseable first frame never drains this buffer; a legal
+            // frame is <= 64 KB, so past 128 KB of residue the session is dead weight.
+            if self.buffered > 128 * 1024 { self.cancel(); return }
             if error == nil { self.receiveLoop() }
         }
     }
 
     private func parseFrames() {
-        while let (payload, consumed) = Self.parseFrame(buffer) {
-            buffer = Data(buffer.dropFirst(consumed))
+        defer { compactBuffer() }
+        while let (payload, consumed) = Self.parseFrame(buffer, at: bufferOffset) {
+            bufferOffset += consumed
             onReply(payload)
         }
     }
@@ -621,219 +668,42 @@ final class NCUDPTrojanSession: NCUDPSession {
     /// (or a malformed frame, which also just waits — the stream is trusted
     /// past the TLS layer in practice; a bad frame resyncs never, matching
     /// other clients' simple parsers).
-    static func parseFrame(_ data: Data) -> (payload: Data, consumed: Int)? {
-        guard let first = data.first else { return nil }
+    /// `at` is the frame's offset into the (rebased) `data` — nc-perf: the drain loop advances
+    /// an offset instead of copying the remainder per frame. Indices are offset-relative to it.
+    static func parseFrame(_ data: Data, at off: Int = 0) -> (payload: Data, consumed: Int)? {
+        let count = data.count - off
+        guard count >= 1 else { return nil }
         var headerLen: Int
-        switch first {
+        switch data[off] {
         case 0x01: headerLen = 1 + 4 + 2
         case 0x04: headerLen = 1 + 16 + 2
         case 0x03:
-            guard data.count >= 2 else { return nil }
-            headerLen = 1 + 1 + Int(data[1]) + 2
+            guard count >= 2 else { return nil }
+            headerLen = 1 + 1 + Int(data[off + 1]) + 2
         default: return nil
         }
-        guard data.count >= headerLen + 2 + 2 else { return nil }
-        let len = Int(data[headerLen]) << 8 | Int(data[headerLen + 1])
-        guard data[headerLen + 2] == 0x0d, data[headerLen + 3] == 0x0a else { return nil }
+        guard count >= headerLen + 2 + 2 else { return nil }
+        let len = Int(data[off + headerLen]) << 8 | Int(data[off + headerLen + 1])
+        guard data[off + headerLen + 2] == 0x0d, data[off + headerLen + 3] == 0x0a else { return nil }
         let total = headerLen + 2 + 2 + len
-        guard data.count >= total else { return nil }
-        return (Data(data[(headerLen + 4)..<total]), total)
+        guard count >= total else { return nil }
+        return (Data(data[(off + headerLen + 4)..<(off + total)]), total)
     }
 
     func send(_ data: Data, to target: NCTarget) {
-        raw.send(NCTrojan.udpPacket(target: target, payload: data))
+        let packet = NCTrojan.udpPacket(target: target, payload: data)
+        if let stream { stream.send(packet); return }
+        if !dead, !cancelled, pending.count < Self.maxPending { pending.append(packet) }
     }
 
     func cancel() {
         cancelled = true
-        raw.cancel()
+        pending = []
+        stream?.cancel()
     }
 }
 
-// NCDNSUpstream moved to Shared/NativeCore/NCDNSUpstream.swift (pure logic; the app unit tests use it).
 
-extension NCDNSForwarder {
-    /// Forward via any upstream kind.
-    func forward(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
-        switch upstream {
-        case .udp(let host, let port):
-            forward(query, server: host, port: port, completion: completion)
-        case .tcp(let host, let port):
-            Self.forwardTCP(query, server: host, port: port, queue: queue, completion: completion)
-        case .dot(let host, let port):
-            Self.forwardDoT(query, host: host, port: port, queue: queue, completion: completion)
-        case .doh(let url):
-            Self.forwardDoH(query, urlString: url, queue: queue, completion: completion)
-        case .doq(let host, let port):
-            Self.forwardDoQ(query, host: host, port: port, queue: queue, completion: completion)
-        }
-    }
-
-    /// DoQ (RFC 9250): one bidirectional QUIC stream per query inside a
-    /// throwaway connection group; the message is length-prefixed exactly
-    /// like DNS-over-TCP, and the send side is closed after the query.
-    private static func forwardDoQ(_ query: Data, host: String, port: Int, queue: DispatchQueue,
-                                   completion: @escaping (Data?) -> Void) {
-        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host),
-                                           port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
-        // QUIC is TLS 1.3-only by construction; no min-version pinning needed.
-        let quicOptions = NWProtocolQUIC.Options(alpn: ["doq"])
-        let params = NWParameters(quic: quicOptions)
-        NCOutboundBinding.apply(params, host: host)
-        let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
-        var done = false
-        func finish(_ data: Data?) {
-            guard !done else { return }
-            done = true
-            group.cancel()
-            completion(data)
-        }
-        group.stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                guard let conn = group.extract(connectionTo: nil, using: nil) else {
-                    finish(nil)
-                    return
-                }
-                conn.stateUpdateHandler = { cstate in
-                    if case .failed = cstate { finish(nil) }
-                }
-                conn.start(queue: queue)
-                var framed = Data()
-                framed.appendBE16(UInt16(query.count))
-                framed.append(query)
-                conn.send(content: framed, contentContext: .defaultMessage, isComplete: true,
-                          completion: .contentProcessed { _ in
-                    conn.receive(minimumIncompleteLength: 2, maximumLength: 2) { lenData, _, _, _ in
-                        guard let lenData, lenData.count == 2 else { finish(nil); return }
-                        let len = Int(lenData[0]) << 8 | Int(lenData[1])
-                        conn.receive(minimumIncompleteLength: len, maximumLength: len) { data, _, _, _ in
-                            finish(data)
-                        }
-                    }
-                })
-            case .failed:
-                finish(nil)
-            default:
-                break
-            }
-        }
-        group.start(queue: queue)
-        queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
-    }
-
-    /// DoT (RFC 7858): TLS stream, 2-byte length framing both ways.
-    private static func forwardDoT(_ query: Data, host: String, port: Int, queue: DispatchQueue,
-                                   completion: @escaping (Data?) -> Void) {
-        let stream = NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
-        var done = false
-        func finish(_ data: Data?) {
-            guard !done else { return }
-            done = true
-            stream.cancel()
-            completion(data)
-        }
-        stream.start { err in
-            guard err == nil else { finish(nil); return }
-            var framed = Data()
-            framed.appendBE16(UInt16(query.count))
-            framed.append(query)
-            stream.send(framed)
-            var buffer = Data()
-            func pump() {
-                stream.receive { data, _ in
-                    guard let data else { finish(nil); return }
-                    buffer.append(data)
-                    if buffer.count >= 2 {
-                        let len = Int(buffer[0]) << 8 | Int(buffer[1])
-                        if buffer.count >= 2 + len {
-                            finish(Data(buffer[2..<(2 + len)]))
-                            return
-                        }
-                    }
-                    pump()
-                }
-            }
-            pump()
-        }
-        queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
-    }
-
-    /// DoH (RFC 8484): POST the wire query to the HTTPS endpoint, read the
-    /// wire answer (Content-Length or chunked body).
-    private static func forwardDoH(_ query: Data, urlString: String, queue: DispatchQueue,
-                                   completion: @escaping (Data?) -> Void) {
-        guard let url = URL(string: urlString), let host = url.host else {
-            completion(nil)
-            return
-        }
-        let port = url.port ?? 443
-        let path = url.path.isEmpty ? "/dns-query" : url.path
-        let stream = NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
-        var done = false
-        func finish(_ data: Data?) {
-            guard !done else { return }
-            done = true
-            stream.cancel()
-            completion(data)
-        }
-        stream.start { err in
-            guard err == nil else { finish(nil); return }
-            var head = "POST \(path) HTTP/1.1\r\nHost: \(host)\r\nContent-Type: application/dns-message\r\nAccept: application/dns-message\r\nContent-Length: \(query.count)\r\nConnection: close\r\n\r\n"
-            var request = Data(head.utf8)
-            head = ""
-            request.append(query)
-            stream.send(request)
-            var buffer = Data()
-            func pump() {
-                stream.receive { data, error in
-                    if let data { buffer.append(data) }
-                    if let body = Self.dohBody(buffer) {
-                        finish(body)
-                        return
-                    }
-                    if data == nil {
-                        finish(nil)
-                        return
-                    }
-                    if error == nil { pump() }
-                }
-            }
-            pump()
-        }
-        queue.asyncAfter(deadline: .now() + 6) { finish(nil) }
-    }
-
-    /// Extract the body once the full HTTP response has arrived.
-    private static func dohBody(_ data: Data) -> Data? {
-        guard let headEnd = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
-        let head = String(decoding: data[data.startIndex..<headEnd.lowerBound], as: UTF8.self).lowercased()
-        let body = Data(data[headEnd.upperBound...])
-        if head.contains("transfer-encoding: chunked") {
-            var out = Data()
-            var rest = body
-            while true {
-                guard let lineEnd = rest.range(of: Data("\r\n".utf8)) else { return nil }
-                let sizeText = String(decoding: rest[rest.startIndex..<lineEnd.lowerBound], as: UTF8.self)
-                guard let size = Int(sizeText.trimmingCharacters(in: .whitespaces), radix: 16) else { return nil }
-                if size == 0 { return out }
-                let chunkStart = lineEnd.upperBound
-                guard rest.count - chunkStart >= size + 2 else { return nil }
-                out.append(Data(rest[chunkStart..<(chunkStart + size)]))
-                rest = Data(rest[(chunkStart + size + 2)...])
-            }
-        }
-        if let match = head.range(of: "content-length:"),
-           let end = head[match.upperBound...].range(of: "\r\n") {
-            let lenText = head[match.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespaces)
-            if let len = Int(lenText), body.count >= len {
-                return Data(body.prefix(len))
-            }
-            return nil
-        }
-        return nil
-    }
-}
 
 /// VMess UDP: a dedicated VMess connection (command 0x02) per destination —
 /// the sing-vmess packet connection: the body is the AEAD chunk stream, one
@@ -865,7 +735,7 @@ final class NCUDPVMessSession: NCUDPSession {
         if proxy.fields["tls"]?.bool ?? false {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
                            tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? proxy.server ?? "",
-                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           allowInsecure: proxy.skipCertVerify,
                            queue: queue)
         } else {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)
@@ -947,10 +817,32 @@ final class NCUDPVMessSession: NCUDPSession {
 /// VLESS UDP: dedicated connection per destination (command 0x02); datagrams
 /// are framed as BE16 length + payload in both directions after the response
 /// head (version + addon length).
+///
+/// VLESS encryption (mlkem768x25519plus): the encryption layer wraps the whole
+/// connection, so a UDP association is simply its own connection through the
+/// SAME shared NCVLESSEncClient instance TCP uses (NCConnector.vlessEncryption,
+/// keyed by the encryption string — the 0-RTT ticket cache is shared), with the
+/// identical VLESS framing inside: request head (command 0x02), then
+/// length-framed datagrams. There is no separate UDP cipher or ticket.
 final class NCUDPVLESSSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let raw: NCStream
+    /// The stream datagrams actually flow over: `raw` itself, or `raw` wrapped
+    /// in NCVLESSEncStream once the encryption handshake lands. Until then
+    /// sends queue in `pending` (the enc stream drops pre-handshake sends).
+    private var stream: NCRelayStream?
+    private var pending: [Data] = []
+    private var dead = false
     private var buffer = Data()
+    // nc-perf: read offset into `buffer` (was a Data(dropFirst) copy of the remainder per frame
+    // — O(n^2) when one chunk carries many datagram frames); rebased once past halfway.
+    private var bufferOffset = 0
+    private var buffered: Int { buffer.count - bufferOffset }
+    private func compactBuffer() {
+        if bufferOffset == 0 { return }
+        if bufferOffset >= buffer.count { buffer = Data(); bufferOffset = 0 }
+        else if bufferOffset > buffer.count / 2 { buffer = Data(buffer.dropFirst(bufferOffset)); bufferOffset = 0 }
+    }
     private var responseHeadConsumed = false
     private var cancelled = false
 
@@ -960,41 +852,61 @@ final class NCUDPVLESSSession: NCUDPSession {
         if proxy.fields["tls"]?.bool ?? false {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
                            tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? proxy.server ?? "",
-                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           allowInsecure: proxy.skipCertVerify,
                            queue: queue)
         } else {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)
         }
         raw.start { [weak self] err in
-            guard let self, err == nil else { return }
-            self.raw.send(head)
-            self.receiveLoop()
+            guard let self, !self.cancelled else { return }
+            guard err == nil else { self.dead = true; self.pending = []; return }
+            if NCConnector.vlessEncryption(proxy) != nil {
+                NCConnector.vlessEncrypt(self.raw, proxy: proxy, queue: queue) { [weak self] wrapped, werr in
+                    guard let self, !self.cancelled else { return }
+                    guard let wrapped, werr == nil else { self.dead = true; self.pending = []; return }
+                    self.stream = wrapped
+                    wrapped.send(head)
+                    let queued = self.pending
+                    self.pending = []
+                    for d in queued { wrapped.send(d) }
+                    self.receiveLoop()
+                }
+            } else {
+                self.stream = self.raw
+                self.raw.send(head)
+                self.receiveLoop()
+            }
         }
     }
 
     private func receiveLoop() {
-        raw.receive { [weak self] data, error in
+        guard let stream else { return }
+        stream.receive { [weak self] data, error in
             guard let self, !self.cancelled else { return }
             guard let data else { return }
             self.buffer.append(data)
             self.parseFrames()
+            // nc-memory: an unparseable first frame never drains this buffer; a legal
+            // frame is <= 64 KB, so past 128 KB of residue the session is dead weight.
+            if self.buffered > 128 * 1024 { self.cancel(); return }
             if error == nil { self.receiveLoop() }
         }
     }
 
     private func parseFrames() {
+        defer { compactBuffer() }
         if !responseHeadConsumed {
-            guard buffer.count >= 2 else { return }
-            let addonLen = Int(buffer[1])
-            guard buffer.count >= 2 + addonLen else { return }
-            buffer = Data(buffer.dropFirst(2 + addonLen))
+            guard buffered >= 2 else { return }
+            let addonLen = Int(buffer[bufferOffset + 1])
+            guard buffered >= 2 + addonLen else { return }
+            bufferOffset += 2 + addonLen
             responseHeadConsumed = true
         }
-        while buffer.count >= 2 {
-            let len = Int(buffer[0]) << 8 | Int(buffer[1])
-            guard buffer.count >= 2 + len else { return }
-            let payload = Data(buffer[2..<(2 + len)])
-            buffer = Data(buffer.dropFirst(2 + len))
+        while buffered >= 2 {
+            let len = Int(buffer[bufferOffset]) << 8 | Int(buffer[bufferOffset + 1])
+            guard buffered >= 2 + len else { return }
+            let payload = Data(buffer[(bufferOffset + 2)..<(bufferOffset + 2 + len)])
+            bufferOffset += 2 + len
             onReply(payload)
         }
     }
@@ -1003,11 +915,17 @@ final class NCUDPVLESSSession: NCUDPSession {
         var framed = Data()
         framed.appendBE16(UInt16(clamping: data.count))
         framed.append(data)
-        raw.send(framed)
+        if let stream {
+            stream.send(framed)
+        } else if !dead, !cancelled, pending.count < 64 {
+            pending.append(framed) // encryption handshake still running
+        }
     }
 
     func cancel() {
         cancelled = true
+        pending = []
+        stream?.cancel()
         raw.cancel()
     }
 }

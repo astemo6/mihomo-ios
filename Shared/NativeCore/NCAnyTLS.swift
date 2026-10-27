@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// AnyTLS (mihomo's transport/anytls): a TLS connection carrying
+/// AnyTLS (Clash.Meta's transport/anytls): a TLS connection carrying
 /// [sha256(password)][paddingLen u16][padding] as its first bytes, then
 /// a small multiplexed session of frames
 /// [cmd u8][streamID u32 BE][len u16 BE][data]:
@@ -45,7 +45,7 @@ enum NCAnyTLS {
 
     static func settingsFrame(clientMetadata: String) -> Data {
         let md5 = Insecure.MD5.hash(data: Data(defaultPaddingScheme.utf8))
-            .map { String(format: "%02x", $0) }.joined()
+            .ncHex
         let map = "client=\(clientMetadata)\npadding-md5=\(md5)\nv=2"
         return frame(cmd: cmdSettings, streamID: 0, data: Data(map.utf8))
     }
@@ -68,16 +68,21 @@ enum NCAnyTLS {
     /// Incremental frame parser.
     struct FrameParser {
         private var buffer = Data()
+        /// Offset walk + one compaction per feed (rv2-proto: was a tail copy per frame, O(n²) on large reads).
         mutating func feed(_ data: Data) -> [Frame] {
             buffer.append(data)
             var out: [Frame] = []
-            while buffer.count >= 7 {
-                let len = Int(buffer[5]) << 8 | Int(buffer[6])
-                guard buffer.count >= 7 + len else { break }
-                let sid = UInt32(buffer[1]) << 24 | UInt32(buffer[2]) << 16 | UInt32(buffer[3]) << 8 | UInt32(buffer[4])
-                out.append(Frame(cmd: buffer[0], streamID: sid, data: Data(buffer[7..<(7 + len)])))
-                buffer = Data(buffer.dropFirst(7 + len))
+            var off = 0
+            while buffer.count - off >= 7 {
+                let b = buffer.startIndex + off
+                let len = Int(buffer[b + 5]) << 8 | Int(buffer[b + 6])
+                guard buffer.count - off >= 7 + len else { break }
+                let sid = UInt32(buffer[b + 1]) << 24 | UInt32(buffer[b + 2]) << 16 | UInt32(buffer[b + 3]) << 8 | UInt32(buffer[b + 4])
+                out.append(Frame(cmd: buffer[b], streamID: sid, data: Data(buffer[(b + 7)..<(b + 7 + len)])))
+                off += 7 + len
             }
+            if off >= buffer.count { buffer = Data() }
+            else if off > 0 { buffer = Data(buffer[(buffer.startIndex + off)...]) }
             return out
         }
     }

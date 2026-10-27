@@ -4,7 +4,7 @@
 // fixes:
 //   • CR/LF check: the draft used String.contains("\r"), which misses a CRLF pair ("\r\n" is ONE Character in Swift),
 //     so "a\r\nInjected: x" passed validation (response splitting). Now validated per byte (CTL / DEL rejected, HTAB ok).
-//   • hop-by-hop list matches Go httputil.ReverseProxy (adds Proxy-Authenticate); all Connection fields are read, not
+//   • hop-by-hop list matches the old core a standard HTTP reverse proxy (adds Proxy-Authenticate); all Connection fields are read, not
 //     just the first; `TE: trailers` is kept and Upgrade can be kept for an upgrade, as ReverseProxy does (design §12.1).
 //   • works on the contract heads (HTTPHead) and keeps wire order / case.
 
@@ -22,7 +22,7 @@ enum HeaderRewriteError: Error, Equatable {
 }
 
 enum HTTPHeaderRewrite {
-    /// Go net/http/httputil hopHeaders.
+    /// the old core reverse-proxy hop-by-hop header list.
     static let hopByHop: Set<String> = [
         "connection", "proxy-connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
         "te", "trailer", "transfer-encoding", "upgrade",

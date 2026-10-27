@@ -30,6 +30,10 @@ final class NCTunStack {
     var onTCPData: (TCPConn, Data?) -> Void = { _, _ in }
     var onTCPError: (TCPConn) -> Void = { _ in }
     var onUDP: (UDPSessionInfo, Data) -> Void = { _, _ in }
+    /// rv2-life: the app ACKed bytes we wrote (lwIP send window opened): drain the outbox, resume the relay read.
+    var onTCPSent: (TCPConn) -> Void = { _ in }
+    /// rv2-life: the C side ended a UDP session (idle expiry or eviction for a new flow).
+    var onUDPClosed: (UInt32) -> Void = { _ in }
 
     private(set) var running = false
 
@@ -41,6 +45,8 @@ final class NCTunStack {
         cbs.tcp_recv = ncOnRecv
         cbs.tcp_err = ncOnErr
         cbs.udp_recv = ncOnUDP
+        cbs.tcp_sent = ncOnSent
+        cbs.udp_closed = ncOnUDPClosed
         let ctx = Unmanaged.passUnretained(self).toOpaque()
         let ok = ip4.withCString { p4 in
             ip6?.withCString { p6 in
@@ -66,14 +72,30 @@ final class NCTunStack {
 
     func poll() { nc_poll() }
 
+    /// fix/nc-tcp0: what the C side did with the packets (nc_get_stats), for 诊断's statsLine.
+    var cStatsLine: String {
+        var st = nc_stats()
+        nc_get_stats(&st)
+        return "c: in v4 \(st.in_v4) v6 \(st.in_v6) other \(st.in_other), syn v4 \(st.syn_v4) v6 \(st.syn_v6), listen fail \(st.listen_fail), udp session fail \(st.udp_session_fail), not-ours v4 \(st.v4_not_ours) v6 \(st.v6_not_ours), accepted \(st.accepted), refused \(st.accept_refused), conn full \(st.conn_full), input err \(st.input_err), out \(st.out_pkts) (syn-ack \(st.out_synack), rst \(st.out_rst), udp \(st.out_udp))"
+    }
+
     /// Returns the number of bytes the stack queued; the caller keeps any
     /// remainder and retries on a later poll tick.
     @discardableResult
     func tcpWrite(_ conn: TCPConn, _ data: Data) -> Int {
-        data.withUnsafeBytes { raw -> Int in
+        // rv2-life: a closed TCPConn's slot may already belong to a new connection.
+        guard !conn.closed else { return -1 }
+        return data.withUnsafeBytes { raw -> Int in
             guard let base = raw.baseAddress else { return 0 }
             return Int(nc_tcp_write(conn.handle, base.assumingMemoryBound(to: UInt8.self), UInt32(data.count)))
         }
+    }
+
+    /// rv2-life: acknowledge `n` received bytes (reopens the app's send window; see nc_tcp_recved). A no-op once the
+    /// connection is gone (its C slot may already serve another connection).
+    func tcpRecved(_ conn: TCPConn, _ n: Int) {
+        guard n > 0, !conn.closed, connForHandle(conn.handle) === conn else { return }
+        nc_tcp_recved(conn.handle, UInt32(clamping: n))
     }
 
     func tcpClose(_ conn: TCPConn) {
@@ -156,6 +178,7 @@ func ncOnRecv(_ ctx: UnsafeMutableRawPointer?, _ conn: UnsafeMutableRawPointer?,
 func ncOnErr(_ ctx: UnsafeMutableRawPointer?, _ conn: UnsafeMutableRawPointer?, _ err: Int32) {
     guard let stack = ncSelf(ctx), let conn else { return }
     if let c = stack.connForHandle(conn) {
+        c.closed = true // rv2-life: the C slot is freed right after this call; nothing may write / close it again
         stack.unregister(c)
         stack.onTCPError(c)
     }
@@ -173,6 +196,19 @@ func ncOnUDP(_ ctx: UnsafeMutableRawPointer?, _ session: UInt32,
         src: NCTarget(host: NCTunStack.ipString(bytes: src, is6: is6 == 1), port: Int(srcPort)),
         dst: NCTarget(host: NCTunStack.ipString(bytes: dst, is6: is6 == 1), port: Int(dstPort)))
     stack.onUDP(info, Data(bytes: data, count: Int(len)))
+}
+
+@_cdecl("ncOnSent")
+func ncOnSent(_ ctx: UnsafeMutableRawPointer?, _ conn: UnsafeMutableRawPointer?, _ len: UInt32) {
+    guard let stack = ncSelf(ctx), let conn, let c = stack.connForHandle(conn) else { return }
+    _ = len
+    stack.onTCPSent(c)
+}
+
+@_cdecl("ncOnUDPClosed")
+func ncOnUDPClosed(_ ctx: UnsafeMutableRawPointer?, _ session: UInt32) {
+    guard let stack = ncSelf(ctx) else { return }
+    stack.onUDPClosed(session)
 }
 
 /* The C accept callback receives a slot pointer; TCPConn objects are created

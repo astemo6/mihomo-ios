@@ -58,7 +58,13 @@ enum NCQXImport {
                 } else if action.hasPrefix("script-") || action.hasPrefix("request-") || action.hasPrefix("response-") {
                     let type = action.contains("response") ? "http-response" : "http-request"
                     let path = parts.count >= 4 ? parts[3] : ""
-                    cfg.scripts.append(NCScriptRule(name: "qx_script", type: type, pattern: pattern, scriptPath: path))
+                    var extra: [String: String] = [:]
+                    if path.lowercased().hasSuffix(".lua") {
+                        extra["engine"] = "lua"
+                        extra["status"] = "unsupported"
+                        report.warnings.append("quantumultx rewrite: lua script '\(path)' recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
+                    }
+                    cfg.scripts.append(NCScriptRule(name: "qx_script", type: type, pattern: pattern, scriptPath: path, extra: extra))
                 }
             }
         }
@@ -182,6 +188,10 @@ enum NCQXImport {
             report.warnings.append("quantumultx [server_local]: custom= node skipped (legacy script-defined protocol): \(line)")
             return nil
         }
+        if rawTypeLower == "trusttunnel" || rawTypeLower == "trust-tunnel" {
+            report.warnings.append("quantumultx [server_local]: trusttunnel has no Quantumult X format specification; explicitly unavailable: \(line)")
+            return nil
+        }
         // Address: host:port, or [v6]:port.
         var host = address
         var port: Int? = nil
@@ -227,7 +237,7 @@ enum NCQXImport {
                 fields["sni"] = .string(s)
                 fields["servername"] = .string(s)
             }
-            if type == "vless", let f = take("flow") { fields["flow"] = .string(f) }
+            if type == "vless", let f = take("flow") ?? take("vless-flow") { fields["flow"] = .string(f) }
             // NB: `tls-pseudo-domain` (REALITY camouflage) is deliberately
             // left unconsumed — it is preserved verbatim by finishFields.
         case "trojan":
@@ -251,8 +261,46 @@ enum NCQXImport {
         case "snell":
             if let p = take("psk") ?? take("password") { fields["password"] = .string(p) }
             if let v = take("version"), let n = Int(v) { fields["version"] = .number(Double(n)) }
+        case "tuic":
+            // Same mapping as the Surge/Loon tuic spelling (NCConfImport.buildSurgeLikeNode): credentials stay
+            // strings (the verbatim pass would coerce an all-digit token / password into a number).
+            if let p = take("password") { fields["password"] = .string(p) }
+            if let t = take("token") { fields["token"] = .string(t) }
+            if let u = take("uuid") { fields["uuid"] = .string(u) }
+            if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "juicity":
+            if let p = take("password") { fields["password"] = .string(p) }
+            if let u = take("uuid") ?? take("user") { fields["uuid"] = .string(u) }
+            if let s = take("sni") ?? take("peer") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+            if let cc = take("congestion-controller") ?? take("congestion-control") ?? take("congestion_control") {
+                fields["congestion-controller"] = .string(cc)
+            }
+            if let pin = take("pinned-certchain-sha256") ?? take("pinned_certchain_sha256") ?? take("pinned-peer-cert-sha256") ?? take("cert-sha256") {
+                fields["pinned-certchain-sha256"] = .string(pin)
+            }
+        case "hysteria2":
+            if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
+            if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
+        case "lua":
+            type = "lua"
+            if let f = take("file") ?? take("script-path") { fields["file"] = .string(f) }
+            if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            report.warnings.append("quantumultx [server_local]: lua proxy backend '\(name)' recognized")
+        case "openconnect", "anyconnect":
+            type = "openconnect"
+            report.warnings.append("quantumultx [server_local]: OpenConnect 无公开 Quantumult X 格式，标记不可用")
+            fields["unsupported"] = .string("Quantumult X 无公开 OpenConnect 格式")
+            if let u = take("username") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+        case "masque":
+            report.warnings.append("quantumultx [server_local]: masque 协议在 Quantumult X 中无公开规范，已标记为不可用")
+            fields["unsupported"] = .string("Quantumult X 不支持 MASQUE 协议")
+        case "sudoku":
+            type = "sudoku"
+            NCSudoku.importParams(into: &fields, take: take) // canonical (Clash) field names
         default:
-            // tuic / wireguard / hysteria2 / anytls / …: generic credential
+            // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.
             if type == "shadowsocksr" || type == "ssr" { type = "ssr" }
             if let p = take("password") { fields["password"] = .string(p) }
@@ -265,13 +313,76 @@ enum NCQXImport {
         if let v = take("fast-open") ?? take("tfo"), let b = NCConfImport.boolValue(v) { fields["tfo"] = .bool(b) }
         if let v = take("tls-verification"), let b = NCConfImport.boolValue(v) {
             fields["skip-cert-verify"] = .bool(!b) // QX spells verification positively
+            // fix-tls-c: kept as a marker so the QX provider default (qxRemoteTLSDefault) still sees "this node asked for
+            // verification" after the App stored the body as Clash YAML (NCProviderPorts.convertNodesText).
+            if b { fields["tls-verification"] = .bool(true) }
         }
         if fields["skip-cert-verify"] == nil, let v = take("skip-cert-verify"), let b = NCConfImport.boolValue(v) {
             fields["skip-cert-verify"] = .bool(b)
         }
+        applyQXTLSDefaults(type: type, kv: kv, consumed: &consumed, fields: &fields)
+        NCConfImport.applyECH(kv: kv, consumed: &consumed, fields: &fields)
 
         NCConfImport.finishFields(&fields, kv: kv, order: order, consumed: consumed)
         return NCProxy(name: name, type: type, fields: fields)
+    }
+
+    /// fix/nc-tls-scripts — Quantumult X TLS semantics on a node line (also every QX-format subscription body: the
+    /// tunnel parses provider bodies fetched with the QuanX User-Agent through buildQXNode):
+    /// - `tls-verification` defaults to **false** in QX (crossutility sample.conf: verification is opt-in;
+    ///   "If the tls-verification is false then the tls-cert-sha256 and tls-pubkey-sha256 will be ignored"). A node
+    ///   without the key was imported as verify-on, so self-built nodes with self-signed / expired / IP certificates
+    ///   that work in QX failed with `tls · -9808` / `-9814` (device build506, provider SelfBuild 16/33).
+    /// - `tls-cert-sha256` pins the leaf (Clash `fingerprint`), only when verification is on.
+    /// - `reality-base64-pubkey` / `reality-hex-shortid` turn the TLS into REALITY (QX 1.5.5+).
+    private static func applyQXTLSDefaults(type: String, kv: [String: String], consumed: inout Set<String>,
+                                           fields: inout [String: NCJSONValue]) {
+        let obfs = (kv["obfs"] ?? "").lowercased()
+        let tls = fields["tls"]?.bool == true || ["trojan", "https", "anytls"].contains(type)
+            || obfs == "over-tls" || obfs == "wss"
+        if let pk = kv["reality-base64-pubkey"], !pk.isEmpty {
+            consumed.insert("reality-base64-pubkey")
+            var ro: [String: NCJSONValue] = ["public-key": .string(pk)]
+            if let sid = kv["reality-hex-shortid"], !sid.isEmpty {
+                consumed.insert("reality-hex-shortid")
+                ro["short-id"] = .string(sid)
+            }
+            fields["reality-opts"] = .object(ro)
+            fields["tls"] = .bool(true)
+            if fields["client-fingerprint"] == nil { fields["client-fingerprint"] = .string("chrome") }
+            return // REALITY authenticates the server itself; no certificate policy applies
+        }
+        guard tls else { return }
+        let verify = kv["tls-verification"].flatMap { NCConfImport.boolValue($0) } ?? false
+        if fields["skip-cert-verify"] == nil { fields["skip-cert-verify"] = .bool(!verify) }
+        if verify, fields["fingerprint"] == nil, let raw = kv["tls-cert-sha256"] {
+            let hex = raw.lowercased().replacingOccurrences(of: ":", with: "").replacingOccurrences(of: " ", with: "")
+            if hex.count == 64, hex.allSatisfy({ $0.isHexDigit }) {
+                consumed.insert("tls-cert-sha256")
+                fields["fingerprint"] = .string(hex)
+            }
+        }
+    }
+
+    /// fix-tls-c — Quantumult X `[server_remote]` semantics for every node of such a provider, whatever format the panel
+    /// answered in (QX lines, share links, base64, Clash YAML, JSON): certificate verification is OFF unless the node says
+    /// `tls-verification=true`. QX lines already get it from applyQXTLSDefaults; this covers the rest. E2E 40543432526:
+    /// 17/33 SelfBuild nodes reached the dialer with skip-cert-verify false and failed `tls · -9808` (boringssl
+    /// CERTIFICATE_VERIFY_FAILED from the verify callback), while QX on the same device accepts them.
+    /// Left alone: non-TLS nodes, REALITY (authenticates the server itself), a node already skipping verification, a node
+    /// carrying the `tls-verification: true` marker, and a node with a certificate pin (the pin is its own check).
+    /// Returns the changed node, or nil when nothing changes.
+    static func qxRemoteTLSDefault(_ p: NCProxy) -> NCProxy? {
+        let f = p.fields
+        if f["reality-opts"] != nil { return nil }
+        let alwaysTLS: Set<String> = ["trojan", "https", "anytls", "hysteria", "hysteria2", "hy2", "tuic", "juicity"]
+        let tls = alwaysTLS.contains(p.type) || (f["tls"].flatMap(NCProxy.truthy) ?? false)
+        guard tls, !p.skipCertVerify else { return nil }
+        if let v = f["tls-verification"], NCProxy.truthy(v) == true { return nil }
+        if NCConnector.parsePinnedCertSHA256(p) != nil { return nil }
+        var out = f
+        out["skip-cert-verify"] = .bool(true)
+        return NCProxy(name: p.name, type: p.type, fields: out)
     }
 
     /// QX transport spelling: `obfs=ws` (+ obfs-host/obfs-uri) or
@@ -290,7 +401,17 @@ enum NCQXImport {
                 opts["headers"] = .object(["Host": .string(h)])
             }
             if !opts.isEmpty { fields["ws-opts"] = .object(opts) }
-            if obfs.lowercased() == "wss" { fields["tls"] = .bool(true) }
+            if obfs.lowercased() == "wss" {
+                fields["tls"] = .bool(true)
+                // fix/nc-diag-439 (G): QX uses obfs-host as the TLS SNI of `obfs=wss` when tls-host is absent (as for
+                // over-tls). Without it the node had no servername and the SNI fell back to `server` — for CloudFront
+                // 优选-IP nodes an IP literal, so no SNI was sent and the edge aborted the handshake (tls -9824).
+                // A later tls-host / sni still wins.
+                if fields["servername"] == nil, fields["sni"] == nil, let h = kv["obfs-host"], !h.isEmpty {
+                    fields["sni"] = .string(h)
+                    fields["servername"] = .string(h)
+                }
+            }
         case "over-tls":
             consumed.insert("obfs")
             fields["tls"] = .bool(true)
@@ -308,10 +429,32 @@ enum NCQXImport {
 
     // MARK: - [server_remote]
 
+    /// `<url>, k=v, …` for [server_remote] / [filter_remote]: the leading URL (everything before the first comma)
+    /// is taken as-is, only the options after it are split as `k=v`. A subscription URL with a query
+    /// (`https://x/sub?token=abc`) contains `=`, so classifying it as a token turned it into a key/value pair and
+    /// the line was dropped as unparsable. A leading token that is not a URL keeps the generic classification.
+    static func remoteLineFields(_ line: String) -> (positional: [String], kv: [String: String], order: [String]) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let head: Substring
+        let tail: Substring
+        if let comma = trimmed.firstIndex(of: ",") {
+            head = trimmed[..<comma]
+            tail = trimmed[trimmed.index(after: comma)...]
+        } else {
+            head = trimmed[...]
+            tail = ""
+        }
+        let url = head.trimmingCharacters(in: .whitespaces)
+        guard url.contains("://") else { return NCConfImport.classify(NCConfImport.tokens(line)) }
+        let rest = NCConfImport.classify(NCConfImport.tokens(String(tail)))
+        return ([url] + rest.positional, rest.kv, rest.order)
+    }
+
+
     /// `<url>, update-interval=N, opt-parser=…, tag=X, enabled=…`.
     /// Disabled entries are skipped (QX semantics).
     private static func appendServerRemote(line: String, cfg: inout NCCanonicalConfig, report: inout NCImportReport) {
-        let (positional, kv, order) = NCConfImport.classify(NCConfImport.tokens(line))
+        let (positional, kv, order) = remoteLineFields(line)
         guard let url = positional.first else {
             report.warnings.append("quantumultx [server_remote]: unparsable line skipped: \(line)")
             return
@@ -321,6 +464,8 @@ enum NCQXImport {
         // opt-parser and any other extras are preserved verbatim.
         NCConfImport.finishFields(&fields, kv: kv, order: order,
                                   consumed: ["enabled", "update-interval", "tag"])
+        // fix/nc-open-6-10 #10: fetched with the QuanX User-Agent (NCNodeSubscriptionStore.userAgents).
+        fields["x-origin"] = .string("qx")
         cfg.subscriptions.append(NCNodeSubscription(
             name: kv["tag"] ?? NCConfImport.hostDerivedName(url), url: url,
             interval: kv["update-interval"].flatMap { Int($0) } ?? 86400,
@@ -439,18 +584,36 @@ enum NCQXImport {
 
     /// `<url>, tag=X, force-policy=P, update-interval=N, enabled=…`.
     private static func appendFilterRemote(line: String, cfg: inout NCCanonicalConfig, report: inout NCImportReport) {
-        let (positional, kv, _) = NCConfImport.classify(NCConfImport.tokens(line))
+        let (positional, kv, _) = remoteLineFields(line)
         guard let url = positional.first else {
             report.warnings.append("quantumultx [filter_remote]: unparsable line skipped: \(line)")
             return
         }
         if let e = kv["enabled"], NCConfImport.boolValue(e) == false { return }
         let name = kv["tag"] ?? NCConfImport.ruleSetName(for: url)
-        let forced = kv["force-policy"].map(canonicalPolicy)
+        let interval = kv["update-interval"].flatMap { Int($0) } ?? 86400
+        let fp = (kv["force-policy"] ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "'\"")).trimmingCharacters(in: .whitespaces)
+        if !fp.isEmpty {
+            let forced = canonicalPolicy(fp)
+            cfg.ruleSets.append(NCRuleSetRef(name: name, url: url, interval: interval, forcedPolicy: forced))
+            cfg.rules.append("RULE-SET,\(url),\(forced)")
+            return
+        }
+        // No force-policy: like Quantumult X, every line of the list keeps its own policy. Same provider shape as the
+        // App's QX import (NCConfImportPort kind "list-own"): the App download splits the list per policy
+        // (NCProviderPorts.splitOwnPolicyList, at most ownPolicyMaxParts) and NCRuntimeSteps.expandOwnPolicyProviders
+        // emits one RULE-SET per policy, creating a manual-select group for a policy the config lacks. The RULE-SET
+        // line itself targets QX `proxy` (the first static group) — what the list's `proxy` lines resolve to, and
+        // where the whole list goes until it has been downloaded and split.
+        let fallback = cfg.groups.first { $0.kind == .select }?.name ?? canonicalPolicy("proxy")
         cfg.ruleSets.append(NCRuleSetRef(
-            name: name, url: url,
-            interval: kv["update-interval"].flatMap { Int($0) } ?? 86400,
-            forcedPolicy: forced))
-        cfg.rules.append("RULE-SET,\(url),\(forced ?? name)")
+            name: name, url: url, interval: interval, forcedPolicy: nil,
+            fields: [
+                // No behavior: the tunnel's per-line dialect detection reads the raw QX list as well as the converted one.
+                "type": .string("http"), "format": .string("text"),
+                "path": .string("./ruleset/" + NCRuleValidator.providerNameFor(url: url, kind: "list-own") + ".txt"),
+                "x-convert": .string("list"), "x-own-policy": .bool(true),
+            ]))
+        cfg.rules.append("RULE-SET,\(name),\(fallback)")
     }
 }

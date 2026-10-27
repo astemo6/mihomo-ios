@@ -1,14 +1,14 @@
 // Native MitM stage 3 — one rule pattern on NSRegularExpression (ICU).
 //
-// Swift compiles the explicit ICU translation Go made of the regexp2 pattern (bridge/mitm/rewriteicu.go): every
+// Swift compiles the explicit ICU translation the old core made of the regexp2 pattern: every
 // character class / literal is an explicit set of ASCII code points, anchors are spelled out, capture groups are
 // unnamed and renumbered (`slots` maps regexp2's capture slots to ICU group indices). The translation is exact
-// for ASCII input only, so every input is checked to be ASCII first (anything else: .unknown → Go decides).
+// for ASCII input only, so every input is checked to be ASCII first (anything else: .unknown → the old core decided).
 // Compiled lazily: a rule whose required literal is not in the URL is ruled out without a regex (and without
 // compiling one), which keeps both the per-request cost and the resident memory of thousands of module rules
 // small.
 //
-// Replacements run the program Go parsed with regexp2's own replacement parser (RWSnapTemplate): literals,
+// Replacements run the program the old core parsed with regexp2's own replacement parser (RWSnapTemplate): literals,
 // capture slots, $` $' $+ $_ — so templates mean exactly what regexp2.Replace makes of them.
 
 import Foundation
@@ -24,19 +24,26 @@ final class RWRegex {
     private var tried = false
 
     init(_ src: RWSnapRegex) {
-        self.src = src
+        // native-only (lane regexp2): a pattern the snapshot could not translate (ok false: x mode, \p in a union,
+        // capture in a look-ahead, …) gets the Unicode-faithful regexp2 → ICU translation (RX2ICU) instead of
+        // being skipped; what RX2ICU refuses stays untranslatable (.unknown → the rule is skipped).
+        if !src.ok, let t = RX2ICU.snapRegex(src.p, lit: src.lit, fold: src.fold) {
+            self.src = t
+        } else {
+            self.src = src
+        }
         lit = src.lit ?? ""
         fold = src.fold ?? false
     }
 
-    /// The pattern Swift compiles: Go's ICU translation (older snapshots: the pattern itself when Go marked it
+    /// The pattern Swift compiles: the old core's ICU translation (older snapshots: the pattern itself when the old core marked it
     /// portable).
     var icuPattern: String? {
         guard src.ok else { return nil }
         return src.icu ?? src.p
     }
 
-    /// The compiled expression; nil when ICU rejects it or its group count differs from Go's (then: Go decides).
+    /// The compiled expression; nil when ICU rejects it or its group count differs from the old core's (then: the old core decided).
     var regex: NSRegularExpression? {
         lock.lock(); defer { lock.unlock() }
         if !tried {
@@ -53,14 +60,10 @@ final class RWRegex {
 
     static func isASCII(_ s: String) -> Bool { s.utf8.allSatisfy { $0 < 0x80 } }
 
-    /// Gap C5 (astemo6/Muse NativeCore): the Go-free tunnel has no Go to decide for non-ASCII input, so the ICU
-    /// translation runs on it too (regexp2 also matches runes; differences are limited to classes Go spelled out
-    /// as ASCII sets meeting non-ASCII text). The Go-backed app build keeps answering unknown.
-    #if TERN_NO_GO
+    /// Gap C5 (astemo6/Muse NativeCore): the native-only tunnel has no the old core to decide for non-ASCII input, so the ICU
+    /// translation runs on it too (regexp2 also matches runes; differences are limited to classes the old core spelled out
+    /// as ASCII sets meeting non-ASCII text). The old-core app build keeps answering unknown.
     static let lenient = true
-    #else
-    static let lenient = false
-    #endif
     static func inputOK(_ s: String) -> Bool { lenient || isASCII(s) }
 
     /// Could the URL contain a match at all? false is exact (every match contains the literal).
@@ -69,7 +72,7 @@ final class RWRegex {
         return RWAscii.contains(fold ? RWAscii.lower(s) : s, lit)
     }
 
-    /// Whether the pattern matches s. unknown: only Go can tell (not translatable, ICU refused, non-ASCII input).
+    /// Whether the pattern matches s. unknown: only the old core can tell (not translatable, ICU refused, non-ASCII input).
     func match(_ s: String) -> Match {
         if !literalAllows(s) { return .no }
         guard src.ok, RWRegex.inputOK(s), let re = regex else { return .unknown }
@@ -82,8 +85,8 @@ final class RWRegex {
 
     enum First { case none, match(NSTextCheckingResult), timeout }
 
-    /// Time budget for one ICU search: a pathological pattern must not stall the tunnel (Go's regexp2 has its
-    /// own 200 ms MatchTimeout, after which it reports no match — such inputs go to Go, which decides).
+    /// Time budget for one ICU search: a pathological pattern must not stall the tunnel (the old core's regexp2 has its
+    /// own 200 ms MatchTimeout, after which it reports no match — such inputs go to the old core, which decides).
     static var timeLimit: TimeInterval = 0.05
 
     /// The first match, searched with progress callbacks so the search can be abandoned after timeLimit.
@@ -122,7 +125,7 @@ final class RWRegex {
         return timedOut ? nil : out
     }
 
-    /// regexp2 Replace(s, template, -1, 1): the first match replaced. nil: cannot do it like Go.
+    /// regexp2 Replace(s, template, -1, 1): the first match replaced. nil: cannot do it like the old core.
     func replaceFirst(_ s: String, _ tp: RWSnapTemplate) -> String? {
         guard src.ok, RWRegex.inputOK(s), let re = regex else { return nil }
         let ns = s as NSString

@@ -101,7 +101,7 @@ enum NCIP: Equatable, Hashable {
         case .v4(let v):
             return "\((v >> 24) & 0xff).\((v >> 16) & 0xff).\((v >> 8) & 0xff).\(v & 0xff)"
         case .v6(let b):
-            // IPv4-mapped addresses print as plain IPv4, matching mihomo's display.
+            // IPv4-mapped addresses print as plain IPv4, matching Clash.Meta's display.
             if b[0..<10].allSatisfy({ $0 == 0 }), b[10] == 0xff, b[11] == 0xff {
                 return "\(b[12]).\(b[13]).\(b[14]).\(b[15])"
             }
@@ -143,7 +143,9 @@ struct NCCIDR: Equatable {
                     if n[i] != a[i] { return false }
                     remaining -= 8
                 } else {
-                    let mask = UInt8(0xff << (8 - remaining))
+                    // feat/nc-lan-share: was UInt8(0xff << n) on Int, which traps for any v6 prefix not a
+                    // multiple of 8 (fe80::/10, fc00::/7). 需同步 feat/nc-kernel.
+                    let mask = UInt8(0xff) << UInt8(8 - remaining)
                     return (n[i] & mask) == (a[i] & mask)
                 }
             }

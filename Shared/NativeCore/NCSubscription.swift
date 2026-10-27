@@ -3,7 +3,7 @@ import Foundation
 /// Node-subscription content parsing + filtering + cached store.
 ///
 /// Every subscription format in the wild reduces to one of:
-/// - a Clash/mihomo YAML document with `proxies:`
+/// - a Clash/Clash.Meta YAML document with `proxies:`
 /// - a base64 blob of newline-separated share URIs (ss/vmess/vless/trojan/
 ///   hysteria2/tuic) — the "airport" format QX/Loon/Surge all consume
 /// - the same URI list in plain text
@@ -13,43 +13,129 @@ import Foundation
 /// suffixes, like the reference apps do.
 enum NCSubscriptionParser {
     static func parse(_ text: String) -> [NCProxy] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("proxies:") || trimmed.contains("\nproxies:") {
-            if let nodes = parseClashYAML(trimmed) { return dedup(nodes) }
+        parseDetailed(text, qxRemote: false).nodes
+    }
+
+    /// fix-tls-c: what a provider body was, for the provider log line and the E2E node-tls row
+    /// ("Clash YAML", "JSON", "base64 share links", "QX lines", "Surge lines", "share links + QX lines", …), and how many
+    /// nodes got the QX `[server_remote]` TLS default.
+    struct Parsed {
+        var nodes: [NCProxy]
+        var format: String
+        var qxTLSDefaulted: Int
+    }
+
+    /// `qxRemote`: the body belongs to a Quantumult X `[server_remote]` provider, so every node that did not come from a
+    /// QX line (those get QX semantics in buildQXNode) gets NCQXImport.qxRemoteTLSDefault — verification off unless the
+    /// node says `tls-verification=true` — the way QX treats whatever the panel answered.
+    static func parseDetailed(_ text: String, qxRemote: Bool) -> Parsed {
+        var defaulted = 0
+        func qx(_ ns: [NCProxy]) -> [NCProxy] {
+            guard qxRemote else { return ns }
+            return ns.map { n in
+                guard let c = NCQXImport.qxRemoteTLSDefault(n) else { return n }
+                defaulted += 1
+                return c
+            }
         }
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("\u{FEFF}") { trimmed.removeFirst() }
+        if trimmed.hasPrefix("proxies:") || trimmed.contains("\nproxies:") {
+            if let nodes = parseClashYAML(trimmed) {
+                let ns = dedup(qx(nodes))
+                return Parsed(nodes: ns, format: "Clash YAML", qxTLSDefaulted: defaulted)
+            }
+        }
+        // the retired bridge parseNodeText: JSON is tried on the raw text, then
+        // unconditionally on the base64-decoded text (a padded JSON blob used
+        // to fall through here because the first branch required no "=").
         if let jsonNodes = parseJSONNodes(trimmed) {
-            return dedup(jsonNodes)
+            let ns = dedup(qx(jsonNodes))
+            return Parsed(nodes: ns, format: "JSON", qxTLSDefaulted: defaulted)
         }
         var body = trimmed
-        if !body.contains("://") && !body.contains("="), let decoded = base64Decode(body),
-           let s = String(data: decoded, encoding: .utf8) {
-            if let jsonNodes = parseJSONNodes(s) {
-                return dedup(jsonNodes)
-            }
-            body = s
-        } else if let decoded = base64Decode(body),
-                  let s = String(data: decoded, encoding: .utf8), s.contains("://") {
-            body = s
+        if let decoded = tryB64Text(body), let jsonNodes = parseJSONNodes(decoded) {
+            let ns = dedup(qx(jsonNodes))
+            return Parsed(nodes: ns, format: "base64 JSON", qxTLSDefaulted: defaulted)
         }
-        var nodes: [NCProxy] = []
+        var base64 = false
+        if !body.contains("://") && !body.contains("=") {
+            if let decoded = tryB64Text(body) { body = decoded; base64 = true }
+        } else if let decoded = tryB64Text(body), decoded.contains("://") {
+            body = decoded; base64 = true
+        }
+        var nURI = 0, nQX = 0, nSurge = 0
+        // the retired bridge parseNodeText order: self-parsed lines (QX / Surge
+        // named lines and the wireguard / snell / ssh / socks-http schemes)
+        // come first in line order; all other :// URIs are collected and
+        // converted afterwards. Member order and dedup numbering follow.
+        var selfParsed: [NCProxy] = []
+        var uriParsed: [NCProxy] = []
+        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https", "openconnect", "anyconnect", "tt", "trusttunnel", "trust-tunnel", "masque", "sudoku"]
         for line in body.components(separatedBy: .newlines) {
             let l = line.trimmingCharacters(in: .whitespaces)
             if l.isEmpty || l.hasPrefix("#") || l.hasPrefix("//") || l.hasPrefix(";") || l.hasPrefix("[") {
                 continue
             }
-            if l.contains("://") {
-                if let n = parseURI(l) { nodes.append(n) }
-            } else if l.contains("=") {
+            if let sep = l.range(of: "://") {
+                let scheme = l[..<sep.lowerBound].lowercased()
+                guard let n0 = parseURI(l) else { continue }
+                nURI += 1
+                let n = qx([n0])[0]
+                if selfSchemes.contains(scheme) { selfParsed.append(n) } else { uriParsed.append(n) }
+            } else if let eq = l.firstIndex(of: "=") {
+                // the retired bridge: the key before "=" picks the dialect —
+                // a QX type keyword (qxNodeTypes, a superset of qxTypes) with a
+                // host:port value goes to parseQXLine (isQXNodeLine), anything
+                // else is a Surge/Loon "Name = type, …" line. buildQXNode
+                // accepts any key, so calling it first turned every Surge
+                // line into a bogus node typed after its display name.
+                let key = l[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
                 var dummy = NCImportReport()
-                if let qx = NCQXImport.buildQXNode(line: l, report: &dummy) {
-                    nodes.append(qx)
+                if Self.isQXNodeLine(key: key, value: l[l.index(after: eq)...]) {
+                    if let q = NCQXImport.buildQXNode(line: l, report: &dummy) { selfParsed.append(q); nQX += 1 }
                 } else if let parsed = NCConfImport.parseNamedNodeLine(l),
                           let surge = NCConfImport.buildSurgeLikeNode(name: parsed.name, positional: parsed.positional, kv: parsed.kv, order: parsed.order, report: &dummy) {
-                    nodes.append(surge)
+                    selfParsed.append(qx([surge])[0]); nSurge += 1
                 }
             }
         }
-        return dedup(nodes)
+        var kinds: [String] = []
+        if nURI > 0 { kinds.append("share links") }
+        if nQX > 0 { kinds.append("QX lines") }
+        if nSurge > 0 { kinds.append("Surge lines") }
+        let format = (base64 ? "base64 " : "") + (kinds.isEmpty ? "no node lines" : kinds.joined(separator: " + "))
+        return Parsed(nodes: dedup(selfParsed + uriParsed), format: format, qxTLSDefaulted: defaulted)
+    }
+
+    /// The QX `type=host:port, …` keywords routed to NCQXImport.buildQXNode. A deliberate SUPERSET of bridge
+    /// nodes qxTypes (shadowsocks, vmess, vless, trojan, http, socks5, anytls): it adds every other type
+    /// buildQXNode maps — `ss` (its shadowsocks alias), `snell` (psk / version), and `tuic` / `hysteria2`
+    /// (password / token / uuid / sni, as the Surge spelling maps them; other keys verbatim).
+    /// the old core sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
+    /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
+    static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
+                                           "snell", "tuic", "juicity", "hysteria2", "openconnect", "anyconnect", "masque", "sudoku"]
+
+    /// A `key=value` subscription line is QX-shaped when the key is a QX type keyword AND the value starts with
+    /// `host:port` (or `[v6]:port`) before its first comma. A Surge / Loon line is `Name = type, host, port, …`:
+    /// its value starts with a bare type word, so a Surge node whose NAME happens to be "snell" / "http" / "ss"
+    /// still goes to the Surge parser.
+    static func isQXNodeLine(key: String, value: Substring) -> Bool {
+        guard qxNodeTypes.contains(key) else { return false }
+        let head = value.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+        return head.contains(":")
+    }
+
+    /// the retired bridge tryB64: reject when the trimmed text still contains a
+    /// space or tab; strip CR/LF (line-wrapped blobs) before decoding.
+    private static func tryB64Text(_ s: String) -> String? {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty || t.contains(" ") || t.contains("\t") { return nil }
+        let stripped = t.replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+        guard let data = base64Decode(stripped) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// Parse nodes from text directly into dictionary representation.
@@ -80,14 +166,74 @@ enum NCSubscriptionParser {
         case "hysteria2", "hy2": return parseHysteria2(rest)
         case "hysteria": return parseHysteria1(rest)
         case "tuic": return parseTUIC(rest)
+        case "juicity": return parseJuicity(rest)
         case "wireguard", "wg": return parseWireGuard(rest, scheme: scheme)
         case "snell": return parseSnell(rest)
         case "ssh": return parseSSH(rest)
         case "socks", "socks5", "socks5h", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
         case "anytls": return parseAnyTLS(rest)
         case "mieru", "mierus": return parseMieru(rest)
-        default: return nil
+        case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
+        case "naive+https", "naive+quic", "naive", "http2", "http3": return parseNaiveH2H3(rest, scheme: scheme)
+        case "openconnect", "anyconnect": return parseOpenConnect(rest, scheme: scheme)
+        case "tt": return NCTrustTunnel.parseDeepLink(uri)
+        case "trusttunnel", "trust-tunnel": return NCTrustTunnel.parseURI(uri)
+        case "masque": return NCMASQUE.parseShadowrocket(uri)
+        case "sudoku": return parseSudoku(rest)
+        default:
+            // feat/nc-gost-relay: GOST relay (Clash.Meta `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
+            // and Shadowrocket's Relay links (relay://BASE64(user:pass@host:port)?tls=1&peer=…#name).
+            if scheme == "relay" || scheme.hasPrefix("relay+") || scheme == "gost-relay" || scheme == "gostrelay" {
+                return parseGostRelay(rest, scheme: scheme)
+            }
+            return nil
         }
+    }
+
+    private static func parseGostRelay(_ rest: String, scheme: String) -> NCProxy? {
+        let normalized = scheme.hasPrefix("gost") ? "relay" : scheme
+        guard let tr = NCGostRelay.schemeTransport(normalized) else { return nil }
+        var body = rest
+        let cut = body.firstIndex(where: { $0 == "?" || $0 == "#" }) ?? body.endIndex
+        let authority = String(body[..<cut])
+        if !authority.isEmpty, !authority.contains(":") {
+            // Shadowrocket: the whole user:pass@host:port is one base64 blob (a real authority always has ":").
+            let blob = authority.hasSuffix("/") ? String(authority.dropLast()) : authority
+            if let d = base64Decode(blob.removingPercentEncoding ?? blob), let text = String(data: d, encoding: .utf8),
+               text.contains(":") {
+                body = text.trimmingCharacters(in: .whitespacesAndNewlines) + String(body[cut...])
+            }
+        }
+        let p = splitParts(body)
+        guard !p.host.isEmpty, p.port > 0, p.port <= 65535 else { return nil }
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(p.port)),
+            "udp": .bool(true),
+        ]
+        if tr.tls { f["tls"] = .bool(true) }
+        if tr.ws { f["network"] = .string("ws") }
+        if tr.mux { f["mux"] = .bool(true) }
+        if !p.userinfo.isEmpty {
+            var ui = p.userinfo
+            if !ui.contains(":"), let decoded = base64Decode(ui),
+               let s = String(data: decoded, encoding: .utf8), s.contains(":") {
+                ui = s
+            }
+            let creds = ui.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            let user = String(creds[0]).removingPercentEncoding ?? String(creds[0])
+            if !user.isEmpty { f["username"] = .string(user) }
+            if creds.count > 1 {
+                let pass = String(creds[1]).removingPercentEncoding ?? String(creds[1])
+                if !pass.isEmpty { f["password"] = .string(pass) }
+            }
+        }
+        var q: [String: String] = [:]
+        for (k, v) in p.query { q[k.lowercased()] = v }
+        NCGostRelay.applyParams(q, into: &f)
+        let remarks = q["remarks"] ?? ""
+        let name = !p.name.isEmpty ? p.name : (!remarks.isEmpty ? remarks : "relay \(p.host)")
+        return NCProxy(name: name, type: "gost-relay", fields: f)
     }
 
     /// Split `userinfo@host:port?query#name` (query/name optional).
@@ -173,7 +319,11 @@ enum NCSubscriptionParser {
 
     private static func ssNode(_ p: Parts, userinfo: String) -> NCProxy? {
         var ui = userinfo
-        if !ui.contains(":"), let decoded = base64Decode(ui), let s = String(data: decoded, encoding: .utf8) {
+        // the retired bridge: the base64 userinfo replaces the raw one only when
+        // the decoded text actually contains ":" (a bare method name that
+        // happens to base64-decode must not clobber the credentials).
+        if !ui.contains(":"), let decoded = base64Decode(ui),
+           let s = String(data: decoded, encoding: .utf8), s.contains(":") {
             ui = s
         }
         let kv = ui.split(separator: ":", maxSplits: 1)
@@ -184,10 +334,11 @@ enum NCSubscriptionParser {
             ("udp", .bool(true)),
         ])
         // SIP002 plugin query: "<binary>[;arg=value…]" — the binary name
-        // picks the plugin, the rest re-parses as a query string. Mirrors
-        // mihomo common/convert/converter.go so links from any client land
-        // in the same canonical shape as a mihomo YAML node.
-        if let plugin = p.query["plugin"], plugin.contains(";") {
+        // picks the plugin, the rest re-parses as a query string. A bare
+        // binary without ";" (plugin=obfs-local) is a plugin too. Mirrors
+        // Clash.Meta common/convert/converter so links from any client land
+        // in the same canonical shape as a Clash.Meta YAML node.
+        if let plugin = p.query["plugin"], !plugin.isEmpty {
             let parts = plugin.split(separator: ";")
             let binary = String(parts[0])
             var args: [String: String] = [:]
@@ -215,12 +366,36 @@ enum NCSubscriptionParser {
                 opts["mode"] = .string(arg("mode") ?? arg("obfs") ?? "websocket")
                 if let h = arg("host") ?? arg("obfs-host") { opts["host"] = .string(h) }
                 if let pa = arg("path") { opts["path"] = .string(pa) }
-                // mihomo detects the TLS flag with strings.Contains over the
+                // Clash.Meta detects the TLS flag with a substring check over the
                 // whole plugin value — kept for byte-for-byte parity with
                 // Libmihome on the same link.
                 if plugin.contains("tls") { opts["tls"] = .bool(true) }
+                if let eo = NCECHOpts.parse(query: args) {
+                    opts["ech-opts"] = .object(eo.toObject())
+                }
                 f["plugin-opts"] = .object(opts)
+            } else if binary.contains("cloak") || binary.contains("ck-client") {
+                f["plugin"] = .string("cloak")
+                if !args.isEmpty {
+                    f["plugin-opts"] = .object(args.mapValues { .string($0) })
+                }
+            } else if binary.contains("kcptun") {
+                f["plugin"] = .string("kcptun")
+                if !args.isEmpty {
+                    f["plugin-opts"] = .object(args.mapValues { .string($0) })
+                }
+            } else {
+                // Unknown binary: keep it verbatim with its parsed args
+                // instead of dropping the plugin on the floor.
+                f["plugin"] = .string(binary)
+                // Review #149 item 5: an unknown plugin's own `ech` arg is not ECH — kept verbatim, not reinterpreted.
+                if !args.isEmpty {
+                    f["plugin-opts"] = .object(args.mapValues { .string($0) })
+                }
             }
+        }
+        if p.query["uot"] == "1" || p.query["uot"] == "true" {
+            f["udp-over-tcp"] = .bool(true)
         }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "ss", fields: f)
@@ -246,20 +421,59 @@ enum NCSubscriptionParser {
             ("cipher", str(s("scy").isEmpty ? "auto" : s("scy"))),
             ("udp", .bool(true)),
         ])
-        let net = s("net")
+        let net = xhttpAlias(s("net"))
         if !net.isEmpty, net != "tcp" { f["network"] = .string(net) }
+        if net == "xhttp" {
+            // v2rayN vmess JSON: the xhttp mode rides in "type".
+            let t = s("type")
+            let mode = ["auto", "packet-up", "stream-up", "stream-one"].contains(t) ? t : ""
+            f["xhttp-opts"] = .object(xhttpOpts(path: s("path"), host: s("host"), mode: mode,
+                                                extra: s("extra").isEmpty ? nil : s("extra")))
+        }
         if s("tls") == "tls" {
             f["tls"] = .bool(true)
             if !s("sni").isEmpty { f["servername"] = .string(s("sni")) }
+            // the retired bridge alpn (comma-joined) and fp for vmess —
+            // read them back (alpn may also arrive as a JSON array).
+            if let arr = obj["alpn"] as? [Any], !arr.isEmpty {
+                f["alpn"] = .array(arr.map { .string(jStr($0)) })
+            } else if !s("alpn").isEmpty {
+                f["alpn"] = .array(s("alpn").split(separator: ",").map { .string(String($0)) })
+            }
+            if !s("fp").isEmpty { f["client-fingerprint"] = .string(s("fp")) }
         }
-        if net == "ws" {
+        if net == "ws" || net == "httpupgrade" {
             var opts: [String: NCJSONValue] = [:]
             if !s("path").isEmpty { opts["path"] = .string(s("path")) }
             if !s("host").isEmpty { opts["headers"] = .object(["Host": .string(s("host"))]) }
             f["ws-opts"] = .object(opts)
         }
+        if net == "h2" {
+            var opts: [String: NCJSONValue] = [:]
+            if !s("path").isEmpty { opts["path"] = .string(s("path")) }
+            if !s("host").isEmpty { opts["host"] = .array([.string(s("host"))]) }
+            f["h2-opts"] = .object(opts)
+        }
+        if net == "http" {
+            var opts: [String: NCJSONValue] = [:]
+            if !s("path").isEmpty { opts["path"] = .string(s("path")) }
+            if !s("host").isEmpty { opts["headers"] = .object(["Host": .string(s("host"))]) }
+            f["http-opts"] = .object(opts)
+        }
         if net == "grpc", !s("path").isEmpty {
             f["grpc-opts"] = .object(["grpc-service-name": .string(s("path"))])
+        }
+        if let echVal = obj["ech"] as? String ?? (obj["ech"] as? NSNumber)?.stringValue ?? (obj["ech-opts"] as? String) {
+            var eq: [String: String] = ["ech": echVal]
+            if let qsn = obj["ech-qsn"] as? String ?? obj["ech_qsn"] as? String ?? obj["query-server-name"] as? String {
+                eq["ech-qsn"] = qsn
+            }
+            if let opts = NCECHOpts.parse(query: eq) {
+                f["ech-opts"] = .object(opts.toObject())
+            }
+        } else if let echMap = obj["ech-opts"] as? [String: Any] ?? obj["ech_opts"] as? [String: Any],
+                  let opts = NCECHOpts(dictionary: echMap) {
+            f["ech-opts"] = .object(opts.toObject())
         }
         let name = s("ps").isEmpty ? "\(s("add")):\(port)" : s("ps")
         return NCProxy(name: name, type: "vmess", fields: f)
@@ -274,6 +488,12 @@ enum NCSubscriptionParser {
             ("uuid", str(p.userinfo)), ("udp", .bool(true)),
         ])
         if let flow = q["flow"] { f["flow"] = .string(flow) }
+        if let enc = q["encryption"] { f["encryption"] = .string(enc) }
+        if q["allowInsecure"] == "1" || q["allowInsecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
+        if let fp = q["fp"] { f["client-fingerprint"] = .string(fp) }
+        if let alpn = q["alpn"] {
+            f["alpn"] = .array(alpn.split(separator: ",").map { .string(String($0)) })
+        }
         let security = q["security"] ?? ""
         if security == "tls" || security == "reality" { f["tls"] = .bool(true) }
         if let sni = q["sni"] ?? q["peer"] { f["servername"] = .string(sni) }
@@ -283,16 +503,32 @@ enum NCSubscriptionParser {
             if let sid = q["sid"] { opts["short-id"] = .string(sid) }
             f["reality-opts"] = .object(opts)
         }
-        let net = q["type"] ?? "tcp"
+        let net = xhttpAlias(q["type"] ?? "tcp")
         if net != "tcp" { f["network"] = .string(net) }
-        if net == "ws" {
+        if net == "xhttp" { f["xhttp-opts"] = .object(xhttpOpts(path: q["path"], host: q["host"], mode: q["mode"], extra: q["extra"])) }
+        if net == "ws" || net == "httpupgrade" {
             var opts: [String: NCJSONValue] = [:]
             if let path = q["path"] { opts["path"] = .string(path) }
             if let host = q["host"] { opts["headers"] = .object(["Host": .string(host)]) }
             f["ws-opts"] = .object(opts)
         }
+        if net == "h2" {
+            var opts: [String: NCJSONValue] = [:]
+            if let path = q["path"] { opts["path"] = .string(path) }
+            if let host = q["host"] { opts["host"] = .array([.string(host)]) }
+            f["h2-opts"] = .object(opts)
+        }
+        if net == "http" {
+            var opts: [String: NCJSONValue] = [:]
+            if let path = q["path"] { opts["path"] = .string(path) }
+            if let host = q["host"] { opts["headers"] = .object(["Host": .string(host)]) }
+            f["http-opts"] = .object(opts)
+        }
         if net == "grpc", let svc = q["serviceName"] {
             f["grpc-opts"] = .object(["grpc-service-name": .string(svc)])
+        }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
         }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "vless", fields: f)
@@ -309,102 +545,597 @@ enum NCSubscriptionParser {
         ])
         if let sni = q["sni"] ?? q["peer"] { f["sni"] = .string(sni) }
         if q["allowInsecure"] == "1" || q["allowInsecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
-        let net = q["type"] ?? "tcp"
+        if let fp = q["fp"] { f["client-fingerprint"] = .string(fp) }
+        if let alpn = q["alpn"] {
+            f["alpn"] = .array(alpn.split(separator: ",").map { .string(String($0)) })
+        }
+        // the retired bridge security=reality&pbk&sid for trojan too.
+        if q["security"] == "reality" {
+            var opts: [String: NCJSONValue] = [:]
+            if let pbk = q["pbk"] { opts["public-key"] = .string(pbk) }
+            if let sid = q["sid"] { opts["short-id"] = .string(sid) }
+            f["reality-opts"] = .object(opts)
+        }
+        let net = xhttpAlias(q["type"] ?? "tcp")
         if net != "tcp" { f["network"] = .string(net) }
-        if net == "ws" {
+        if net == "xhttp" { f["xhttp-opts"] = .object(xhttpOpts(path: q["path"], host: q["host"], mode: q["mode"], extra: q["extra"])) }
+        if net == "ws" || net == "httpupgrade" {
             var opts: [String: NCJSONValue] = [:]
             if let path = q["path"] { opts["path"] = .string(path) }
             if let host = q["host"] { opts["headers"] = .object(["Host": .string(host)]) }
             f["ws-opts"] = .object(opts)
         }
+        if net == "h2" {
+            var opts: [String: NCJSONValue] = [:]
+            if let path = q["path"] { opts["path"] = .string(path) }
+            if let host = q["host"] { opts["host"] = .array([.string(host)]) }
+            f["h2-opts"] = .object(opts)
+        }
+        if net == "grpc", let svc = q["serviceName"] {
+            f["grpc-opts"] = .object(["grpc-service-name": .string(svc)])
+        }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "trojan", fields: f)
     }
 
+    // MARK: XHTTP share-link options (feat/nc-xhttp; Clash.Meta common/convert/v)
+
+    /// Xray's former name for the transport.
+    private static func xhttpAlias(_ net: String) -> String {
+        net.lowercased() == "splithttp" ? "xhttp" : net
+    }
+
+    /// xhttp-opts from a share link: path / host / mode, plus Xray's `extra` JSON mapped like Clash.Meta's
+    /// parseXHTTPExtra (headers, padding, placements, post sizing, xmux → reuse-settings, downloadSettings).
+    static func xhttpOpts(path: String?, host: String?, mode: String?, extra: String?) -> [String: NCJSONValue] {
+        var o: [String: NCJSONValue] = [:]
+        if let path, !path.isEmpty { o["path"] = .string(path) }
+        if let host, !host.isEmpty { o["host"] = .string(host) }
+        if let mode, !mode.isEmpty { o["mode"] = .string(mode) }
+        if let extra, !extra.isEmpty, let data = extra.data(using: .utf8),
+           let m = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            applyXHTTPExtra(m, into: &o)
+        }
+        return o
+    }
+
+    private static func xhttpReuse(_ x: [String: Any]) -> [String: NCJSONValue] {
+        var r: [String: NCJSONValue] = [:]
+        for (src, dst) in [("maxConnections", "max-connections"), ("maxConcurrency", "max-concurrency"),
+                           ("cMaxReuseTimes", "c-max-reuse-times"), ("hMaxRequestTimes", "h-max-request-times"),
+                           ("hMaxReusableSecs", "h-max-reusable-secs")] {
+            if let v = x[src] as? String, !v.isEmpty { r[dst] = .string(v) }
+            else if let n = x[src] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { r[dst] = .string(String(n.int64Value)) }
+        }
+        if let n = x["hKeepAlivePeriod"] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
+            r["h-keep-alive-period"] = .number(Double(n.intValue))
+        }
+        return r
+    }
+
+    private static func applyXHTTPExtra(_ e: [String: Any], into o: inout [String: NCJSONValue]) {
+        func str(_ k: String) -> String? { (e[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        func num(_ k: String) -> Int? {
+            guard let n = e[k] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+            return n.intValue
+        }
+        func flag(_ k: String) -> Bool? {
+            guard let n = e[k] as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+            return n.boolValue
+        }
+        if let h = e["headers"] as? [String: Any], !h.isEmpty { o["headers"] = .object(h.mapValues { NCJSONValue($0) }) }
+        if flag("noGRPCHeader") == true { o["no-grpc-header"] = .bool(true) }
+        if let v = str("xPaddingBytes") { o["x-padding-bytes"] = .string(v) }
+        if let v = flag("xPaddingObfsMode") { o["x-padding-obfs-mode"] = .bool(v) }
+        for (src, dst) in [("xPaddingKey", "x-padding-key"), ("xPaddingHeader", "x-padding-header"),
+                           ("xPaddingPlacement", "x-padding-placement"), ("xPaddingMethod", "x-padding-method"),
+                           ("uplinkHTTPMethod", "uplink-http-method"), ("sessionIDTable", "session-table"),
+                           ("seqPlacement", "seq-placement"), ("seqKey", "seq-key"),
+                           ("uplinkDataPlacement", "uplink-data-placement"), ("uplinkDataKey", "uplink-data-key")] {
+            if let v = str(src) { o[dst] = .string(v) }
+        }
+        if let v = str("sessionIDPlacement") ?? str("sessionPlacement") { o["session-placement"] = .string(v) }
+        if let v = str("sessionIDKey") ?? str("sessionKey") { o["session-key"] = .string(v) }
+        if let v = str("sessionIDLength") { o["session-length"] = .string(v) }
+        else if let n = num("sessionIDLength") { o["session-length"] = .string(String(n)) }
+        if let n = num("uplinkChunkSize") { o["uplink-chunk-size"] = .number(Double(n)) }
+        if let n = num("scMaxEachPostBytes") { o["sc-max-each-post-bytes"] = .number(Double(n)) }
+        if let n = num("scMinPostsIntervalMs") { o["sc-min-posts-interval-ms"] = .number(Double(n)) }
+        if let x = e["xmux"] as? [String: Any], !x.isEmpty {
+            let r = xhttpReuse(x)
+            if !r.isEmpty { o["reuse-settings"] = .object(r) }
+        }
+        if let d = e["downloadSettings"] as? [String: Any] {
+            var ds: [String: NCJSONValue] = [:]
+            if let a = d["address"] as? String, !a.isEmpty { ds["server"] = .string(a) }
+            if let p = d["port"] as? NSNumber, CFGetTypeID(p) != CFBooleanGetTypeID() { ds["port"] = .number(Double(p.intValue)) }
+            let sec = (d["security"] as? String ?? "").lowercased()
+            if sec == "tls" || sec == "reality" {
+                ds["tls"] = .bool(true)
+                if let t = d["tlsSettings"] as? [String: Any] {
+                    if let sn = t["serverName"] as? String, !sn.isEmpty { ds["servername"] = .string(sn) }
+                    if let fp = t["fingerprint"] as? String, !fp.isEmpty { ds["client-fingerprint"] = .string(fp) }
+                    if let a = t["alpn"] as? [Any] {
+                        let l = a.compactMap { $0 as? String }
+                        if !l.isEmpty { ds["alpn"] = .array(l.map { .string($0) }) }
+                    }
+                    if let b = t["allowInsecure"] as? NSNumber, CFGetTypeID(b) == CFBooleanGetTypeID(), b.boolValue {
+                        ds["skip-cert-verify"] = .bool(true)
+                    }
+                }
+                if sec == "reality", let r = d["realitySettings"] as? [String: Any] {
+                    var ro: [String: NCJSONValue] = [:]
+                    if let pk = r["publicKey"] as? String, !pk.isEmpty { ro["public-key"] = .string(pk) }
+                    if let sid = r["shortId"] as? String, !sid.isEmpty { ro["short-id"] = .string(sid) }
+                    if !ro.isEmpty { ds["reality-opts"] = .object(ro) }
+                }
+            }
+            if let x = d["xhttpSettings"] as? [String: Any] {
+                if let p = x["path"] as? String, !p.isEmpty { ds["path"] = .string(p) }
+                if let h = x["host"] as? String, !h.isEmpty { ds["host"] = .string(h) }
+                if let h = x["headers"] as? [String: Any], !h.isEmpty { ds["headers"] = .object(h.mapValues { NCJSONValue($0) }) }
+                if let ex = x["extra"] as? [String: Any], let xm = ex["xmux"] as? [String: Any], !xm.isEmpty {
+                    let r = xhttpReuse(xm)
+                    if !r.isEmpty { ds["reuse-settings"] = .object(r) }
+                }
+            }
+            if !ds.isEmpty { o["download-settings"] = .object(ds) }
+        }
+    }
+
+    /// The raw port token of a URI authority (splitParts only keeps the Int,
+    /// which port-hopping lists like "443,8443-8449" cannot survive).
+    private static func rawPortToken(_ rest: String) -> String {
+        var s = rest
+        if let h = s.firstIndex(of: "#") { s = String(s[..<h]) }
+        if let q = s.firstIndex(of: "?") { s = String(s[..<q]) }
+        if let sl = s.firstIndex(of: "/") { s = String(s[..<sl]) }
+        if let at = s.lastIndex(of: "@") { s = String(s[s.index(after: at)...]) }
+        if s.hasPrefix("[") { return "" }
+        guard let c = s.lastIndex(of: ":") else { return "" }
+        return String(s[s.index(after: c)...])
+    }
+
     private static func parseHysteria2(_ rest: String) -> NCProxy? {
         let p = splitParts(rest)
-        guard !p.host.isEmpty, p.port > 0 else { return nil }
         let q = p.query
+        // the retired bridge host:<ports> verbatim for hy2 (port hopping);
+        // splitParts' Int() drops such nodes entirely. Recover: first port is
+        // the dial port, the raw list lands in "ports".
+        var port = p.port
+        var portsField: String?
+        if port == 0 {
+            let token = rawPortToken(rest)
+            if token.contains(",") || token.contains("-") {
+                portsField = token
+                let firstSeg = token.split(separator: ",").first.map(String.init) ?? ""
+                port = Int(firstSeg.split(separator: "-").first.map(String.init) ?? "") ?? 0
+            }
+        }
+        if let mp = q["mport"] ?? q["ports"] { portsField = mp }
+        guard !p.host.isEmpty, port > 0 else { return nil }
         var f = fields([
-            ("server", str(p.host)), ("port", .number(Double(p.port))),
+            ("server", str(p.host)), ("port", .number(Double(port))),
             ("password", str(p.userinfo.removingPercentEncoding ?? p.userinfo)),
         ])
+        if let portsField { f["ports"] = .string(portsField) }
         if let sni = q["sni"] { f["sni"] = .string(sni) }
         if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
         if let obfs = q["obfs"] { f["obfs"] = .string(obfs) }
         if let obfsPwd = q["obfs-password"] { f["obfs-password"] = .string(obfsPwd) }
-        let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
+        if let alpn = q["alpn"] {
+            f["alpn"] = .array(alpn.split(separator: ",").map { .string(String($0)) })
+        }
+        if let pin = q["pinSHA256"] { f["fingerprint"] = .string(pin) }
+        if let up = q["up"] { f["up"] = .string(up) }
+        if let down = q["down"] { f["down"] = .string(down) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
+        let name = p.name.isEmpty ? "\(p.host):\(port)" : p.name
         return NCProxy(name: name, type: "hysteria2", fields: f)
     }
 
     private static func parseTUIC(_ rest: String) -> NCProxy? {
         let p = splitParts(rest)
         let creds = p.userinfo.split(separator: ":", maxSplits: 1)
-        guard !p.host.isEmpty, p.port > 0, creds.count == 2 else { return nil }
+        guard !p.host.isEmpty, p.port > 0, !creds.isEmpty else { return nil }
         let q = p.query
         var f = fields([
             ("server", str(p.host)), ("port", .number(Double(p.port))),
-            ("uuid", str(String(creds[0]))),
-            ("password", str(String(creds[1]).removingPercentEncoding ?? String(creds[1]))),
         ])
+        if creds.count == 2 {
+            f["uuid"] = str(String(creds[0]))
+            f["password"] = str(String(creds[1]).removingPercentEncoding ?? String(creds[1]))
+        } else {
+            // Token-only form: the retired bridge the token alone as
+            // userinfo when uuid is empty — read it back as "token".
+            f["token"] = str(p.userinfo.removingPercentEncoding ?? p.userinfo)
+        }
         if let sni = q["sni"] { f["sni"] = .string(sni) }
         if let cc = q["congestion_control"] { f["congestion-controller"] = .string(cc) }
         if let alpn = q["alpn"] { f["alpn"] = .array(alpn.split(separator: ",").map { .string(String($0)) }) }
+        if let urm = q["udp_relay_mode"] { f["udp-relay-mode"] = .string(urm) }
+        if q["disable_sni"] == "1" || q["disable_sni"] == "true" { f["disable-sni"] = .bool(true) }
         if q["allow_insecure"] == "1" || q["allowInsecure"] == "1" { f["skip-cert-verify"] = .bool(true) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
         let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
         return NCProxy(name: name, type: "tuic", fields: f)
+    }
+
+    private static func parseJuicity(_ rest: String) -> NCProxy? {
+        let p = splitParts(rest)
+        let creds = p.userinfo.split(separator: ":", maxSplits: 1)
+        guard !p.host.isEmpty, p.port > 0, !creds.isEmpty else { return nil }
+        let q = p.query
+        var f = fields([
+            ("server", str(p.host)), ("port", .number(Double(p.port))),
+        ])
+        if creds.count == 2 {
+            f["uuid"] = str(String(creds[0]))
+            f["password"] = str(String(creds[1]).removingPercentEncoding ?? String(creds[1]))
+        } else {
+            let u = q["uuid"] ?? q["user"] ?? String(creds[0])
+            let pw = q["password"] ?? ""
+            f["uuid"] = str(u)
+            if !pw.isEmpty { f["password"] = str(pw) }
+        }
+        if let u = q["uuid"] ?? q["user"], f["uuid"] == nil { f["uuid"] = str(u) }
+        if let pw = q["password"], f["password"] == nil { f["password"] = str(pw) }
+
+        let sni = q["sni"] ?? q["peer"]
+        if let sni, !sni.isEmpty { f["sni"] = .string(sni) }
+        let cc = q["congestion_control"] ?? q["congestion-controller"] ?? q["congestion-control"]
+        if let cc, !cc.isEmpty { f["congestion-controller"] = .string(cc) }
+        if let alpn = q["alpn"] {
+            let parts = alpn.replacingOccurrences(of: "|", with: ",").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+            f["alpn"] = .array(parts.map { .string($0) })
+        }
+        if let pin = q["pinned_certchain_sha256"] ?? q["pinned-certchain-sha256"] ?? q["pinned-peer-cert-sha256"] ?? q["pinSHA256"] {
+            f["pinned-certchain-sha256"] = .string(pin)
+        }
+        if let urm = q["udp_relay_mode"] ?? q["udp-relay-mode"] { f["udp-relay-mode"] = .string(urm) }
+        if q["disable_sni"] == "1" || q["disable_sni"] == "true" || q["disable-sni"] == "1" || q["disable-sni"] == "true" {
+            f["disable-sni"] = .bool(true)
+        }
+        if q["allow_insecure"] == "1" || q["allowInsecure"] == "1" || q["insecure"] == "1" || q["skip-cert-verify"] == "true" {
+            f["skip-cert-verify"] = .bool(true)
+        }
+        f["udp"] = .bool(true)
+        let name = p.name.isEmpty ? "\(p.host):\(p.port)" : p.name
+        return NCProxy(name: name, type: "juicity", fields: f)
+    }
+
+    // the retired bridge strOf/intOf/boolOf over decoded JSON values.
+    private static func jStr(_ v: Any?) -> String { v as? String ?? "" }
+    private static func jInt(_ v: Any?) -> Int {
+        if let n = v as? NSNumber { return n.intValue }
+        if let s = v as? String { return Int(s) ?? 0 }
+        return 0
+    }
+    private static func jBool(_ v: Any?) -> Bool {
+        if let b = v as? Bool { return b }
+        if let n = v as? NSNumber { return n.boolValue }
+        return false
     }
 
     private static func parseJSONNodes(_ text: String) -> [NCProxy]? {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard t.hasPrefix("{") || t.hasPrefix("["),
               let data = t.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              let root = try? JSONSerialization.jsonObject(with: data) else {
             return nil
         }
         // SIP008: {"servers": [...]}
-        if let servers = json["servers"] as? [[String: Any]] {
-            var proxies: [NCProxy] = []
-            for s in servers {
-                let server = s["server"] as? String ?? ""
-                let port = (s["server_port"] as? NSNumber)?.intValue ?? (s["port"] as? NSNumber)?.intValue ?? 0
-                let method = s["method"] as? String ?? s["cipher"] as? String ?? ""
-                let password = s["password"] as? String ?? ""
-                guard !server.isEmpty, port > 0, !method.isEmpty, !password.isEmpty else { continue }
-                let name = s["remarks"] as? String ?? s["tag"] as? String ?? "\(server):\(port)"
-                var f: [String: NCJSONValue] = [
-                    "server": .string(server),
-                    "port": .number(Double(port)),
-                    "cipher": .string(method),
-                    "password": .string(password),
-                    "udp": .bool(true)
-                ]
-                if let plugin = s["plugin"] as? String {
-                    f["plugin"] = .string(plugin)
-                    if let opts = s["plugin_opts"] as? [String: Any] {
-                        f["plugin-opts"] = .object(opts.mapValues { NCJSONValue($0) })
+        if let json = root as? [String: Any], let servers = json["servers"] as? [[String: Any]] {
+            let proxies = servers.compactMap { sip008Node($0) }
+            return proxies.isEmpty ? nil : proxies
+        }
+        // sing-box: {"outbounds": [...]} or a bare outbound array.
+        var outbounds: [[String: Any]]?
+        if let json = root as? [String: Any] { outbounds = json["outbounds"] as? [[String: Any]] }
+        if outbounds == nil, let arr = root as? [[String: Any]] { outbounds = arr }
+        guard let outbounds else { return nil }
+        let proxies = outbounds.compactMap { singBoxNode($0) }
+        return proxies.isEmpty ? nil : proxies
+    }
+
+    /// the retired bridge sip008: only an empty server drops the entry;
+    /// name falls back remarks → id → server; plugin_opts is a ";" separated
+    /// string parsed into opts; the plugin name is normalized (obfs /
+    /// v2ray-plugin with default mode, otherwise kept raw).
+    private static func sip008Node(_ s: [String: Any]) -> NCProxy? {
+        let server = jStr(s["server"])
+        guard !server.isEmpty else { return nil }
+        let remarks = jStr(s["remarks"]), ident = jStr(s["id"])
+        let name = !remarks.isEmpty ? remarks : (!ident.isEmpty ? ident : server)
+        var f: [String: NCJSONValue] = [
+            "server": .string(server),
+            "port": .number(Double(jInt(s["server_port"]))),
+            "cipher": .string(jStr(s["method"])),
+            "password": .string(jStr(s["password"])),
+            "udp": .bool(true),
+        ]
+        let plugin = jStr(s["plugin"])
+        if !plugin.isEmpty {
+            var opts: [String: NCJSONValue] = [:]
+            for kv in jStr(s["plugin_opts"]).split(separator: ";", omittingEmptySubsequences: false) {
+                let pair = kv.split(separator: "=", maxSplits: 1)
+                let k = String(pair[0]).trimmingCharacters(in: .whitespaces)
+                let v = pair.count > 1 ? String(pair[1]).trimmingCharacters(in: .whitespaces) : ""
+                switch k {
+                case "obfs": opts["mode"] = .string(v)
+                case "obfs-host", "host": opts["host"] = .string(v)
+                case "path": opts["path"] = .string(v)
+                case "tls": opts["tls"] = .bool(true)
+                case "mode": opts["mode"] = .string(v)
+                case "ech":
+                    if let eo = NCECHOpts.parse(query: ["ech": v]) {
+                        opts["ech-opts"] = .object(eo.toObject())
                     }
+                default:
+                    if !k.isEmpty { opts[k] = .string(v) }
                 }
-                proxies.append(NCProxy(name: name, type: "ss", fields: f))
             }
-            return proxies.isEmpty ? nil : proxies
+            if plugin.contains("obfs") {
+                f["plugin"] = .string("obfs")
+            } else if plugin.contains("v2ray") {
+                f["plugin"] = .string("v2ray-plugin")
+                if opts["mode"] == nil { opts["mode"] = .string("websocket") }
+            } else if plugin.contains("cloak") || plugin.contains("ck-client") {
+                f["plugin"] = .string("cloak")
+            } else if plugin.contains("kcptun") {
+                f["plugin"] = .string("kcptun")
+            } else {
+                f["plugin"] = .string(plugin)
+            }
+            f["plugin-opts"] = .object(opts)
         }
-        // sing-box: {"outbounds": [...]}
-        if let outbounds = json["outbounds"] as? [[String: Any]] {
-            var proxies: [NCProxy] = []
-            for o in outbounds {
-                guard let typ = o["type"] as? String, typ != "direct", typ != "block", typ != "dns" else { continue }
-                let name = o["tag"] as? String ?? o["name"] as? String ?? "\(typ)"
-                var f: [String: NCJSONValue] = [:]
-                for (k, v) in o {
-                    if k == "tag" || k == "type" { continue }
-                    f[k] = NCJSONValue(v)
+        if let eo = s["ech-opts"] as? [String: Any], let opts = NCECHOpts(dictionary: eo) {
+            f["ech-opts"] = .object(opts.toObject())
+        }
+        return NCProxy(name: name, type: "ss", fields: f)
+    }
+
+    /// the retired bridge singBoxOutbound + singBoxTLS + singBoxTransport.
+    /// Types outside the mapped set (selector / urltest / direct / …) drop.
+    private static func singBoxNode(_ o: [String: Any]) -> NCProxy? {
+        let server = jStr(o["server"])
+        guard !server.isEmpty else { return nil }
+        let tag = jStr(o["tag"])
+        let name = tag.isEmpty ? server : tag
+        var f: [String: NCJSONValue] = [
+            "server": .string(server),
+            "port": .number(Double(jInt(o["server_port"]))),
+        ]
+        let typ: String
+        switch jStr(o["type"]) {
+        case "shadowsocks":
+            typ = "ss"
+            f["cipher"] = .string(jStr(o["method"]))
+            f["password"] = .string(jStr(o["password"]))
+            f["udp"] = .bool(true)
+            if !jStr(o["plugin"]).isEmpty,
+               let sp = sip008Node(["server": server, "plugin": jStr(o["plugin"]),
+                                    "plugin_opts": jStr(o["plugin_opts"])]) {
+                if let pl = sp.fields["plugin"] { f["plugin"] = pl }
+                if let po = sp.fields["plugin-opts"] { f["plugin-opts"] = po }
+            }
+        case "vmess":
+            typ = "vmess"
+            f["uuid"] = .string(jStr(o["uuid"]))
+            f["alterId"] = .number(Double(jInt(o["alter_id"])))
+            let sec = jStr(o["security"])
+            f["cipher"] = .string(sec.isEmpty ? "auto" : sec)
+            f["udp"] = .bool(true)
+        case "vless":
+            typ = "vless"
+            f["uuid"] = .string(jStr(o["uuid"]))
+            if !jStr(o["flow"]).isEmpty { f["flow"] = .string(jStr(o["flow"])) }
+            f["udp"] = .bool(true)
+        case "trojan":
+            typ = "trojan"
+            f["password"] = .string(jStr(o["password"]))
+            f["udp"] = .bool(true)
+        case "hysteria2":
+            typ = "hysteria2"
+            f["password"] = .string(jStr(o["password"]))
+            if let obfs = o["obfs"] as? [String: Any], !jStr(obfs["type"]).isEmpty {
+                f["obfs"] = .string(jStr(obfs["type"]))
+                f["obfs-password"] = .string(jStr(obfs["password"]))
+            }
+            if jInt(o["up_mbps"]) > 0 { f["up"] = .string("\(jInt(o["up_mbps"])) Mbps") }
+            if jInt(o["down_mbps"]) > 0 { f["down"] = .string("\(jInt(o["down_mbps"])) Mbps") }
+        case "tuic":
+            typ = "tuic"
+            f["uuid"] = .string(jStr(o["uuid"]))
+            f["password"] = .string(jStr(o["password"]))
+            if !jStr(o["congestion_control"]).isEmpty { f["congestion-controller"] = .string(jStr(o["congestion_control"])) }
+            if !jStr(o["udp_relay_mode"]).isEmpty { f["udp-relay-mode"] = .string(jStr(o["udp_relay_mode"])) }
+        case "juicity":
+            typ = "juicity"
+            f["uuid"] = .string(jStr(o["uuid"]))
+            f["password"] = .string(jStr(o["password"]))
+            if !jStr(o["congestion_control"]).isEmpty { f["congestion-controller"] = .string(jStr(o["congestion_control"])) }
+            if !jStr(o["pinned_certchain_sha256"]).isEmpty { f["pinned-certchain-sha256"] = .string(jStr(o["pinned_certchain_sha256"])) }
+            f["udp"] = .bool(true)
+        case "anytls":
+            typ = "anytls"
+            f["password"] = .string(jStr(o["password"]))
+            f["udp"] = .bool(true)
+        case "socks":
+            typ = "socks5"
+            if !jStr(o["username"]).isEmpty {
+                f["username"] = .string(jStr(o["username"]))
+                f["password"] = .string(jStr(o["password"]))
+            }
+            f["udp"] = .bool(true)
+        case "http":
+            typ = "http"
+            if !jStr(o["username"]).isEmpty {
+                f["username"] = .string(jStr(o["username"]))
+                f["password"] = .string(jStr(o["password"]))
+            }
+        case "naive":
+            // sing-box 1.13 naive outbound (feat/nc-naive-h2h3).
+            typ = "naive"
+            if !jStr(o["username"]).isEmpty { f["username"] = .string(jStr(o["username"])) }
+            if !jStr(o["password"]).isEmpty { f["password"] = .string(jStr(o["password"])) }
+            if jBool(o["quic"]) { f["quic"] = .bool(true) }
+            if jInt(o["insecure_concurrency"]) > 0 { f["insecure-concurrency"] = .number(Double(jInt(o["insecure_concurrency"]))) }
+            if let h = o["extra_headers"] as? [String: Any], !h.isEmpty { f["extra-headers"] = NCJSONValue(h) }
+            if o["udp_over_tcp"] is [String: Any] || jBool(o["udp_over_tcp"]) {
+                f["udp-over-tcp"] = .bool(true)
+                f["udp"] = .bool(true)
+            }
+            if let tls = o["tls"] as? [String: Any], !jStr(tls["server_name"]).isEmpty {
+                f["sni"] = .string(jStr(tls["server_name"]))
+            }
+        case "ssh":
+            typ = "ssh"
+            let user = jStr(o["user"])
+            f["username"] = .string(user.isEmpty ? "root" : user)
+            if !jStr(o["password"]).isEmpty { f["password"] = .string(jStr(o["password"])) }
+            if !jStr(o["private_key"]).isEmpty { f["private-key"] = .string(jStr(o["private_key"])) }
+        case "wireguard":
+            typ = "wireguard"
+            f["private-key"] = .string(jStr(o["private_key"]))
+            f["public-key"] = .string(jStr(o["peer_public_key"]))
+            if !jStr(o["pre_shared_key"]).isEmpty { f["pre-shared-key"] = .string(jStr(o["pre_shared_key"])) }
+            if let addrs = o["local_address"] as? [Any] {
+                for a in addrs {
+                    let s = jStr(a).split(separator: "/", maxSplits: 1).first.map(String.init) ?? ""
+                    if s.contains(":") { f["ipv6"] = .string(s) }
+                    else if f["ip"] == nil { f["ip"] = .string(s) }
                 }
-                proxies.append(NCProxy(name: name, type: typ, fields: f))
             }
-            return proxies.isEmpty ? nil : proxies
+            if jInt(o["mtu"]) > 0 { f["mtu"] = .number(Double(jInt(o["mtu"]))) }
+            f["udp"] = .bool(true)
+        case "trusttunnel", "trust-tunnel":
+            typ = "trusttunnel"
+            if !jStr(o["username"]).isEmpty { f["username"] = .string(jStr(o["username"])) }
+            if !jStr(o["password"]).isEmpty { f["password"] = .string(jStr(o["password"])) }
+            if let quic = o["quic"] as? Bool { f["quic"] = .bool(quic) }
+            f["udp"] = .bool(o["udp"] as? Bool ?? true)
+        default:
+            return nil
         }
-        return nil
+        applySingBoxTLS(&f, outbound: o, mappedType: typ)
+        applySingBoxTransport(&f, outbound: o)
+        return NCProxy(name: name, type: typ, fields: f)
+    }
+
+    private static func applySingBoxTLS(_ f: inout [String: NCJSONValue], outbound o: [String: Any], mappedType typ: String) {
+        guard let tls = o["tls"] as? [String: Any], jBool(tls["enabled"]) else { return }
+        if typ == "vmess" || typ == "vless" || typ == "http" || typ == "socks5" {
+            f["tls"] = .bool(true)
+        }
+        let sn = jStr(tls["server_name"])
+        if !sn.isEmpty {
+            if typ == "vmess" || typ == "vless" { f["servername"] = .string(sn) } else { f["sni"] = .string(sn) }
+        }
+        if jBool(tls["insecure"]) { f["skip-cert-verify"] = .bool(true) }
+        if let alpn = tls["alpn"] as? [Any], !alpn.isEmpty {
+            f["alpn"] = .array(alpn.map { .string(jStr($0)) })
+        }
+        if let utls = tls["utls"] as? [String: Any], jBool(utls["enabled"]), !jStr(utls["fingerprint"]).isEmpty {
+            f["client-fingerprint"] = .string(jStr(utls["fingerprint"]))
+        }
+        if let reality = tls["reality"] as? [String: Any], jBool(reality["enabled"]) {
+            f["reality-opts"] = .object([
+                "public-key": .string(jStr(reality["public_key"])),
+                "short-id": .string(jStr(reality["short_id"])),
+            ])
+            if f["client-fingerprint"] == nil { f["client-fingerprint"] = .string("chrome") }
+        }
+        if let ech = tls["ech"] as? [String: Any], jBool(ech["enabled"]) {
+            var echFields: [String: NCJSONValue] = ["enable": .bool(true)]
+            if let cfg = normalizeSingBoxECHConfig(ech["config"]) {
+                echFields["config"] = .string(cfg)
+            }
+            if let qsn = ech["query_server_name"] as? String ?? ech["query-server-name"] as? String, !qsn.isEmpty {
+                echFields["query-server-name"] = .string(qsn)
+            }
+            f["ech-opts"] = .object(echFields)
+        }
+    }
+
+    /// Extract and normalize sing-box ECH config.
+    /// Handles multiline PEM blocks (single string or array of lines) and bare base64.
+    /// When PEM header `-----BEGIN ECH CONFIGS-----` is present, extracts body between BEGIN and END,
+    /// concatenates lines, and validates base64.
+    /// For bare base64, joins and strips whitespace. Stored as base64 string per NCECHOpts convention.
+    static func normalizeSingBoxECHConfig(_ raw: Any?) -> String? {
+        guard let raw else { return nil }
+        let rawText: String
+        if let arr = raw as? [String] {
+            rawText = arr.joined(separator: "\n")
+        } else if let arr = raw as? [Any] {
+            rawText = arr.compactMap { $0 as? String }.joined(separator: "\n")
+        } else if let str = raw as? String {
+            rawText = str
+        } else {
+            return nil
+        }
+
+        let beginMarker = "-----BEGIN ECH CONFIGS-----"
+        let endMarker = "-----END ECH CONFIGS-----"
+
+        if rawText.contains(beginMarker) {
+            guard let beginRange = rawText.range(of: beginMarker) else { return nil }
+            let afterBegin = rawText[beginRange.upperBound...]
+            let bodyText: Substring
+            if let endRange = afterBegin.range(of: endMarker) {
+                bodyText = afterBegin[..<endRange.lowerBound]
+            } else {
+                bodyText = afterBegin
+            }
+            let cleaned = bodyText.components(separatedBy: .whitespacesAndNewlines).joined()
+            guard !cleaned.isEmpty else { return nil }
+            guard let data = Data(base64Encoded: cleaned) ?? Data(base64Encoded: NCECHOpts.fromBase64URL(cleaned)),
+                  !data.isEmpty else {
+                return nil
+            }
+            return cleaned
+        } else {
+            let cleaned = rawText.components(separatedBy: .whitespacesAndNewlines).joined()
+            guard !cleaned.isEmpty else { return nil }
+            return cleaned
+        }
+    }
+
+    private static func applySingBoxTransport(_ f: inout [String: NCJSONValue], outbound o: [String: Any]) {
+        guard let tr = o["transport"] as? [String: Any] else { return }
+        let path = jStr(tr["path"]).isEmpty ? "/" : jStr(tr["path"])
+        switch jStr(tr["type"]) {
+        case "ws":
+            f["network"] = .string("ws")
+            var ws: [String: NCJSONValue] = ["path": .string(path)]
+            if let h = tr["headers"] as? [String: Any], !h.isEmpty {
+                ws["headers"] = .object(h.mapValues { NCJSONValue($0) })
+            }
+            f["ws-opts"] = .object(ws)
+        case "grpc":
+            f["network"] = .string("grpc")
+            f["grpc-opts"] = .object(["grpc-service-name": .string(jStr(tr["service_name"]))])
+        case "http":
+            f["network"] = .string("h2")
+            var h2: [String: NCJSONValue] = ["path": .string(path)]
+            if let hosts = tr["host"] as? [Any], !hosts.isEmpty {
+                h2["host"] = .array(hosts.map { .string(jStr($0)) })
+            }
+            f["h2-opts"] = .object(h2)
+        case "httpupgrade":
+            f["network"] = .string("ws")
+            f["ws-opts"] = .object(["path": .string(path), "v2ray-http-upgrade": .bool(true)])
+        default:
+            break
+        }
     }
 
     private static func parseSSR(_ rest: String) -> NCProxy? {
@@ -451,64 +1182,87 @@ enum NCSubscriptionParser {
     }
 
     private static func parseWireGuard(_ rest: String, scheme: String) -> NCProxy? {
+        // the retired bridge parseWireGuard: both keys are REQUIRED; alias sets
+        // and defaults (ip 172.16.0.2, mtu fallback 1408, reserved raw-string
+        // fallback) follow the old core parser exactly.
         let p = splitParts(rest)
         let q = p.query
         let server = p.host
         let port = p.port > 0 ? p.port : 51820
         guard !server.isEmpty else { return nil }
-
-        let privKey = !p.userinfo.isEmpty ? (p.userinfo.removingPercentEncoding ?? p.userinfo) : (q["pk"] ?? q["private-key"] ?? "")
-        let pubKey = q["publickey"] ?? q["peer_pk"] ?? q["public-key"] ?? ""
-        let psk = q["presharedkey"] ?? q["psk"] ?? q["pre-shared-key"]
-        let addr = q["address"] ?? q["local_address"] ?? q["ip"]
-        let reserved = q["reserved"]
-        let mtu = q["mtu"].flatMap { Int($0) }
+        func firstQ(_ keys: [String]) -> String {
+            for k in keys { if let v = q[k], !v.isEmpty { return v } }
+            return ""
+        }
+        var privKey = !p.userinfo.isEmpty ? (p.userinfo.removingPercentEncoding ?? p.userinfo) : ""
+        if privKey.isEmpty {
+            privKey = firstQ(["privatekey", "private_key", "private-key", "secretKey", "pk"])
+        }
+        let pubKey = firstQ(["publickey", "public_key", "public-key", "peer_public_key", "peer_pk", "peerPublicKey"])
+        guard !privKey.isEmpty, !pubKey.isEmpty else { return nil }
 
         var f: [String: NCJSONValue] = [
             "server": .string(server),
             "port": .number(Double(port)),
+            "private-key": .string(privKey),
+            "public-key": .string(pubKey),
             "udp": .bool(true)
         ]
-        if !privKey.isEmpty { f["private-key"] = .string(privKey) }
-        if !pubKey.isEmpty { f["public-key"] = .string(pubKey) }
-        if let psk, !psk.isEmpty { f["pre-shared-key"] = .string(psk) }
-        if let addr, !addr.isEmpty {
+        let addr = firstQ(["address", "ip", "local_address", "localAddress", "ips"])
+        if !addr.isEmpty {
             for part in addr.components(separatedBy: ",") {
                 let trimmed = part.trimmingCharacters(in: .whitespaces)
-                if trimmed.contains(":") {
-                    f["ipv6"] = .string(trimmed.components(separatedBy: "/")[0])
-                } else if !trimmed.isEmpty {
-                    f["ip"] = .string(trimmed.components(separatedBy: "/")[0])
-                }
+                if trimmed.isEmpty { continue }
+                let ip = trimmed.components(separatedBy: "/")[0]
+                if ip.contains(":") { f["ipv6"] = .string(ip) } else { f["ip"] = .string(ip) }
             }
         }
-        if let reserved, !reserved.isEmpty {
-            f["reserved"] = .array(reserved.components(separatedBy: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }.map { .number(Double($0)) })
+        if f["ip"] == nil { f["ip"] = .string("172.16.0.2") }
+        let psk = firstQ(["presharedkey", "pre_shared_key", "preshared_key", "psk"])
+        if !psk.isEmpty { f["pre-shared-key"] = .string(psk) }
+        if let reserved = q["reserved"], !reserved.isEmpty {
+            let nums = reserved.components(separatedBy: ",").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if nums.count == 3 {
+                f["reserved"] = .array(nums.map { .number(Double($0)) })
+            } else {
+                f["reserved"] = .string(reserved)
+            }
         }
-        if let mtu { f["mtu"] = .number(Double(mtu)) }
+        if let mtuStr = q["mtu"], !mtuStr.isEmpty {
+            f["mtu"] = .number(Double(Int(mtuStr) ?? 1408))
+        }
 
-        let name = p.name.isEmpty ? "wireguard \(server)" : p.name
+        let name = p.name.isEmpty ? "WireGuard \(server)" : p.name
         return NCProxy(name: name, type: "wireguard", fields: f)
     }
 
     private static func parseSnell(_ rest: String) -> NCProxy? {
+        // the retired bridge parseSnell: psk required (userinfo username or
+        // ?psk=), port defaults 443, version always written (default 4),
+        // obfs "none"/absent produces no obfs-opts, host key always present.
         let p = splitParts(rest)
-        guard !p.host.isEmpty, p.port > 0 else { return nil }
-        let psk = p.userinfo.removingPercentEncoding ?? p.userinfo
+        guard !p.host.isEmpty else { return nil }
         let q = p.query
+        var psk = String(p.userinfo.split(separator: ":", maxSplits: 1).first ?? "")
+        psk = psk.removingPercentEncoding ?? psk
+        if psk.isEmpty { psk = q["psk"] ?? "" }
+        guard !psk.isEmpty else { return nil }
+        let port = p.port > 0 ? p.port : 443
         var f: [String: NCJSONValue] = [
             "server": .string(p.host),
-            "port": .number(Double(p.port)),
+            "port": .number(Double(port)),
             "psk": .string(psk),
+            "version": .number(Double((q["version"].flatMap { Int($0) }) ?? 4)),
             "udp": .bool(true)
         ]
-        if let ver = q["version"], let v = Int(ver) { f["version"] = .number(Double(v)) }
-        var obfsOpts: [String: NCJSONValue] = [:]
-        if let mode = q["obfs"] { obfsOpts["mode"] = .string(mode) }
-        if let host = q["obfs-host"] { obfsOpts["host"] = .string(host) }
-        if !obfsOpts.isEmpty { f["obfs-opts"] = .object(obfsOpts) }
+        if let mode = q["obfs"], !mode.isEmpty, mode != "none" {
+            f["obfs-opts"] = .object([
+                "mode": .string(mode),
+                "host": .string(q["obfs-host"] ?? q["host"] ?? ""),
+            ])
+        }
 
-        let name = p.name.isEmpty ? "snell \(p.host)" : p.name
+        let name = p.name.isEmpty ? "Snell \(p.host)" : p.name
         return NCProxy(name: name, type: "snell", fields: f)
     }
 
@@ -529,6 +1283,10 @@ enum NCSubscriptionParser {
         if username.isEmpty { username = q["user"] ?? q["username"] ?? "" }
         if password.isEmpty { password = q["password"] ?? q["pass"] ?? "" }
         guard !username.isEmpty else { return nil }
+        func firstQ(_ keys: [String]) -> String {
+            for k in keys { if let v = q[k], !v.isEmpty { return v } }
+            return ""
+        }
 
         var f: [String: NCJSONValue] = [
             "server": .string(p.host),
@@ -536,16 +1294,30 @@ enum NCSubscriptionParser {
             "username": .string(username)
         ]
         if !password.isEmpty { f["password"] = .string(password) }
-        if let pk = q["private-key"] ?? q["pk"] ?? q["privateKey"] {
+        // the retired bridge parseSSH: full alias sets; a private key that does
+        // not look like PEM is base64-decoded and used when the decoding is
+        // PEM (links often carry the key base64-wrapped).
+        var pk = firstQ(["private-key", "privateKey", "private_key", "pk", "key"])
+        if !pk.isEmpty {
+            if !pk.contains("-----BEGIN"), let decoded = base64Decode(pk),
+               let s = String(data: decoded, encoding: .utf8), s.contains("-----BEGIN") {
+                pk = s
+            }
             f["private-key"] = .string(pk)
         }
-        if let pp = q["private-key-passphrase"] ?? q["passphrase"] {
-            f["private-key-passphrase"] = .string(pp)
-        }
-        if let hk = q["host-key"] ?? q["hostkey"] {
+        let pp = firstQ(["private-key-passphrase", "passphrase", "privateKeyPassphrase"])
+        if !pp.isEmpty { f["private-key-passphrase"] = .string(pp) }
+        let hk = firstQ(["host-key", "hostkey", "host_key", "server-key", "serverKey"])
+        if !hk.isEmpty {
             let keys = hk.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             if !keys.isEmpty { f["host-key"] = .array(keys.map { .string($0) }) }
         }
+        let alg = firstQ(["host-key-algorithms", "hostKeyAlgorithms"])
+        if !alg.isEmpty {
+            f["host-key-algorithms"] = .array(alg.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.map { .string($0) })
+        }
+        // the old core: an ssh node with neither password nor private key is an error.
+        guard !password.isEmpty || f["private-key"] != nil else { return nil }
 
         let name = p.name.isEmpty ? "ssh \(p.host)" : p.name
         return NCProxy(name: name, type: "ssh", fields: f)
@@ -567,7 +1339,10 @@ enum NCSubscriptionParser {
         }
         if !p.userinfo.isEmpty {
             var ui = p.userinfo
-            if !ui.contains(":"), let decoded = base64Decode(ui), let s = String(data: decoded, encoding: .utf8) {
+            // Same rule as ssNode: only a decoded value
+            // containing ":" may replace the raw userinfo.
+            if !ui.contains(":"), let decoded = base64Decode(ui),
+               let s = String(data: decoded, encoding: .utf8), s.contains(":") {
                 ui = s
             }
             let creds = ui.split(separator: ":", maxSplits: 1)
@@ -577,6 +1352,52 @@ enum NCSubscriptionParser {
             }
         }
         let typ = isSocks ? "socks5" : "http"
+        let name = p.name.isEmpty ? "\(typ) \(p.host)" : p.name
+        return NCProxy(name: name, type: typ, fields: f)
+    }
+
+    /// feat/nc-naive-h2h3: naive+https:// / naive+quic:// (DuckSoft's de-facto spec: userinfo `user:pass`,
+    /// or a bare `pass` as password-only; port 443 by default; `extra-headers` = CRLF-joined
+    /// "Name: value" lines; `padding` is informational — naive padding is negotiated per request), and the
+    /// http2:// / http3:// proxy links (userinfo may be base64 of user:pass, as Shadowrocket exports).
+    private static func parseNaiveH2H3(_ rest: String, scheme: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty else { return nil }
+        let q = p.query
+        let port = p.port > 0 ? p.port : 443
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(port)),
+        ]
+        if !p.userinfo.isEmpty {
+            var ui = p.userinfo
+            if scheme.hasPrefix("http"), !ui.contains(":"), let decoded = base64Decode(ui),
+               let s = String(data: decoded, encoding: .utf8), s.contains(":") {
+                ui = s
+            }
+            if let colon = ui.firstIndex(of: ":") {
+                let u = String(ui[..<colon]), pw = String(ui[ui.index(after: colon)...])
+                if !u.isEmpty { f["username"] = .string(u.removingPercentEncoding ?? u) }
+                if !pw.isEmpty { f["password"] = .string(pw.removingPercentEncoding ?? pw) }
+            } else {
+                f["password"] = .string(ui.removingPercentEncoding ?? ui)
+            }
+        }
+        if let sni = q["sni"] ?? q["peer"], !sni.isEmpty { f["sni"] = .string(sni) }
+        if ["1", "true"].contains(q["insecure"] ?? q["allowInsecure"] ?? "") { f["skip-cert-verify"] = .bool(true) }
+        let typ: String
+        switch scheme {
+        case "http2": typ = "http2"
+        case "http3": typ = "http3"
+        default:
+            typ = "naive"
+            if scheme == "naive+quic" { f["quic"] = .bool(true) }
+            if let h = q["extra-headers"], !h.isEmpty { f["extra-headers"] = .string(h) }
+            if ["1", "true"].contains(q["uot"] ?? q["udp-over-tcp"] ?? "") {
+                f["udp-over-tcp"] = .bool(true)
+                f["udp"] = .bool(true)
+            }
+        }
         let name = p.name.isEmpty ? "\(typ) \(p.host)" : p.name
         return NCProxy(name: name, type: typ, fields: f)
     }
@@ -593,9 +1414,16 @@ enum NCSubscriptionParser {
         if let sni = q["sni"] { f["sni"] = .string(sni) }
         if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
         if let fp = q["hpkp"] ?? q["fingerprint"] { f["fingerprint"] = .string(fp) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
 
         let name = p.name.isEmpty ? "anytls \(p.host)" : p.name
         return NCProxy(name: name, type: "anytls", fields: f)
+    }
+
+    private static func parseSudoku(_ rest: String) -> NCProxy? {
+        NCSudoku.parseURI(rest)
     }
 
     private static func parseMieru(_ rest: String) -> NCProxy? {
@@ -603,12 +1431,21 @@ enum NCSubscriptionParser {
         guard !p.host.isEmpty else { return nil }
         let q = p.query
         let portStr = q["port"] ?? ""
-        let port = Int(portStr) ?? (p.port > 0 ? p.port : 0)
+        // the retired bridge-trips a mieru port range ("8000-8010"): the
+        // first port dials, the range string is kept in "port-range".
+        var portRange: String?
+        var port = Int(portStr) ?? 0
+        if port == 0, portStr.contains("-") {
+            portRange = portStr
+            port = Int(portStr.split(separator: "-").first.map(String.init) ?? "") ?? 0
+        }
+        if port == 0 { port = p.port }
         guard port > 0 else { return nil }
         var f: [String: NCJSONValue] = [
             "server": .string(p.host),
             "port": .number(Double(port))
         ]
+        if let portRange { f["port-range"] = .string(portRange) }
         if !p.userinfo.isEmpty {
             let creds = p.userinfo.split(separator: ":", maxSplits: 1)
             f["username"] = .string(String(creds[0]).removingPercentEncoding ?? String(creds[0]))
@@ -621,6 +1458,58 @@ enum NCSubscriptionParser {
         if let hm = q["handshake-mode"] { f["handshake-mode"] = .string(hm) }
         let name = q["profile"] ?? (p.name.isEmpty ? "mieru \(p.host)" : p.name)
         return NCProxy(name: name, type: "mieru", fields: f)
+    }
+
+    private static func parseOpenConnect(_ rest: String, scheme: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty else { return nil }
+        let port = p.port > 0 ? p.port : NCOpenConnect.defaultPort
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(port))
+        ]
+        if !p.userinfo.isEmpty {
+            let creds = p.userinfo.split(separator: ":", maxSplits: 1)
+            let user = String(creds[0]).removingPercentEncoding ?? String(creds[0])
+            f["username"] = .string(user)
+            if creds.count > 1 {
+                let pass = String(creds[1]).removingPercentEncoding ?? String(creds[1])
+                f["password"] = .string(pass)
+            }
+        }
+        let q = p.query
+        if let u = q["username"] ?? q["user"], f["username"] == nil { f["username"] = .string(u) }
+        if let pw = q["password"] ?? q["pass"], f["password"] == nil { f["password"] = .string(pw) }
+        if let g = q["group"] ?? q["auth_group"] ?? q["auth-group"] { f["auth-group"] = .string(g) }
+        if let c = q["cookie"] { f["cookie"] = .string(c) }
+        if let s = q["sni"] ?? q["servername"] ?? q["peer"] { f["sni"] = .string(s) }
+        if let ins = q["insecure"] ?? q["allowInsecure"] ?? q["skip-cert-verify"] ?? q["skip_cert_verify"] {
+            f["skip-cert-verify"] = .bool(ins == "1" || ins.lowercased() == "true")
+        }
+        if let fp = q["fingerprint"] ?? q["server_cert_pin"] ?? q["server-cert-pin"] ?? q["cert_sha256"] {
+            f["server-cert-pin"] = .string(fp)
+        }
+        if let dtls = q["dtls"] {
+            f["dtls"] = .bool(dtls == "1" || dtls.lowercased() == "true")
+        }
+        if let m = q["mtu"], let n = Int(m) {
+            f["mtu"] = .number(Double(n))
+        }
+        if let ua = q["user_agent"] ?? q["user-agent"] {
+            f["user-agent"] = .string(ua)
+        }
+        if let lh = q["local_hostname"] ?? q["local-hostname"] {
+            f["local-hostname"] = .string(lh)
+        }
+
+        // Unsupported fields explicitly recorded so NCSupport.unsupportedReason can explain
+        if let csd = q["csd"] ?? q["csd_wrapper"] ?? q["csd-wrapper"] { f["csd-wrapper"] = .string(csd) }
+        if let hip = q["hip"] ?? q["hip_report"] ?? q["hip-report"] { f["hip"] = .string(hip) }
+        if let tncc = q["tncc"] { f["tncc"] = .string(tncc) }
+        if let tok = q["token"] ?? q["token_mode"] ?? q["totp"] { f["token-secret"] = .string(tok) }
+
+        let name = p.name.isEmpty ? "\(scheme) \(p.host)" : p.name
+        return NCProxy(name: name, type: "openconnect", fields: f)
     }
 
     private static func parseHysteria1(_ rest: String) -> NCProxy? {
@@ -639,14 +1528,24 @@ enum NCSubscriptionParser {
         if let down = q["downmbps"] { f["down"] = .string(down) }
         if let alpn = q["alpn"] { f["alpn"] = .array(alpn.components(separatedBy: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) }) }
         if q["insecure"] == "1" || q["insecure"] == "true" { f["skip-cert-verify"] = .bool(true) }
+        if let echOpts = NCECHOpts.parse(query: q) {
+            f["ech-opts"] = .object(echOpts.toObject())
+        }
 
         let name = p.name.isEmpty ? "hysteria \(p.host)" : p.name
         return NCProxy(name: name, type: "hysteria", fields: f)
     }
 
     private static func dedup(_ nodes: [NCProxy]) -> [NCProxy] {
+        // the retired bridge uniqueNames: an empty name is first filled with
+        // "<type> <server>", then collisions get " 2", " 3", … suffixes.
         var seen: [String: Int] = [:]
         return nodes.map { node in
+            var node = node
+            if node.name.isEmpty {
+                let server = node.fields["server"]?.string ?? ""
+                node = NCProxy(name: "\(node.type) \(server)", type: node.type, fields: node.fields)
+            }
             let count = (seen[node.name] ?? 0) + 1
             seen[node.name] = count
             guard count > 1 else { return node }
@@ -656,7 +1555,7 @@ enum NCSubscriptionParser {
 }
 
 /// Regex include/exclude node filtering (QX server_remote filters, Loon
-/// remote filters, mihomo group filter/exclude-filter over providers).
+/// remote filters, Clash.Meta group filter/exclude-filter over providers).
 enum NCNodeFilter {
     static func matches(_ name: String, include: String?, exclude: String?) -> Bool {
         if let include, !include.isEmpty,
@@ -675,23 +1574,115 @@ enum NCNodeFilter {
     }
 }
 
-/// Cached store for node subscriptions, mirroring the rule-provider
-/// store's freshness model: cache-first, refresh failures keep old nodes.
+/// Cached store for node subscriptions (Clash.Meta proxy-providers, Surge/Loon/QX remote node lists), mirroring the
+/// rule-provider store's freshness model: cache-first, refresh failures keep old nodes.
+///
+/// fix/nc-ruleset-convert (build 401: the tunnel only had the 9 local proxies; every group fed by a provider was
+/// empty while the App, disconnected, showed them):
+/// - `type: file` providers (the App's 节点订阅 → ./nodesubs/<id>.yaml) and `type: inline` providers load from their
+///   path / payload; http providers load the tunnel's own cache, else the file the App downloaded to the provider's
+///   `path`, then refresh from the source URL (a old-core loopback /nodes/convert URL is unwrapped first).
+/// - provider filter / exclude-filter / exclude-type / override (additional-prefix/-suffix, proxy-name, field
+///   overrides like udp / skip-cert-verify / dialer-proxy) apply, as in Clash.Meta.
+/// - every provider logs "proxy provider <name>: N nodes (<source>)" or why it has none.
 final class NCNodeSubscriptionStore {
     private let dir: URL
+    private let home: URL
     private let lock = NSLock()
     private var nodesBySub: [String: [NCProxy]] = [:]
     private var fetchedAt: [String: TimeInterval] = [:]
+    /// provider name → "HTTP" / "File" / "Inline", for /providers/proxies.
+    private var vehicleBySub: [String: String] = [:]
+    var log: (String) -> Void = { StartupLog.write($0) }
 
-    var fetcher: (String, @escaping (Data?) -> Void) -> Void = { urlString, done in
-        guard let url = URL(string: urlString) else { done(nil); return }
+    /// fix/nc-open-6-10 #10: one GET with the given User-Agent; the callback gets the body (2xx, non-empty) and the
+    /// HTTP status (0 = no response). Overridable in tests.
+    var fetcher: (String, String, @escaping (Data?, Int) -> Void) -> Void = { urlString, ua, done in
+        guard let url = URL(string: urlString) else { done(nil, 0); return }
         var req = URLRequest(url: url)
-        req.setValue("clash-verge/v2.0", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: req) { data, _, _ in done(data) }.resume()
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.timeoutInterval = 30
+        URLSession.shared.dataTask(with: req) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard err == nil, (200..<300).contains(code), let data, !data.isEmpty else {
+                StartupLog.write("node subscription: fetch failed \(NCRuleProviderStore.logName(urlString)) — " +
+                                 (err.map { $0.localizedDescription } ?? "HTTP \(code)") + " (UA \(ua))")
+                done(nil, code)
+                return
+            }
+            done(data, code)
+        }.resume()
     }
 
-    init(dir: URL) {
+    /// fix/nc-open-6-10 #10 (E2E fixture subscription 「薯条」: HTTP 403). User-Agent conventions:
+    /// - Clash.Meta proxy-providers `header: {User-Agent: [...]}` wins (Clash.Meta sends it as given);
+    /// - a subscription imported from a Quantumult X profile ([server_remote]; the import writes that header, older
+    ///   imports carry `x-origin: qx`) is fetched like QuanX does (`Quantumult%20X/…`): airport panels pick the
+    ///   output format — and some allow only known clients — by that UA;
+    /// - otherwise the Clash family UA used so far (`clash-verge/v2.0`, which panels answer with a full Clash YAML).
+    /// When the panel refuses the first UA (HTTP 401 / 403 / 406 / 451, or an empty body) the other family is tried
+    /// once, so a provider that only knows one client still loads (not on a network error: that is not the UA).
+    static let qxUserAgent = "Quantumult%20X/1.0.30 (iPhone14,2; iOS 15.6)"
+    static let clashUserAgent = "clash-verge/v2.0"
+
+    static func userAgents(for sub: NCNodeSubscription) -> [String] {
+        var explicit: String? = nil
+        if let h = sub.fields["header"]?.object {
+            for (k, v) in h where k.lowercased() == "user-agent" {
+                explicit = v.array?.compactMap { $0.string }.first { !$0.isEmpty } ?? v.string
+            }
+        }
+        let qx = (sub.fields["x-origin"]?.string ?? "").lowercased() == "qx"
+        let primary = explicit ?? (qx ? qxUserAgent : clashUserAgent)
+        let isQXUA = primary.lowercased().contains("quantumult")
+        return [primary, isQXUA ? clashUserAgent : qxUserAgent]
+    }
+
+    /// fix-tls-c: a Quantumult X `[server_remote]` provider — imported by NCQXImport (`x-origin: qx`), by the App's QX
+    /// import (`x-convert: nodes`: only [server_remote] lines get that kind), or fetched with a QuanX User-Agent header.
+    /// Its nodes get QX's TLS default (NCQXImport.qxRemoteTLSDefault) whatever format the panel answered in.
+    static func isQXRemote(_ sub: NCNodeSubscription) -> Bool {
+        if (sub.fields["x-origin"]?.string ?? "").lowercased() == "qx" { return true }
+        if (sub.fields["x-convert"]?.string ?? "").lowercased() == "nodes" { return true }
+        if let h = sub.fields["header"]?.object {
+            for (k, v) in h where k.lowercased() == "user-agent" {
+                let ua = v.array?.compactMap { $0.string }.first ?? v.string ?? ""
+                if ua.lowercased().contains("quantumult") { return true }
+            }
+        }
+        return false
+    }
+
+    /// "proxy provider SelfBuild: body base64 share links, QX TLS default: 17 node(s) verification off" — logged after
+    /// the node-count line (the E2E node-tls row reads it).
+    static func formatLine(_ name: String, _ p: NCSubscriptionParser.Parsed, qxRemote: Bool) -> String {
+        var s = "proxy provider \(name): body \(p.format)"
+        if qxRemote { s += ", QX TLS default: \(p.qxTLSDefaulted) node(s) verification off" }
+        return s
+    }
+
+    static func shouldRetryUA(status: Int) -> Bool {
+        [401, 403, 406, 451].contains(status) || (200..<300).contains(status)
+    }
+
+    /// old-core configs point proxy-providers at the bridge's own converter
+    /// (http://127.0.0.1:<port>/nodes/convert?url=<src>). NativeCore has no converter: NCSubscriptionParser
+    /// reads raw subscription bodies (Clash YAML, base64 / plain share-link lists, QX/Surge node lines,
+    /// SIP008 / sing-box JSON) itself, so fetch the source subscription directly.
+    static func unwrapLoopbackConvert(_ urlString: String) -> String {
+        guard let c = URLComponents(string: urlString),
+              let host = c.host, host == "127.0.0.1" || host == "localhost" || host == "::1",
+              c.path.hasSuffix("/nodes/convert"),
+              let src = c.queryItems?.first(where: { $0.name == "url" })?.value,
+              src.hasPrefix("http://") || src.hasPrefix("https://") else { return urlString }
+        return src
+    }
+
+    /// `home` resolves relative provider paths (./nodesubs/…, ./proxies/…); defaults to dir's parent
+    /// (<home>/nativecore-nodesubs).
+    init(dir: URL, home: URL? = nil) {
         self.dir = dir
+        self.home = home ?? dir.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         if let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Double] {
@@ -700,39 +1691,122 @@ final class NCNodeSubscriptionStore {
     }
 
     private func cacheFile(for name: String) -> URL {
+        dir.appendingPathComponent(Self.cacheFileName(for: name))
+    }
+
+    /// The raw-body cache file of a provider inside the store's directory (the E2E node-tls row reads it too).
+    static func cacheFileName(for name: String) -> String {
         var hash: UInt64 = 0xcbf29ce484222325
         for b in name.utf8 { hash = (hash ^ UInt64(b)) &* 0x100000001b3 }
-        return dir.appendingPathComponent(String(format: "sub-%016llx.txt", hash))
+        return String(format: "sub-%016llx.txt", hash)
+    }
+
+    private func providerFile(_ sub: NCNodeSubscription) -> URL? {
+        guard let p = sub.fields["path"]?.string, !p.isEmpty else { return nil }
+        if p.hasPrefix("/") { return URL(fileURLWithPath: p) }
+        return home.appendingPathComponent(p)
+    }
+
+    private static func vehicle(_ sub: NCNodeSubscription) -> String {
+        switch sub.fields["type"]?.string?.lowercased() ?? "" {
+        case "file": return "File"
+        case "inline": return "Inline"
+        default: return sub.url.isEmpty ? "File" : "HTTP"
+        }
+    }
+
+    private func set(_ sub: NCNodeSubscription, nodes: [NCProxy]) {
+        lock.lock(); nodesBySub[sub.name] = nodes; lock.unlock()
     }
 
     /// Load cached nodes for all subscriptions; returns those needing a
-    /// network refresh (stale or never fetched).
+    /// network refresh (stale or never fetched; http providers only).
     @discardableResult
     func loadCached(_ subs: [NCNodeSubscription]) -> [NCNodeSubscription] {
         var stale: [NCNodeSubscription] = []
         for sub in subs {
-            if let text = try? String(contentsOf: cacheFile(for: sub.name), encoding: .utf8) {
-                let nodes = NCSubscriptionParser.parse(text)
-                if !nodes.isEmpty {
-                    lock.lock(); nodesBySub[sub.name] = nodes; lock.unlock()
+            let vehicle = Self.vehicle(sub)
+            lock.lock(); vehicleBySub[sub.name] = vehicle; lock.unlock()
+            if vehicle == "Inline" {
+                let nodes = (sub.fields["payload"]?.array ?? []).compactMap { v -> NCProxy? in
+                    guard let o = v.object, let n = o["name"]?.string, let t = o["type"]?.string else { return nil }
+                    return NCProxy(name: n, type: t.lowercased(), fields: o)
                 }
+                set(sub, nodes: nodes)
+                log("proxy provider \(sub.name): \(nodes.count) nodes (inline)")
+                continue
             }
+            var nodes: [NCProxy] = []
+            var source = ""
+            let qxRemote = Self.isQXRemote(sub)
+            var parsed: NCSubscriptionParser.Parsed?
+            if vehicle == "HTTP", let text = try? String(contentsOf: cacheFile(for: sub.name), encoding: .utf8) {
+                parsed = NCSubscriptionParser.parseDetailed(text, qxRemote: qxRemote); source = "cache"
+                nodes = parsed?.nodes ?? []
+            }
+            if nodes.isEmpty, let f = providerFile(sub), let text = try? String(contentsOf: f, encoding: .utf8) {
+                parsed = NCSubscriptionParser.parseDetailed(text, qxRemote: qxRemote); source = vehicle == "HTTP" ? "app download" : "file"
+                nodes = parsed?.nodes ?? []
+            }
+            if !nodes.isEmpty {
+                set(sub, nodes: nodes)
+                log("proxy provider \(sub.name): \(nodes.count) nodes (\(source))")
+                if let parsed { log(Self.formatLine(sub.name, parsed, qxRemote: qxRemote)) }
+            } else if vehicle != "HTTP" {
+                log("proxy provider \(sub.name): no nodes — file \(sub.fields["path"]?.string ?? "?") missing or unreadable")
+            }
+            guard vehicle == "HTTP" else { continue }
             lock.lock(); let at = fetchedAt[sub.name]; lock.unlock()
-            if at == nil || Date().timeIntervalSince1970 - at! > Double(max(sub.interval, 60)) {
+            if nodes.isEmpty || at == nil || Date().timeIntervalSince1970 - at! > Double(max(sub.interval, 60)) {
                 stale.append(sub)
             }
         }
         return stale
     }
 
+    /// fix/nc-diag-439 (E): "HTTP 403" / "no response".
+    static func failureStatusText(_ status: Int) -> String {
+        status > 0 ? "HTTP \(status)" : "no response"
+    }
+
+    /// fix/nc-diag-439 (E): the tunnel extension's URLSession runs outside the tunnel (DIRECT); in the App it goes
+    /// through the VPN when it is on.
+    static let fetchRoute: String = Bundle.main.bundlePath.hasSuffix(".appex")
+        ? "DIRECT (extension URLSession, outside the tunnel)" : "App URLSession (through the tunnel when the VPN is on)"
+
     func refresh(_ sub: NCNodeSubscription, completion: (() -> Void)? = nil) {
-        fetcher(sub.url) { [weak self] data in
-            guard let self, let data, let text = String(data: data, encoding: .utf8) else {
+        guard !sub.url.isEmpty else { completion?(); return }
+        let url = Self.unwrapLoopbackConvert(sub.url)
+        let uas = Self.userAgents(for: sub)
+        let fetch = fetcher
+        func get(_ i: Int, _ done: @escaping (Data?, Int) -> Void) {
+            fetch(url, uas[i]) { data, status in
+                if data == nil, i + 1 < uas.count, Self.shouldRetryUA(status: status) {
+                    get(i + 1, done)
+                } else {
+                    done(data, status)
+                }
+            }
+        }
+        get(0) { [weak self] data, status in
+            guard let self else { completion?(); return }
+            guard let data, let text = String(data: data, encoding: .utf8) else {
+                let have = self.allNodes()[sub.name]?.count ?? 0
+                // fix/nc-diag-439 (E): name the HTTP status and the route the fetch took (build 439: 薯条 403 with no status).
+                self.log("proxy provider \(sub.name): fetch failed (\(NCRuleProviderStore.logName(url)), " +
+                         "\(Self.failureStatusText(status)), route \(Self.fetchRoute)), keeping \(have) cached nodes")
                 completion?()
                 return
             }
-            let nodes = NCSubscriptionParser.parse(text)
-            guard !nodes.isEmpty else { completion?(); return }
+            let qxRemote = Self.isQXRemote(sub)
+            let parsed = NCSubscriptionParser.parseDetailed(text, qxRemote: qxRemote)
+            let nodes = parsed.nodes
+            guard !nodes.isEmpty else {
+                let have = self.allNodes()[sub.name]?.count ?? 0
+                self.log("proxy provider \(sub.name): fetched \(data.count) B (\(parsed.format)) but no nodes recognised, keeping \(have) cached nodes")
+                completion?()
+                return
+            }
             try? data.write(to: self.cacheFile(for: sub.name), options: .atomic)
             self.lock.lock()
             self.nodesBySub[sub.name] = nodes
@@ -742,18 +1816,79 @@ final class NCNodeSubscriptionStore {
             if let mdata = try? JSONSerialization.data(withJSONObject: meta) {
                 try? mdata.write(to: self.dir.appendingPathComponent("meta.json"), options: .atomic)
             }
+            self.log("proxy provider \(sub.name): \(nodes.count) nodes (fetched)")
+            self.log(Self.formatLine(sub.name, parsed, qxRemote: qxRemote))
             completion?()
         }
     }
 
-    /// Nodes of one subscription with its own include/exclude filter applied.
+    /// Nodes of one subscription with its own filter / exclude-filter / exclude-type / override applied.
     func nodes(for sub: NCNodeSubscription) -> [NCProxy] {
         lock.lock(); let raw = nodesBySub[sub.name] ?? []; lock.unlock()
-        return NCNodeFilter.apply(raw, include: sub.includeRegex, exclude: sub.excludeRegex)
+        return NCProviderNodes.apply(raw, sub: sub)
+    }
+
+    func vehicleType(of name: String) -> String {
+        lock.lock(); defer { lock.unlock() }
+        return vehicleBySub[name] ?? "HTTP"
+    }
+
+    func updatedAt(of name: String) -> TimeInterval? {
+        lock.lock(); defer { lock.unlock() }
+        return fetchedAt[name]
     }
 
     func allNodes() -> [String: [NCProxy]] {
         lock.lock(); defer { lock.unlock() }
         return nodesBySub
+    }
+}
+
+/// Clash.Meta proxy-provider post-processing: filter / exclude-filter (several patterns may be joined with "`"),
+/// exclude-type ("ss|http"), override (additional-prefix, additional-suffix, proxy-name [{pattern, target}] and
+/// plain field overrides). Order as Clash.Meta adapter/provider: filter → exclude-filter → exclude-type → override.
+enum NCProviderNodes {
+    private static func regexes(_ s: String?) -> [NSRegularExpression] {
+        guard let s, !s.isEmpty else { return [] }
+        return s.split(separator: "`").compactMap { try? NSRegularExpression(pattern: String($0)) }
+    }
+
+    private static func hit(_ res: [NSRegularExpression], _ name: String) -> Bool {
+        let r = NSRange(name.startIndex..., in: name)
+        return res.contains { $0.firstMatch(in: name, range: r) != nil }
+    }
+
+    static func apply(_ nodes: [NCProxy], sub: NCNodeSubscription) -> [NCProxy] {
+        let inc = regexes(sub.includeRegex), exc = regexes(sub.excludeRegex)
+        let exTypes = Set((sub.fields["exclude-type"]?.string ?? "")
+            .split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty })
+        var out = nodes.filter { n in
+            if !inc.isEmpty && !hit(inc, n.name) { return false }
+            if !exc.isEmpty && hit(exc, n.name) { return false }
+            if exTypes.contains(n.type.lowercased()) { return false }
+            return true
+        }
+        guard let ov = sub.fields["override"]?.object, !ov.isEmpty else { return out }
+        let prefix = ov["additional-prefix"]?.string ?? ""
+        let suffix = ov["additional-suffix"]?.string ?? ""
+        let renames: [(NSRegularExpression, String)] = (ov["proxy-name"]?.array ?? []).compactMap { v in
+            guard let o = v.object, let p = o["pattern"]?.string,
+                  let re = try? NSRegularExpression(pattern: p) else { return nil }
+            return (re, o["target"]?.string ?? "")
+        }
+        var plain = ov
+        for k in ["additional-prefix", "additional-suffix", "proxy-name"] { plain.removeValue(forKey: k) }
+        out = out.map { n in
+            var name = prefix + n.name + suffix
+            for (re, target) in renames {
+                name = re.stringByReplacingMatches(in: name, range: NSRange(name.startIndex..., in: name),
+                                                   withTemplate: target)
+            }
+            var f = n.fields
+            for (k, v) in plain { f[k] = v }
+            f["name"] = .string(name)
+            return NCProxy(name: name, type: n.type, fields: f)
+        }
+        return out
     }
 }

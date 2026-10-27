@@ -304,31 +304,78 @@ enum IPInfoFetcher {
         return cfg
     }
 
-    /// Tries the endpoints in order with the given session (v0.8: also a session through 节点探测).
+    /// Tries the endpoints with the given session (v0.8: also a session through 节点探测).
+    /// fix/nc-diag-439 (D): a staggered race instead of one endpoint after another (6 s timeout each — one slow or
+    /// refused endpoint kept Home on 「查询中」 up to the 18 s cap). Endpoint i starts after i × `stagger` seconds, or
+    /// at once when every endpoint before it has failed; the first usable answer wins and the rest are cancelled.
+    static let stagger: TimeInterval = 1.2
+
     static func fetch(using session: URLSession) async -> IPInfo? {
         if disabled { return nil }
-        for ep in orderedEndpoints {
-            guard let url = URL(string: ep.url) else { continue }
-            var req = URLRequest(url: url)
-            req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", forHTTPHeaderField: "User-Agent")
-            req.setValue("application/json", forHTTPHeaderField: "Accept")
-            do {
-                let (data, resp) = try await session.data(for: req)
-                guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
-                guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-                if let status = obj["status"] as? String, status.lowercased() == "fail" { continue }
-                if let success = obj["success"] as? Bool, success == false { continue }
-                if var info = ep.parse(obj) {
-                    info.source = ep.name
-                    if info.timezone == nil {
-                        info.timezone = str(obj, "timezone", "time_zone") ?? (obj["timezone"] as? [String: Any]).flatMap { str($0, "id") }
+        let eps = orderedEndpoints
+        guard !eps.isEmpty else { return nil }
+        let gate = RaceGate(count: eps.count)
+        let started = Date()
+        let (info, why): (IPInfo?, [String]) = await withTaskGroup(of: (Int, IPInfo?, String?).self, returning: (IPInfo?, [String]).self) { tg in
+            for (i, ep) in eps.enumerated() {
+                tg.addTask {
+                    while Date().timeIntervalSince(started) < Double(i) * stagger, await !gate.allFailed(before: i) {
+                        if Task.isCancelled { return (i, nil, nil) }
+                        try? await Task.sleep(nanoseconds: 100_000_000)
                     }
-                    return info
+                    if Task.isCancelled { return (i, nil, nil) }
+                    let (info, why) = await attempt(ep, session: session)
+                    if info == nil { await gate.failed(i) }
+                    return (i, info, why)
                 }
-            } catch {
-                continue
             }
+            var why: [String] = []
+            for await (_, info, w) in tg {
+                if let info { tg.cancelAll(); return (info, []) }
+                if let w { why.append(w) }
+            }
+            return (nil, why)
         }
-        return nil
+        // fix/nc-delay-2: Home's 出口 line sat on 「正在查询…」 with no trace of why; one line per failed lookup.
+        if info == nil, !why.isEmpty {
+            StartupLog.write("exit-ip lookup: " + why.joined(separator: "; "), tag: "app")
+        }
+        return info
+    }
+
+    private actor RaceGate {
+        private var failed: Set<Int> = []
+        init(count: Int) {}
+        func failed(_ i: Int) { failed.insert(i) }
+        func allFailed(before i: Int) -> Bool { (0..<i).allSatisfy { failed.contains($0) } }
+    }
+
+    /// One endpoint: the parsed answer, or why it gave none.
+    private static func attempt(_ ep: Endpoint, session: URLSession) async -> (IPInfo?, String?) {
+        guard let url = URL(string: ep.url) else { return (nil, "\(ep.name) bad URL") }
+        var req = URLRequest(url: url)
+        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        do {
+            let t0 = Date()
+            let (data, resp) = try await session.data(for: req)
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+            guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                return (nil, "\(ep.name) HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1) in \(ms) ms")
+            }
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return (nil, "\(ep.name) not JSON") }
+            if let status = obj["status"] as? String, status.lowercased() == "fail" { return (nil, "\(ep.name) status fail") }
+            if let success = obj["success"] as? Bool, success == false { return (nil, "\(ep.name) success false") }
+            guard var info = ep.parse(obj) else { return (nil, "\(ep.name) no IP field") }
+            info.source = ep.name
+            if info.timezone == nil {
+                info.timezone = str(obj, "timezone", "time_zone") ?? (obj["timezone"] as? [String: Any]).flatMap { str($0, "id") }
+            }
+            return (info, nil)
+        } catch {
+            if Task.isCancelled { return (nil, nil) }
+            let ns = error as NSError
+            return (nil, "\(ep.name) \(ns.domain) \(ns.code)")
+        }
     }
 }

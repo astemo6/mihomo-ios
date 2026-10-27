@@ -2,13 +2,13 @@ import Foundation
 
 /// DNS policy layer (pure logic): hosts-table answers and per-domain
 /// upstream selection, benchmarked against Surge / Loon / Quantumult X
-/// rather than mihomo alone:
+/// rather than Clash.Meta alone:
 ///
 /// - [Host] entries answer A/AAAA directly (exact name, `*` globs, aliases
 ///   chased within the table); an address entry whose family doesn't match
 ///   the qtype yields NOERROR/no-data, never an upstream leak. Entries of
 ///   the form `name = server:<addr>` assign that domain a DNS server.
-/// - Per-domain upstreams (QX `server=/domain/…`, mihomo nameserver-policy,
+/// - Per-domain upstreams (QX `server=/domain/…`, Clash.Meta nameserver-policy,
 ///   Loon/Surge host-server entries) pick the longest matching suffix;
 ///   `+.d` and bare `d` both mean "d and its subdomains" (dnsmasq semantics,
 ///   what QX users expect).
@@ -19,17 +19,88 @@ struct NCDNSPolicy {
     let model: NCDNSModel
     let hosts: [NCHostEntry]
 
-    /// Geosite category matcher for fallback-filter evaluation, injected
-    /// by the engine owner (category, domain) -> Bool. Nil until a GeoSite
-    /// store is wired (the rule-extras batch's NCGeoSite); geosite entries
-    /// in the filter then simply don't trigger, like an unloaded category
-    /// in mihomo.
+    /// GEOSITE category matcher (category incl. @attrs, domain) -> Bool,
+    /// injected by the engine from its GeoSite.dat store. Used by
+    /// nameserver-policy `geosite:` keys and fallback-filter `geosite`.
+    /// Nil (no database) = those entries never match; the engine reports
+    /// that once at load.
     var geositeContains: ((String, String) -> Bool)? = nil
+    /// Rule-provider domain membership (provider name, domain) -> Bool, for
+    /// nameserver-policy `rule-set:` keys (Clash.Meta matches only the
+    /// provider's domain entries there).
+    var ruleSetContainsDomain: ((String, String) -> Bool)? = nil
+
+    enum MatcherKind: Equatable { case geosite, ruleSet, regexp }
+    /// nameserver-policy, precompiled: plain domain keys (longest suffix
+    /// wins among them) and matcher keys (evaluated in order after the
+    /// domain keys — a specific domain beats a whole category).
+    private let domainKeys: [(key: String, servers: [NCDNSServerRef])]
+    private let matcherKeys: [(kind: MatcherKind, arg: String, servers: [NCDNSServerRef])]
+    /// Keys that cannot take effect (unknown prefix, invalid regexp),
+    /// listed once in the startup log by the engine.
+    let diagnostics: [String]
 
     init(model: NCDNSModel, hosts: [NCHostEntry]) {
         self.model = model
         self.hosts = hosts
+        var dk: [(key: String, servers: [NCDNSServerRef])] = []
+        var mk: [(kind: MatcherKind, arg: String, servers: [NCDNSServerRef])] = []
+        var diag: [String] = []
+        for item in model.domainServers {
+            for sub in Self.expandPolicyKey(item.key) {
+                let lower = sub.lowercased()
+                if lower.hasPrefix("geosite:") {
+                    let arg = String(sub.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+                    if !arg.isEmpty { mk.append((kind: .geosite, arg: arg, servers: item.servers)) }
+                } else if lower.hasPrefix("rule-set:") {
+                    let arg = String(sub.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                    if !arg.isEmpty { mk.append((kind: .ruleSet, arg: arg, servers: item.servers)) }
+                } else if lower.hasPrefix("regexp:") || lower.hasPrefix("regex:") {
+                    let arg = String(sub[sub.index(after: sub.firstIndex(of: ":")!)...])
+                    if NCRegexCache.shared.isValid(arg) {
+                        mk.append((kind: .regexp, arg: arg, servers: item.servers))
+                    } else {
+                        diag.append("DNS 分流 \(sub)：正则无效，已忽略")
+                    }
+                } else if let colon = lower.firstIndex(of: ":"), !lower[..<colon].contains(".") {
+                    // geoip: / domain: / keyword: … — not a domain and not a
+                    // kind this kernel evaluates.
+                    diag.append("DNS 分流键 \(sub) 暂不支持，已忽略")
+                } else {
+                    var key = lower.trimmingCharacters(in: .whitespaces)
+                    if key.hasSuffix(".") { key.removeLast() }
+                    for prefix in ["+.", "*.", "."] where key.hasPrefix(prefix) {
+                        key = String(key.dropFirst(prefix.count))
+                        break
+                    }
+                    if !key.isEmpty { dk.append((key: key, servers: item.servers)) }
+                }
+            }
+        }
+        domainKeys = dk
+        matcherKeys = mk
+        diagnostics = diag
     }
+
+    /// Clash.Meta parseNameServerPolicy key splitting: `geosite:cn,private` →
+    /// geosite:cn + geosite:private; `rule-set:a,b` likewise; any other
+    /// comma list is a list of domains.
+    static func expandPolicyKey(_ key0: String) -> [String] {
+        let key = key0.trimmingCharacters(in: .whitespaces)
+        guard key.contains(",") else { return [key] }
+        let lower = key.lowercased()
+        for prefix in ["geosite:", "rule-set:"] where lower.hasPrefix(prefix) {
+            return key.dropFirst(prefix.count).split(separator: ",")
+                .map { prefix + $0.trimmingCharacters(in: .whitespaces) }
+                .filter { $0.count > prefix.count }
+        }
+        if lower.hasPrefix("regexp:") || lower.hasPrefix("regex:") { return [key] } // commas belong to the regex
+        return key.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// Kinds of matcher keys present (diagnostics: geosite keys without a
+    /// database, rule-set keys naming an unknown provider).
+    var matcherKeyArgs: [(kind: MatcherKind, arg: String)] { matcherKeys.map { (kind: $0.kind, arg: $0.arg) } }
 
     private func normalize(_ name: String) -> String {
         var n = name.lowercased()
@@ -56,7 +127,19 @@ struct NCDNSPolicy {
         return nil
     }
 
+    /// Dynamic hosts source for Tailscale MagicDNS names, installed by the
+    /// running Tailscale client (tunnel target) while it is up and cleared
+    /// when it stops. Consulted before the static hosts table so live
+    /// netmap data wins; returns the node's tailnet IPs for a name.
+    static var tailscaleHostsProvider: ((String) -> [NCIP])?
+
     private func matchHosts(_ name: String) -> NCHostEntry? {
+        if let provider = Self.tailscaleHostsProvider {
+            let ips = provider(name)
+            if !ips.isEmpty {
+                return NCHostEntry(pattern: name, value: ips.map(\.string).joined(separator: ","))
+            }
+        }
         for e in hosts where !e.pattern.contains("*") {
             if normalize(e.pattern) == name { return e }
         }
@@ -73,8 +156,8 @@ struct NCDNSPolicy {
         let q = query.questions[0]
         guard q.klass == NCDNSMessage.classIN,
               q.type == NCDNSMessage.typeA || q.type == NCDNSMessage.typeAAAA,
-              let entry = hostsEntry(for: q.name), entry.kind == .address,
-              let ip = NCIP(entry.value) else { return nil }
+              let entry = hostsEntry(for: q.name), entry.kind == .address else { return nil }
+        let ips = entry.addresses
         var resp = NCDNSMessage()
         resp.id = query.id
         resp.isResponse = true
@@ -82,11 +165,11 @@ struct NCDNSPolicy {
         resp.recursionDesired = query.recursionDesired
         resp.recursionAvailable = true
         resp.questions = query.questions
-        let familyOK = (q.type == NCDNSMessage.typeA && ip.isV4)
-            || (q.type == NCDNSMessage.typeAAAA && !ip.isV4)
-        if familyOK {
-            resp.answers = [NCDNSRecord(name: q.name, type: q.type, klass: q.klass, ttl: 60,
-                                        rdata: Data(ip.bytes))]
+        // Every address of the queried family (dual-stack entries answer
+        // both A and AAAA); none of that family -> NOERROR / no data.
+        let wantV4 = q.type == NCDNSMessage.typeA
+        resp.answers = ips.filter { $0.isV4 == wantV4 }.map {
+            NCDNSRecord(name: q.name, type: q.type, klass: q.klass, ttl: 60, rdata: Data($0.bytes))
         }
         return resp.serialized()
     }
@@ -101,26 +184,33 @@ struct NCDNSPolicy {
         if let entry = hostsEntry(for: name), entry.kind == .dnsServer, let srv = entry.dnsServer {
             return [srv]
         }
-        var best: (key: String, servers: [NCDNSServerRef])? = nil
-        for item in model.domainServers {
-            var key = normalize(item.key)
-            if key.hasPrefix("+.") { key = String(key.dropFirst(2)) }
-            if key.hasPrefix("geosite:") || key.hasPrefix("rule-set:") || key.hasPrefix("regexp:") { continue }
-            if name == key || name.hasSuffix("." + key) {
-                if best == nil || key.count > best!.key.count { best = (key, item.servers) }
+        var best: (len: Int, servers: [NCDNSServerRef])? = nil
+        for item in domainKeys where name == item.key || name.hasSuffix("." + item.key) {
+            if best == nil || item.key.count > best!.len { best = (len: item.key.count, servers: item.servers) }
+        }
+        if let best { return best.servers }
+        for item in matcherKeys {
+            switch item.kind {
+            case .geosite:
+                if let geositeContains, geositeContains(item.arg, name) { return item.servers }
+            case .ruleSet:
+                if let ruleSetContainsDomain, ruleSetContainsDomain(item.arg, name) { return item.servers }
+            case .regexp:
+                if let re = NCRegexCache.shared.regex(item.arg),
+                   re.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil { return item.servers }
             }
         }
-        return best?.servers ?? []
+        return []
     }
 
-    // MARK: fallback (mihomo dns.fallback + fallback-filter)
+    // MARK: fallback (Clash.Meta dns.fallback + fallback-filter)
 
     /// The configured fallback servers, in preference order.
     var fallbackServers: [NCDNSServerRef] { model.fallback }
 
     var hasFallback: Bool { !model.fallback.isEmpty }
 
-    /// Domain-side fallback trigger (mihomo checks the query name against
+    /// Domain-side fallback trigger (Clash.Meta checks the query name against
     /// fallback-filter's geosite/domain lists first): when true, the query
     /// goes to the fallback servers directly instead of trusting the
     /// primary answer for a name expected to be polluted / hijacked.

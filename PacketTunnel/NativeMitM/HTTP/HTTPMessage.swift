@@ -9,7 +9,7 @@
 // one scalar, so obs-text / non-UTF-8 header values survive parse → modify → serialize unchanged (this closes OPEN #5 of
 // astemo6's B8 draft, which decoded lossily as UTF-8). A head nobody modified serializes as its original rawBytes.
 //
-// Credits: header semantics (Go `Header.Set` position rule, never folding duplicates, obs-fold rejection, fail-closed
+// Credits: header semantics (the old core `Header.Set` position rule, never folding duplicates, obs-fold rejection, fail-closed
 // typed errors, re-framing rules) follow astemo6's draft drafts/native-mitm/HTTPMessage.swift (origin/draft/native-mitm-
 // b7b8 6b53dc6); the parser itself was rewritten byte-level and incremental (HTTPParser.swift).
 
@@ -73,7 +73,7 @@ extension HTTPHead {
             .filter { !$0.isEmpty }
     }
 
-    /// Replace all fields of `name` with one, at the first occurrence's position (Go `Header.Set`).
+    /// Replace all fields of `name` with one, at the first occurrence's position (the old core `Header.Set`).
     mutating func setHeader(_ name: String, _ value: String) {
         let key = name.lowercased()
         if let idx = headers.firstIndex(where: { $0.name.lowercased() == key }) {

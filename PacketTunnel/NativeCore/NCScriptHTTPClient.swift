@@ -11,7 +11,7 @@
 // every Set-Cookie kept as its own pair; gzip / deflate / br decoded with NativeBodyDecode (Content-Encoding and
 // Content-Length then describe the decoded body, like the URLSession path did); redirects followed (301/302/303
 // → GET without body, 307/308 keep method and body; at most 10) unless noRedirect. One deadline for the whole
-// exchange: the script's timeout, else 15 s (Go's fetchReq).
+// exchange: the script's timeout, else 15 s (the old core's fetchReq).
 //
 // `policy` (a proxy / group / DIRECT / REJECT name) replaces the rule match for this request; an unknown name fails
 // the request ("unknown policy"), like Surge. `insecure` skips certificate verification on both the direct
@@ -96,7 +96,7 @@ enum NCScriptHTTPClient {
                 req.headers.removeAll { isHeader($0.0, "Content-Type") || isHeader($0.0, "Content-Length") }
             }
             if !sameOrigin {
-                // like Go's net/http: credentials are not sent to another host
+                // like the old core's HTTP client: credentials are not sent to another host
                 req.headers.removeAll { isHeader($0.0, "Authorization") || isHeader($0.0, "Cookie") }
             }
             req.url = next
@@ -115,9 +115,22 @@ enum NCScriptHTTPClient {
         // connect
         let sem = DispatchSemaphore(value: 0)
         let box = LateLeaseBox()
+        // fix/nc-open-6-10 #9: script traffic in /app/stats (统计 page) — the route this request used and the bytes
+        // it moved are recorded once the exchange ends (NCStatsRecorder.oneShot; nothing kept per request).
+        let route = NCUpstreamRoute()
+        let started = Date()
+        var upBytes: Int64 = 0, downBytes: Int64 = 0
+        var connected = false
+        defer {
+            if connected {
+                NCStatsRecorder.shared.oneShot(idPrefix: "script", rule: route.rule, policy: route.policy, chain: route.chain,
+                                               host: host, dstPort: port, up: upBytes, down: downBytes, start: started)
+            }
+        }
         let start: (@escaping (Result<MitmUpstreamLease, Error>) -> Void) -> Void = { done in
             if let nc = connector as? NCUpstreamConnector {
-                nc.open(host: host, port: port, tls: tls, policy: req.policy, insecure: req.insecure, completion: done)
+                nc.open(host: host, port: port, tls: tls, policy: req.policy, insecure: req.insecure, alpn: ["http/1.1"],
+                        route: route, completion: done)
             } else {
                 connector.open(host: host, port: port, tls: tls, completion: done)
             }
@@ -130,6 +143,7 @@ enum NCScriptHTTPClient {
         case .failure(let e)?: return .failure(.connect("\(e)"))
         case .success(let l)?: lease = l
         }
+        connected = true
         defer { lease.release(reusable: false) }
         let stream = lease.stream
 
@@ -137,6 +151,7 @@ enum NCScriptHTTPClient {
         let head = requestHead(req, host: host, port: port, tls: tls)
         var out = Data(head.utf8)
         out.append(req.body)
+        upBytes = Int64(out.count)
         let wrote: Error?? = wait(deadline) { done in stream.write(out) { done($0) } }
         switch wrote {
         case nil: stream.close(); return .failure(.timeout)
@@ -154,6 +169,7 @@ enum NCScriptHTTPClient {
             let (d, eof, err) = g
             if let err { return .failure(.io("read: \(err)")) }
             if let d, !d.isEmpty {
+                downBytes += Int64(d.count)
                 if let f = parser.feed(d) { return .failure(f) }
             }
             if eof || (d?.isEmpty ?? true) {
@@ -360,7 +376,8 @@ struct HTTP1ResponseParser {
                 let hex = line.split(separator: ";", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
                 guard let n = Int(hex, radix: 16), n >= 0 else { return StepFailure(failure: .badResponse("chunk size \(line)")) }
                 if n == 0 { inTrailers = true; continue }
-                if body.count + n > bodyLimit { return StepFailure(failure: .tooLarge) }
+                // n is the peer's hex (up to Int.max): compare without adding so a huge size cannot overflow
+                if n > bodyLimit - body.count { return StepFailure(failure: .tooLarge) }
                 chunkLeft = n
             }
             if chunkLeft > 0 {

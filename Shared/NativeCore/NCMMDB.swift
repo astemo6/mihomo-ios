@@ -27,10 +27,16 @@ final class NCMMDB {
         var decoder = NCMMDBDecoder(data: data, offset: markerRange.upperBound, dataStart: markerRange.upperBound)
         guard let meta = decoder.decode(), case .object(let m) = meta,
               let nodes = m["node_count"]?.int, let recSize = m["record_size"]?.int else { return nil }
+        // A malformed / hostile database (it is downloaded from a config URL) must not trap: record sizes other than
+        // 24/28/32 are unsupported, and node_count * record_size * 2 used to overflow Int on a huge node_count.
+        // The search tree must also fit inside the file, so readRecord never indexes past the end.
+        guard nodes > 0, [24, 28, 32].contains(recSize) else { return nil }
+        let (bits, o1) = nodes.multipliedReportingOverflow(by: recSize * 2)
+        guard !o1, bits / 8 <= data.count - 16 else { return nil }
         nodeCount = nodes
         recordSize = recSize
         ipVersion = m["ip_version"]?.int ?? 6
-        treeSize = nodeCount * recordSize * 2 / 8
+        treeSize = bits / 8
         dataStart = treeSize + 16 // separator
         buildEpoch = m["build_epoch"]?.number ?? m["build_epoch"]?.int.map(Double.init)
         databaseType = m["database_type"]?.string
@@ -92,17 +98,31 @@ final class NCMMDB {
     /// {"iso_code": …}}), MetaCubeX metadb records ({"country_code": …}) and
     /// bare string records.
     func countryCode(for ip: NCIP) -> String? {
-        guard let record = lookup(ip) else { return nil }
+        countryCodes(for: ip).first
+    }
+
+    /// Every code an IP carries. fix/nc-diag-439 (A): MetaCubeX `Meta-geoip0` stores a network that belongs to several
+    /// lists as an ARRAY of codes (`["google","us"]`, `["cloudflare","cn"]` — 1,030 networks carry `cn` this way);
+    /// Clash.Meta's MetaV0 reader matches GEOIP against any of them. The single-code reader returned nil for those, so
+    /// `GEOIP,cn` silently missed. Order kept as stored; empty when nothing covers the IP.
+    func countryCodes(for ip: NCIP) -> [String] {
+        guard let record = lookup(ip) else { return [] }
+        return Self.codes(in: record)
+    }
+
+    static func codes(in record: NCJSONValue) -> [String] {
         switch record {
         case .string(let s):
-            return s
+            return s.isEmpty ? [] : [s]
+        case .array(let a):
+            return a.compactMap { $0.string }.filter { !$0.isEmpty }
         case .object(let m):
-            if let cc = m["country_code"]?.string { return cc }
-            if let iso = m["country"]?.object?["iso_code"]?.string { return iso }
-            if let iso = m["registered_country"]?.object?["iso_code"]?.string { return iso }
-            return nil
+            if let cc = m["country_code"]?.string { return [cc] }
+            if let iso = m["country"]?.object?["iso_code"]?.string { return [iso] }
+            if let iso = m["registered_country"]?.object?["iso_code"]?.string { return [iso] }
+            return []
         default:
-            return nil
+            return []
         }
     }
 
@@ -119,9 +139,12 @@ private struct NCMMDBDecoder {
     let data: Data
     var offset: Int
     var dataStart: Int = 0
+    /// Pointer / map / array nesting so far: a hostile file with a self-referencing pointer or deep nesting would
+    /// otherwise recurse until the stack overflows. Real MaxMind records nest a handful of levels.
+    var depth: Int = 0
 
     mutating func decode() -> NCJSONValue? {
-        guard offset < data.count else { return nil }
+        guard offset >= 0, offset < data.count, depth < 64 else { return nil }
         let ctrl = data[offset]
         offset += 1
         var type = Int(ctrl >> 5)
@@ -153,7 +176,7 @@ private struct NCMMDBDecoder {
                 pointer = Int(data[offset]) << 24 | Int(data[offset + 1]) << 16 | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
                 offset += 4
             }
-            var target = NCMMDBDecoder(data: data, offset: dataStart + pointer, dataStart: dataStart)
+            var target = NCMMDBDecoder(data: data, offset: dataStart + pointer, dataStart: dataStart, depth: depth + 1)
             return target.decode()
         }
         let size: Int
@@ -215,6 +238,8 @@ private struct NCMMDBDecoder {
             return .number(Double(Int32(bitPattern: raw)))
         case 7: // map
             var obj: [String: NCJSONValue] = [:]
+            depth += 1
+            defer { depth -= 1 }
             for _ in 0..<size {
                 guard let key = decode(), case .string(let k) = key, let value = decode() else { return nil }
                 obj[k] = value
@@ -222,6 +247,8 @@ private struct NCMMDBDecoder {
             return .object(obj)
         case 11: // array
             var arr: [NCJSONValue] = []
+            depth += 1
+            defer { depth -= 1 }
             for _ in 0..<size {
                 guard let v = decode() else { return nil }
                 arr.append(v)

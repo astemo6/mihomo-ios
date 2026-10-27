@@ -4,7 +4,7 @@ import Foundation
 /// and the Shadowsocks 2022 key schedule. Implements hash / keyed-hash /
 /// derive-key modes per the BLAKE3 paper's reference structure: 1024-byte
 /// chunks, ChaCha-derived compression with 7 rounds, CV-stack tree fold.
-/// Test vectors were generated with the same Go library mihomo uses
+/// Test vectors were generated with the same the old core library Clash.Meta uses
 /// (metacubex/blake3) — see NativeCoreBlake3Tests.
 enum NCBlake3 {
     private static let iv: [UInt32] = [0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
@@ -30,9 +30,18 @@ enum NCBlake3 {
         return finalize(keyWords: words(from: key), flags: flagKeyed, data: data)
     }
 
+    /// derive_key with an arbitrary byte context (the old core `blake3.DeriveKey(out, string(ctx), key)` passes binary
+    /// contexts — VLESS encryption derives AEAD keys from public keys / record bytes; feat/nc-proto A6).
+    static func deriveKey(contextBytes: [UInt8], material: [UInt8]) -> [UInt8] {
+        // The context key is the context's ROOT hash (flags DERIVE_KEY_CONTEXT | ROOT).
+        let contextKey = words(from: finalize(keyWords: iv, flags: flagDeriveContext, data: contextBytes))
+        return finalize(keyWords: contextKey, flags: flagDeriveMaterial, data: material)
+    }
+
     static func deriveKey(context: String, material: [UInt8]) -> [UInt8] {
-        let contextKey = chainingValue(keyWords: iv, flags: flagDeriveContext,
-                                       data: [UInt8](context.utf8))
+        // feat/nc-proto: the context key is the context string's ROOT hash (DERIVE_KEY_CONTEXT | ROOT), as in the
+        // reference implementation; the previous non-root chaining value gave wrong keys (SS2022 subkeys included).
+        let contextKey = words(from: finalize(keyWords: iv, flags: flagDeriveContext, data: [UInt8](context.utf8)))
         return finalize(keyWords: contextKey, flags: flagDeriveMaterial, data: material)
     }
 

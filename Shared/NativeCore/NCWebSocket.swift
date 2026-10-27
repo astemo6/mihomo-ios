@@ -1,7 +1,7 @@
 import Foundation
 
 /// Minimal WebSocket client (RFC 6455) over an NCStream, carrying a byte
-/// stream in binary messages — the v2ray/mihomo "ws" transport for VMess and
+/// stream in binary messages — the v2ray/Clash.Meta "ws" transport for VMess and
 /// VLESS. Client frames are masked as required; server messages are
 /// reassembled across fragmentation and surfaced as stream bytes.
 final class NCWebSocketStream: NCRelayStream {
@@ -14,11 +14,20 @@ final class NCWebSocketStream: NCRelayStream {
     private var fragmentBuffer = Data()
     private var closed = false
 
+    /// nc-memory: wire-declared frame lengths and fragmented messages are peer-controlled;
+    /// without caps a peer can declare a 2^63 frame or fragment forever and pin the receive
+    /// buffer for the connection's life. 1 MB is far above any ws-transport chunk in practice.
+    static let maxFrameLength = 1024 * 1024
+    static let maxMessageLength = 1024 * 1024
+
     init(raw: NCRelayStream, hostHeader: String, path: String, headers: [String: String]) {
         self.raw = raw
         self.hostHeader = hostHeader
         self.path = path.hasPrefix("/") ? path : "/" + path
-        self.extraHeaders = headers
+        // fix/nc-e2e-real (E2E 40278215218: every direct xray ws node "ws upgrade refused"): ws-opts.headers usually
+        // carries Host too, and it was sent as a second Host header after the one above — the old core's HTTP client (xray /
+        // v2ray ws servers) answers 400 Bad Request to that; Cloudflare-fronted nodes tolerated it. Host is sent once.
+        self.extraHeaders = headers.filter { $0.key.caseInsensitiveCompare("Host") != .orderedSame }
     }
 
     /// Run the HTTP upgrade; completion fires once the 101 response's headers
@@ -42,8 +51,9 @@ final class NCWebSocketStream: NCRelayStream {
                 head.append(data)
                 if let end = head.range(of: Data("\r\n\r\n".utf8)) {
                     let headText = String(decoding: head[head.startIndex..<end.lowerBound], as: UTF8.self)
-                    guard headText.contains("101") else {
-                        completion(NCConnector.Failure.handshake("ws upgrade refused"))
+                    let status = headText.components(separatedBy: "\r\n").first ?? ""
+                    guard status.contains(" 101") else {
+                        completion(NCConnector.Failure.handshake("ws upgrade refused: " + String(status.prefix(64))))
                         return
                     }
                     self.buffer = Data(head[end.upperBound...])
@@ -61,9 +71,11 @@ final class NCWebSocketStream: NCRelayStream {
         pump()
     }
 
-    func send(_ data: Data) {
-        guard handshakeDone, !closed else { return }
-        raw.send(Self.frame(opcode: 0x2, payload: data))
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        guard handshakeDone, !closed else { completion(); return }
+        raw.send(Self.frame(opcode: 0x2, payload: data), completion: completion)
     }
 
     private static func frame(opcode: UInt8, payload: Data) -> Data {
@@ -138,6 +150,12 @@ final class NCWebSocketStream: NCRelayStream {
                 for k in 0..<8 { len = len << 8 | Int(buffer[2 + k]) }
                 offset = 10
             }
+            guard len <= Self.maxFrameLength else {
+                // nc-memory: declared frame length over the cap — never satisfiable, close.
+                closed = true
+                raw.cancel()
+                return nil
+            }
             var maskKey: Data?
             if masked {
                 guard buffer.count >= offset + 4 else { return nil }
@@ -160,6 +178,12 @@ final class NCWebSocketStream: NCRelayStream {
                 closed = true
                 return fragmentBuffer.isEmpty ? nil : fragmentBuffer
             case 0x0, 0x1, 0x2: // continuation / text / binary
+                guard fragmentBuffer.count + payload.count <= Self.maxMessageLength else {
+                    // nc-memory: fragmented message over the cap — close.
+                    closed = true
+                    raw.cancel()
+                    return nil
+                }
                 fragmentBuffer.append(payload)
                 if fin {
                     let message = fragmentBuffer
@@ -192,6 +216,8 @@ final class NCVLESSRelayStream: NCRelayStream {
     }
 
     func send(_ data: Data) { raw.send(data) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) { raw.send(data, completion: completion) }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         raw.receive { [weak self] data, error in

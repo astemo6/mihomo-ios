@@ -1,9 +1,9 @@
 import Foundation
 import NetworkExtension
 
-/// feat/native-core-eval: everything the tunnel used to ask the Go core for (Libmihomo*), served by NativeCore.
-/// The PacketTunnel target does not link Libmihomo any more (TERN_NO_GO); the app writes the runtime config
-/// (bridge/nativeprep.go PrepareNativeRuntime) and the tunnel only reads it.
+/// feat/native-core-eval: everything the tunnel used to ask the old core for, served by NativeCore.
+/// The PacketTunnel target does not link the old core framework any more; the app writes the runtime config
+/// and the tunnel only reads it.
 final class NativeTunnelCore {
     static let shared = NativeTunnelCore()
 
@@ -15,13 +15,20 @@ final class NativeTunnelCore {
     private var _plane: NCDataPlane?
     private var _controller: NCController?
     private var _localProxy: NCLocalProxy?
+    /// fix/nc-e2e-gaps: loopback `listeners` with a fixed policy (节点探测 TERN-PROBE on 127.0.0.1:7899).
+    private var _probeProxies: [NCProbeProxy] = []
     var engine: NativeCoreEngine? { lock.lock(); defer { lock.unlock() }; return _engine }
     var plane: NCDataPlane? { lock.lock(); defer { lock.unlock() }; return _plane }
     var controller: NCController? { lock.lock(); defer { lock.unlock() }; return _controller }
     var localProxy: NCLocalProxy? { lock.lock(); defer { lock.unlock() }; return _localProxy }
     private var home = ""
+    private var watchdog: NCQueueWatchdog?
+    // feat/nc-lan-share: what the local mixed port needs, kept for reload (局域网共享 applies on reload, like the old core).
+    private var mixedPortSetting = 0
+    private var localProxyNeeded = false
+    private var lanFallback = NCLanShare()
 
-    // reload status (bridge/reloadstatus.go shape: running, seq, done, kind, lastError, lastMs, lastDoneAgoMs, runningMs)
+    // reload status
     private var reloadRunning = 0
     private var reloadSeq: Int64 = 0
     private var reloadDone: Int64 = 0
@@ -39,15 +46,49 @@ final class NativeTunnelCore {
 
     // MARK: lifecycle
 
+    // rv2-life (#8 / #9): start / stop / reload are serialized by `lifecycle` (held for the whole step, never while
+    // `lock` is held). `generation` is bumped by every start and stop under its own tiny lock, so a reload that
+    // began before a stop (or a newer start) sees it changed and aborts instead of reviving a stopped core
+    // (engine.isRunning, health check, NativeTaskRunner). `genLock` is never held while taking another lock: the
+    // engine checks the token while holding its state lock, and stop() bumps it before waiting for `lifecycle`.
+    private let lifecycle = NSLock()
+    private let genLock = NSLock()
+    private var generation: UInt64 = 0
+    private func bumpGeneration() -> UInt64 { genLock.lock(); defer { genLock.unlock() }; generation &+= 1; return generation }
+    private func isCurrent(_ g: UInt64) -> Bool { genLock.lock(); defer { genLock.unlock() }; return generation == g }
+
     /// Loads the config and brings the data plane (and controller) up. Throws a user-facing error.
-    /// `mixedPort` > 0 also starts the local mixed proxy (gap D1: 仅代理 / VPN 混合) on 127.0.0.1:mixedPort;
+    /// The local mixed proxy (gap D1: 仅代理 / VPN 混合; feat/nc-lan-share: 局域网共享) listens on `mixedPort` when
+    /// `localProxyNeeded` (loopback, for the system proxy) or when the runtime config has allow-lan (bind per
+    /// NCLanShare; `lanFallback` is used when the config does not say, e.g. a runtime.conf). Without allow-lan it
+    /// stays on 127.0.0.1. `localProxyNeeded` nil = the old contract (mixedPort > 0 means needed).
     /// `requireMixedPort` (仅代理, where it is the only way in) turns a listener failure into a start failure.
+    /// 需同步 feat/nc-kernel.
+    /// rv2-life #9: idempotent — a core that is already up is stopped completely first (lwIP timers, listeners,
+    /// health check, task runner), so two data planes / controllers never coexist.
     func start(home: String, flow: NEPacketTunnelFlow, mtu: Int, controllerPort: Int, secret: String,
-               mixedPort: Int = 0, requireMixedPort: Bool = false) throws {
+               mixedPort: Int = 0, localProxyNeeded: Bool? = nil, requireMixedPort: Bool = false,
+               lanFallback: NCLanShare = NCLanShare()) throws {
+        _ = bumpGeneration() // an in-flight reload of the old core aborts
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
+        lock.lock()
+        let alreadyUp = _plane != nil || _engine != nil
+        lock.unlock()
+        if alreadyUp {
+            StartupLog.write("native core start: a previous core is still up, stopping it first")
+            stopLocked()
+        }
+        let gen = bumpGeneration()
+        // fix/nc-mem-4: kernel-peak watcher + start checkpoints (DEBUG builds; NCMemTrace).
+        NCMemTrace.startWatcher()
+        NCMemTrace.line("start-begin")
         let engine = NativeCoreEngine()
         if let msg = engine.load(home: home) {
+            engine.stop()
             throw PacketTunnelProvider.error("内核配置加载失败：\(msg)")
         }
+        NCMemTrace.line("start-engine-loaded")
         let plane = NCDataPlane(engine: engine, flow: flow, mtu: UInt16(clamping: mtu))
         do {
             try plane.start()
@@ -55,18 +96,23 @@ final class NativeTunnelCore {
             engine.stop()
             throw PacketTunnelProvider.error("内核数据面启动失败：\(error.localizedDescription)")
         }
+        NCMemTrace.line("start-plane-up")
+        let needed = localProxyNeeded ?? (mixedPort > 0)
+        let lanSetup = Self.localProxySetup(raw: engine.config?.raw ?? [:], mixedPort: mixedPort, needed: needed,
+                                            fallback: lanFallback)
         var localProxy: NCLocalProxy?
-        if mixedPort > 0 {
-            let lp = NCLocalProxy(engine: engine, port: mixedPort, stats: plane.stats)
+        if let plan = lanSetup.plan {
+            let lp = NCLocalProxy(engine: engine, port: plan.port, stats: plane.stats, lan: lanSetup.lan)
+            let addr = NCLocalProxy.describe(plan.bind, UInt16(clamping: plan.port))
             if let why = lp.start() {
-                StartupLog.write("local proxy: 127.0.0.1:\(mixedPort) not listening: \(why)")
+                StartupLog.write("local proxy: \(addr) not listening: \(why)")
                 if requireMixedPort {
                     plane.stop()
                     engine.stop()
-                    throw PacketTunnelProvider.error("本地代理端口 \(mixedPort) 无法监听：\(why)。请在 更多 → 连接方式 换一个端口")
+                    throw PacketTunnelProvider.error("本地代理端口 \(plan.port) 无法监听：\(why)。请在 更多 → 连接方式 换一个端口")
                 }
             } else {
-                StartupLog.write("local proxy: HTTP / HTTPS CONNECT / SOCKS5 on 127.0.0.1:\(mixedPort)")
+                StartupLog.write("local proxy: HTTP / HTTPS CONNECT / SOCKS5 on \(addr)\(Self.lanSummary(lanSetup.lan))")
                 plane.localProxy = lp
                 localProxy = lp
             }
@@ -74,39 +120,168 @@ final class NativeTunnelCore {
         var controller: NCController?
         if controllerPort > 0 {
             let c = NCController(engine: engine, plane: plane, port: controllerPort, secret: secret)
-            c.start()
-            controller = c
+            // rv2-life: a listen failure is logged + written to nativecore-controller.json (NCController.start);
+            // the tunnel keeps running (the data plane does not need it) but no longer pretends the API is up.
+            if c.start(home: home) {
+                controller = c
+            } else {
+                c.stop()
+            }
         }
         lock.lock()
         self.home = home
+        mixedPortSetting = mixedPort
+        self.localProxyNeeded = needed
+        self.lanFallback = lanFallback
         _engine = engine
         _plane = plane
         _controller = controller
         _localProxy = localProxy
         lock.unlock()
+        syncProbeListeners(engine, taken: [mixedPort, controllerPort])
         NativeCoreEngine.active = engine
+        // fix/nc-start-empty: logs (once per queue) when the lwIP / controller queue stops running blocks.
+        watchdog?.stop()
+        var watched: [(String, DispatchQueue)] = [("lwIP data plane (nc.dataplane)", plane.queue)]
+        if let controller { watched.append(("controller (nc.controller)", controller.watchQueue)) }
+        watched.append(("script hooks (nc.script-hooks)", NCScriptHookRunner.shared.watchQueue))
+        let wd = NCQueueWatchdog(queues: watched)
+        wd.start()
+        watchdog = wd
         loadRewriteSnapshot(home: home, engine: engine)
-        StartupLog.write("native core up: \(engine.statsLine)")
+        StartupLog.write("native core up (gen \(gen)): \(engine.statsLine)")
+        NCMemorySampler.sample("start")
         logSupport(engine)
     }
 
+    /// fix/nc-e2e-gaps: (re)starts the fixed-policy loopback listeners the config asks for; unchanged ones stay up.
+    /// A port the mixed proxy / controller already holds is skipped (the App's probePort rule avoids them anyway).
+    private func syncProbeListeners(_ engine: NativeCoreEngine, taken: [Int]) {
+        let want = NCProbeListener.specs(engine.config?.raw).filter { !taken.contains(Int($0.port)) }
+        lock.lock()
+        let have = _probeProxies
+        lock.unlock()
+        var keep: [NCProbeProxy] = []
+        for pp in have {
+            if want.contains(pp.spec) { keep.append(pp) } else { pp.stop() }
+        }
+        for spec in want where !keep.contains(where: { $0.spec == spec }) {
+            let pp = NCProbeProxy(engine: engine, spec: spec)
+            if let why = pp.start() {
+                StartupLog.write("probe listener \(spec.name): 127.0.0.1:\(spec.port) not listening: \(why)")
+            } else {
+                StartupLog.write("probe listener \(spec.name): HTTP / CONNECT on 127.0.0.1:\(spec.port) → \(spec.policy)")
+                keep.append(pp)
+            }
+        }
+        lock.lock()
+        _probeProxies = keep
+        lock.unlock()
+    }
+
+    /// feat/nc-lan-share: allow-lan / bind-address / mixed-port / authentication / lan-allowed-ips from the runtime
+    /// config (fallback: the app settings), and the listener that follows from them. Pure; unit-tested via
+    /// NCLanShare.
+    static func localProxySetup(raw: [String: NCJSONValue], mixedPort: Int, needed: Bool, fallback: NCLanShare)
+        -> (lan: NCLanShare, plan: (port: Int, bind: NCLanShare.Bind)?) {
+        let lan = NCLanShare.from(raw: raw) ?? fallback
+        let port = NCLanShare.mixedPort(raw: raw, fallback: mixedPort)
+        return (lan, NCLanShare.plan(needLocal: needed, port: port, lan: lan))
+    }
+
+    private static func lanSummary(_ lan: NCLanShare) -> String {
+        guard lan.allowLan else { return "" }
+        return " (局域网共享\(lan.requiresAuth ? ", \(lan.users.count) user(s)" : ", no auth")\(lan.allowed.isEmpty ? "" : ", \(lan.allowed.count) allowed prefixes"))"
+    }
+
+    /// Reload: re-applies 局域网共享 (the app reloads after the switch, the users or 仅允许局域网设备 change).
+    /// Caller holds `lifecycle`.
+    private func applyLocalProxy(engine: NativeCoreEngine, plane: NCDataPlane) {
+        lock.lock()
+        let (port, needed, fallback, current) = (mixedPortSetting, localProxyNeeded, lanFallback, _localProxy)
+        lock.unlock()
+        let setup = Self.localProxySetup(raw: engine.config?.raw ?? [:], mixedPort: port, needed: needed, fallback: fallback)
+        guard let plan = setup.plan else {
+            guard let current else { return }
+            current.stop()
+            lock.lock(); _localProxy = nil; lock.unlock()
+            plane.localProxy = nil
+            StartupLog.write("local proxy: stopped (局域网共享 off)")
+            return
+        }
+        let addr = NCLocalProxy.describe(plan.bind, UInt16(clamping: plan.port))
+        if let current {
+            if let why = current.reconfigure(port: plan.port, lan: setup.lan) {
+                StartupLog.write("local proxy: \(addr) not listening after reload: \(why)")
+            } else {
+                StartupLog.write("local proxy: \(addr)\(Self.lanSummary(setup.lan))")
+            }
+            return
+        }
+        let lp = NCLocalProxy(engine: engine, port: plan.port, stats: plane.stats, lan: setup.lan)
+        if let why = lp.start() {
+            StartupLog.write("local proxy: \(addr) not listening after reload: \(why)")
+            return
+        }
+        StartupLog.write("local proxy: HTTP / HTTPS CONNECT / SOCKS5 on \(addr)\(Self.lanSummary(setup.lan))")
+        plane.localProxy = lp
+        lock.lock(); _localProxy = lp; lock.unlock()
+    }
+
     func stop() {
+        _ = bumpGeneration() // cancels an in-flight reload (it re-checks before committing anything)
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
+        stopLocked()
+    }
+
+    /// Caller holds `lifecycle`.
+    private func stopLocked() {
+        watchdog?.stop()
+        watchdog = nil
         lock.lock()
         let (c, lp, p, e) = (_controller, _localProxy, _plane, _engine)
-        _controller = nil; _localProxy = nil; _plane = nil; _engine = nil
+        let probes = _probeProxies
+        _controller = nil; _localProxy = nil; _plane = nil; _engine = nil; _probeProxies = []
+        lastSample = nil
         lock.unlock()
         c?.stop()
         lp?.stop()
+        for pp in probes { pp.stop() }
         p?.stop()
         e?.stop()
         NativeCoreEngine.active = nil
         NativeTaskRunner.shared.stop()
+        // nc-lifecycle: drain the process-wide state no single core instance
+        // owns. The shared protocol-session registries, the DNS upstream
+        // coordinator, the DoT/DoH pools and the JSC script cache are all
+        // singletons that outlive the core — before this they kept live
+        // sessions, pooled TLS streams and compiled scripts past the stop
+        // for the extension's remaining life.
+        let closedSessions = NCConnector.closeAllSharedSessions()
+        NCDNSUpstreamCoordinator.shared.cancelAll()
+        NCDNSDoTPool.shared.reset()
+        NCDNSDoHPool.shared.reset()
+        JSCScriptEngine.shared.dropAll()
         logRewriteSkips()
         NCPersistentStore.shared.flush() // $persistentStore writes still waiting for their coalesced flush
+        NCMemorySampler.sample("stop")
+        // Read after the drains: the coordinator/pool counters queue behind
+        // the cancel/reset blocks, so zeros here are the drained state, not
+        // a race — a nonzero value in this line is a leak.
+        let sc = NCConnector.sharedSessionCounts()
+        let dc = NCDNSUpstreamCoordinator.shared.inFlightCounts()
+        let closedText = closedSessions.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+        NSLog("[nc-lifecycle] after stop: closed sessions \(closedText); registries mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) juicity=\(sc["juicity"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot pooled=\(NCDNSDoTPool.shared.pooledConnectionCount()) doh pooled=\(NCDNSDoHPool.shared.pooledConnectionCount())")
     }
 
     /// Re-reads the config the app just prepared (TunnelMessage.reload / .reloadHot). nil = applied.
+    /// rv2-life #8 / M: the slow part (config parse, rule-set cache, geo databases) runs off the lwIP queue and off
+    /// the engine lock (NativeCoreEngine.load prepares first, then swaps the parsed state in one short locked step),
+    /// so established flows keep moving and new flows wait only for the swap. A stop() or a newer start() during
+    /// the reload bumps the generation: the engine refuses to commit, and the rewrite / task reload is skipped.
     func reload(hot: Bool) -> String? {
+        genLock.lock(); let gen = generation; genLock.unlock()
         lock.lock()
         reloadRunning += 1
         reloadSeq += 1
@@ -114,14 +289,27 @@ final class NativeTunnelCore {
         reloadStarted = Date()
         let (engine, plane, home) = (_engine, _plane, self.home)
         lock.unlock()
+        if engine != nil { NCMemorySampler.sample("reload-pre") }
         var err: String?
-        if let engine, let plane {
-            // On the data plane's queue: the plane reads the engine's rules / groups there.
-            err = plane.queue.sync { engine.load(home: home) }
+        if let engine, plane != nil {
+            err = engine.load(home: home, isCurrent: { [weak self] in self?.isCurrent(gen) ?? false })
             if err == nil {
-                loadRewriteSnapshot(home: home, engine: engine)
-                StartupLog.write("native core reloaded (\(hot ? "hot" : "full")): \(engine.statsLine)")
-                logSupport(engine)
+                // Commit the side effects (scripts, tasks, rewrite) only while this core is still the live one;
+                // `lifecycle` keeps a concurrent stop() from interleaving with them.
+                lifecycle.lock()
+                lock.lock(); let live = _engine === engine; lock.unlock()
+                if live && isCurrent(gen) {
+                    if let plane { applyLocalProxy(engine: engine, plane: plane) }
+                    loadRewriteSnapshot(home: home, engine: engine)
+                    lock.lock(); let taken = [Int(_localProxy?.port ?? 0)]; lock.unlock()
+                    syncProbeListeners(engine, taken: taken)
+                    StartupLog.write("native core reloaded (\(hot ? "hot" : "full")): \(engine.statsLine)")
+                    logSupport(engine)
+                    NCMemorySampler.sample("reload-post")
+                } else {
+                    err = "内核已停止或已重启，本次重载已取消"
+                }
+                lifecycle.unlock()
             }
         } else {
             err = "内核未运行"
@@ -136,8 +324,70 @@ final class NativeTunnelCore {
         return err
     }
 
-    /// The app's rewrite / MitM snapshot (bridge/mitm ExportRewriteSnapshot); .conf profiles carry their own.
-    /// gap C5: rules the native rewrite engine skipped (Go-free: they used to make the whole request pass through)
+    /// nc-lifecycle pressure/regression run, triggered by the provider's
+    /// "lifecycleTest" app message while the tunnel is up: reloads the
+    /// prepared config `rounds` times, sampling the footprint every round.
+    /// Rounds 7 and 14 are full (non-hot) reloads standing in for config
+    /// swaps — the rounds re-read whatever the app last prepared into home,
+    /// and this in-tunnel driver cannot ask the app to prepare a different
+    /// profile mid-run (a true A/B swap stays a device-checklist step).
+    /// Afterwards it exercises the exact teardown primitives stop() uses
+    /// (session drain, DNS cancel/reset) and asserts the registries are
+    /// empty, then checks the last footprint against the first plus the
+    /// allowance noted below. NOTE: the teardown step closes live shared
+    /// sessions — flows on them drop and re-dial; run it on a test setup,
+    /// not mid-traffic. Returns the report (also the app-message reply).
+    func runLifecycleSelfTest(rounds: Int = 20) -> String {
+        lock.lock(); let up = _engine != nil && _plane != nil; lock.unlock()
+        guard up else { return "lifecycle self-test: core is not running" }
+        var lines = ["lifecycle self-test: \(rounds) reloads"]
+        let first = NCMemorySampler.sample("lifecycle-r0")
+        lines.append("round 0: footprint \(String(format: "%.1f", first.footprintMB))MB")
+        var last = first
+        for r in 1...rounds {
+            let hot = !(r == 7 || r == 14)
+            if let err = reload(hot: hot) {
+                lines.append("round \(r): reload failed: \(err)")
+                lines.append("RESULT: FAIL (reload \(r))")
+                return lines.joined(separator: "\n")
+            }
+            last = NCMemorySampler.sample("lifecycle-r\(r)")
+            lines.append("round \(r) (\(hot ? "hot" : "full")): footprint \(String(format: "%.1f", last.footprintMB))MB")
+        }
+        let closed = NCConnector.closeAllSharedSessions()
+        NCDNSUpstreamCoordinator.shared.cancelAll()
+        NCDNSDoTPool.shared.reset()
+        NCDNSDoHPool.shared.reset()
+        Thread.sleep(forTimeInterval: 0.3)
+        let sc = NCConnector.sharedSessionCounts()
+        let dc = NCDNSUpstreamCoordinator.shared.inFlightCounts()
+        let dot = NCDNSDoTPool.shared.pooledConnectionCount()
+        let doh = NCDNSDoHPool.shared.pooledConnectionCount()
+        let closedText = closed.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+        lines.append("teardown: closed sessions \(closedText)")
+        lines.append("registries after teardown: mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) juicity=\(sc["juicity"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot=\(dot) doh=\(doh)")
+        var failures: [String] = []
+        if sc.values.contains(where: { $0 != 0 }) { failures.append("session registries not empty") }
+        if dc.entries != 0 || dc.active != 0 || dc.pending != 0 { failures.append("dns coordinator not drained") }
+        if dot != 0 || doh != 0 { failures.append("dns pools not drained") }
+        // Allowance: 3 MB over the first round. What legitimately persists
+        // across reloads: the mmap'd geo databases and the JSC prelude
+        // context (both cached process-wide by design), plus allocator
+        // arenas that are retained rather than returned to the OS. Growth
+        // beyond that, round over round, is a leak — and 3 MB sits far
+        // inside the 50 MB extension budget.
+        let allowanceMB = 3.0
+        let growth = last.footprintMB - first.footprintMB
+        lines.append("footprint growth first→last: \(String(format: "%+.1f", growth))MB (allowance \(String(format: "%.1f", allowanceMB))MB)")
+        if growth > allowanceMB { failures.append("footprint grew beyond allowance") }
+        lines.append(failures.isEmpty ? "RESULT: PASS" : "RESULT: FAIL (\(failures.joined(separator: "; ")))")
+        let report = lines.joined(separator: "\n")
+        NSLog("[nc-lifecycle] self-test:\n%@", report)
+        return report
+    }
+
+    /// The app's rewrite / MitM snapshot; .conf profiles carry their own.
+    /// gap C5: rules the native rewrite engine skipped (native-only: they used to make the whole request pass through)
     private func logRewriteSkips() {
         let sk = NativeRewriteEngine.skipStats()
         guard !sk.isEmpty else { return }
@@ -147,14 +397,20 @@ final class NativeTunnelCore {
     private func loadRewriteSnapshot(home: String, engine: NativeCoreEngine) {
         logRewriteSkips()
         // Scripts: the prelude once per process, the app's script manifest (code files + run setup) every load.
-        StartupLog.write("native scripts: " + NativeScriptHost.shared.load(home: home))
+        let scriptsLine = NativeScriptHost.shared.load(home: home)
+        StartupLog.write("native scripts: " + scriptsLine)
         // gap C3: cron / event / generic tasks and panels from the same manifest
         StartupLog.write("native tasks: " + NativeTaskRunner.shared.load(home: home))
+        // fix/nc-mitm-live: 脚本日志 gets one line per load, so an empty page no longer means "nothing happened or broken?"
+        let sched = NativeTaskRunner.shared.scheduleSummary()
+        StartupLog.write("native task schedule: " + sched)
+        NativeLogRing.shared.addScript(script: "Tern", level: "info", msg: "脚本引擎已加载：\(scriptsLine)；\(sched)")
         let url = URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json")
         if let text = try? String(contentsOf: url, encoding: .utf8), let snap = RWSnapshot.decode(text) {
             NativeRewriteSnapshotSource.shared.setSnapshot(snap, json: text)
             NativeRewriteEngine.load(snap)
             StartupLog.write("native rewrite snapshot: \(snap.rules?.count ?? 0) rules, \(snap.inc?.count ?? 0) MitM hosts, on \(snap.on)")
+            NativeLogRing.shared.addScript(script: "Tern", level: "info", msg: "重写已加载：\(snap.rules?.count ?? 0) 条规则，\(NativeRewriteEngine.shared.mitmHostCount) 个 MitM 主机")
         } else if let canonical = engine.loadedCanonicalConfig {
             let snap = canonical.buildRewriteSnapshot()
             NativeRewriteSnapshotSource.shared.setSnapshot(snap)
@@ -175,7 +431,7 @@ final class NativeTunnelCore {
         if let data = try? JSONSerialization.data(withJSONObject: lines) { try? data.write(to: url, options: .atomic) }
     }
 
-    // MARK: Libmihomo replacements
+    // MARK: the old core framework replacements
 
     func reloadStatus() -> String {
         lock.lock(); defer { lock.unlock() }
@@ -188,13 +444,13 @@ final class NativeTunnelCore {
         return Self.json(out)
     }
 
-    /// "up,down" totals since start (LibmihomoTrafficTotals).
+    /// "up,down" totals since start.
     func trafficTotals() -> String {
         guard let s = plane?.stats.snapshot() else { return "0,0" }
         return "\(s.up),\(s.down)"
     }
 
-    /// LibmihomoLiveStatus: "up\tdown\ttotalUp\ttotalDown\tnode\tproxyUp\tproxyDown\tproxyUpTotal\tproxyDownTotal".
+    /// LiveStatus: "up\tdown\ttotalUp\ttotalDown\tnode\tproxyUp\tproxyDown\tproxyUpTotal\tproxyDownTotal".
     func liveStatus() -> String {
         guard let s = plane?.stats.snapshot() else { return "" }
         let now = Date()
@@ -231,23 +487,27 @@ final class NativeTunnelCore {
         return ""
     }
 
-    /// LibmihomoMemorySnapshot's shape (TunnelMemorySnapshot in the app); Go fields are absent.
+    /// MemorySnapshot's shape (TunnelMemorySnapshot in the app); the old core fields are absent.
     func memorySnapshot(footprint: UInt64, peak: UInt64, available: Int) -> [String: Any] {
         let conns = plane?.stats.snapshot().connections.count ?? 0
-        return [
+        var obj: [String: Any] = [
             "footprint": footprint, "peak": peak, "available": available, "connections": conns,
             "at": Int64(Date().timeIntervalSince1970),
             "native": ["on": true, "sessions": NativeMitmRuntime.liveSessions],
         ]
+        if let ts = NCTailscaleClient.guardStatusSnapshot() {
+            obj["tailscale"] = ts
+        }
+        return obj
     }
 
-    /// LibmihomoSetPhysicalInterface: remembered for 诊断. Native sockets are NWConnections, which iOS keeps off the
+    /// SetPhysicalInterface: remembered for 诊断. Native sockets are NWConnections, which iOS keeps off the
     /// tunnel for the provider's own process; with includeAllNetworks this is still unverified on device.
     func setPhysicalInterface(_ name: String) {
         lock.lock(); physicalInterface = name; lock.unlock()
     }
 
-    /// LibmihomoSetNetworkState: the SSID feeds SUBNET groups (NCGroupEngine.ssidProvider reads the app group).
+    /// SetNetworkState: the SSID feeds SUBNET groups (NCGroupEngine.ssidProvider reads the app group).
     func setNetworkState(type: String, ssid: String?) -> String {
         lock.lock(); networkType = type; lock.unlock()
         let d = UserDefaults(suiteName: AppShared.appGroup)
@@ -255,17 +515,18 @@ final class NativeTunnelCore {
         return ""
     }
 
-    /// LibmihomoFlushDNSCache: NativeCore keeps no resolver cache beyond the fake-IP pool (which must survive).
-    func flushDNSCache() {}
+    /// FlushDNSCache (network change, $httpAPI): the rule-matching resolver cache — answers cached on the
+    /// old network would keep IP rules matching stale addresses. The fake-IP pool must survive (fix/nc-e2e-real).
+    func flushDNSCache() { engine?.flushDNSCache() }
 
-    /// LibmihomoNotifyNetworkChanged: infoJSON becomes $network; every enabled network-changed event script runs
+    /// NotifyNetworkChanged: infoJSON becomes $network; every enabled network-changed event script runs
     /// (gap C3, NativeTaskRunner). Returns how many were started.
     func notifyNetworkChanged(_ json: String) -> Int {
         let info = ((try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]) ?? [:]
         return NativeTaskRunner.shared.networkChanged(info)
     }
 
-    /// LibmihomoShedConnections: close the oldest `percent` % of connections.
+    /// ShedConnections: close the oldest `percent` % of connections.
     func shedConnections(percent: Int) -> Int {
         guard let plane else { return 0 }
         let conns = plane.stats.snapshot().connections
@@ -278,5 +539,72 @@ final class NativeTunnelCore {
 
     static func json(_ o: Any) -> String {
         (try? JSONSerialization.data(withJSONObject: o)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+}
+
+
+/// fix/nc-start-empty (build 382 "connected, nothing moves, controller hangs"): every 1 s each watched serial queue
+/// gets a no-op block; one that has not run it within 2 s is logged ONCE (which queue, how long), and again when it
+/// recovers. Tells a blocked lwIP / controller queue apart from a quiet one in the 诊断包 startup log.
+final class NCQueueWatchdog {
+    private final class Watched {
+        let name: String
+        let queue: DispatchQueue
+        var pendingSince: Date?
+        var reported = false
+        var recoveryLogged = false
+        init(name: String, queue: DispatchQueue) { self.name = name; self.queue = queue }
+    }
+    private let lock = NSLock()
+    private let items: [Watched]
+    private var timer: DispatchSourceTimer?
+    static let stallAfter: TimeInterval = 2
+
+    init(queues: [(String, DispatchQueue)]) {
+        items = queues.map { Watched(name: $0.0, queue: $0.1) }
+    }
+
+    func start() {
+        let t = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        t.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(200))
+        t.setEventHandler { [weak self] in self?.tick() }
+        t.resume()
+        timer = t
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+    }
+
+    private func tick() {
+        let now = Date()
+        for w in items {
+            lock.lock()
+            if let since = w.pendingSince {
+                let waited = now.timeIntervalSince(since)
+                let report = waited >= Self.stallAfter && !w.reported
+                if report { w.reported = true }
+                lock.unlock()
+                if report {
+                    StartupLog.write("WATCHDOG: queue \(w.name) has not run a block for \(String(format: "%.1f", waited)) s — it is blocked (packets / controller requests on it are stuck)")
+                }
+                continue
+            }
+            w.pendingSince = now
+            lock.unlock()
+            w.queue.async { [weak self, w] in
+                guard let self else { return }
+                self.lock.lock()
+                let since = w.pendingSince
+                let logRecovery = w.reported && !w.recoveryLogged
+                if logRecovery { w.recoveryLogged = true }
+                w.pendingSince = nil
+                self.lock.unlock()
+                if logRecovery, let since {
+                    StartupLog.write("WATCHDOG: queue \(w.name) ran again after \(String(format: "%.1f", Date().timeIntervalSince(since))) s")
+                }
+            }
+        }
     }
 }

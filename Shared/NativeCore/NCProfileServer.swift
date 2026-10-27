@@ -2,7 +2,7 @@ import Foundation
 import Network
 
 /// Lightweight loopback HTTP server to serve the MitM CA configuration profile to Safari.
-/// Replaces Go's `CAServeProfile` (`bridge/engine.go`).
+/// Replaces the old core's `CAServeProfile`.
 /// Serves `/ca.mobileconfig`, `/ca.cer`, and `/` for ~3 minutes on `127.0.0.1:<ephemeral-port>`.
 public final class NCCAProfileServer {
     public static let shared = NCCAProfileServer()
@@ -26,9 +26,9 @@ public final class NCCAProfileServer {
         }
 
         let htmlString = """
-        <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>安装 Mihomo CA</title>
+        <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>安装 Tern CA</title>
         <body style="font-family:-apple-system;padding:24px;background:#0a0b10;color:#eee">
-        <h2>安装 Mihomo MitM 证书</h2><p><a style="color:#4ac7f5;font-size:20px" href="/ca.mobileconfig">点此下载描述文件</a></p>
+        <h2>安装 Tern MitM 证书</h2><p><a style="color:#4ac7f5;font-size:20px" href="/ca.mobileconfig">点此下载描述文件</a></p>
         <ol><li>点「允许」下载描述文件</li><li>打开 设置 → 已下载描述文件 → 安装</li><li>设置 → 通用 → 关于本机 → 证书信任设置 → 打开该证书的完全信任</li></ol></body>
         """
         let htmlData = Data(htmlString.utf8)
@@ -68,7 +68,7 @@ public final class NCCAProfileServer {
 
         self.listener = listener
 
-        // Auto-stop after 3 minutes (matching Go)
+        // Auto-stop after 3 minutes (matching the old core)
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 180.0)
         timer.setEventHandler { [weak self] in
@@ -109,7 +109,7 @@ public final class NCCAProfileServer {
 
                     let response: Data
                     if path.starts(with: "/ca.mobileconfig") {
-                        let header = "HTTP/1.1 200 OK\r\nContent-Type: application/x-apple-aspen-config\r\nContent-Disposition: attachment; filename=\"Mihomo-CA.mobileconfig\"\r\nContent-Length: \(mcData.count)\r\nConnection: close\r\n\r\n"
+                        let header = "HTTP/1.1 200 OK\r\nContent-Type: application/x-apple-aspen-config\r\nContent-Disposition: attachment; filename=\"Tern-CA.mobileconfig\"\r\nContent-Length: \(mcData.count)\r\nConnection: close\r\n\r\n"
                         response = Data(header.utf8) + mcData
                     } else if path.starts(with: "/ca.cer") {
                         let header = "HTTP/1.1 200 OK\r\nContent-Type: application/x-x509-ca-cert\r\nContent-Length: \(cerData.count)\r\nConnection: close\r\n\r\n"

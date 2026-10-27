@@ -3,9 +3,9 @@ import Network
 import Security
 
 /// Pure-Swift latency and connectivity tester for outbounds and proxy nodes.
-/// Replaces the Go bridge functions (LibmihomoNodeTestDelayIn, LibmihomoNodeTCPDelayIn,
-/// LibmihomoTestDelay, LibmihomoTestTCPDelay, LibmihomoTestDelayByName, LibmihomoTCPDelayByName)
-/// so latency tests can be performed directly in the app process without Go or tunnel dependency.
+/// Replaces the old bridge functions (NodeTestDelayIn, NodeTCPDelayIn,
+/// TestDelay, TestTCPDelay, TestDelayByName, TCPDelayByName)
+/// so latency tests can be performed directly in the app process without the old core or tunnel dependency.
 enum NCDelayTester {
 
     // MARK: - Physical Interface Configuration
@@ -82,12 +82,6 @@ enum NCDelayTester {
         }
     }
 
-    static func nodeTestDelayInAsync(homeDir: String, profilePath: String, provider: String, name: String, url: String, timeoutMs: Int, tcp: Bool) async -> Int {
-        await withCheckedContinuation { cont in
-            nodeDelayInAsync(homeDir: homeDir, profilePath: profilePath, provider: provider, name: name, url: url, timeoutMs: timeoutMs, tcp: tcp) { cont.resume(returning: $0) }
-        }
-    }
-
     static func delayByNameAsync(homeDir: String, profilePath: String, name: String, url: String, timeoutMs: Int, tcp: Bool) async -> Int {
         await withCheckedContinuation { cont in
             delayByNameAsync(homeDir: homeDir, profilePath: profilePath, name: name, url: url, timeoutMs: timeoutMs, tcp: tcp) { cont.resume(returning: $0) }
@@ -127,7 +121,8 @@ enum NCDelayTester {
             result = ms
             sem.signal()
         }
-        let t = max(timeoutMs, 1000) + 500
+        // fix/nc-delay-2: a URL test may take the cold budget plus the warm request (unified-delay).
+        let t = NCTunnelDelayTester.probeWindowMs(timeoutMs: max(timeoutMs, 1000), unified: true) + 500
         _ = sem.wait(timeout: .now() + .milliseconds(t))
         return result
     }
@@ -187,7 +182,7 @@ enum NCDelayTester {
         }
 
         let workQueue = DispatchQueue(label: "nc.delay.http", qos: .userInitiated)
-        let start = Date()
+        let start = DispatchTime.now()
         var finished = false
         var activeStream: NCRelayStream?
 
@@ -201,8 +196,21 @@ enum NCDelayTester {
             }
         }
 
-        workQueue.asyncAfter(deadline: .now() + .milliseconds(timeout)) {
-            finish(-1)
+        // fix/nc-delay-2: same accounting as the tunnel's probe (NCTunnelDelayTester, Clash.Meta unified-delay, which
+        // Tern always sets): the cold phase (dial + inner TLS + first request) gets max(timeout, 5000); the reported
+        // value is the second request on the warm connection, bounded by `timeout`. Offline tests used to time the
+        // cold dial against `timeout` alone, so a CDN node on a high-RTT network always showed 超时.
+        let coldTimer = DispatchWorkItem { finish(-1) }
+        workQueue.asyncAfter(deadline: .now() + .milliseconds(NCTunnelDelayTester.coldBudgetMs(timeoutMs: timeout, unified: true)),
+                             execute: coldTimer)
+        let probeHttp: (NCRelayStream, (host: String, port: Int, tls: Bool, path: String), DispatchTime, @escaping (Int) -> Void) -> Void = { stream, target, start, finish in
+            let ex = NCTunnelDelayTester.HTTPExchange(relay: stream, target: target, unified: true, trace: nil, start: start) { ms, _ in
+                finish(ms.map { max(1, $0) } ?? -1)
+            }
+            ex.warmTimeoutMs = timeout
+            ex.timerQueue = workQueue
+            ex.onWarmStart = { coldTimer.cancel() }
+            ex.run()
         }
 
         if proxy.type == "direct" {
@@ -212,7 +220,7 @@ enum NCDelayTester {
             activeStream = stream
             stream.start { err in
                 if err != nil { finish(-1); return }
-                probeHttp(stream: stream, target: target, start: start, finish: finish)
+                probeHttp(stream, target, start, finish)
             }
             return
         }
@@ -234,24 +242,10 @@ enum NCDelayTester {
                 activeStream = tls
                 tls.startHandshake { err in
                     if err != nil { finish(-1); return }
-                    probeHttp(stream: tls, target: target, start: start, finish: finish)
+                    probeHttp(tls, target, start, finish)
                 }
             } else {
-                probeHttp(stream: relay, target: target, start: start, finish: finish)
-            }
-        }
-    }
-
-    private static func probeHttp(stream: NCRelayStream, target: (host: String, port: Int, tls: Bool, path: String),
-                                  start: Date, finish: @escaping (Int) -> Void) {
-        let req = "GET \(target.path) HTTP/1.1\r\nHost: \(target.host)\r\nUser-Agent: curl/7.88.1\r\nConnection: close\r\n\r\n"
-        stream.send(Data(req.utf8))
-        stream.receive { data, error in
-            if let data, !data.isEmpty {
-                let ms = max(1, Int(Date().timeIntervalSince(start) * 1000))
-                finish(ms)
-            } else {
-                finish(-1)
+                probeHttp(relay, target, start, finish)
             }
         }
     }
@@ -291,7 +285,7 @@ enum NCDelayTester {
         }
 
         workQueue.async {
-            // DNS resolution is performed before starting the connection timer (mirrors Go tcpHandshake)
+            // DNS resolution is performed before starting the connection timer (mirrors the old core tcpHandshake)
             let ip = resolveIP(server) ?? server
             let start = Date()
 
@@ -379,6 +373,8 @@ final class NCNodeResolver {
 
     struct CachedProfile {
         var mtime: Date
+        /// mtime of the manual-nodes store (a manual node added / edited must not resolve from a stale cache).
+        var manualMtime: Date = .distantPast
         var profileProxies: [String: NCProxy]
         var providers: [String: [String: NCProxy]]
         var allNamedProxies: [String: NCProxy]
@@ -411,7 +407,10 @@ final class NCNodeResolver {
         let attrs = (try? fm.attributesOfItem(atPath: profilePath)) ?? [:]
         let mtime = (attrs[.modificationDate] as? Date) ?? Date.distantPast
 
-        if let existing = cache[profilePath], existing.mtime == mtime {
+        let manualPath = Self.manualNodesPath(home: homeDir)
+        let manualMtime = ((try? fm.attributesOfItem(atPath: manualPath))?[.modificationDate] as? Date) ?? Date.distantPast
+
+        if let existing = cache[profilePath], existing.mtime == mtime, existing.manualMtime == manualMtime {
             return existing
         }
 
@@ -474,17 +473,15 @@ final class NCNodeResolver {
             }
         }
 
-        // 3. Manual nodes from <home>/manual-nodes.json
-        let manualURL = URL(fileURLWithPath: homeDir).appendingPathComponent("manual-nodes.json")
-        if let data = try? Data(contentsOf: manualURL),
-           let array = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] {
-            for dict in array {
-                if let p = NCDelayTester.parseProxy(dict: dict) {
-                    if profileProxies[p.name] == nil {
-                        profileProxies[p.name] = p
-                    }
-                    allNamedProxies[p.name] = allNamedProxies[p.name] ?? p
+        // 3. Manual nodes. rv2: the App keeps them in the manual profile <container>/profiles/manual-nodes.yaml
+        // —
+        // nothing ever wrote the <home>/manual-nodes.json this used to read, so manual nodes never resolved here.
+        if !manualPath.isEmpty, manualPath != profilePath {
+            for (_, p) in loadNodesFromFile(manualPath).sorted(by: { $0.key < $1.key }) {
+                if profileProxies[p.name] == nil {
+                    profileProxies[p.name] = p
                 }
+                allNamedProxies[p.name] = allNamedProxies[p.name] ?? p
             }
         }
 
@@ -506,6 +503,7 @@ final class NCNodeResolver {
         }
 
         let cp = CachedProfile(mtime: mtime,
+                               manualMtime: manualMtime,
                                profileProxies: profileProxies,
                                providers: providers,
                                allNamedProxies: allNamedProxies)
@@ -526,6 +524,23 @@ final class NCNodeResolver {
             return nil
         }
         return NCProxy(name: name, type: type, fields: obj)
+    }
+
+    /// Same path as the App's NCRuntimeOverrides.manualNodesPath:
+    /// filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml"). Duplicated here because NCDelayTester is
+    /// Shared and NCRuntimeOverrides is App-only; keep the two in step.
+    static func manualNodesPath(home: String) -> String {
+        if home.isEmpty { return "" }
+        let dir: String
+        if let r = home.range(of: "/", options: .backwards) {
+            let head = String(home[home.startIndex..<r.lowerBound])
+            dir = head.isEmpty ? "/" : head
+        } else {
+            dir = "."
+        }
+        if dir == "." { return "profiles/manual-nodes.yaml" }
+        return ((dir as NSString).appendingPathComponent("profiles") as NSString)
+            .appendingPathComponent("manual-nodes.yaml")
     }
 
     private func loadNodesFromFile(_ path: String) -> [String: NCProxy] {

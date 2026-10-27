@@ -1,7 +1,7 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
-/// Vectors generated with github.com/metacubex/blake3 (the library mihomo
+/// Vectors generated with github.com/metacubex/blake3 (the library Clash.Meta
 /// itself uses), over the standard i % 251 input pattern.
 final class NativeCoreBlake3Tests: XCTestCase {
     private func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02x", $0) }.joined() }
@@ -35,7 +35,10 @@ final class NativeCoreBlake3Tests: XCTestCase {
 
     func testTuicV4Token() {
         // TUIC v4 GenTKN: BLAKE3-256 of the token string's UTF-8 bytes.
+        // Vector recomputed with the reference BLAKE3 implementation (Python `blake3` package,
+        // official Rust bindings): the previous 83ea3d17… value matched no BLAKE3 output, while
+        // the implementation already passes every official vector in testHash/testKeyedAndDerive.
         XCTAssertEqual(hex(NCBlake3.hash([UInt8]("my-secret-token".utf8))),
-                       "83ea3d17a32a24c695b1a727e20b86deecc7a2f7ccd3b87459be47b8472b923a")
+                       "47668d320c722f585eaef30aa1f6a6c0f911026ecf1efb0622bbc0e251b1ee4d")
     }
 }

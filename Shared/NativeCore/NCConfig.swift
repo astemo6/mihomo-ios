@@ -1,8 +1,8 @@
 import Foundation
 
-/// Flexible JSON value: mihomo configs are loosely typed maps (a proxy's fields
+/// Flexible JSON value: Clash.Meta configs are loosely typed maps (a proxy's fields
 /// differ per protocol), so the native core decodes into this tree and reads
-/// typed views from it — the same shape the Go side keeps as map[string]any.
+/// typed views from it — the same shape the old side keeps as map[string]any.
 enum NCJSONValue: Equatable {
     case null
     case bool(Bool)
@@ -32,7 +32,9 @@ enum NCJSONValue: Equatable {
     var bool: Bool? { if case .bool(let b) = self { return b }; return nil }
     var int: Int? {
         switch self {
-        case .number(let n): return Int(n)
+        // Int(Double) traps on NaN / ±inf / |n| ≥ 2^63 (a config or subscription "port: 1e30"): such a value
+        // reads as absent. In range it still truncates toward zero, as before. Double(Int.max) is 2^63, so `<`.
+        case .number(let n): return n.isFinite && n >= Double(Int.min) && n < Double(Int.max) ? Int(n) : nil
         case .string(let s): return Int(s)
         default: return nil
         }
@@ -49,11 +51,31 @@ struct NCProxy: Equatable {
     let fields: [String: NCJSONValue]
 
     var server: String? { fields["server"]?.string }
-    var port: Int? { fields["port"]?.int }
-    var password: String? { fields["password"]?.string }
+    /// A port outside 0...65535 (a share link / subscription "port=70000") reads as absent, so the dial fails
+    /// cleanly ("missing server/port") instead of being clamped to 65535 by the socket layer.
+    var port: Int? { fields["port"]?.int.flatMap { (0...65535).contains($0) ? $0 : nil } }
+    /// fix/nc-0.20.2: Snell's Clash field is `psk` (snell:// links, Clash YAML) while the Surge/QX importers write
+    /// `password`; either one is the key, so a psk-only node no longer fails with "snell missing psk".
+    var password: String? {
+        if let p = fields["password"]?.string, !p.isEmpty { return p }
+        if type == "snell", let p = fields["psk"]?.string, !p.isEmpty { return p }
+        return fields["password"]?.string
+    }
     var cipher: String? { fields["cipher"]?.string }
     var uuid: String? { fields["uuid"]?.string }
     var udp: Bool { fields["udp"]?.bool ?? false }
+
+    /// Structured ECH options (`ech-opts`), aligned with Clash.Meta's ECHOptions.
+    var echOpts: NCECHOpts? {
+        if let obj = fields["ech-opts"]?.object {
+            return NCECHOpts(object: obj)
+        }
+        if let pluginOpts = fields["plugin-opts"]?.object,
+           let obj = pluginOpts["ech-opts"]?.object {
+            return NCECHOpts(object: obj)
+        }
+        return nil
+    }
 }
 
 struct NCProxyGroup: Equatable {
@@ -75,12 +97,22 @@ struct NCDNSConfig: Equatable {
     var fakeIPRange: String { fields["fake-ip-range"]?.string ?? "198.18.0.1/16" }
     var fakeIPRange6: String? { fields["fake-ip-range6"]?.string }
     var fakeIPFilter: [String] { fields["fake-ip-filter"]?.array?.compactMap { $0.string } ?? [] }
+    /// Clash.Meta `fake-ip-filter-mode`: "blacklist" (default — listed names get
+    /// real IPs), "whitelist" (ONLY listed names get fake IPs) or "rule"
+    /// (Clash.Meta's rule-style filter, not implemented natively: treated as
+    /// blacklist and reported at load).
+    var fakeIPFilterMode: String { (fields["fake-ip-filter-mode"]?.string ?? "blacklist").lowercased() }
+    /// Fallback nameservers (Clash.Meta dns.fallback).
+    var fallbackServers: [String] { fields["fallback"]?.array?.compactMap { $0.string } ?? [] }
     var nameservers: [String] { fields["nameserver"]?.array?.compactMap { $0.string } ?? [] }
+    /// fix/nc-start-empty: bootstrap lists, used as the default upstream when `nameserver` has nothing forwardable.
+    var defaultNameservers: [String] { fields["default-nameserver"]?.array?.compactMap { $0.string } ?? [] }
+    var proxyServerNameservers: [String] { fields["proxy-server-nameserver"]?.array?.compactMap { $0.string } ?? [] }
     var enhancedMode: String { fields["enhanced-mode"]?.string ?? "fake-ip" }
 }
 
 /// The runtime config the native core runs. Decoded from the JSON form of
-/// runtime.yaml (see bridge/nativecore.go: NativeConfigJSON).
+/// runtime.yaml.
 struct NCConfig: Equatable {
     var mode: String // rule | global | direct
     var logLevel: String
@@ -92,7 +124,7 @@ struct NCConfig: Equatable {
     var sniffer: NCSnifferConfig = NCSnifferConfig(fields: [:])
     var raw: [String: NCJSONValue]
     /// Named sub-rule sets (`sub-rules:` in the source config), parsed.
-    /// Only the mihomo-YAML path carries them; other construction sites
+    /// Only the Clash.Meta-YAML path carries them; other construction sites
     /// leave this empty.
     var subRules: [String: [NCRule]] = [:]
 

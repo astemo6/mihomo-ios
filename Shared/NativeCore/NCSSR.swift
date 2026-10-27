@@ -43,12 +43,13 @@ enum NCChaChaStream {
         }
         let state = constants + words(key) + tail
         var w = state
-        func rotr(_ v: UInt32, _ c: Int) -> UInt32 { (v >> c) | (v << (32 - c)) }
+        // RFC 8439 §2.1: the quarter round rotates LEFT.
+        func rotl(_ v: UInt32, _ c: Int) -> UInt32 { (v << c) | (v >> (32 - c)) }
         func qr(_ a: Int, _ b: Int, _ c: Int, _ d: Int) {
-            w[a] = w[a] &+ w[b]; w[d] = rotr(w[d] ^ w[a], 16)
-            w[c] = w[c] &+ w[d]; w[b] = rotr(w[b] ^ w[c], 12)
-            w[a] = w[a] &+ w[b]; w[d] = rotr(w[d] ^ w[a], 8)
-            w[c] = w[c] &+ w[d]; w[b] = rotr(w[b] ^ w[c], 7)
+            w[a] = w[a] &+ w[b]; w[d] = rotl(w[d] ^ w[a], 16)
+            w[c] = w[c] &+ w[d]; w[b] = rotl(w[b] ^ w[c], 12)
+            w[a] = w[a] &+ w[b]; w[d] = rotl(w[d] ^ w[a], 8)
+            w[c] = w[c] &+ w[d]; w[b] = rotl(w[b] ^ w[c], 7)
         }
         for _ in 0..<10 {
             qr(0, 4, 8, 12); qr(1, 5, 9, 13); qr(2, 6, 10, 14); qr(3, 7, 11, 15)
@@ -318,8 +319,8 @@ final class NCSSRAuthState {
     }
 }
 
-/// SSR `auth_sha1_v4` protocol framing — byte layout from mihomo's
-/// transport/ssr/protocol/auth_sha1_v4.go.
+/// SSR `auth_sha1_v4` protocol framing — byte layout from Clash.Meta's
+/// transport/ssr/protocol auth_sha1_v4.
 final class NCSSRAuthSHA1V4 {
     let key: Data
     let iv: Data
@@ -374,10 +375,11 @@ final class NCSSRAuthSHA1V4 {
 
     private static func headLength(of data: Data) -> Int {
         guard data.count >= 2 else { return 30 }
-        switch data[0] & 7 {
+        let s = data.startIndex
+        switch data[s] & 7 {
         case 1: return 7
         case 4: return 19
-        case 3: return 4 + Int(data[1])
+        case 3: return 4 + Int(data[s + 1])
         default: return 30
         }
     }
@@ -418,42 +420,58 @@ final class NCSSRAuthSHA1V4 {
 
     /// Feed decrypted bytes; returns the framed payloads (may throw off
     /// the connection on checksum/length errors, like the reference).
+    /// rv2-proto: `inBuffer` used to shrink with `removeFirst`, which on Data moves startIndex while the readers
+    /// indexed from 0 (second frame misread / trap), and `dataStart` came from the wire unchecked (a crafted
+    /// frame trapped the slice). Frames are now walked by offset, every helper is startIndex-relative, and the
+    /// random-padding length is bounded to the frame like auth_aes128's decoder.
     func decode(_ data: Data) throws -> Data {
         inBuffer.append(data)
         var out = Data()
-        while inBuffer.count > 4 {
-            let length = Int(Self.be16(inBuffer, 0))
+        var off = 0
+        defer {
+            if off >= inBuffer.count { inBuffer = Data() }
+            else if off > 0 { inBuffer = Data(inBuffer[(inBuffer.startIndex + off)...]) }
+        }
+        while inBuffer.count - off > 4 {
+            let length = Int(Self.be16(inBuffer, off))
             if length >= 8192 || length < 7 { throw NCSSR.error("auth_sha1_v4 bad length") }
-            if inBuffer.count < length { break }
-            let frame = Data(inBuffer.prefix(length))
+            if inBuffer.count - off < length { break }
+            let fs = inBuffer.startIndex + off
+            let frame = Data(inBuffer[fs..<(fs + length)])
             guard NCChecksum.crc32(Data(frame.prefix(2))) & 0xffff == Self.le16(frame, 2) else {
                 throw NCSSR.error("auth_sha1_v4 bad crc")
             }
             guard NCChecksum.adler32(Data(frame.prefix(length - 4))) == Self.le32(frame, length - 4) else {
                 throw NCSSR.error("auth_sha1_v4 bad adler")
             }
-            let first = Int(frame[4])
+            let first = Int(frame[frame.startIndex + 4])
             let dataStart = first < 255 ? first + 4 : Int(Self.be16(frame, 5)) + 4
-            out.append(frame[dataStart..<(length - 4)])
-            inBuffer.removeFirst(length)
+            guard dataStart > 4, dataStart <= length - 4 else { throw NCSSR.error("auth_sha1_v4 bad padding length") }
+            if dataStart < length - 4 {
+                out.append(frame[(frame.startIndex + dataStart)..<(frame.startIndex + length - 4)])
+            }
+            off += length
         }
         return out
     }
 
     private static func be16(_ d: Data, _ o: Int) -> UInt16 {
-        UInt16(d[o]) << 8 | UInt16(d[o + 1])
+        let s = d.startIndex + o
+        return UInt16(d[s]) << 8 | UInt16(d[s + 1])
     }
     private static func le16(_ d: Data, _ o: Int) -> UInt16 {
-        UInt16(d[o]) | UInt16(d[o + 1]) << 8
+        let s = d.startIndex + o
+        return UInt16(d[s]) | UInt16(d[s + 1]) << 8
     }
     private static func le32(_ d: Data, _ o: Int) -> UInt32 {
-        UInt32(d[o]) | UInt32(d[o + 1]) << 8 | UInt32(d[o + 2]) << 16 | UInt32(d[o + 3]) << 24
+        let s = d.startIndex + o
+        return UInt32(d[s]) | UInt32(d[s + 1]) << 8 | UInt32(d[s + 2]) << 16 | UInt32(d[s + 3]) << 24
     }
 }
 
 /// SSR obfs `http_simple`: wraps the first chunk in a fake GET request
 /// (every head byte %XX-encoded) and strips the response's HTTP header.
-/// Layout from mihomo's transport/ssr/obfs/http_simple.go.
+/// Layout from Clash.Meta's transport/ssr/obfs http_simple.
 final class NCSSRHTTPSimple {
     let host: String
     let port: Int
@@ -520,10 +538,17 @@ final class NCSSRHTTPSimple {
 
     /// Strip the response HTTP header once; returns payload bytes ready
     /// for the cipher, or nil while the header is incomplete.
+    /// The response header never ended within `maxHeader` bytes: the caller must fail the connection (rv2-proto cap).
+    private(set) var overflowed = false
+    static let maxHeader = 64 * 1024
+
     func decode(_ data: Data) -> Data? {
         if recvHeader { return data }
         inBuffer.append(data)
-        guard let range = inBuffer.range(of: Data([13, 10, 13, 10])) else { return nil }
+        guard let range = inBuffer.range(of: Data([13, 10, 13, 10])) else {
+            if inBuffer.count > Self.maxHeader { overflowed = true; inBuffer = Data() }
+            return nil
+        }
         let payload = Data(inBuffer[range.upperBound...])
         inBuffer = Data()
         recvHeader = true

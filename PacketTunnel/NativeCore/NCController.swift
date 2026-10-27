@@ -1,21 +1,69 @@
 import CryptoKit
 import Foundation
-import Network
 
-/// A mihomo external-controller lookalike served by the native core, so the
-/// App's Dashboard / groups / connections pages keep working while the Go core
+/// A Clash.Meta external-controller lookalike served by the native core, so the
+/// App's Dashboard / groups / connections pages keep working while the old core
 /// is off: /version, /proxies (+ PUT/DELETE selection, delay tests),
 /// /group/{name}/delay, /connections, /traffic, /app/traffic, /configs, /rules.
-/// Anything else answers 404 — features that live in the Go engine (MitM,
+/// Anything else answers 404 — features that live in the old engine (MitM,
 /// providers) degrade in the App exactly like a stopped core would.
 final class NCController {
     private let engine: NativeCoreEngine
     private let plane: NCDataPlane
     private let port: UInt16
     private let secret: String
-    private let queue = DispatchQueue(label: "nc.controller", qos: .userInitiated)
-    private var listener: NWListener?
+    // fix/nc-mem-2: one autorelease pool per work item — routes and stream ticks build NSJSONSerialization / bridged
+    // Foundation objects; with the inherited (root-queue) frequency they were only drained when the worker thread
+    // finished its drain, so a busy controller (App polling + streams) held them across requests.
+    private let queue = DispatchQueue(label: "nc.controller", qos: .userInitiated, autoreleaseFrequency: .workItem)
+    // rv2-life: all mutable state below lives on `queue` (start / stop / handlers hop there; stop used to mutate
+    // the dictionaries from the provider's thread while handlers ran on `queue`).
+    private var listener: NCLoopbackListener?
     private var streamTimers: [ObjectIdentifier: DispatchSourceTimer] = [:]
+    /// Every accepted connection until it is cancelled / failed, so stop() can end in-flight requests and streams.
+    private var conns: [ObjectIdentifier: NCLoopbackConn] = [:]
+    private var stopped = false
+    private static let queueKey = DispatchSpecificKey<UInt8>()
+    private var statusURL: URL?
+    /// fix/nc-start-empty: requests seen / answered (on `queue`), for 诊断: tells "the App never reached the
+    /// controller" apart from "it reached it and the answers were slow / failed".
+    private var accepted = 0
+    private var routed = 0
+    private var unauthorized = 0
+    private var slowest: (path: String, ms: Int) = ("-", 0)
+    private var loggedFirst = false
+
+    /// fix/nc-start-empty: the controller's serial queue, for the stall watchdog (NativeTunnelCore).
+    var watchQueue: DispatchQueue { queue }
+
+    /// Racy read (log line only).
+    var statsLine: String {
+        "controller: accepted \(accepted), routed \(routed), 401 \(unauthorized), slowest \(slowest.path) \(slowest.ms) ms"
+    }
+
+    /// fix/nc-start-empty: the extension asks its own controller GET /version (same secret the App uses) and
+    /// reports what happened — proves the loopback API answers inside the tunnel process.
+    func selfProbe(timeout: TimeInterval = 3, completion: @escaping (String) -> Void) {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/version") else { completion("bad url"); return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = timeout
+        req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.connectionProxyDictionary = [:]
+        cfg.timeoutIntervalForRequest = timeout
+        let session = URLSession(configuration: cfg)
+        let started = Date()
+        session.dataTask(with: req) { data, resp, err in
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            if let err {
+                completion("self-probe /version failed after \(ms) ms: \((err as NSError).domain) \((err as NSError).code) \(err.localizedDescription)")
+            } else {
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+                completion("self-probe /version HTTP \(code) in \(ms) ms (\(data?.count ?? 0) bytes)")
+            }
+            session.finishTasksAndInvalidate()
+        }.resume()
+    }
 
     init(engine: NativeCoreEngine, plane: NCDataPlane, port: Int, secret: String) {
         self.engine = engine
@@ -24,22 +72,71 @@ final class NCController {
         self.secret = secret
     }
 
-    func start() {
-        let params = NWParameters.tcp
-        params.requiredInterfaceType = .loopback
-        guard let listener = try? NWListener(using: params, on: NWEndpoint.Port(rawValue: port) ?? .any) else { return }
-        listener.newConnectionHandler = { [weak self] conn in
-            self?.handle(conn)
+    /// Starts the loopback listener (BSD socket bound to 127.0.0.1:port). false = not listening: the reason
+    /// (with errno) is in the startup log and in `<home>/nativecore-controller.json` ({"listening": false, "port",
+    /// "error"}), which the App can read instead of finding a dead API.
+    /// fix/nc-ctrl-bsd: was NWListener(requiredInterfaceType: .loopback), which on iOS 18.7 reported .ready inside
+    /// the tunnel but never delivered a connection (accepted 0, the self-probe timed out).
+    @discardableResult
+    func start(home: String? = nil, timeout: TimeInterval = 3) -> Bool {
+        queue.setSpecific(key: Self.queueKey, value: 1)
+        // fix/nc-delay-test: [delay] probe lines and slow [dial] lines go to the log ring (App 日志 + core-log.txt).
+        if NCDialTrace.logSink == nil {
+            NCDialTrace.logSink = { line, warning in NativeLogRing.shared.add(type: warning ? "warning" : "info", payload: line) }
         }
-        listener.start(queue: queue)
-        self.listener = listener
+        statusURL = home.map { URL(fileURLWithPath: $0).appendingPathComponent("nativecore-controller.json") }
+        guard port > 0 else {
+            reportStatus(listening: false, error: "端口无效（\(port)）")
+            return false
+        }
+        let l = NCLoopbackListener(queue: queue)
+        l.onAccept = { [weak self] conn in self?.handle(conn) }
+        l.onAcceptError = { why in StartupLog.write("controller: \(why)") }
+        var failure: String?
+        onQueue {
+            self.stopped = false
+            failure = l.start(port: self.port)
+            if failure == nil { self.listener = l }
+        }
+        if let failure {
+            reportStatus(listening: false, error: failure)
+            return false
+        }
+        reportStatus(listening: true, error: nil)
+        return true
     }
 
+    /// Closes the listener, every stream timer and every open connection (in-flight requests included), on `queue`.
     func stop() {
-        listener?.cancel()
-        listener = nil
-        for t in streamTimers.values { t.cancel() }
-        streamTimers.removeAll()
+        onQueue {
+            self.stopped = true
+            self.listener?.stop()
+            self.listener = nil
+            for t in self.streamTimers.values { t.cancel() }
+            self.streamTimers.removeAll()
+            let open = Array(self.conns.values)
+            self.conns.removeAll()
+            for c in open {
+                c.onClose = nil
+                c.cancel()
+            }
+        }
+    }
+
+    private func onQueue(_ body: () -> Void) {
+        if DispatchQueue.getSpecific(key: Self.queueKey) != nil { body() } else { queue.sync(execute: body) }
+    }
+
+    private func reportStatus(listening: Bool, error: String?) {
+        if listening {
+            StartupLog.write("controller: listening on 127.0.0.1:\(port)")
+        } else {
+            StartupLog.write("controller: 127.0.0.1:\(port) NOT listening: \(error ?? "?") — Dashboard / 策略组 / 连接 pages have no API")
+        }
+        guard let url = statusURL else { return }
+        var obj: [String: Any] = ["listening": listening, "port": Int(port), "at": Int64(Date().timeIntervalSince1970)]
+        if let error { obj["error"] = error }
+        if let data = try? JSONSerialization.data(withJSONObject: obj) { try? data.write(to: url, options: .atomic) }
     }
 
     // MARK: Connection handling
@@ -50,14 +147,26 @@ final class NCController {
         var query: [String: String] = [:]
         var headers: [String: String] = [:]
         var body = Data()
+        /// fix/nc-delay-2: path components split before percent-decoding (NCControllerRoute).
+        var comps: [String] = []
     }
 
-    private func handle(_ conn: NWConnection) {
-        conn.start(queue: queue)
+    private func handle(_ conn: NCLoopbackConn) {
+        guard !stopped else { conn.cancel(); return }
+        accepted &+= 1
+        if accepted == 1 { StartupLog.write("controller: first connection accepted") }
+        let id = ObjectIdentifier(conn)
+        conns[id] = conn
+        // rv2-life: forget it and stop its stream timer when it ends (cancel, failed write to a gone App, error).
+        conn.onClose = { [weak self] in
+            guard let self else { return }
+            self.conns.removeValue(forKey: id)
+            self.streamTimers.removeValue(forKey: id)?.cancel()
+        }
         receiveRequest(conn, buffer: Data())
     }
 
-    private func receiveRequest(_ conn: NWConnection, buffer: Data) {
+    private func receiveRequest(_ conn: NCLoopbackConn, buffer: Data) {
         var buffer = buffer
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self else { return }
@@ -84,25 +193,18 @@ final class NCController {
         guard parts.count >= 2 else { return nil }
         let req = Request()
         req.method = String(parts[0])
-        let target = String(parts[1])
-        if let q = target.firstIndex(of: "?") {
-            req.path = String(target[target.startIndex..<q])
-            for pair in target[target.index(after: q)...].split(separator: "&") {
-                let kv = pair.split(separator: "=", maxSplits: 1)
-                if kv.count == 2 {
-                    req.query[String(kv[0])] = String(kv[1]).removingPercentEncoding ?? String(kv[1])
-                }
-            }
-        } else {
-            req.path = target
-        }
-        req.path = req.path.removingPercentEncoding ?? req.path
+        let routed = NCControllerRoute.split(target: String(parts[1]))
+        req.path = routed.path
+        req.comps = routed.comps
+        req.query = routed.query
         for line in lines.dropFirst() {
             if let colon = line.firstIndex(of: ":") {
                 req.headers[line[line.startIndex..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
             }
         }
-        let bodyLen = Int(req.headers["content-length"] ?? "0") ?? 0
+        // A negative Content-Length ("-5" parses as Int) made data[bodyStart..<(bodyStart + bodyLen)] an inverted
+        // range — a trap from a local client before any auth; treat it as no body.
+        let bodyLen = max(0, Int(req.headers["content-length"] ?? "0") ?? 0)
         let bodyStart = headEnd.upperBound
         guard data.count - bodyStart >= bodyLen else { return nil }
         req.body = Data(data[bodyStart..<(bodyStart + bodyLen)])
@@ -111,11 +213,30 @@ final class NCController {
 
     // MARK: Routing
 
-    private func route(_ conn: NWConnection, _ req: Request) {
-        // The app's websocket streams pass the secret as ?token= (mihomo accepts both).
+    private func route(_ conn: NCLoopbackConn, _ req: Request) {
+        routed &+= 1
+        if !loggedFirst {
+            loggedFirst = true
+            StartupLog.write("controller: first request \(req.method) \(req.path)")
+        }
+        // The app's websocket streams pass the secret as ?token= (Clash.Meta accepts both).
         if !secret.isEmpty, req.headers["authorization"] != "Bearer \(secret)", req.query["token"] != secret {
+            unauthorized &+= 1
+            if unauthorized == 1 { StartupLog.write("controller: 401 for \(req.path) — the App's secret differs from the tunnel's") }
             respond(conn, status: 401, json: ["message": "Unauthorized"])
             return
+        }
+        let t0 = DispatchTime.now()
+        // fix/nc-mem-4: [nc-mem] lines around every handler (DEBUG builds; NCMemTrace).
+        NCMemTrace.event("ctrl> \(req.method) \(req.path)")
+        NCMemTrace.line("ctrl-in", "\(req.method) \(req.path)")
+        defer {
+            NCMemTrace.line("ctrl-done", "\(req.method) \(req.path)")
+            let ms = Int((DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000)
+            if ms > slowest.ms {
+                slowest = (req.path, ms)
+                if ms >= 1000 { StartupLog.write("controller: \(req.method) \(req.path) took \(ms) ms on the controller queue") }
+            }
         }
         let path = req.path
         if req.headers["upgrade"]?.lowercased() == "websocket", let key = req.headers["sec-websocket-key"] {
@@ -128,15 +249,22 @@ final class NCController {
             return
         }
         switch (req.method, path) {
-        case ("GET", "/providers/proxies"), ("GET", "/providers/rules"):
-            // Providers are folded into the config by the app / the rule-provider store; nothing to list yet.
+        case ("GET", "/providers/proxies"):
+            // fix/nc-ruleset-convert: the tunnel's proxy providers (nodes after filter / override), Clash.Meta shape.
+            let snap = engine.groupEngine?.statusSnapshot()
+            let delays = snap?.delays ?? [:], alive = snap?.alive ?? [:]
+            let now = ISO8601DateFormatter().string(from: Date())
+            let providers = engine.proxyProvidersJSON { p in Self.proxyItem(p, delays: delays, alive: alive, now: now) }
+            respond(conn, status: 200, json: ["providers": providers])
+        case ("GET", "/providers/rules"):
+            // Rule providers are folded into the rule-provider store; nothing to list yet.
             respond(conn, status: 200, json: ["providers": [String: Any]()])
         case ("GET", "/version"):
             respond(conn, status: 200, json: ["version": "native-1.0.0", "meta": true])
         case ("GET", "/proxies"):
             respond(conn, status: 200, json: ["proxies": proxiesJSON()])
         case ("GET", "/smart"):
-            // 智能选择 status, same shape as the Go core's route (bridge/smart.go).
+            // 智能选择 status, same shape as the old core's route.
             respond(conn, status: 200, json: engine.smartStatusJSON())
         case ("GET", "/connections"):
             let snap = plane.stats.snapshot()
@@ -162,6 +290,18 @@ final class NCController {
             streamTraffic(conn)
         case ("GET", "/app/traffic"):
             respond(conn, status: 200, json: appTrafficJSON())
+        // fix/nc-e2e-gaps: 统计 page / 首页速度历史 / 网络 page
+        case ("GET", "/app/stats"):
+            let q = req.query
+            respond(conn, status: 200, json: NCStatsRecorder.shared.statsJSON(
+                session: Int64(q["session"] ?? "") ?? 0, closedAfter: Int64(q["closedAfter"] ?? "") ?? 0,
+                hostLimit: Int(q["hosts"] ?? "") ?? 0, ruleLimit: Int(q["rules"] ?? "") ?? 0))
+        case ("DELETE", "/app/stats"):
+            NCStatsRecorder.shared.reset()
+            respond(conn, status: 204, json: nil)
+        case ("GET", "/app/stats/speed"):
+            respond(conn, status: 200, json: NCStatsRecorder.shared.speedJSON(
+                lastSeconds: Int(req.query["seconds"] ?? "") ?? 0, buckets: (Int(req.query["buckets"] ?? "") ?? 1) != 0))
         // gap C4 (astemo6/Muse NativeCore): MitM request log + log history from NativeCore's own stores
         case ("GET", "/mitm/requests"):
             respondEncodable(conn, NativeRequestLogStore.shared.summaries(since: Int64(req.query["since"] ?? "") ?? 0))
@@ -173,7 +313,7 @@ final class NCController {
         case ("GET", "/mitm/logs"):
             let since = Int64(req.query["since"] ?? "") ?? 0
             let lines: [[String: Any]] = NativeLogRing.shared.scriptLines(since: since).map {
-                ["id": $0.id, "time": $0.time, "script": $0.script, "level": $0.level, "msg": $0.msg]
+                ["id": $0.id, "time": $0.time, "script": $0.script, "level": $0.level, "msg": $0.msg, "count": $0.count]
             }
             respond(conn, status: 200, json: lines)
         case ("DELETE", "/mitm/logs"):
@@ -201,16 +341,54 @@ final class NCController {
             } else {
                 respond(conn, status: 400, json: ["message": "invalid body"])
             }
+        case ("GET", "/tern/node-tcp-delay"):
+            respondTCPDelay(conn, query: req.query)
         case ("DELETE", "/hark/logs"):
             NativeLogRing.shared.clearGeneral()
             respond(conn, status: 204, json: nil)
+        // fix/nc-e2e-real: DNS 页「清空 DNS 缓存 / 清空 Fake-IP 缓存」, 工具 → DNS 查询 and HTTPS 解密 / 脚本通知 status pages
+        // answered 404 on the native core (E2E 40278215218 contract rows). Clash.Meta-compatible shapes.
+        case ("POST", "/cache/dns/flush"):
+            engine.flushDNSCache()
+            respond(conn, status: 204, json: nil)
+        case ("POST", "/cache/fakeip/flush"):
+            engine.flushFakeIP()
+            respond(conn, status: 204, json: nil)
+        case ("GET", "/dns/query"):
+            respondDNSQuery(conn, query: req.query)
+        case ("GET", "/mitm/status"):
+            respond(conn, status: 200, json: mitmStatusJSON())
+        case ("GET", "/mitm/notifications"):
+            respond(conn, status: 200, json: NativeLogRing.shared.noticesJSON())
         default:
             routeParameterized(conn, req)
         }
     }
 
-    private func routeParameterized(_ conn: NWConnection, _ req: Request) {
-        let comps = req.path.split(separator: "/").map(String.init)
+    private func routeParameterized(_ conn: NCLoopbackConn, _ req: Request) {
+        let comps = req.comps
+        // /providers/proxies/{name} PUT (update now) | /providers/proxies/{name}/healthcheck GET
+        if comps.count >= 3, comps[0] == "providers", comps[1] == "proxies" {
+            let name = comps[2]
+            if comps.count == 3, req.method == "PUT" {
+                let ok = engine.refreshProxyProvider(name) { [weak self] in
+                    self?.respond(conn, status: 204, json: nil)
+                }
+                if !ok { respond(conn, status: 404, json: ["message": "resource not found"]) }
+                return
+            }
+            if comps.count == 4, comps[3] == "healthcheck", req.method == "GET" {
+                respond(conn, status: 204, json: nil)
+                return
+            }
+            // fix/nc-delay-test: GET /providers/proxies/{provider}/{node}/healthcheck — how the App tests a
+            // proxy-provider (节点订阅) node (Clash.Meta's route; /proxies/{name}/delay only knows config proxies there).
+            // It was missing: every provider node got 404 and the App showed 超时 for it.
+            if comps.count == 5, comps[4] == "healthcheck", req.method == "GET" {
+                respondDelay(conn, name: comps[3], query: req.query)
+                return
+            }
+        }
         // /proxies/{name} PUT|DELETE, /proxies/{name}/delay GET
         if comps.count >= 2, comps[0] == "proxies" {
             let name = comps[1]
@@ -228,17 +406,7 @@ final class NCController {
                 return
             }
             if comps.count == 3, comps[2] == "delay", req.method == "GET" {
-                let url = req.query["url"] ?? "http://www.gstatic.com/generate_204"
-                let timeout = Int(req.query["timeout"] ?? "5000") ?? 5000
-                measureDelay(name: name, url: url, timeoutMs: timeout) { [weak self] ms in
-                    guard let self else { return }
-                    if let ms {
-                        self.engine.recordDelay(name: name, ms: ms)
-                        self.respond(conn, status: 200, json: ["delay": ms])
-                    } else {
-                        self.respond(conn, status: 503, json: ["message": "Timeout"])
-                    }
-                }
+                respondDelay(conn, name: name, query: req.query)
                 return
             }
         }
@@ -250,7 +418,7 @@ final class NCController {
                 return
             }
             let url = req.query["url"] ?? "http://www.gstatic.com/generate_204"
-            let timeout = Int(req.query["timeout"] ?? "5000") ?? 5000
+            let timeout = Self.clampTimeout(req.query["timeout"])
             measureGroupDelay(members: group.proxies, url: url, timeoutMs: timeout) { [weak self] results in
                 guard let self else { return }
                 for (n, ms) in results { self.engine.recordDelay(name: n, ms: ms) }
@@ -308,6 +476,103 @@ final class NCController {
         respond(conn, status: 404, json: ["message": "not available in native core"])
     }
 
+    // MARK: fix/nc-e2e-real — /dns/query, /mitm/status
+
+    private static let dnsTypes: [String: UInt16] = ["A": 1, "NS": 2, "CNAME": 5, "SOA": 6, "PTR": 12, "MX": 15, "TXT": 16,
+                                                     "AAAA": 28, "SRV": 33, "SVCB": 64, "HTTPS": 65]
+
+    /// Clash.Meta hub/route/dns shape: {Status, Question:[{name,type,Class}], TC, RD, RA, AD, CD, Answer:[{name,type,TTL,data}]}.
+    private func respondDNSQuery(_ conn: NCLoopbackConn, query: [String: String]) {
+        guard let name0 = query["name"]?.trimmingCharacters(in: .whitespaces), !name0.isEmpty else {
+            respond(conn, status: 400, json: ["message": "name is required"]); return
+        }
+        let name = name0.hasSuffix(".") ? String(name0.dropLast()) : name0
+        let tname = (query["type"] ?? "A").uppercased()
+        guard let type = Self.dnsTypes[tname] ?? UInt16(tname) else {
+            respond(conn, status: 400, json: ["message": "invalid query type"]); return
+        }
+        var finished = false
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 10)
+        timer.setEventHandler { [weak self] in
+            guard !finished else { return }
+            finished = true
+            self?.respond(conn, status: 504, json: ["message": "dns query timed out"])
+        }
+        timer.resume()
+        engine.queryDNS(name: name, type: type) { [weak self] data in
+            guard let self else { return }
+            self.queue.async {
+                guard !finished else { return }
+                finished = true
+                timer.cancel()
+                guard let data, let msg = NCDNSMessage.parse(data) else {
+                    self.respond(conn, status: 500, json: ["message": "no answer from the upstream DNS"]); return
+                }
+                self.respond(conn, status: 200, json: Self.dnsJSON(msg, raw: data, name: name, type: type))
+            }
+        }
+    }
+
+    static func dnsJSON(_ msg: NCDNSMessage, raw: Data, name: String, type: UInt16) -> [String: Any] {
+        let answers: [[String: Any]] = msg.answers.map { r in
+            ["name": r.name + ".", "type": Int(r.type), "TTL": Int(r.ttl), "data": dnsRData(r, raw: raw)]
+        }
+        var out: [String: Any] = [
+            "Status": Int(msg.rcode), "TC": msg.truncated, "RD": msg.recursionDesired, "RA": msg.recursionAvailable,
+            "AD": false, "CD": false,
+            "Question": [["name": name + ".", "type": Int(type), "Class": 1]],
+        ]
+        if !answers.isEmpty { out["Answer"] = answers }
+        return out
+    }
+
+    /// Readable rdata: addresses as text, names (CNAME / NS / PTR, which may use compression pointers into the full
+    /// message) decoded against the whole response, TXT as its strings, anything else as hex.
+    static func dnsRData(_ r: NCDNSRecord, raw: Data) -> String {
+        switch r.type {
+        case 1 where r.rdata.count == 4, 28 where r.rdata.count == 16:
+            let b = [UInt8](r.rdata)
+            if b.count == 16 { return NCIP.v6(b).string }
+            let v4: UInt32 = (UInt32(b[0]) << 24) | (UInt32(b[1]) << 16) | (UInt32(b[2]) << 8) | UInt32(b[3])
+            return NCIP.v4(v4).string
+        case 2, 5, 12:
+            if let at = raw.range(of: r.rdata)?.lowerBound, let decoded = NCDNSMessage.decodeName(raw, at) { return decoded.0 + "." }
+            return (NCDNSMessage.decodeName(r.rdata, 0)?.0).map { $0 + "." } ?? ""
+        case 16:
+            var parts: [String] = []
+            var i = r.rdata.startIndex
+            while i < r.rdata.endIndex {
+                let len = Int(r.rdata[i]); i += 1
+                let end = min(i + len, r.rdata.endIndex)
+                parts.append(String(decoding: r.rdata[i..<end], as: UTF8.self)); i = end
+            }
+            return parts.map { "\"\($0)\"" }.joined(separator: " ")
+        default:
+            return r.rdata.map { String(format: "%02x", $0) }.joined()
+        }
+    }
+
+    /// App/Core/Models.swift MitMStatus. The native front has no single listener port (one loopback listener per
+    /// host, opened on demand), so `port` is 0.
+    private func mitmStatusJSON() -> [String: Any] {
+        let rw = NativeRewriteEngine.shared
+        let running = MitmTLSFront.shared.onAccept != nil
+        let ca = NCCAManager.shared.hasIssuer
+        let canonicalHosts = engine.loadedCanonicalConfig?.mitm.hostnames ?? []
+        var hosts = rw.mitmHostPatterns
+        for h in canonicalHosts where !hosts.contains(h) { hosts.append(h) }
+        var errors: [String] = []
+        if !running { errors.append("MitM front not installed (iOS 17+ required)") }
+        if running && !ca && !hosts.isEmpty { errors.append("no CA loaded — generate or import one on the HTTPS 解密 page") }
+        return [
+            "running": running, "port": 0, "enabled": rw.on || !canonicalHosts.isEmpty, "mitm": engine.mitmActive,
+            "caLoaded": ca, "hostnames": hosts, "rules": rw.ruleCount, "scripts": rw.scriptRuleCount, "coreRules": 0,
+            "errors": errors, "unsupported": NativeRewriteEngine.skipStats().values.reduce(0, +),
+            "pinned": NCPinningMemory.shared.pinnedHosts(),
+        ]
+    }
+
     // MARK: Payload builders
 
     private func proxiesJSON() -> [String: Any] {
@@ -320,18 +585,7 @@ final class NCController {
         var out: [String: Any] = [:]
         let now = ISO8601DateFormatter().string(from: Date())
         for p in cfg.proxies {
-            var item: [String: Any] = [
-                "name": p.name,
-                "type": Self.displayType(p.type),
-                "udp": p.udp,
-                "alive": snapshot.alive[p.name] ?? true,
-            ]
-            if let d = snapshot.delays[p.name] {
-                item["history"] = [["time": now, "delay": d]]
-            } else {
-                item["history"] = [Any]()
-            }
-            out[p.name] = item
+            out[p.name] = Self.proxyItem(p, delays: snapshot.delays, alive: snapshot.alive, now: now)
         }
         for g in cfg.groups {
             out[g.name] = [
@@ -348,6 +602,23 @@ final class NCController {
         out["DIRECT"] = ["name": "DIRECT", "type": "Direct", "udp": true, "alive": true, "history": [Any]()]
         out["REJECT"] = ["name": "REJECT", "type": "Reject", "udp": true, "alive": true, "history": [Any]()]
         return out
+    }
+
+    private static func proxyItem(_ p: NCProxy, delays: [String: Int], alive: [String: Bool], now: String) -> [String: Any] {
+        var item: [String: Any] = [
+            "name": p.name,
+            "type": Self.displayType(p.type),
+            "udp": p.udp,
+            "alive": alive[p.name] ?? true,
+        ]
+        if let d = delays[p.name] {
+            item["history"] = [["time": now, "delay": d]]
+        } else {
+            item["history"] = [Any]()
+        }
+        if let s = p.server { item["server"] = s }
+        if let port = p.port { item["port"] = port }
+        return item
     }
 
     private func rulesJSON() -> [[String: Any]] {
@@ -411,25 +682,31 @@ final class NCController {
     }
 
     /// RFC 6455 server side, text frames only (the app's ControllerClient.stream): one frame a second.
-    private func streamWebSocket(_ conn: NWConnection, key: String, path: String) {
+    private func streamWebSocket(_ conn: NCLoopbackConn, key: String, path: String) {
         let accept = Data(Insecure.SHA1.hash(data: Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))).base64EncodedString()
         let head = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n"
         conn.send(content: Data(head.utf8), completion: .idempotent)
         var last = plane.stats.snapshot()
         // gap C4: /logs streams NativeLogRing lines (from the moment of attaching; history is /hark/logs)
         var logSeq = NativeLogRing.shared.since(UInt64.max).seq
+        var inFlight = false // touched on `queue` only (the timer and the send completions run there)
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 1, repeating: path == "/logs" ? 0.5 : 1)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             if path == "/logs" {
+                guard !inFlight else { return } // the App is behind: lines stay in the ring, picked up next turn
                 let (seq, lines) = NativeLogRing.shared.since(logSeq)
                 logSeq = seq
+                var batch = Data()
                 for l in lines.suffix(200) {
                     if let d = try? JSONSerialization.data(withJSONObject: ["type": l.type, "payload": l.payload]) {
-                        conn.send(content: Self.wsTextFrame(d), completion: .idempotent)
+                        batch.append(Self.wsTextFrame(d))
                     }
                 }
+                guard !batch.isEmpty else { return }
+                inFlight = true
+                conn.send(content: batch, completion: .contentProcessed { _ in inFlight = false })
                 return
             }
             let snap = self.plane.stats.snapshot()
@@ -446,20 +723,14 @@ final class NCController {
                 obj = nil
             }
             last = snap
-            if let obj, let data = try? JSONSerialization.data(withJSONObject: obj) {
-                conn.send(content: Self.wsTextFrame(data), completion: .idempotent)
-            }
+            // rv2-life: one frame in flight at most — a suspended App that stops reading used to have a frame (a
+            // full /connections list) queued in the connection every second, without bound.
+            guard !inFlight, let obj, let data = try? JSONSerialization.data(withJSONObject: obj) else { return }
+            inFlight = true
+            conn.send(content: Self.wsTextFrame(data), completion: .contentProcessed { _ in inFlight = false })
         }
         timer.resume()
         streamTimers[ObjectIdentifier(conn)] = timer
-        conn.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .cancelled, .failed:
-                self?.streamTimers.removeValue(forKey: ObjectIdentifier(conn))?.cancel()
-            default:
-                break
-            }
-        }
         // Client frames (close / ping) are read and dropped; EOF ends the stream.
         func drain() {
             conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { _, _, done, err in
@@ -484,42 +755,95 @@ final class NCController {
         return f
     }
 
-    private func streamTraffic(_ conn: NWConnection) {
+    private func streamTraffic(_ conn: NCLoopbackConn) {
         let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n"
         conn.send(content: Data(head.utf8), completion: .idempotent)
         var lastUp: Int64 = plane.stats.snapshot().up
         var lastDown: Int64 = plane.stats.snapshot().down
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 1, repeating: 1)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
+        var inFlight = false
+        // rv2-life: weak conn / plane — the timer must not keep either alive once the connection is gone; the
+        // connection's handler (handle()) cancels it on .failed as well as .cancelled.
+        timer.setEventHandler { [weak self, weak conn] in
+            guard let self, let conn, !inFlight else { return }
             let snap = self.plane.stats.snapshot()
             let line = "{\"up\":\(snap.up - lastUp),\"down\":\(snap.down - lastDown)}\n"
             lastUp = snap.up
             lastDown = snap.down
-            let chunk = "\(String(line.count, radix: 16))\r\n\(line)\r\n"
-            conn.send(content: Data(chunk.utf8), completion: .idempotent)
+            let chunk = "\(String(line.utf8.count, radix: 16))\r\n\(line)\r\n"
+            inFlight = true
+            conn.send(content: Data(chunk.utf8), completion: .contentProcessed { _ in inFlight = false })
         }
         timer.resume()
         streamTimers[ObjectIdentifier(conn)] = timer
-        conn.stateUpdateHandler = { [weak self] state in
-            if case .cancelled = state {
-                self?.streamTimers.removeValue(forKey: ObjectIdentifier(conn))?.cancel()
-            }
-        }
     }
 
     // MARK: Delay measurement
 
-    /// End-to-end delay through the named node (or group's current member):
-    /// open a relay to the test URL and time until the first response byte.
-    private func measureDelay(name: String, url: String, timeoutMs: Int, completion: @escaping (Int?) -> Void) {
-        NCTunnelDelayTester.measureDelay(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeoutMs, completion: completion)
+    /// fix/nc-delay-test: `?timeout=` clamped to 500…30000 ms (the old core route parity); default 5000.
+    static func clampTimeout(_ q: String?) -> Int {
+        min(max(Int(q ?? "") ?? 5000, 500), 30_000)
+    }
+
+    /// One node's delay (GET /proxies/{name}/delay and /providers/proxies/{p}/{name}/healthcheck): 200 {"delay"},
+    /// else 504 (timeout) / 503 (error) with the stage and the reason in "message" — Clash.Meta's status codes.
+    private func respondDelay(_ conn: NCLoopbackConn, name: String, query: [String: String]) {
+        let url = query["url"] ?? "http://www.gstatic.com/generate_204"
+        let timeout = Self.clampTimeout(query["timeout"])
+        guard engine.effectiveConfig?.proxyMap[name] != nil || engine.effectiveConfig?.groupMap[name] != nil
+                || ["DIRECT", "REJECT"].contains(name.uppercased()) else {
+            // fix/nc-delay-2: a manual test that never reached a probe used to leave no trace at all.
+            NCDialTrace.logSink?("[delay] \(name): not in the running config (404), not tested", true)
+            respond(conn, status: 404, json: ["message": "resource not found"])
+            return
+        }
+        NCTunnelDelayTester.measure(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeout,
+                                    unified: engine.unifiedDelay) { [weak self] o in
+            guard let self else { return }
+            if let ms = o.ms {
+                self.engine.recordDelay(name: name, ms: ms)
+                self.respond(conn, status: 200, json: ["delay": ms])
+            } else {
+                self.respond(conn, status: o.failure == "timeout" ? 504 : 503, json: ["message": o.message])
+            }
+        }
+    }
+
+    /// GET /tern/node-tcp-delay?name=&provider=&url=&timeout= (测速设置 → TCP 握手延迟, old bridge parity): the TCP
+    /// handshake time to the node's server for TCP nodes; the URL test otherwise. {"delay": ms}, 0 = failure.
+    private func respondTCPDelay(_ conn: NCLoopbackConn, query: [String: String]) {
+        let name = query["name"] ?? ""
+        let timeout = Self.clampTimeout(query["timeout"])
+        let cfg = engine.effectiveConfig
+        guard cfg?.proxyMap[name] != nil || cfg?.groupMap[name] != nil else {
+            respond(conn, status: 404, json: ["message": "resource not found"])
+            return
+        }
+        if let p = cfg?.proxyMap[name], NCTunnelDelayTester.tcpCapable(p), let server = p.server, let port = p.port {
+            NCTunnelDelayTester.tcpHandshake(host: server, port: port, timeoutMs: timeout) { [weak self] ms, err in
+                if ms == nil, let err { NCDialTrace.logSink?("[delay] \(name): tcp handshake to \(server):\(port) failed (\(err))", true) }
+                self?.queue.async { self?.respond(conn, status: 200, json: ["delay": ms ?? 0]) }
+            }
+            return
+        }
+        let url = query["url"] ?? "http://www.gstatic.com/generate_204"
+        NCTunnelDelayTester.measure(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeout,
+                                    unified: engine.unifiedDelay) { [weak self] o in
+            if let ms = o.ms { self?.engine.recordDelay(name: name, ms: ms) }
+            self?.queue.async { self?.respond(conn, status: 200, json: ["delay": o.ms ?? 0]) }
+        }
     }
 
     private func measureGroupDelay(members: [String], url: String, timeoutMs: Int,
                                    completion: @escaping ([String: Int]) -> Void) {
-        NCTunnelDelayTester.measureGroup(groupEngine: engine.groupEngine, members: members, url: url, timeoutMs: timeoutMs, queue: queue) { results in
+        let width = NCTunnelDelayTester.manualGroupConcurrency
+        NCTunnelDelayTester.measureGroup(groupEngine: engine.groupEngine, members: members, url: url, timeoutMs: timeoutMs,
+                                         overallTimeoutMs: NCTunnelDelayTester.manualRoundTimeoutMs(
+                                             timeoutMs: NCTunnelDelayTester.probeWindowMs(timeoutMs: timeoutMs, unified: engine.unifiedDelay),
+                                             members: members.count, concurrency: width),
+                                         maxConcurrency: width, unified: engine.unifiedDelay, logSuccess: true,
+                                         queue: queue) { results in
             let successes = results.compactMapValues { $0 }
             completion(successes)
         }
@@ -527,17 +851,18 @@ final class NCController {
 
     // MARK: Responses
 
-    private func respondEncodable<T: Encodable>(_ conn: NWConnection, _ value: T) {
+    private func respondEncodable<T: Encodable>(_ conn: NCLoopbackConn, _ value: T) {
         respondRaw(conn, (try? JSONEncoder().encode(value)) ?? Data("null".utf8))
     }
 
-    private func respondRaw(_ conn: NWConnection, _ body: Data) {
+    private func respondRaw(_ conn: NCLoopbackConn, _ body: Data) {
+        NCMemTrace.event("ctrl< 200 \(body.count) B")
         var out = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
         out.append(body)
         conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })
     }
 
-    private func respond(_ conn: NWConnection, status: Int, json: Any?) {
+    private func respond(_ conn: NCLoopbackConn, status: Int, json: Any?) {
         var head = "HTTP/1.1 \(status) \(Self.statusText(status))\r\n"
         var bodyData = Data()
         if let json {
@@ -545,6 +870,7 @@ final class NCController {
             head += "Content-Type: application/json\r\n"
         }
         head += "Content-Length: \(bodyData.count)\r\nConnection: close\r\n\r\n"
+        NCMemTrace.event("ctrl< \(status) \(bodyData.count) B")
         var out = Data(head.utf8)
         out.append(bodyData)
         conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })

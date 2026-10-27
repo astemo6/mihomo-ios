@@ -18,7 +18,7 @@ final class NetworkWatcher {
     }
 
     private let monitor = NWPathMonitor(prohibitedInterfaceTypes: [.other, .loopback])
-    private let queue = DispatchQueue(label: "mihomo.network-watcher")
+    private let queue = DispatchQueue(label: "tern.network-watcher")
     private var last: String?
     private var pending: DispatchWorkItem?
     /// v0.19.1: path updates are numbered (on `queue`). A Wi-Fi update waits for NEHotspotNetwork.fetchCurrent;
@@ -136,6 +136,9 @@ final class NetworkWatcher {
         pending?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.stopped else { return }
+            // fix/nc-tails: pooled DoT / DoH streams idle on the old path are dropped (always; in-flight untouched).
+            NCDNSDoTPool.shared.dropIdle()
+            NCDNSDoHPool.shared.dropIdle()
             // v0.19 网络变化时清空 DNS 缓存 (更多 → 内核设置, on by default).
             if self.flushDNS {
                 NativeTunnelCore.shared.flushDNSCache()

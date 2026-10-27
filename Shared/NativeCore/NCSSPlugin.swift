@@ -2,25 +2,25 @@ import Foundation
 
 /// Shadowsocks stream plugins (simple-obfs, v2ray-plugin).
 ///
-/// Wire formats ported from mihomo v1.19.33 — the Go engine the bridge
+/// Wire formats ported from Clash.Meta v1.19.33 — the old engine the bridge
 /// exposes, i.e. the behavior a real server interops with — which itself
 /// ports the reference implementations:
-/// - adapter/outbound/shadowsocks.go  plugin-opts semantics and defaults
+/// - adapter/outbound/shadowsocks  plugin-opts semantics and defaults
 ///   (obfs: mode/host, host defaults to "bing.com"; v2ray-plugin:
 ///   mode/host/path/tls/mux/headers/skip-cert-verify, mux defaults to true)
-/// - transport/simple-obfs/http.go    http mode (first packet = fake HTTP
+/// - transport/simple-obfs/http    http mode (first packet = fake HTTP
 ///   GET with WebSocket upgrade headers, first SS bytes as the body)
-/// - transport/simple-obfs/tls.go     tls mode (fake TLS ClientHello, first
+/// - transport/simple-obfs/tls     tls mode (fake TLS ClientHello, first
 ///   SS bytes in the session-ticket extension, later data in TLS
 ///   application-data records)
-/// - transport/v2ray-plugin/websocket.go + mux.go   websocket transport and
+/// - transport/v2ray-plugin/websocket + mux   websocket transport and
 ///   the v2ray mux framing over it
-/// - common/convert/converter.go      SIP002 `plugin=` link parsing
+/// - common/convert/converter      SIP002 `plugin=` link parsing
 /// Reference C sources: shadowsocks/simple-obfs (obfs_http.c / obfs_tls.c)
 /// and shadowsocks/v2ray-plugin.
 ///
 /// Plugins wrap the WHOLE Shadowsocks stream — the SS request head included —
-/// and apply to TCP only; UDP never goes through them (mihomo parity).
+/// and apply to TCP only; UDP never goes through them (Clash.Meta parity).
 enum NCSSPlugin {
 
     enum Kind { case obfs, v2rayPlugin }
@@ -30,18 +30,23 @@ enum NCSSPlugin {
         let kind: Kind
         /// obfs: "http" | "tls". v2ray-plugin: "websocket".
         let mode: String
-        /// Camouflage host (SNI / Host header). mihomo default: "bing.com".
+        /// Camouflage host (SNI / Host header). Clash.Meta default: "bing.com".
         let host: String
         /// v2ray-plugin websocket path ("" → "/").
         let path: String
         /// v2ray-plugin: TLS to the SS server itself (wss).
         let tls: Bool
-        /// v2ray-plugin: mux framing over the websocket (mihomo default true).
+        /// v2ray-plugin: mux framing over the transport (Clash.Meta default true).
         let mux: Bool
+        /// v2ray-plugin http-upgrade transport: HTTP/1.1 Upgrade handshake, then a raw stream
+        /// (no websocket framing). Set by `v2ray-http-upgrade: true` or `mode: http-upgrade`.
+        let httpUpgrade: Bool
+        /// `v2ray-http-upgrade-fast-open`: the transport is usable before the 101 arrives.
+        let httpUpgradeFastOpen: Bool
         let skipCertVerify: Bool
         let headers: [String: String]
 
-        /// mihomo adapter/outbound/shadowsocks.go NewShadowSocks: the plugin
+        /// Clash.Meta adapter/outbound/shadowsocks NewShadowSocks: the plugin
         /// name must be exact, and the opts shape decides support. nil =
         /// unsupported shape (the caller turns that into an explicit
         /// unsupported reason — never a silent passthrough).
@@ -56,21 +61,21 @@ enum NCSSPlugin {
                 self.path = ""
                 self.tls = false
                 self.mux = false
+                self.httpUpgrade = false
+                self.httpUpgradeFastOpen = false
                 self.skipCertVerify = false
                 self.headers = [:]
             case "v2ray-plugin":
                 let mode = opts["mode"]?.string ?? ""
-                guard mode.isEmpty || mode == "websocket" else { return nil }
-                // v2ray-plugin's httpupgrade mode needs an HTTP/1.1 Upgrade
-                // pipeline we do not implement; fail loudly instead of
-                // speaking websocket to an httpupgrade server.
-                guard opts["v2ray-http-upgrade"]?.bool != true else { return nil }
+                guard mode.isEmpty || mode == "websocket" || mode == "http-upgrade" else { return nil }
+                self.httpUpgrade = opts["v2ray-http-upgrade"]?.bool == true || mode == "http-upgrade"
+                self.httpUpgradeFastOpen = opts["v2ray-http-upgrade-fast-open"]?.bool ?? false
                 self.kind = .v2rayPlugin
-                self.mode = "websocket"
+                self.mode = httpUpgrade ? "http-upgrade" : "websocket"
                 self.host = NCSSPlugin.defaultHost(opts["host"]?.string)
                 self.path = opts["path"]?.string ?? ""
                 self.tls = opts["tls"]?.bool ?? false
-                // mihomo presets Mux: true before decoding plugin-opts, so a
+                // Clash.Meta presets Mux: true before decoding plugin-opts, so a
                 // config without an explicit `mux` key muxes — mirror that.
                 self.mux = opts["mux"]?.bool ?? true
                 self.skipCertVerify = opts["skip-cert-verify"]?.bool ?? false
@@ -85,7 +90,7 @@ enum NCSSPlugin {
         }
     }
 
-    /// mihomo presets Host: "bing.com" for both plugins.
+    /// Clash.Meta presets Host: "bing.com" for both plugins.
     private static func defaultHost(_ raw: String?) -> String {
         guard let raw, !raw.isEmpty else { return "bing.com" }
         return raw
@@ -94,14 +99,14 @@ enum NCSSPlugin {
     // MARK: simple-obfs http mode
 
     /// First client packet: a fake WebSocket-upgrade GET whose body is the
-    /// first SS bytes. Header order mirrors Go's http.Request.Write as used
-    /// by mihomo's HTTPObfs.Write (Host, User-Agent, Content-Length, then the
-    /// remaining headers sorted). The server (mihomo http_server.go / the C
+    /// first SS bytes. Header order mirrors the old core's http.Request.Write as used
+    /// by Clash.Meta's HTTPObfs.Write (Host, User-Agent, Content-Length, then the
+    /// remaining headers sorted). The server (Clash.Meta http_server / the C
     /// simple-obfs server) parses it as a normal HTTP request and reads
     /// exactly Content-Length bytes as the first payload.
     static func obfsHTTPRequest(host: String, port: String, payload: Data) -> Data {
         var head = "GET / HTTP/1.1\r\n"
-        // mihomo: Host carries the server port unless it is 80.
+        // Clash.Meta: Host carries the server port unless it is 80.
         head += "Host: \(host)\(port == "80" ? "" : ":\(port)")\r\n"
         head += "User-Agent: curl/7.\(Int.random(in: 0..<54)).\(Int.random(in: 0..<2))\r\n"
         head += "Content-Length: \(payload.count)\r\n"
@@ -117,7 +122,7 @@ enum NCSSPlugin {
 
     /// Strip the obfs-http camouflage header from the start of the response.
     /// The C client scans for the first \r\n\r\n (obfs_http.c
-    /// deobfs_http_header); mihomo's port requires it inside the first read
+    /// deobfs_http_header); Clash.Meta's port requires it inside the first read
     /// — buffering across reads is strictly more tolerant and changes no
     /// byte on the wire.
     struct HTTPResponseStripper {
@@ -142,15 +147,17 @@ enum NCSSPlugin {
 
     // MARK: simple-obfs tls mode
 
-    /// First client packet: a fake TLS 1.2 ClientHello. Layout per mihomo
-    /// transport/simple-obfs/tls.go makeClientHelloMsg (itself a port of
+    /// First client packet: a fake TLS 1.2 ClientHello. Layout per Clash.Meta
+    /// transport/simple-obfs/tls makeClientHelloMsg (itself a port of
     /// simple-obfs obfs_tls.c): fixed random/session-id/cipher-suite blocks,
     /// the first SS bytes as the session-ticket extension (0x0023) body,
     /// the camouflage host as SNI (0x0000), then the fixed extension set
     /// (ec_point_formats / supported_groups / signature_algorithms /
     /// encrypt_then_mac / extended_master_secret).
     static func obfsTLSClientHello(host: String, payload: Data) -> Data {
-        let hostBytes = Data(host.utf8)
+        // obfs-host comes from the config: u16 length fields below (UInt16(count + 5) trapped past ~64 KB). A DNS
+        // name is ≤ 253 bytes; anything longer is cut to 255 so the hello stays well-formed.
+        let hostBytes = Data(host.utf8.prefix(255))
         // Record: 5-byte header + 4-byte handshake header + 208 fixed bytes
         // of ClientHello body + extensions (79 + payload + host).
         var hello = Data()
@@ -209,7 +216,7 @@ enum NCSSPlugin {
     }
 
     /// Later writes: TLS application-data records (17 03 03), each payload
-    /// chunked at 16 KiB like mihomo's TLSObfs.Write.
+    /// chunked at 16 KiB like Clash.Meta's TLSObfs.Write.
     static func obfsTLSAppDataRecords(_ payload: Data) -> [Data] {
         var out: [Data] = []
         var idx = payload.startIndex
@@ -224,9 +231,9 @@ enum NCSSPlugin {
         return out
     }
 
-    static let obfsTLSMaxRecord = 1 << 14 // 16 KiB, mihomo chunkSize
+    static let obfsTLSMaxRecord = 1 << 14 // 16 KiB, Clash.Meta chunkSize
 
-    /// Server reply parser for obfs tls mode — mihomo TLSObfs.Read: the
+    /// Server reply parser for obfs tls mode — Clash.Meta TLSObfs.Read: the
     /// fake ServerHello record (96) + ChangeCipherSpec (6) + the first 3
     /// bytes of the encrypted-handshake record are discarded (105 total),
     /// then the stream is a sequence of records framed
@@ -278,11 +285,11 @@ enum NCSSPlugin {
 
     // MARK: v2ray-plugin mux framing
 
-    /// v2ray-plugin mux framing over the websocket — mihomo
-    /// transport/v2ray-plugin/mux.go ("an mux-compatible client for
+    /// v2ray-plugin mux framing over the websocket — Clash.Meta
+    /// transport/v2ray-plugin/mux ("an mux-compatible client for
     /// v2ray-plugin"): every frame is [metalen u16][id u16][status][option],
     /// data frames add [len u16][payload]. The session create frame carries
-    /// a dummy destination (mihomo uses 127.0.0.1:0) — the real target
+    /// a dummy destination (Clash.Meta uses 127.0.0.1:0) — the real target
     /// travels in the SS request head inside the stream.
     enum V2RayMux {
         static let sessionStatusNew: UInt8 = 0x01
@@ -292,7 +299,7 @@ enum NCSSPlugin {
         static let optionNone: UInt8 = 0x00
         static let optionData: UInt8 = 0x01
 
-        /// mihomo hard-codes the session id to {0, 0}.
+        /// Clash.Meta hard-codes the session id to {0, 0}.
         static let sessionID: (UInt8, UInt8) = (0, 0)
 
         static func createFrame() -> Data {
@@ -324,7 +331,7 @@ enum NCSSPlugin {
         }
 
         /// Inbound parser: delivers concatenated DATA payloads, skipping
-        /// keepalive and non-data frames (mihomo Mux.Read semantics).
+        /// keepalive and non-data frames (Clash.Meta Mux.Read semantics).
         struct Parser {
             private var buffer = Data()
             private var pendingLen: Int?
@@ -339,7 +346,7 @@ enum NCSSPlugin {
                     if pendingLen == nil {
                         guard buffer.count >= 6 else { return finish(&out) }
                         let metalen = Int(buffer[0]) << 8 | Int(buffer[1])
-                        if metalen > 512 { failed = true; return nil } // mihomo: "invalid metalen"
+                        if metalen > 512 { failed = true; return nil } // Clash.Meta: "invalid metalen"
                         let status = buffer[4]
                         let opt = buffer[5]
                         buffer = Data(buffer.dropFirst(6))
@@ -370,7 +377,7 @@ enum NCSSPlugin {
         Data((0..<count).map { _ in UInt8.random(in: 0...255) })
     }
 
-    /// base64 URL alphabet (mihomo uses base64.URLEncoding for the obfs-http
+    /// base64 URL alphabet (Clash.Meta uses base64.URLEncoding for the obfs-http
     /// Sec-WebSocket-Key; padding kept, as URLEncoding does).
     private static func obfsBase64URL(_ data: Data) -> String {
         data.base64EncodedString()

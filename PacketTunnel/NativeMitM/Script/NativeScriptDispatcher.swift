@@ -1,30 +1,27 @@
 // Native MitM stage 3, lane s3-script — the response phase of a natively forwarded request whose response rules
 // include http-response scripts, in Swift.
 //
-// It reproduces what the Go flow API answers for the same request (flow_request.go runResponse around handler.go
+// It reproduces what the old flow API answers for the same request (flow_request runResponse around handler
 // modifyResponse with the native body lane): header rules and scripts in rule order; the body loaded once, at the
-// first script that needs it, through the same admission (Go: slots, budgets, locks, memory gates) into
-// NativeBodyStore (decoded there, Go's lane rules); every skip / error path with Go's own messages; $done applied
+// first script that needs it, through the same admission (the old core: slots, budgets, locks, memory gates) into
+// NativeBodyStore (decoded there, the old core's lane rules); every skip / error path with the old core's own messages; $done applied
 // exactly as modifyResponse applies it (status validity, header replacement, Set-Cookie, body from the store or
 // bytes, Content-Length / Content-Encoding / Transfer-Encoding); the final decision shaped like runResponse's
 // (respond: none / upstream / read / lane, upgrade, error for an abort).
 //
-// The body never enters Go: the session pushes it here (need-body), it is decoded into the store, JavaScriptCore
+// The body never enters the old core: the session pushes it here (need-body), it is decoded into the store, JavaScriptCore
 // reads it from there, a large result stays there, and the session streams the answer from there (lane mode).
 //
-// Hand-back: before anything ran, a response this does not support goes to the Go flow (NativeRewriteDriver re-runs
-// the request phase in Go, then FlowResponse) — so every unsupported shape answers exactly as before:
-//   - the store, JavaScriptCore (with its execution time limit) or the Go engine is not available;
-//   - a script needs the body and the upstream body is chunked / close-delimited (its size is unknown: Go streams
-//     an oversized one through, which needs the Go pipe), or its Content-Encoding is not one the store decodes;
-//   - a non-body script precedes a body script, or a header rule touching Content-Encoding precedes one (Go reads
+// Hand-back: before anything ran, a response this does not support goes to the old flow (NativeRewriteDriver re-runs
+// the request phase in the old core, then FlowResponse) — so every unsupported shape answers exactly as before:
+//   - the store, JavaScriptCore (with its execution time limit) or the old engine is not available;
+//   - a script needs the body and the upstream body is chunked / close-delimited (its size is unknown: the old core streams
+//     an oversized one through, which needs the old core pipe), or its Content-Encoding is not one the store decodes;
+//   - a non-body script precedes a body script, or a header rule touching Content-Encoding precedes one (the old core reads
 //     the encoding when it loads the body);
 //   - the store refuses to open the body (memory floor).
 
 import Foundation
-#if !TERN_NO_GO
-import Libmihomo
-#endif
 
 /// What the response phase needs from NativeBodyStore (a protocol for the unit tests).
 protocol ScriptBodyStore: JSCNativeBlobProvider {
@@ -40,7 +37,7 @@ protocol ScriptBodyStore: JSCNativeBlobProvider {
 
 extension NativeBodyStore: ScriptBodyStore {}
 
-/// One response-phase rule of a native script flow (Go's f.rules entry).
+/// One response-phase rule of a native script flow (the old core's f.rules entry).
 struct ScriptPlanStep {
     enum Kind {
         case header([RWSnapHeaderOp])
@@ -50,11 +47,11 @@ struct ScriptPlanStep {
     var kind: Kind
 }
 
-/// The request as the response scripts see it ($request: Go's resp.Request = the outbound request).
+/// The request as the response scripts see it ($request: the old core's resp.Request = the outbound request).
 struct ScriptRequestView {
     var url: String          // f.url
     var method: String
-    var header: GoHeader     // out.Header (Content-Length kept, Accept-Encoding as sent)
+    var header: CanonicalHeader     // out.Header (Content-Length kept, Accept-Encoding as sent)
     var host: String         // out.Host
 }
 
@@ -73,7 +70,7 @@ struct ScriptResponseOutput {
     var rules: [Int] = []
     var notes: [String] = []
     var logHeaders: [[String]] = []
-    /// abort / lost result: the 「上游错误：」 reason (shortErr(err) is applied by Go).
+    /// abort / lost result: the 「上游错误：」 reason (shortErr(err) is applied by the old core).
     var abortWhy: String?
 }
 
@@ -87,14 +84,14 @@ final class NativeScriptResponse {
     let gen: Int64
     private let steps: [ScriptPlanStep]
     private let req: ScriptRequestView
-    private let go: ScriptGoHost
+    private let hostAPI: ScriptHostAPI
     private let js: NativeJSEngine
     private let store: ScriptBodyStore
     private let nativeBase: Int64
 
     // modifyResponse's state
     private var status = 0
-    private var header = GoHeader()
+    private var header = CanonicalHeader()
     private var contentLength: Int64 = -1   // resp.ContentLength
     private var upstreamLength: Int64 = -1  // the head's length (framing)
     private var mrNoBody = false            // HEAD / 204 / 304
@@ -103,7 +100,7 @@ final class NativeScriptResponse {
     private var respSkip = ""
     private var nativeH: Int64 = 0          // the store handle holding the current body
     private var nativeLen: Int64 = 0
-    private var goBody: Data?               // `body` when it is bytes (a set body)
+    private var hostBody: Data?               // `body` when it is bytes (a set body)
     private var bodySet = false             // resp.Body replaced by bytes (setBody ran with a body)
     private var rawPass = false             // resp.Body is the raw bytes as received (a skipped load)
     private var rawTail = Data()            // received bytes the store did not take (after its failure)
@@ -125,12 +122,12 @@ final class NativeScriptResponse {
     private var finished = false
     private var loadPending = false         // .needBody answered, the push / await not done yet (slot held)
 
-    init(gen: Int64, steps: [ScriptPlanStep], request: ScriptRequestView, go: ScriptGoHost, js: NativeJSEngine,
+    init(gen: Int64, steps: [ScriptPlanStep], request: ScriptRequestView, hostAPI: ScriptHostAPI, js: NativeJSEngine,
          store: ScriptBodyStore, nativeBase: Int64) {
         self.gen = gen
         self.steps = steps
         self.req = request
-        self.go = go
+        self.hostAPI = hostAPI
         self.js = js
         self.store = store
         self.nativeBase = nativeBase
@@ -145,7 +142,14 @@ final class NativeScriptResponse {
     }
 
     /// Static checks on the plan (see the file comment); nil = supported.
-    static func unsupported(_ steps: [ScriptPlanStep]) -> String? {
+    static func unsupported(_ steps: [ScriptPlanStep]) -> String? { unsupported(steps, nativeOnly: false) }
+
+    /// nativeOnly: there is no other engine to hand back to (a hand-back relays the response with NO script run), so the
+    /// "non-body script before a body script" shape runs natively: walk() already runs the steps in rule order,
+    /// a plain script's $done headers / body feed the later load exactly like modifyResponse (setBody → loaded,
+    /// Content-Encoding read at load time), and after a script ran a refused / over-limit load takes the
+    /// skip path instead of a hand-back.
+    static func unsupported(_ steps: [ScriptPlanStep], nativeOnly: Bool) -> String? {
         var lastBody = -1
         var firstPlain = Int.max
         for (i, s) in steps.enumerated() {
@@ -153,7 +157,7 @@ final class NativeScriptResponse {
                 if rb { lastBody = i } else { firstPlain = min(firstPlain, i) }
             }
         }
-        if lastBody >= 0 && firstPlain < lastBody { return "script before body script" }
+        if !nativeOnly && lastBody >= 0 && firstPlain < lastBody { return "script before body script" }
         for (i, s) in steps.enumerated() where i < lastBody {
             if case .header(let ops) = s.kind, ops.contains(where: { RWAscii.equalFold($0.name ?? "", "Content-Encoding") || $0.op == "raw" }) {
                 return "content-encoding rule"
@@ -170,7 +174,7 @@ final class NativeScriptResponse {
 
     /// FlowResponse for the upstream's head: runs the rules up to the first body load (then .needBody), or to the end.
     func head(status st: Int, headers: [[String]], length: Int64) -> HeadOutcome {
-        var h = GoHeader(pairs: headers)
+        var h = CanonicalHeader(pairs: headers)
         var cl = length
         if !h.values("Transfer-Encoding").isEmpty {
             h.del("Transfer-Encoding")
@@ -191,12 +195,12 @@ final class NativeScriptResponse {
         }
         h.removeHopByHop()
         header = h
-        if let why = Self.unsupported(steps) { return .handBack(why) }
+        if let why = Self.unsupported(steps, nativeOnly: true) { return .handBack(why) }
         if needsBody {
             if !(flowNoBody || cl == 0) && cl < 0 { return .handBack("body length unknown") }
             if !Self.encodingOK(header.get("Content-Encoding")) { return .handBack("content-encoding") }
         }
-        token = go.token()
+        token = hostAPI.token()
         return walk()
     }
 
@@ -207,10 +211,10 @@ final class NativeScriptResponse {
             switch step.kind {
             case .header(let ops):
                 rules.append(step.rule)
-                _ = NativeRewriteEngine.apply(ops, to: &header, firstLine: "HTTP/1.1 " + GoStatus.status(status)) // add / del / replace only (regex ops → Go at decide)
+                _ = NativeRewriteEngine.apply(ops, to: &header, firstLine: "HTTP/1.1 " + NetStatus.status(status)) // add / del / replace only (regex ops → the old core at decide)
                 pos += 1
             case .script(let requiresBody):
-                let ans = go.reserve(gen: gen, rule: step.rule, token: token)
+                let ans = hostAPI.reserve(gen: gen, rule: step.rule, token: token)
                 guard let slot = ans.slot, slot > 0 else {
                     if let n = ans.note, !n.isEmpty { notes.append(n) }
                     pos += 1
@@ -225,7 +229,7 @@ final class NativeScriptResponse {
                     case .needBody:
                         return .needBody
                     case .handBack(let why):
-                        go.release(slot: slot, ran: false)
+                        hostAPI.release(slot: slot, ran: false)
                         return .handBack(why)
                     }
                 } else {
@@ -239,44 +243,44 @@ final class NativeScriptResponse {
 
     private enum Load { case ready(Int64), skipped, needBody, handBack(String) }
 
-    private var blen: Int64 { nativeH > 0 ? nativeLen : Int64(goBody?.count ?? 0) }
+    private var blen: Int64 { nativeH > 0 ? nativeLen : Int64(hostBody?.count ?? 0) }
 
     /// modifyResponse's `loadBody(limit)` for the script at rule, holding slot. .ready: run it; .skipped: logged,
     /// slot released; .needBody: wait for the session's push.
     private func loadBody(_ rule: Int, slot: Int64) -> Load {
         if loaded {
             if tooBig {
-                go.release(slot: slot, ran: false)
-                notes.append(go.skip(gen: gen, rule: rule, why: respSkip))
+                hostAPI.release(slot: slot, ran: false)
+                notes.append(hostAPI.skip(gen: gen, rule: rule, why: respSkip))
                 return .skipped
             }
-            let check = go.bodyCheck(gen: gen, rule: rule, blen: blen, limit: -1)
+            let check = hostAPI.bodyCheck(gen: gen, rule: rule, blen: blen, limit: -1)
             if (check.note ?? "").isEmpty { return .ready(check.limit) }
-            go.release(slot: slot, ran: false)
+            hostAPI.release(slot: slot, ran: false)
             notes.append(check.note ?? "")
             return .skipped
         }
         let enc = header.get("Content-Encoding")
-        let a = go.bodyAdmit(gen: gen, rule: rule, respRules: steps.map { $0.rule }, url: req.url, contentLength: contentLength, enc: enc, token: token)
+        let a = hostAPI.bodyAdmit(gen: gen, rule: rule, respRules: steps.map { $0.rule }, url: req.url, contentLength: contentLength, enc: enc, token: token)
         if a.ok != true {
             loaded = a.retry != true
             tooBig = true
             respSkip = a.skip ?? ""
-            go.release(slot: slot, ran: false)
-            notes.append(go.skip(gen: gen, rule: rule, why: respSkip))
+            hostAPI.release(slot: slot, ran: false)
+            notes.append(hostAPI.skip(gen: gen, rule: rule, why: respSkip))
             return .skipped
         }
         let t = a.ticket ?? 0
-        let h = store.open(enc, limit: a.cap ?? 0, hint: contentLength, charge: go.bodyCharge(ticket: t))
+        let h = store.open(enc, limit: a.cap ?? 0, hint: contentLength, charge: hostAPI.bodyCharge(ticket: t))
         if h <= 0 {
-            go.bodyRelease(ticket: t)
+            hostAPI.bodyRelease(ticket: t)
             if !sideEffects { return .handBack("store refused") }
-            // after a script ran Go can no longer take over: Go's lane failure path (counted)
+            // after a script ran the old core can no longer take over: the old core's lane failure path (counted)
             loaded = true
             tooBig = true
-            respSkip = go.bodyFailed(ticket: 0, url: req.url, kind: "lane", raw: 0, detail: "open refused")
-            go.release(slot: slot, ran: false)
-            notes.append(go.skip(gen: gen, rule: rule, why: respSkip))
+            respSkip = hostAPI.bodyFailed(ticket: 0, url: req.url, kind: "lane", raw: 0, detail: "open refused")
+            hostAPI.release(slot: slot, ran: false)
+            notes.append(hostAPI.skip(gen: gen, rule: rule, why: respSkip))
             return .skipped
         }
         owned.insert(h)
@@ -289,7 +293,7 @@ final class NativeScriptResponse {
         loadFailure = nil
         let flowNoBody = mrNoBody || (100..<200).contains(status)
         if flowNoBody || contentLength == 0 {
-            return completeLoad(rule) // http.NoBody: nothing to push
+            return completeLoad(rule) // no body: nothing to push
         }
         loadPending = true
         return .needBody
@@ -316,7 +320,7 @@ final class NativeScriptResponse {
             if msg == "too-big" {
                 loadFailure = ("too-big", "")
             } else if msg.hasPrefix("decode:") {
-                // loadBodyLane: strings.TrimPrefix(err, "decode: ")
+                // loadBodyLane: the "decode: " prefix stripped from err
                 loadFailure = ("decode", msg.hasPrefix("decode: ") ? String(msg.dropFirst(8)) : msg)
             } else {
                 loadFailure = ("lane", "write: " + msg)
@@ -360,10 +364,10 @@ final class NativeScriptResponse {
             }
         }
         if let f = failure {
-            respSkip = go.bodyFailed(ticket: ticket, url: req.url, kind: f.kind, raw: rawCount, detail: f.detail)
+            respSkip = hostAPI.bodyFailed(ticket: ticket, url: req.url, kind: f.kind, raw: rawCount, detail: f.detail)
             rawPass = true
         } else {
-            let skip = go.bodyLoaded(ticket: ticket, url: req.url, decoded: decoded)
+            let skip = hostAPI.bodyLoaded(ticket: ticket, url: req.url, decoded: decoded)
             if !skip.isEmpty {
                 respSkip = skip
                 rawPass = true
@@ -375,13 +379,13 @@ final class NativeScriptResponse {
             }
         }
         if tooBig {
-            go.release(slot: slot, ran: false)
-            notes.append(go.skip(gen: gen, rule: rule, why: respSkip))
+            hostAPI.release(slot: slot, ran: false)
+            notes.append(hostAPI.skip(gen: gen, rule: rule, why: respSkip))
             return .skipped
         }
         if nativeLen > limit {
-            go.release(slot: slot, ran: false)
-            let check = go.bodyCheck(gen: gen, rule: rule, blen: nativeLen, limit: limit)
+            hostAPI.release(slot: slot, ran: false)
+            let check = hostAPI.bodyCheck(gen: gen, rule: rule, blen: nativeLen, limit: limit)
             if let n = check.note, !n.isEmpty { notes.append(n) }
             return .skipped
         }
@@ -397,23 +401,23 @@ final class NativeScriptResponse {
     /// One script, slot held: Match, run, apply $done (modifyResponse's script case). Non-nil: the response ends
     /// here (an abort / a lost result).
     private func runScript(_ rule: Int, slot: Int64, body: Bool) -> ScriptResponseOutput? {
-        let p = go.prepare(gen: gen, rule: rule, slot: slot, reload: false)
+        let p = hostAPI.prepare(gen: gen, rule: rule, slot: slot, reload: false)
         rules.append(rule) // ent.Match before RunReserved
         guard p.ok, let key = p.key else {
-            go.release(slot: slot, ran: true)
-            let f = go.fail(gen: gen, rule: rule, mode: "msg", detail: p.err ?? "脚本运行时内部错误", stop: 0, timeoutMs: 0, afterDone: false)
+            hostAPI.release(slot: slot, ran: true)
+            let f = hostAPI.fail(gen: gen, rule: rule, mode: "msg", detail: p.err ?? "脚本运行时内部错误", stop: 0, timeoutMs: 0, afterDone: false)
             if let n = f.note, !n.isEmpty { notes.append(n) }
             return nil
         }
         sideEffects = true
         let laneOK = body && nativeH > 0
-        let run = NativeScriptRun(gen: gen, rule: rule, go: go, js: js, lane: store, nativeBase: nativeBase, laneOK: laneOK)
+        let run = NativeScriptRun(gen: gen, rule: rule, hostAPI: hostAPI, js: js, lane: store, nativeBase: nativeBase, laneOK: laneOK)
         let setup = setupJSON(base: p.setupJSON, run: run, body: body)
-        let outcome = run.run(key: key, setup: setup, timeoutMs: p.timeoutMs ?? 10_000) { [go, gen] in
-            let p2 = go.prepare(gen: gen, rule: rule, slot: slot, reload: true)
+        let outcome = run.run(key: key, setup: setup, timeoutMs: p.timeoutMs ?? 10_000) { [hostAPI, gen] in
+            let p2 = hostAPI.prepare(gen: gen, rule: rule, slot: slot, reload: true)
             return p2.ok ? p2.key : nil
         }
-        go.release(slot: slot, ran: true)
+        hostAPI.release(slot: slot, ran: true)
         switch outcome {
         case .failed(let note):
             run.releaseNatives(keep: 0)
@@ -425,7 +429,7 @@ final class NativeScriptResponse {
         }
     }
 
-    /// setupJSON for the response phase: Go's base + phase, $request (the outbound request, Host added), $response.
+    /// setupJSON for the response phase: the old core's base + phase, $request (the outbound request, Host added), $response.
     private func setupJSON(base: String, run: NativeScriptRun, body: Bool) -> String {
         var obj = ((try? JSONSerialization.jsonObject(with: Data(base.utf8))) as? [String: Any]) ?? [:]
         obj["phase"] = "response"
@@ -438,7 +442,7 @@ final class NativeScriptResponse {
         var resp: [String: Any] = ["headers": Self.headerPairs(header), "body": -1]
         if status != 0 { resp["status"] = status }
         if body {
-            resp["body"] = nativeH > 0 ? run.addBody(nil, native: nativeH) : run.addBody(goBody ?? Data(), native: 0)
+            resp["body"] = nativeH > 0 ? run.addBody(nil, native: nativeH) : run.addBody(hostBody ?? Data(), native: 0)
         }
         obj["resp"] = resp
         guard let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) else { return base }
@@ -446,7 +450,7 @@ final class NativeScriptResponse {
     }
 
     /// headerPairs: names sorted, several values joined with ", ".
-    static func headerPairs(_ h: GoHeader) -> [[String]] {
+    static func headerPairs(_ h: CanonicalHeader) -> [[String]] {
         h.map.keys.sorted(by: RWAscii.less).map { [$0, (h.map[$0] ?? []).joined(separator: ", ")] }
     }
 
@@ -459,7 +463,7 @@ final class NativeScriptResponse {
             return abortOutput("脚本 \(name) 中止了响应")
         }
         if res.status > 0 && !(res.status >= 200 && res.status <= 999) {
-            _ = go.host(gen: gen, rule: rule, op: "log", arg: "warn\n脚本返回的状态码 \(res.status) 无效，已忽略")
+            _ = hostAPI.host(gen: gen, rule: rule, op: "log", arg: "warn\n脚本返回的状态码 \(res.status) 无效，已忽略")
         } else if res.status > 0 {
             status = res.status
         }
@@ -472,7 +476,7 @@ final class NativeScriptResponse {
             owned.insert(res.nativeBody)
             if nativeH > 0 && nativeH != res.nativeBody { freeOwned(nativeH) }
             nativeH = res.nativeBody
-            goBody = nil
+            hostBody = nil
             nativeLen = store.len(res.nativeBody, raw: false)
             loaded = true
             tooBig = false
@@ -483,14 +487,14 @@ final class NativeScriptResponse {
             if nativeH > 0 { freeOwned(nativeH); nativeH = 0; nativeLen = 0 }
             setBody(res.body ?? Data())
         } else if loaded && !tooBig && nativeH == 0 {
-            setBody(goBody ?? Data())
+            setBody(hostBody ?? Data())
         }
         return nil
     }
 
     /// modifyResponse's setBody.
     private func setBody(_ b: Data) {
-        goBody = b
+        hostBody = b
         loaded = true
         if mrNoBody { return }
         bodySet = true
@@ -532,11 +536,11 @@ final class NativeScriptResponse {
             }
         } else {
             if loaded && !tooBig {
-                setBody(goBody ?? Data())
+                setBody(hostBody ?? Data())
                 h = header
             }
             if bodySet {
-                serve = goBody ?? Data()
+                serve = hostBody ?? Data()
             } else if rawPass && loadH > 0 {
                 // the raw bytes as received: the store's raw part, then what it did not take
                 let rawLen = store.len(loadH, raw: true)
@@ -551,7 +555,7 @@ final class NativeScriptResponse {
                 mode = .upstream
             }
         }
-        out.logHeaders = h.sortedPairs // ent.Response(resp.StatusCode, resp.Header)
+        out.logHeaders = h.sortedPairs // the response entry (status code, headers)
         var length: Int64 = -1
         let clv = h.get("Content-Length")
         if !clv.isEmpty {
@@ -604,7 +608,7 @@ final class NativeScriptResponse {
     }
 
     private func releaseTicket() {
-        if ticket > 0 { go.bodyRelease(ticket: ticket); ticket = 0 }
+        if ticket > 0 { hostAPI.bodyRelease(ticket: ticket); ticket = 0 }
     }
 
     /// Frees every owned handle except keep (the one the session streams; freed by end()).
@@ -623,10 +627,10 @@ final class NativeScriptResponse {
         if loadPending {
             // a load that never completed (client gone mid-push): its slot is still held
             loadPending = false
-            go.release(slot: pendingSlot, ran: false)
+            hostAPI.release(slot: pendingSlot, ran: false)
         }
         for h in owned { store.free(h) }
         owned = []
-        if token != 0 { go.cancel(token); token = 0 }
+        if token != 0 { hostAPI.cancel(token); token = 0 }
     }
 }

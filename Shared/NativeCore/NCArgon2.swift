@@ -60,8 +60,10 @@ enum NCBlake2b {
             m[i] = w
         }
         var v = h + iv
-        v[4] ^= count
-        if last { v[5] = ~v[5] }
+        // RFC 7693 §3.2: the offset counter goes into v[12] (low word; v[13] high word is 0 for < 2^64 bytes)
+        // and the final-block flag inverts v[14].
+        v[12] ^= count
+        if last { v[14] = ~v[14] }
         func g(_ a: Int, _ b: Int, _ c: Int, _ d: Int, _ x: UInt64, _ y: UInt64) {
             v[a] = v[a] &+ v[b] &+ x
             v[d] = (v[d] ^ v[a]).rotated(right: 32)
@@ -87,8 +89,8 @@ enum NCBlake2b {
     }
 }
 
-/// Argon2id (RFC 9106 / x/crypto/argon2 semantics): the KDF Snell uses.
-/// Single implementation, lanes supported; verified against Go vectors.
+/// Argon2id (RFC 9106 semantics): the KDF Snell uses.
+/// Single implementation, lanes supported; verified against the old core vectors.
 enum NCArgon2 {
     /// H' — BLAKE2b long-output hash used for block seeding/extraction.
     static func blake2bLong(outputLength: Int, input: Data) -> Data {
@@ -219,7 +221,7 @@ enum NCArgon2 {
         }
     }
 
-    /// Port of x/crypto/argon2's indexAlpha + phi (lanes = memory lanes).
+    /// Port of the reference Argon2's indexAlpha + phi (lanes = memory lanes).
     private static func indexAlpha(random: UInt64, segmentLength: Int, lanes laneLength: Int,
                                    pass: Int, slice: Int, lane: Int, index: Int,
                                    lanesCount: Int) -> Int {
@@ -244,7 +246,7 @@ enum NCArgon2 {
 
     /// The Argon2 compression function G: P(a⊕b) ⊕ a ⊕ b, additionally
     /// XORed with `old` when given (Argon2 v1.3 later-pass semantics;
-    /// x/crypto always fills with the XOR variant, and fresh memory is
+    /// The reference implementation always fills with the XOR variant, and fresh memory is
     /// zero, so pass 0 comes out identical).
     static func processBlock(_ a: [UInt64], _ b: [UInt64], xorInto old: [UInt64]?) -> [UInt64] {
         var t = [UInt64](repeating: 0, count: 128)
@@ -272,14 +274,16 @@ enum NCArgon2 {
     /// One BlaMka round over 16 words of `t` at the given indices.
     private static func blamkaRound(_ t: inout [UInt64], _ idx: [Int]) {
         var v = idx.map { t[$0] }
+        // fBlaMka: x + y + 2·lo32(x)·lo32(y) mod 2^64 — the doubled product can exceed 2^64, so wrapping ops
+        // (a checked `*` traps on every real Argon2 run).
         func g(_ a: Int, _ b: Int, _ c: Int, _ d: Int) {
-            v[a] = v[a] &+ v[b] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[a])) * UInt64(UInt32(truncatingIfNeeded: v[b]))
+            v[a] = v[a] &+ v[b] &+ 2 &* UInt64(UInt32(truncatingIfNeeded: v[a])) &* UInt64(UInt32(truncatingIfNeeded: v[b]))
             v[d] = (v[d] ^ v[a]).rotated(right: 32)
-            v[c] = v[c] &+ v[d] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[c])) * UInt64(UInt32(truncatingIfNeeded: v[d]))
+            v[c] = v[c] &+ v[d] &+ 2 &* UInt64(UInt32(truncatingIfNeeded: v[c])) &* UInt64(UInt32(truncatingIfNeeded: v[d]))
             v[b] = (v[b] ^ v[c]).rotated(right: 24)
-            v[a] = v[a] &+ v[b] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[a])) * UInt64(UInt32(truncatingIfNeeded: v[b]))
+            v[a] = v[a] &+ v[b] &+ 2 &* UInt64(UInt32(truncatingIfNeeded: v[a])) &* UInt64(UInt32(truncatingIfNeeded: v[b]))
             v[d] = (v[d] ^ v[a]).rotated(right: 16)
-            v[c] = v[c] &+ v[d] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[c])) * UInt64(UInt32(truncatingIfNeeded: v[d]))
+            v[c] = v[c] &+ v[d] &+ 2 &* UInt64(UInt32(truncatingIfNeeded: v[c])) &* UInt64(UInt32(truncatingIfNeeded: v[d]))
             v[b] = (v[b] ^ v[c]).rotated(right: 63)
         }
         g(0, 4, 8, 12); g(1, 5, 9, 13); g(2, 6, 10, 14); g(3, 7, 11, 15)

@@ -1,18 +1,34 @@
 import Foundation
 
-/// A YAML subset parser producing NCJSONValue, sufficient for mihomo configs
+/// A YAML subset parser producing NCJSONValue, sufficient for Clash.Meta configs
 /// (the generated runtime.yaml and typical hand-written ones): block maps and
 /// sequences, flow collections, single/double-quoted and plain scalars,
 /// comments, literal/folded block scalars, anchors and aliases. It is NOT a
 /// general YAML 1.2 implementation (no tags, no multi-document streams beyond
 /// the first document, no complex keys).
 ///
-/// Purpose: let the native core load runtime.yaml directly, retiring the Go
+/// Purpose: let the native core load runtime.yaml directly, retiring the old core
 /// NativeConfigJSON export (integration happens once the core is verified).
+/// A YAML problem the parser could pin to a 1-based line. NCYAML is deliberately lenient (most
+/// malformed input still yields a value), so this only covers what the parser itself knows: a flow
+/// collection or a quoted scalar that never closes.
+struct NCYAMLError: Error, Equatable {
+    var line: Int
+    var message: String
+}
+
 enum NCYAML {
     static func parse(_ text: String) -> NCJSONValue? {
         var parser = Parser(text: text)
         return parser.parseDocument()
+    }
+
+    /// parse() plus the first localizable problem recorded while parsing (diagnostic only —
+    /// the value keeps parse()'s lenient behavior).
+    static func parseWithError(_ text: String) -> (value: NCJSONValue?, error: NCYAMLError?) {
+        var parser = Parser(text: text)
+        let value = parser.parseDocument()
+        return (value, parser.error)
     }
 
     /// Emit an arbitrary object (dictionary, array, primitive, or NCJSONValue) as a YAML string.
@@ -29,10 +45,23 @@ enum NCYAML {
     private struct Parser {
         private var lines: [Line] = []
         private var anchors: [String: NCJSONValue] = [:]
+        /// First localizable problem (unclosed flow / quote), if any.
+        private(set) var error: NCYAMLError?
+        /// 1-based line currently being parsed inline; set at every parseInline call site.
+        private var currentLine = 1
+
+        private mutating func noteError(_ message: String) {
+            if error == nil { error = NCYAMLError(line: currentLine, message: message) }
+        }
 
         init(text: String) {
-            for rawLine in text.components(separatedBy: "\n") {
-                let raw = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
+            // "\r\n" is ONE Character in Swift, so a Character-level split on "\n"
+            // (swift-foundation / corelibs components(separatedBy:)) never splits a
+            // CRLF profile: the whole file became one line and no key was found.
+            // Split on both terminators explicitly; lone "\r" (old Mac) too.
+            for sub in text.split(omittingEmptySubsequences: false,
+                                  whereSeparator: { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }) {
+                let raw = String(sub)
                 let indent = raw.prefix(while: { $0 == " " }).count
                 let content = String(raw.dropFirst(indent))
                 lines.append(Line(indent: indent, content: Self.stripComment(content), raw: raw))
@@ -79,6 +108,7 @@ enum NCYAML {
                 return parseMapping(&i, indent: indent)
             }
             // Lone scalar (possibly flow).
+            currentLine = i + 1
             i += 1
             return parseInline(line.content, blockIndent: indent, i: &i)
         }
@@ -111,6 +141,7 @@ enum NCYAML {
                     lines[i] = Line(indent: itemIndent, content: rest, raw: rest)
                     if let v = parseBlock(&i, indent: itemIndent) { items.append(v) }
                 } else {
+                    currentLine = i + 1
                     i += 1
                     items.append(parseInline(rest, blockIndent: itemIndent, i: &i) ?? .null)
                 }
@@ -140,6 +171,7 @@ enum NCYAML {
                         obj[key] = .null
                     }
                 } else {
+                    currentLine = i
                     obj[key] = parseInline(valueText, blockIndent: indent, i: &i) ?? .null
                 }
             }
@@ -214,9 +246,14 @@ enum NCYAML {
             if t == "|" || t == ">" || t.hasPrefix("|-") || t.hasPrefix(">-") || t.hasPrefix("|+") || t.hasPrefix(">+") {
                 return .string(parseBlockScalar(folded: t.hasPrefix(">"), parentIndent: blockIndent, i: &i))
             }
-            var rest = Substring(t)
-            if let value = parseFlow(&rest) {
-                return value
+            // Flow collections only: a block-context plain scalar may contain ',' / ']' / '}' (rules such as
+            // "DOMAIN-SUFFIX,google.com,Proxy"), which the flow scalar reader would cut at the first comma.
+            // Quoted scalars go through scalar(), which reuses the flow string reader.
+            if t.hasPrefix("[") || t.hasPrefix("{") {
+                var rest = Substring(t)
+                if let value = parseFlow(&rest) {
+                    return value
+                }
             }
             return Self.scalar(t)
         }
@@ -257,19 +294,22 @@ enum NCYAML {
                 var arr: [NCJSONValue] = []
                 skipSpaces(&s)
                 if s.first == "]" { s = s.dropFirst(); return .array(arr) }
+                var closed = false
                 while true {
                     if let v = parseFlow(&s) { arr.append(v) }
                     skipSpaces(&s)
                     if s.first == "," { s = s.dropFirst(); continue }
-                    if s.first == "]" { s = s.dropFirst() }
+                    if s.first == "]" { s = s.dropFirst(); closed = true }
                     break
                 }
+                if !closed { noteError("流式序列未闭合") }
                 return .array(arr)
             case "{":
                 s = s.dropFirst()
                 var obj: [String: NCJSONValue] = [:]
                 skipSpaces(&s)
                 if s.first == "}" { s = s.dropFirst(); return .object(obj) }
+                var closedMap = s.first == "}"
                 while true {
                     skipSpaces(&s)
                     // key up to ':' outside quotes/flow
@@ -284,35 +324,61 @@ enum NCYAML {
                     if let v = parseFlow(&s) { obj[key] = v }
                     skipSpaces(&s)
                     if s.first == "," { s = s.dropFirst(); continue }
-                    if s.first == "}" { s = s.dropFirst() }
+                    if s.first == "}" { s = s.dropFirst(); closedMap = true }
                     break
                 }
+                if !closedMap { noteError("流式映射未闭合") }
                 return .object(obj)
             case "\"", "'":
                 let quote = ch
                 s = s.dropFirst()
                 var out = ""
+                var terminated = false
                 while let c = s.first {
                     s = s.dropFirst()
                     if c == quote {
                         if quote == "'", s.first == "'" { out.append("'"); s = s.dropFirst(); continue }
+                        terminated = true
                         break
                     }
                     if quote == "\"", c == "\\", let esc = s.first {
                         s = s.dropFirst()
+                        // YAML 1.2 §5.7 double-quoted escapes (rv2: the profile editor's reference-YAML-style quoting
+                        // emits \a \b \e \f \v \N \L \P \xXX \uXXXX \UXXXXXXXX for control / break chars).
                         switch esc {
                         case "n": out.append("\n")
-                        case "t": out.append("\t")
+                        case "t", "\t": out.append("\t")
                         case "r": out.append("\r")
                         case "\"": out.append("\"")
                         case "\\": out.append("\\")
+                        case "/": out.append("/")
+                        case " ": out.append(" ")
                         case "0": out.append("\0")
+                        case "a": out.append("\u{07}")
+                        case "b": out.append("\u{08}")
+                        case "e": out.append("\u{1B}")
+                        case "f": out.append("\u{0C}")
+                        case "v": out.append("\u{0B}")
+                        case "N": out.append("\u{85}")
+                        case "_": out.append("\u{A0}")
+                        case "L": out.append("\u{2028}")
+                        case "P": out.append("\u{2029}")
+                        case "x", "u", "U":
+                            let n = esc == "x" ? 2 : (esc == "u" ? 4 : 8)
+                            let hex = String(s.prefix(n))
+                            if hex.count == n, let v = UInt32(hex, radix: 16), let u = Unicode.Scalar(v) {
+                                out.unicodeScalars.append(u)
+                                s = s.dropFirst(n)
+                            } else {
+                                out.append(esc)
+                            }
                         default: out.append(esc)
                         }
                         continue
                     }
                     out.append(c)
                 }
+                if !terminated { noteError("引号未闭合") }
                 return .string(out)
             default:
                 // Plain flow scalar: up to , ] } at this level.

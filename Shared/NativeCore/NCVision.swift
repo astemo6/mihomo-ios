@@ -1,7 +1,7 @@
 import Foundation
 
-/// VLESS flow `xtls-rprx-vision` — pure-logic port of mihomo's
-/// transport/vless/vision (padding.go / conn.go / filter.go).
+/// VLESS flow `xtls-rprx-vision` — pure-logic port of Clash.Meta's
+/// transport/vless/vision.
 ///
 /// The stream is reframed into padding frames:
 ///   [16B UUID — first frame only][1B command][u16be contentLen]
@@ -28,7 +28,7 @@ enum NCVision {
     static let tlsServerHandshakeStart: [UInt8] = [0x16, 0x03, 0x03]
     static let tlsApplicationDataStart: [UInt8] = [0x17, 0x03, 0x03]
     static let tls13SupportedVersions: [UInt8] = [0x00, 0x2b, 0x00, 0x02, 0x03, 0x04]
-    /// TLS 1.3 suites from mihomo's map, minus TLS_AES_128_CCM_8_SHA256
+    /// TLS 1.3 suites from Clash.Meta's map, minus TLS_AES_128_CCM_8_SHA256
     /// (0x1305), which the map lookup explicitly rejects.
     static let tls13CipherSuites: Set<UInt16> = [0x1301, 0x1302, 0x1303, 0x1304]
 
@@ -59,17 +59,24 @@ enum NCVision {
     }
 }
 
-enum NCVisionError: Error, Equatable {
+enum NCVisionError: Error, Equatable, LocalizedError {
     /// First server frame carried a UUID different from the user's.
     case unknownServerUUID
     /// Server sent a padding command other than continue/end/direct.
     case unknownCommand(UInt8)
+
+    var errorDescription: String? {
+        switch self {
+        case .unknownServerUUID: return "vision: server answered with a different UUID"
+        case .unknownCommand(let c): return "vision: unknown padding command \(c)"
+        }
+    }
 }
 
-/// Port of filter.go's FilterTLS: watches the first few buffers of the
+/// Port of filter's FilterTLS: watches the first few buffers of the
 /// plaintext flow and classifies it (TLS? TLS 1.2+ ServerHello seen? TLS 1.3
 /// with an XTLS-capable cipher?). One instance per direction; a caller that
-/// wants mihomo's exact shared-state behavior may share one instance
+/// wants Clash.Meta's exact shared-state behavior may share one instance
 /// between its writer and reader.
 final class NCVisionFilter {
     private(set) var packetsToFilter = 8
@@ -87,7 +94,7 @@ final class NCVisionFilter {
         if let idx = NCVision.firstIndex(of: NCVision.tlsServerHandshakeStart, in: bytes) {
             index = idx
             if lenP > index + 5 {
-                // Go checks the record start at the buffer head, not at idx.
+                // the old core checks the record start at the buffer head, not at idx.
                 if bytes[0] == 0x16, bytes[1] == 0x03, bytes[2] == 0x03 {
                     isTLS = true
                     if bytes[5] == 0x02 { // ServerHello handshake type
@@ -137,7 +144,7 @@ final class NCVisionFilter {
     }
 }
 
-/// Port of conn.go's WriteBuffer: frames outgoing plaintext (the first
+/// Port of conn's WriteBuffer: frames outgoing plaintext (the first
 /// chunk carries the VLESS request head) until the filter decides the flow
 /// can continue unframed (end) or spliced (direct).
 final class NCVisionWriter {
@@ -163,7 +170,7 @@ final class NCVisionWriter {
     func process(_ chunk: [UInt8]) -> [[UInt8]] {
         guard isFiltering else { return [chunk] }
         if chunk.isEmpty {
-            // Long padding to hide the VLESS header (Go's empty-write path,
+            // Long padding to hide the VLESS header (the old core's empty-write path,
             // paddingTLS hardcoded true).
             return [applyPadding(content: [], command: NCVision.commandContinue, paddingTLS: true)]
         }
@@ -195,8 +202,8 @@ final class NCVisionWriter {
         return out
     }
 
-    /// padding.go's ApplyPadding. Padding bytes are zeros (the reader
-    /// discards them unread, matching Go semantics).
+    /// padding's ApplyPadding. Padding bytes are zeros (the reader
+    /// discards them unread, matching the old core semantics).
     private func applyPadding(content: [UInt8], command: UInt8, paddingTLS: Bool) -> [UInt8] {
         let contentLen = content.count
         var paddingLen = 0
@@ -223,7 +230,7 @@ final class NCVisionWriter {
         return out
     }
 
-    /// padding.go's ReshapeBuffer: split chunks >= 8192-21 at the last TLS
+    /// padding's ReshapeBuffer: split chunks >= 8192-21 at the last TLS
     /// application-data record start (must land in (21, limit], else halve).
     private static func reshape(_ chunk: [UInt8]) -> [[UInt8]] {
         let limit = NCVision.bufferSize - NCVision.paddingHeaderLength
@@ -243,7 +250,7 @@ final class NCVisionWriter {
     }
 }
 
-/// Port of conn.go's ReadBuffer: parses padding frames out of the incoming
+/// Port of conn's ReadBuffer: parses padding frames out of the incoming
 /// stream and yields plaintext. After an end/direct frame's content is
 /// delivered, everything else passes through raw.
 struct NCVisionReader {
@@ -257,6 +264,9 @@ struct NCVisionReader {
     private(set) var directRequested = false
 
     private var buffer: [UInt8] = []
+    /// nc-perf: read offset into `buffer` — frames are consumed by advancing it instead of
+    /// removeFirst per frame (O(n^2) over a long stream); compacted once it passes half the buffer.
+    private var readOffset = 0
     private var readFilterUUID = true
     private var readLastCommand: UInt8 = NCVision.commandContinue
     private var remainingContent = 0
@@ -266,32 +276,44 @@ struct NCVisionReader {
         self.userUUID = userUUID
     }
 
+    private var buffered: Int { buffer.count - readOffset }
+
+    /// One rebase per buffer, after more than half of it was consumed (or all of it): the only
+    /// place bytes move. `Data`/`Array` slices keep their indices, so compaction copies explicitly.
+    private mutating func compactBuffer() {
+        if readOffset == 0 { return }
+        if readOffset >= buffer.count { buffer.removeAll(keepingCapacity: true); readOffset = 0 }
+        else if readOffset > buffer.count / 2 { buffer.removeFirst(readOffset); readOffset = 0 }
+    }
+
     /// Feed raw stream bytes; returns the plaintext pieces ready to deliver.
     mutating func feed(_ bytes: [UInt8]) throws -> [[UInt8]] {
+        defer { compactBuffer() }
         buffer += bytes
         var out: [[UInt8]] = []
         while true {
             if remainingContent > 0 {
-                if buffer.isEmpty { break }
-                let n = min(remainingContent, buffer.count)
-                let chunk = Array(buffer[0..<n])
-                buffer.removeFirst(n)
+                if buffered == 0 { break }
+                let n = min(remainingContent, buffered)
+                let chunk = Array(buffer[readOffset..<(readOffset + n)])
+                readOffset += n
                 remainingContent -= n
-                filter.filter(chunk) // Go filters delivered content too
+                filter.filter(chunk) // the old core filters delivered content too
                 out.append(chunk)
                 continue
             }
             if remainingPadding > 0 {
-                if buffer.isEmpty { break }
-                let n = min(remainingPadding, buffer.count)
-                buffer.removeFirst(n)
+                if buffered == 0 { break }
+                let n = min(remainingPadding, buffered)
+                readOffset += n
                 remainingPadding -= n
                 continue
             }
             if passthrough {
-                if !buffer.isEmpty {
-                    out.append(buffer)
+                if buffered > 0 {
+                    out.append(Array(buffer[readOffset...]))
                     buffer = []
+                    readOffset = 0
                 }
                 break
             }
@@ -300,9 +322,9 @@ struct NCVisionReader {
                 let need = readFilterUUID
                     ? NCVision.paddingHeaderLength
                     : NCVision.paddingHeaderLength - NCVision.uuidLength
-                if buffer.count < need { return out }
-                var header = Array(buffer[0..<need])
-                buffer.removeFirst(need)
+                if buffered < need { return out }
+                var header = Array(buffer[readOffset..<(readOffset + need)])
+                readOffset += need
                 if readFilterUUID {
                     readFilterUUID = false
                     guard Array(header[0..<NCVision.uuidLength]) == userUUID else {
@@ -316,7 +338,7 @@ struct NCVisionReader {
             case NCVision.commandEnd:
                 passthrough = true
             case NCVision.commandDirect:
-                // Go drains the TLS layer's decrypted leftovers, then reads
+                // the old core drains the TLS layer's decrypted leftovers, then reads
                 // the raw socket; here the buffered bytes simply become the
                 // passthrough payload.
                 passthrough = true

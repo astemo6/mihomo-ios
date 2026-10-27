@@ -1,12 +1,12 @@
 import Foundation
 
-/// Parsed `sniffer:` section of the runtime config (mihomo semantics; the
-/// app's runtime builder, bridge/bridge.go, sets `enable` from the user's
+/// Parsed `sniffer:` section of the runtime config (Clash.Meta semantics; the
+/// app's runtime builder, the retired bridge, sets `enable` from the user's
 /// 域名嗅探 toggle and injects the default sniff table below when the
 /// profile doesn't carry one — this parser mirrors that injection so the
-/// native core behaves exactly like the Go core on the same runtime.yaml).
+/// native core behaves exactly like the old core on the same runtime.yaml).
 ///
-/// Defaults follow mihomo: disabled unless enabled, parse-pure-ip off,
+/// Defaults follow Clash.Meta: disabled unless enabled, parse-pure-ip off,
 /// override-destination on. force-domain / skip-domain use domain-trie
 /// semantics (`+.d` or bare `d` = d and its subdomains; `*` globs allowed).
 struct NCSnifferConfig: Equatable {
@@ -42,7 +42,7 @@ struct NCSnifferConfig: Equatable {
             if let tls = byProto["TLS"] { tlsPorts = Self.parsePorts(tls["ports"]) }
             if let quic = byProto["QUIC"] { quicPorts = Self.parsePorts(quic["ports"]) }
         } else if enable {
-            // bridge.go's injected default table, verbatim.
+            // bridge's injected default table, verbatim.
             httpPorts = [80...80, 8080...8880]
             httpOverrideDestination = true
             tlsPorts = [443...443, 8443...8443]
@@ -57,7 +57,8 @@ struct NCSnifferConfig: Equatable {
         var out: [ClosedRange<Int>] = []
         for item in arr {
             if let n = item.number {
-                out.append(Int(n)...Int(n))
+                // A non-port number (NaN, 1e30, -1, 70000) is skipped: Int(Double) would trap past 2^63.
+                if n.isFinite, n >= 0, n <= 65535 { out.append(Int(n)...Int(n)) }
             } else if let s = item.string?.trimmingCharacters(in: .whitespaces) {
                 if let dash = s.firstIndex(of: "-"),
                    let lo = Int(s[..<dash]), let hi = Int(s[s.index(after: dash)...]), lo <= hi {

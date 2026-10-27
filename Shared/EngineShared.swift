@@ -1,7 +1,7 @@
 import Foundation
 
 /// Paths of the HTTP engine (MitM / rewrite / scripts / modules) inside the App Group container.
-/// The Go side (bridge/mitm) reads the same layout under <home>/engine.
+/// the old side reads the same layout under <home>/engine.
 enum EnginePaths {
     static var dir: URL { AppShared.ensureDir(AppShared.homeURL.appendingPathComponent("engine", isDirectory: true)) }
     static var configURL: URL { dir.appendingPathComponent("engine.json") }
@@ -36,6 +36,8 @@ struct EngineModule: Codable, Identifiable, Hashable {
     var updatedAt: Double? = nil
     /// Auto-update interval in seconds (nil = 1 day).
     var interval: Int? = nil
+    /// fix/nc-0.20.2: the user typed this name (添加 / 编辑订阅): updates never replace it with the module's #!name.
+    var customName: Bool? = nil
 }
 
 /// r7 R7A-10: tolerant field-by-field decoding; an entry without `line` cannot be used and is skipped by the list.
@@ -62,6 +64,7 @@ extension EngineModule {
         policies = (try? c.decodeIfPresent([String: String].self, forKey: .policies)) ?? nil
         updatedAt = (try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? nil
         interval = (try? c.decodeIfPresent(Int.self, forKey: .interval)) ?? nil
+        customName = (try? c.decodeIfPresent(Bool.self, forKey: .customName)) ?? nil
     }
 }
 
@@ -78,13 +81,13 @@ struct LossyList<T: Decodable>: Decodable {
     }
 }
 
-/// Per remote script URL settings from the resource manager (bridge/mitm ScriptResource).
+/// Per remote script URL settings from the resource manager.
 struct ScriptResourceSetting: Codable, Hashable {
     var disabled: Bool? = nil
     var interval: Int? = nil
 }
 
-/// Mirrors <home>/engine/engine.json (bridge/mitm/config.go).
+/// Mirrors <home>/engine/engine.json.
 struct EngineConfig: Codable, Equatable {
     var enabled = false          // 复写总开关 (URL / header / body rewrite, map local)
     /// 脚本总开关. engine.json written before the two switches were split has no key: it takes `enabled`,
@@ -174,8 +177,8 @@ struct EngineConfig: Codable, Equatable {
     }
 }
 
-/// Payload the Go engine sends for $notification.post / $notify.
-/// feat/loon-menu-notify: the core's policy watcher (policywatch.go) sends its events through the same notifier with
+/// Payload the old engine sends for $notification.post / $notify.
+/// feat/loon-menu-notify: the core's policy watcher sends its events through the same notifier with
 /// a `kind` (policyChange / policyFailure / nodeFailure) and the names involved instead of finished text; the tunnel
 /// builds the localized notification. No `kind` = a script notification.
 struct ScriptNotification: Decodable {

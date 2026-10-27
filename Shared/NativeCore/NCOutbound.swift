@@ -7,6 +7,15 @@ struct NCTarget: Equatable {
 
     var ip: NCIP? { NCIP(host) }
 
+    /// Whether every proxy wire format can carry this target: SOCKS/VLESS/VMess domains are u8-length-prefixed and
+    /// ports are u16 (rv2-proto: oversized values used to trap in `UInt8(...)` or be silently truncated).
+    var isWireEncodable: Bool {
+        guard (0...65535).contains(port) else { return false }
+        if ip != nil { return true }
+        let n = host.utf8.count
+        return n > 0 && n <= 255
+    }
+
     /// SOCKS / Shadowsocks target encoding: ATYP + address + port (big-endian).
     var atypEncoded: Data {
         var out = Data()
@@ -57,20 +66,29 @@ enum NCSOCKS5 {
 
     /// Parse a SOCKS5 response header. Returns (bytesConsumed, replyCode) or nil
     /// when more bytes are needed. Throws nothing; replyCode != 0 means failure.
+    /// Reads are startIndex-relative: `data` may be a slice (rv2-proto).
     static func parseResponse(_ data: Data) -> (Int, Int)? {
         guard data.count >= 4 else { return nil }
-        let atyp = data[3]
+        let s = data.startIndex
+        let atyp = data[s + 3]
         var need: Int
         switch atyp {
         case 0x01: need = 4 + 4 + 2
         case 0x04: need = 4 + 16 + 2
         case 0x03:
             guard data.count >= 5 else { return nil }
-            need = 4 + 1 + Int(data[4]) + 2
+            need = 4 + 1 + Int(data[s + 4]) + 2
         default: return nil
         }
         guard data.count >= need else { return nil }
-        return (need, Int(data[1]))
+        return (need, Int(data[s + 1]))
+    }
+
+    /// A reply whose header can never parse (wrong version or unknown ATYP): fail instead of reading forever.
+    static func isMalformedResponse(_ data: Data) -> Bool {
+        guard data.count >= 4 else { return false }
+        let s = data.startIndex
+        return data[s] != 0x05 || ![0x01, 0x03, 0x04].contains(data[s + 3])
     }
 }
 
@@ -88,7 +106,7 @@ enum NCHTTPProxy {
 }
 
 /// Resolves a policy name through proxy groups to a concrete outbound, the way
-/// mihomo does: select uses the stored choice, url-test picks the lowest delay,
+/// Clash.Meta does: select uses the stored choice, url-test picks the lowest delay,
 /// fallback picks the first alive member, load-balance rotates. DIRECT and
 /// REJECT are terminal pseudo-policies. Loop-safe via a visited set.
 final class NCGroupEngine {
@@ -105,9 +123,9 @@ final class NCGroupEngine {
     /// 智能选择 pins (group name -> member), maintained by NCSmartSelector.
     /// For url-test / fallback groups a pin wins over the automatic pick
     /// (and over a stored manual selection, which the scorer would
-    /// overwrite on its next pass anyway — bridge/smart.go pins through
+    /// overwrite on its next pass anyway — the retired bridge through
     /// the group's own Set). A pin whose member is known dead is ignored,
-    /// mirroring mihomo dropping a fixed node on health-check failure.
+    /// mirroring Clash.Meta dropping a fixed node on health-check failure.
     var smartPins: [String: String] {
         get { lock.lock(); defer { lock.unlock() }; return _smartPins }
         set { lock.lock(); defer { lock.unlock() }; _smartPins = newValue }

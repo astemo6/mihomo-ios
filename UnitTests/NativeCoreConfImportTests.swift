@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Fixture-driven tests for the .conf importers (Surge / Loon / QX →
 /// canonical model). One representative config per ecosystem; assertions
@@ -92,7 +92,11 @@ final class NativeCoreConfImportTests: XCTestCase {
         XCTAssertEqual(c.hosts.first { $0.pattern == "router.lan" }?.kind, .address)
         XCTAssertEqual(c.hosts.first { $0.pattern == "nas.lan" }?.kind, .dnsServer)
         XCTAssertEqual(c.hosts.first { $0.pattern == "nas.lan" }?.dnsServer?.host, "8.8.8.8")
-        XCTAssertTrue(c.report.skippedSections.contains("MITM"))
+        // [MITM] is imported into the canonical model since 58ec3e2 (native
+        // MitM/rewrite/scripts), so it is no longer a skipped section.
+        XCTAssertFalse(c.report.skippedSections.contains("MITM"))
+        XCTAssertTrue(c.mitm.enabled)
+        XCTAssertEqual(c.mitm.hostnames, ["*.example.com"])
     }
 
     func testLoonImport() {
@@ -246,6 +250,208 @@ final class NativeCoreConfImportTests: XCTestCase {
         XCTAssertEqual(c.ruleSets.count, 1)
         XCTAssertEqual(c.ruleSets.first?.name, "QXAds")
         XCTAssertEqual(c.ruleSets.first?.forcedPolicy, "REJECT")
-        XCTAssertTrue(c.report.skippedSections.contains("rewrite_local"))
+        // [rewrite_local] is imported into cfg.rewrites since 58ec3e2 (native
+        // MitM/rewrite/scripts), so it is no longer a skipped section.
+        XCTAssertFalse(c.report.skippedSections.contains("rewrite_local"))
+        XCTAssertEqual(c.rewrites.count, 1)
+        XCTAssertEqual(c.rewrites.first?.pattern, "^http://example.com")
+        XCTAssertEqual(c.rewrites.first?.action, "reject")
+    }
+
+    // MARK: - QX filter_remote without force-policy (fix/nc-qx-remote-own)
+
+    private static let ownURL = "https://rules.example.com/own.list"
+    private static let forcedURL = "https://rules.example.com/forced.list"
+    private static let ownList = """
+    host-suffix, a.example, Streaming
+    host, b.example, direct
+    DOMAIN-SUFFIX,c.example,Missing
+    host-keyword, dkw, proxy
+    ip-cidr, 203.0.113.0/24, reject
+    host-suffix, e.example, Streaming
+    """
+    private static var ownPath: String { "./ruleset/" + NCRuleValidator.providerNameFor(url: ownURL, kind: "list-own") + ".txt" }
+
+    private func tempHome() throws -> String {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("qxown-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: home) }
+        return home.path
+    }
+
+    private func baseRaw() -> [String: NCJSONValue] {
+        [
+            "proxies": .array([.object(["name": .string("N1"), "type": .string("direct")])]),
+            "proxy-groups": .array([
+                .object(["name": .string("Main"), "type": .string("select"), "proxies": .array([.string("N1"), .string("DIRECT")])]),
+                .object(["name": .string("Streaming"), "type": .string("select"), "proxies": .array([.string("N1")])]),
+            ]),
+            "rules": .array([.string("MATCH,Main")]),
+        ]
+    }
+
+    private func strings(_ v: [NCJSONValue]) -> [String] { v.compactMap { if case .string(let s) = $0 { return s }; return nil } }
+
+    /// Canonical importer (tunnel runtime.conf fallback / share-link conversion): no force-policy → the list keeps
+    /// its own per-line policies (provider x-own-policy, same shape as the App import); force-policy → all forced.
+    func testQXFilterRemoteOwnPolicyCanonical() {
+        let text = """
+        [policy]
+        static=Main, direct
+        static=Streaming, direct
+
+        [filter_remote]
+        \(Self.ownURL), tag=Own, update-interval=3600, enabled=true
+        \(Self.forcedURL), tag=Forced, force-policy=reject, enabled=true
+        """
+        let c = NCQXImport.quantumultx(text)
+        XCTAssertEqual(c.rules, ["RULE-SET,Own,Main", "RULE-SET,\(Self.forcedURL),REJECT"])
+        let own = c.ruleSets.first { $0.name == "Own" }
+        XCTAssertNil(own?.forcedPolicy)
+        XCTAssertEqual(own?.url, Self.ownURL)
+        XCTAssertEqual(own?.interval, 3600)
+        XCTAssertEqual(own?.fields["x-own-policy"]?.bool, true)
+        XCTAssertEqual(own?.fields["x-convert"]?.string, "list")
+        XCTAssertEqual(own?.fields["type"]?.string, "http")
+        XCTAssertEqual(own?.path, Self.ownPath)
+        let forced = c.ruleSets.first { $0.name == "Forced" }
+        XCTAssertEqual(forced?.forcedPolicy, "REJECT")
+        XCTAssertNil(forced?.fields["x-own-policy"])
+        // The tunnel resolves the RULE-SET by provider name and still loads the list (own path, URL).
+        let legacy = c.legacyConfig()
+        let provs = NCRuleProviderStore.providers(from: legacy)
+        XCTAssertEqual(provs.first { $0.name == "Own" }?.url, Self.ownURL)
+        XCTAssertEqual(provs.first { $0.name == "Own" }?.filePath, Self.ownPath)
+    }
+
+    /// App import (导入配置): the same list-own provider; force-policy keeps a plain list.
+    func testQXFilterRemoteOwnPolicyAppImport() throws {
+        let text = """
+        [server_local]
+        shadowsocks=192.0.2.1:8388, method=aes-128-gcm, password=pw, tag=N1
+
+        [policy]
+        static=Main, N1, direct
+
+        [filter_local]
+        final, Main
+
+        [filter_remote]
+        \(Self.ownURL), tag=Own, enabled=true
+        \(Self.forcedURL), tag=Forced, force-policy=direct, enabled=true
+        """
+        let res = NCConfImportPort.importConfResult(text)
+        XCTAssertTrue(res.error?.isEmpty ?? true, res.error ?? "")
+        guard case .object(let m)? = NCYAML.parse(res.yaml) else { return XCTFail("profile YAML does not parse:\n" + res.yaml) }
+        guard case .object(let rp)? = m["rule-providers"] else { return XCTFail("no rule-providers:\n" + res.yaml) }
+        guard case .object(let own)? = rp["Own"], case .object(let forced)? = rp["Forced"] else { return XCTFail(res.yaml) }
+        XCTAssertEqual(own["x-own-policy"]?.bool, true, res.yaml)
+        XCTAssertEqual(own["x-convert"]?.string, "list")
+        XCTAssertEqual(own["path"]?.string, Self.ownPath)
+        XCTAssertNil(forced["x-own-policy"])
+        guard case .array(let rules)? = m["rules"] else { return XCTFail(res.yaml) }
+        let rs = strings(rules)
+        XCTAssertTrue(rs.contains("RULE-SET,Own,Main"), "\(rs)")
+        XCTAssertTrue(rs.contains("RULE-SET,Forced,DIRECT"), "\(rs)")
+    }
+
+    /// Rule editor → runtime, end to end: the custom QX list without force-policy gets the own-policy provider; the
+    /// download splits it per policy; the next build routes each part to its own policy, creates a manual-select
+    /// group for the policy the config lacks, and keeps the whole-list RULE-SET (proxy) behind the parts. The list
+    /// with force-policy stays one RULE-SET on the forced policy.
+    func testQXRemoteOwnPolicyCustomRuleRuntimeEndToEnd() throws {
+        let home = try tempHome()
+        let rulesJSON = """
+        {"rules":[{"id":"1","line":"\(Self.ownURL), tag=Own","enabled":true},
+                  {"id":"2","line":"\(Self.forcedURL), tag=Forced, force-policy=direct","enabled":true}]}
+        """
+        try Data(rulesJSON.utf8).write(to: URL(fileURLWithPath: home + "/rules.json"))
+        let o = NCRuntimeSettings(core: CoreOverrides(), dns: nil, local: nil, home: home, manualPath: "")
+
+        // The runtime names the provider after the URL (own.list → own), as it always did for custom lists.
+        // Before the download: whole list on proxy (the first select group).
+        var raw = baseRaw()
+        NCRuntimeSteps.applyCustomRules(&raw, o)
+        XCTAssertEqual(strings(raw.list("rules")), ["RULE-SET,own,Main", "RULE-SET,forced,DIRECT", "MATCH,Main"])
+        guard case .object(let own)? = raw.map("rule-providers")["own"],
+              case .object(let forced)? = raw.map("rule-providers")["forced"] else { return XCTFail("\(raw)") }
+        XCTAssertEqual(own["x-own-policy"], .bool(true))
+        XCTAssertEqual(own["x-convert"]?.string, "list") // providerPlan → convert "list-split"
+        XCTAssertEqual(own["path"]?.string, Self.ownPath)
+        XCTAssertNil(forced["x-own-policy"])
+        XCTAssertNil(forced["x-convert"])
+
+        // The download (ProviderStore, convert list-split) writes the converted list, the parts and the sidecar.
+        let cache = (home as NSString).appendingPathComponent(String(Self.ownPath.dropFirst(2)))
+        let stored = NCProviderPorts.providerStore(home: home, kind: "rule", cachePath: cache, convert: "list-split",
+                                                   data: Data(Self.ownList.utf8))
+        XCTAssertTrue(stored.contains("\"error\":\"\""), stored)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache + ".policies.json"))
+
+        // The next build: per-line policies.
+        var raw2 = baseRaw()
+        NCRuntimeSteps.applyCustomRules(&raw2, o)
+        XCTAssertEqual(strings(raw2.list("rules")), [
+            "RULE-SET,own#Streaming,Streaming",
+            "RULE-SET,own#direct,DIRECT",
+            "RULE-SET,own#Missing,Missing",
+            "RULE-SET,own#proxy,Main",
+            "RULE-SET,own#reject,REJECT",
+            "RULE-SET,own,Main",
+            "RULE-SET,forced,DIRECT",
+            "MATCH,Main",
+        ])
+        let groups = raw2.list("proxy-groups").compactMap { v -> [String: NCJSONValue]? in
+            if case .object(let m) = v { return m }; return nil
+        }
+        XCTAssertEqual(groups.map { $0.str("name") }, ["Main", "Streaming", "Missing"]) // existing group not duplicated
+        XCTAssertEqual(groups.last?.str("type"), "select")
+        XCTAssertEqual(groups.last?["proxies"], .array([.string("Main"), .string("DIRECT")]))
+        guard case .object(let part)? = raw2.map("rule-providers")["own#Streaming"] else { return XCTFail("no part provider") }
+        XCTAssertEqual(part["type"]?.string, "file")
+        let partText = try String(contentsOfFile: part["path"]?.string ?? "", encoding: .utf8)
+        let partLines = partText.split(separator: "\n").map(String.init)
+        XCTAssertEqual(partLines.count, 2, partText)
+        XCTAssertTrue(partLines[0].contains("a.example") && partLines[1].contains("e.example"), partText)
+    }
+
+    /// 资源 page: the custom line maps to the same list-own cache file, and a manual refresh writes the parts too.
+    func testQXRemoteOwnPolicyResourceStore() throws {
+        let home = try tempHome()
+        let ownLine = "\(Self.ownURL), tag=Own"
+        XCTAssertEqual(NCResourcesPort.remoteOfLine(ownLine)?.kind, "list-own")
+        XCTAssertEqual(NCResourcesPort.remoteOfLine("\(Self.forcedURL), force-policy=direct")?.kind, "list")
+        let key = "ruleset:list-own|" + Self.ownURL
+        let cache = (home as NSString).appendingPathComponent(String(Self.ownPath.dropFirst(2)))
+        XCTAssertEqual(NCResourcesPort.cachePath(home: home, key: key), cache)
+        _ = try NCResourcesPort.store(home: home, key: key, data: Data(Self.ownList.utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache + ".policies.json"))
+    }
+
+    /// Rule editor check: the new note without force-policy, none with it.
+    func testQXRemoteOwnPolicyEditorNote() throws {
+        let home = try tempHome()
+        let profile = home + "/p.yaml"
+        try Data("""
+        proxies:
+          - {name: N1, type: direct}
+        proxy-groups:
+          - {name: Main, type: select, proxies: [N1, DIRECT]}
+        rules:
+          - MATCH,Main
+        """.utf8).write(to: URL(fileURLWithPath: profile))
+        let ck = NCRuleValidator.checkRuleLine(homeDir: home, profilePath: profile, line: "\(Self.ownURL), tag=Own")
+        XCTAssertNil(ck.error)
+        XCTAssertEqual(ck.note, NCRuleValidator.qxRemoteOwnNote)
+        XCTAssertEqual(ck.note, "未指定 force-policy：按列表内每行自己的策略分流；配置中不存在的策略自动创建为手动选择组")
+        XCTAssertEqual(ck.rule, "RULE-SET,Own,Main")
+        let ck2 = NCRuleValidator.checkRuleLine(homeDir: home, profilePath: profile,
+                                                line: "\(Self.forcedURL), tag=F, force-policy=direct")
+        XCTAssertNil(ck2.error)
+        XCTAssertNotEqual(ck2.note, NCRuleValidator.qxRemoteOwnNote)
+        XCTAssertEqual(ck2.rule, "RULE-SET,F,DIRECT")
+        XCTAssertEqual(NCRuleValidator.qxRemoteKind("\(Self.ownURL), force-policy=\"\""), "list-own")
+        XCTAssertEqual(NCRuleValidator.qxRemoteKind("\(Self.ownURL), Force-Policy = Main"), "list")
     }
 }

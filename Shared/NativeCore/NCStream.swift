@@ -10,6 +10,46 @@ final class NCStream {
     let conn: NWConnection
     let queue: DispatchQueue
     private var cancelled = false
+    /// fix-tls-c: set by the TLS init — whether the certificate is verified, and SecTrust's reason when it was rejected.
+    /// nil for plain TCP / caller-built parameters.
+    private var tlsDiag: TLSDiag?
+
+    final class TLSDiag {
+        let verify: Bool
+        private let lock = NSLock()
+        private var reason: String?
+        init(verify: Bool) { self.verify = verify }
+        func set(_ r: String) { lock.lock(); reason = r; lock.unlock() }
+        var rejected: String? { lock.lock(); defer { lock.unlock() }; return reason }
+    }
+
+    /// fix-tls-c: a TLS connect failure that says how the certificate was handled:
+    /// "-9808: bad certificate format · verify on: “<cert>” certificate is not trusted · chain 1, leaf RSA-2048
+    /// self-signed, valid …" (skip-cert-verify was false) or "… · skip-cert-verify on" (then it was not a trust decision).
+    struct TLSConnectError: Error, LocalizedError, CustomStringConvertible {
+        let underlying: NWError
+        let text: String
+        var errorDescription: String? { text }
+        var description: String { text }
+    }
+
+    /// The error handed to `ready` for a failed connect: TLS failures carry the verification mode (and the rejection
+    /// reason); everything else is the NWError itself.
+    func annotate(_ e: NWError) -> Error {
+        guard case .tls = e, let d = tlsDiag else { return e }
+        var t = e.debugDescription
+        if d.verify {
+            t += " · verify on"
+            if let r = d.rejected { t += ": " + r }
+        } else {
+            t += " · skip-cert-verify on"
+        }
+        return TLSConnectError(underlying: e, text: t)
+    }
+    /// fix/nc-mem-4: counted in NCMemTrace (DEBUG) from start() until deinit.
+    private var traced = false
+
+    deinit { if traced { NCMemTrace.stream(-1) } }
 
     init(to host: String, port: Int, tls: Bool = false, queue: DispatchQueue) {
         self.queue = queue
@@ -19,20 +59,51 @@ final class NCStream {
 
     /// TLS with proxy-protocol options: explicit SNI (servername) and optional
     /// skip-cert-verify, as Trojan/VLESS/VMess configs carry them.
-    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, queue: DispatchQueue) {
+    /// `alpn`: ALPN protocols to offer (feat/nc-xhttp: XHTTP needs "h2"; fix/nc-diag-439: ws/httpupgrade offer only
+    /// http/1.1). Empty keeps the system default.
+    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, alpn: [String] = [],
+         queue: DispatchQueue) {
         self.queue = queue
         let tlsOptions = NWProtocolTLS.Options()
         if let sni = tlsServerName, !sni.isEmpty {
             sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, sni)
         }
+        // fix/nc-diag-439 (G): explicit ALPN (ws over TLS offers only http/1.1, like Clash.Meta — an edge that is offered
+        // h2 may pick it and the ws upgrade then fails).
+        for p in alpn where !p.isEmpty {
+            sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, p)
+        }
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, complete in
                 complete(true)
+            }, queue)
+            tlsDiag = TLSDiag(verify: false)
+        } else {
+            // fix-tls-c: the system's own decision (same SecTrust object, SSL policy for the SNI), evaluated here so a
+            // rejection can name its reason and the chain. Before, a verification-on node failed with a bare
+            // `-9808: bad certificate format` (boringssl CERTIFICATE_VERIFY_FAILED) and nothing said why.
+            let diag = TLSDiag(verify: true)
+            tlsDiag = diag
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, trustRef, complete in
+                let trust = sec_trust_copy_ref(trustRef).takeRetainedValue()
+                // Called on `queue` (the verify block's queue), which SecTrustEvaluateAsyncWithError requires.
+                SecTrustEvaluateAsyncWithError(trust, queue) { t, ok, err in
+                    if !ok { diag.set(NCCertSummary.trustFailure(trust: t, error: err)) }
+                    complete(ok)
+                }
             }, queue)
         }
         let params = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
         NCOutboundBinding.apply(params, host: host)
         conn = NWConnection(to: Self.endpoint(host, port: port), using: params)
+    }
+
+    /// Caller-built parameters (feat/nc-brook: wss with ALPN http/1.1 + a custom CA anchor). The physical-interface
+    /// binding is applied here like every other init.
+    init(to host: String, port: Int, parameters: NWParameters, queue: DispatchQueue) {
+        self.queue = queue
+        NCOutboundBinding.apply(parameters, host: host)
+        conn = NWConnection(to: Self.endpoint(host, port: port), using: parameters)
     }
 
     static func endpoint(_ host: String, port: Int) -> NWEndpoint {
@@ -47,19 +118,51 @@ final class NCStream {
     }
 
     /// Starts the connection; `ready` fires exactly once (nil error on success).
+    ///
+    /// fix/nc-delay-test: when the queue carries an NCDialTrace (a delay probe), the connect is traced (DNS / TCP /
+    /// TLS split from NWConnection's establishment report) and `.waiting` fails at once with its reason, the way an old-core
+    /// dial returns its error — before, a probe whose DNS or route failed sat in `.waiting` until the probe timeout and
+    /// was reported as a bare 超时. Real flows keep NWConnection's waiting behaviour; a slow one (≥ slowDialMs) gets
+    /// one rate-limited `[dial]` line with the same split.
     func start(ready: @escaping (Error?) -> Void) {
+        if NCMemTrace.enabled, !traced { traced = true; NCMemTrace.stream(1) }
         var fired = false
+        let trace = NCDialTrace.on(queue)
+        let t0 = DispatchTime.now()
+        let connectStartMs = trace?.elapsedMs ?? 0
+        trace?.begin("connect")
+        let label = Self.label(conn.endpoint)
         conn.stateUpdateHandler = { [weak self] state in
             guard !fired else { return }
             switch state {
             case .ready:
                 fired = true
+                let total = NCDialTrace.ms(from: t0, to: .now())
+                if let trace {
+                    trace.end("connect")
+                    self?.conn.requestEstablishmentReport(queue: self?.queue ?? .global()) { report in
+                        if let report { trace.absorb(report, connectStartMs: connectStartMs) }
+                    }
+                } else if total >= Self.slowDialMs, NCDialTrace.logSink != nil, let conn = self?.conn {
+                    Self.logSlowDial(conn: conn, label: label, totalMs: total)
+                }
                 ready(nil)
+            case .waiting(let e) where trace != nil:
+                fired = true
+                trace?.end("connect", error: e)
+                trace?.connectFailed(e)
+                trace?.fail("connect \(label): \(NCDialTrace.describe(e)) (waiting: no route / DNS failure)")
+                ready(e)
             case .failed(let e):
                 fired = true
-                ready(e)
+                trace?.end("connect", error: e)
+                trace?.connectFailed(e)
+                let out = self?.annotate(e) ?? e
+                trace?.fail("connect \(label): \(NCDialTrace.describe(out))")
+                ready(out)
             case .cancelled:
                 fired = true
+                trace?.end("connect")
                 ready(NSError(domain: "NativeCore", code: 2, userInfo: [NSLocalizedDescriptionKey: "connection cancelled"]))
             default:
                 break
@@ -67,6 +170,35 @@ final class NCStream {
             _ = self
         }
         conn.start(queue: queue)
+    }
+
+    /// Real dials slower than this get a `[dial]` diagnostic line (rate-limited).
+    static let slowDialMs = 500
+    private static let slowDialLimiter = NCLineLimiter(perWindow: 5, window: 1)
+
+    private static func label(_ e: NWEndpoint) -> String {
+        if case .hostPort(let host, let port) = e {
+            switch host {
+            case .name(let n, _): return "\(n):\(port)"
+            case .ipv4(let a): return "\(a):\(port)"
+            case .ipv6(let a): return "[\(a)]:\(port)"
+            @unknown default: return "\(e)"
+            }
+        }
+        return "\(e)"
+    }
+
+    private static func logSlowDial(conn: NWConnection, label: String, totalMs: Int) {
+        let (ok, dropped) = slowDialLimiter.admit()
+        guard ok else { return }
+        conn.requestEstablishmentReport(queue: .global(qos: .utility)) { report in
+            guard let sink = NCDialTrace.logSink else { return }
+            if dropped > 0 { sink("[dial] \(dropped) slow-dial line(s) suppressed", false) }
+            let t = NCDialTrace()
+            if let report { t.absorb(report, connectStartMs: 0) }
+            let split = t.summary
+            sink("[dial] \(label) ready in \(totalMs) ms" + (split.isEmpty ? "" : ": " + split), false)
+        }
     }
 
     func send(_ data: Data) {
@@ -95,14 +227,57 @@ final class NCStream {
 }
 
 /// Growable byte buffer for handshake parsing.
+/// `data` is always a rebased Data (startIndex 0): callers index it absolutely (`data[3]`), and a `dropFirst`
+/// slice would keep the old indices and trap / misread (rv2-proto). Handshake buffers are tiny, so the copy is free.
 final class NCByteBuffer {
     private(set) var data = Data()
     func append(_ d: Data) { data.append(d) }
     func take(_ n: Int) -> Data {
+        let n = max(0, min(n, data.count))
         let out = Data(data.prefix(n))
-        data = data.dropFirst(n)
+        data = n >= data.count ? Data() : Data(data.dropFirst(n))
         return out
     }
     var count: Int { data.count }
     var isEmpty: Bool { data.isEmpty }
+}
+
+/// Fires a completion at most once and arms a deadline that cancels `raw` when the handshake stalls
+/// (slowloris guard for SOCKS5 / HTTP CONNECT handshakes, rv2-proto). Use on the stream's queue.
+final class NCHandshakeDeadline {
+    private var completion: ((NCRelayStream?, Error?) -> Void)?
+    private var timer: DispatchWorkItem?
+
+    init(queue: DispatchQueue, seconds: TimeInterval, raw: NCRelayStream, what: String,
+         completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        self.completion = completion
+        // Strong self: the work item keeps the deadline alive until it fires or finish() cancels it.
+        let t = DispatchWorkItem { [weak raw] in
+            guard self.completion != nil else { return }
+            raw?.cancel()
+            self.finish(nil, NSError(domain: "NativeCore", code: 4,
+                                     userInfo: [NSLocalizedDescriptionKey: "\(what) handshake timeout"]))
+        }
+        timer = t
+        queue.asyncAfter(deadline: .now() + seconds, execute: t)
+    }
+
+    var isDone: Bool { completion == nil }
+
+    func finish(_ stream: NCRelayStream?, _ error: Error?) {
+        guard let c = completion else { return }
+        completion = nil
+        timer?.cancel()
+        timer = nil
+        c(stream, error)
+    }
+}
+
+/// Send-side flow control (see NCRelayStream.send(_:completion:)): completes once NWConnection processed the bytes.
+extension NCStream {
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        guard !data.isEmpty else { queue.async(execute: completion); return }
+        // After cancel() NWConnection completes the send with an error at once: the caller still gets its callback.
+        conn.send(content: data, completion: .contentProcessed { _ in completion() })
+    }
 }

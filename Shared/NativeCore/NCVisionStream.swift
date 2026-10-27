@@ -11,9 +11,29 @@ import Foundation
 /// output, (b) TLS-decrypted leftovers fed through the reader, (c) the TLS
 /// layer's unparsed raw tail — inner plaintext that arrived past the last
 /// record — then live raw bytes via receiveSpliced.
+/// The record layer Vision frames ride on and splices out of: the hand-rolled TLS 1.3 client (REALITY / tls) or,
+/// with VLESS `encryption`, the encryption conn (Clash.Meta vision.NewConn accepts *encryption.CommonConn; direct
+/// bytes then go to CommonConn.Conn, i.e. through the XorConn layer when xorpub is on). feat/nc-proto3.
+protocol NCVisionCarrier: AnyObject {
+    func send(_ data: Data)
+    func send(_ data: Data, completion: @escaping () -> Void)
+    func receive(_ handler: @escaping (Data?, Error?) -> Void)
+    /// Write below the record layer (after Vision switched to direct).
+    func sendDirect(_ data: Data)
+    func sendDirect(_ data: Data, completion: @escaping () -> Void)
+    /// Detach the record layer: decrypted leftovers + raw bytes already read past the last record.
+    func spliceOut() -> (plaintext: [Data], rawTail: Data)
+    func receiveSpliced(_ handler: @escaping (Data?, Error?) -> Void)
+    func cancel()
+}
+
+extension NCTLSClientStream: NCVisionCarrier {
+    func sendDirect(_ data: Data) { rawStream.send(data) }
+    func sendDirect(_ data: Data, completion: @escaping () -> Void) { rawStream.send(data, completion: completion) }
+}
+
 final class NCVisionStream: NCRelayStream {
-    private let tls: NCTLSClientStream
-    private let raw: NCRelayStream
+    private let tls: NCVisionCarrier
     private let writer: NCVisionWriter
     private var reader: NCVisionReader
 
@@ -21,34 +41,66 @@ final class NCVisionStream: NCRelayStream {
     private var spliced = false
     private var rawTail = Data()
     private var outQueue: [Data] = []
+    /// nc-perf: head offset for outQueue — pop by advancing instead of removeFirst per piece
+    /// (compacted past the halfway point, same read-offset pattern as NCVisionReader).
+    private var outHead = 0
+    private var outBytes = 0
+    private var outIsEmpty: Bool { outHead >= outQueue.count }
+    private func popOut() -> Data {
+        let d = outQueue[outHead]
+        outBytes -= d.count
+        outHead += 1
+        if outHead == outQueue.count { outQueue.removeAll(); outHead = 0 }
+        else if outHead > outQueue.count / 2 { outQueue.removeFirst(outHead); outHead = 0 }
+        return d
+    }
+
+    /// nc-memory: the pump runs free of the reader, so the queue was unbounded. Cap aligns
+    /// with the mux stream inbound cap; false = overflow (caller fails the stream).
+    static let maxQueuedOut = 256 * 1024
+    private func offer(_ pieces: [Data]) -> Bool {
+        let total = pieces.reduce(0) { $0 + $1.count }
+        guard outBytes + total <= Self.maxQueuedOut else { return false }
+        outBytes += total
+        outQueue.append(contentsOf: pieces)
+        return true
+    }
     private var readEOF = false
     private var pending: ((Data?, Error?) -> Void)?
 
-    init(tls: NCTLSClientStream, uuid: [UInt8]) {
+    init(tls: NCVisionCarrier, uuid: [UInt8]) {
         self.tls = tls
-        self.raw = tls.rawStream
         self.writer = NCVisionWriter(userUUID: uuid)
         self.reader = NCVisionReader(userUUID: uuid)
     }
 
     // MARK: send
 
-    func send(_ data: Data) {
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
         if writeDirect {
-            raw.send(data)
+            tls.sendDirect(data, completion: once.call)
             return
         }
-        for frame in writer.process([UInt8](data)) {
-            tls.send(Data(frame))
-        }
+        let frames = writer.process([UInt8](data)).map { Data($0) }
         if writer.isDirect { writeDirect = true }
+        sendFrames(frames, once: once)
+    }
+
+    /// Vision frames go to the carrier one by one; the completion fires after the last frame's.
+    private func sendFrames(_ frames: [Data], once: NCCallOnce) {
+        guard let first = frames.first else { once.call(); return }
+        if frames.count == 1 { tls.send(first, completion: once.call); return }
+        tls.send(first) { [self] in sendFrames(Array(frames.dropFirst()), once: once) }
     }
 
     // MARK: receive
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
-        if !outQueue.isEmpty {
-            handler(outQueue.removeFirst(), nil)
+        if !outIsEmpty {
+            handler(popOut(), nil)
             return
         }
         if readEOF {
@@ -60,7 +112,14 @@ final class NCVisionStream: NCRelayStream {
     }
 
     private func deliver(_ data: Data) {
-        guard let h = pending else { outQueue.append(data); return }
+        guard let h = pending else {
+            if !offer([data]) {
+                deliverEOF(NSError(domain: "NativeCore", code: 4,
+                                   userInfo: [NSLocalizedDescriptionKey: "vision receive buffer overflow"]))
+                tls.cancel()
+            }
+            return
+        }
         pending = nil
         h(data, nil)
     }
@@ -73,8 +132,8 @@ final class NCVisionStream: NCRelayStream {
     }
 
     private func pump() {
-        if !outQueue.isEmpty {
-            deliver(outQueue.removeFirst())
+        if !outIsEmpty {
+            deliver(popOut())
             return
         }
         guard pending != nil else { return }
@@ -100,7 +159,12 @@ final class NCVisionStream: NCRelayStream {
             }
             do {
                 let outs = try self.reader.feed([UInt8](data))
-                self.outQueue.append(contentsOf: outs.map { Data($0) })
+                guard self.offer(outs.map { Data($0) }) else {
+                    self.deliverEOF(NSError(domain: "NativeCore", code: 4,
+                                            userInfo: [NSLocalizedDescriptionKey: "vision receive buffer overflow"]))
+                    self.tls.cancel()
+                    return
+                }
             } catch {
                 self.deliverEOF(error)
                 return
@@ -121,7 +185,7 @@ final class NCVisionStream: NCRelayStream {
         rawTail = tail
         for chunk in plain {
             if let outs = try? reader.feed([UInt8](chunk)) {
-                outQueue.append(contentsOf: outs.map { Data($0) })
+                _ = offer(outs.map { Data($0) })
             }
         }
     }

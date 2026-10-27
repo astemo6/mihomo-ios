@@ -1,7 +1,7 @@
 // NativeCore (feat/native-core-eval, gap C4) — MitM request records in the App Group (astemo6/Muse NativeCore,
 // 2026-10-25).
 //
-// The Go-free tunnel has no Go request log for the app to query, so the tunnel appends each FINISHED request as one
+// The native-only tunnel has no the old core request log for the app to query, so the tunnel appends each FINISHED request as one
 // JSON line to a two-segment ring in the App Group container: mitm-requests.jsonl (current) and
 // mitm-requests.prev.jsonl (the segment before). When the current segment passes `segmentMax` it becomes .prev
 // (the old .prev is dropped), so the ring holds at most 2 × segmentMax on disk and nothing in memory.
@@ -54,8 +54,16 @@ enum NativeRequestLogFile {
     private static let lock = NSLock()
 
     /// Appends one finished entry (tunnel).
+    /// fix/nc-storage-other: one line never exceeds this; a bigger record is stored as its summary (no headers /
+    /// body), so the ring stays at ~2 × segmentMax however large a single record is.
+    static let lineMax = 64 * 1024
+
     static func append(_ e: NativeRequestLogEntry) {
         guard var line = try? JSONEncoder().encode(e) else { return }
+        if line.count > lineMax {
+            guard let small = try? JSONEncoder().encode(e.summary), small.count <= lineMax else { return }
+            line = small
+        }
         line.append(0x0A)
         lock.lock(); defer { lock.unlock() }
         let path = url.path

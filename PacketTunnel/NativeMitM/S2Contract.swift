@@ -6,11 +6,11 @@
 // second "NativeMitm" dir would silently merge into it). Lane subdirs: TLS/, HTTP/, Upstream/.
 //
 // Shape of one MitM connection (NativeMitmSession.swift):
-//   Go engine (nativeterm.go) peeks ClientHello → MitmTLSFronting.listen(host, alpn) → loopback port
+//   old engine peeks ClientHello → MitmTLSFronting.listen(host, alpn) → loopback port
 //   → TLS lane terminates TLS, hands a decrypted ByteStream to acceptHandler
-//   → NativeMitmSession: HTTP lane parses heads/bodies, MitmFlowDriving asks Go for every decision
-//     (rewrite / reject / redirect / map local / scripts / body lane all stay in Go), upstream lane carries bytes
-//     to the origin through the Go relay (so rules/proxies stay in mihomo), bodies the Go side kept come from
+//   → NativeMitmSession: HTTP lane parses heads/bodies, MitmFlowDriving asks the old core for every decision
+//     (rewrite / reject / redirect / map local / scripts / body lane all stay in the old core), upstream lane carries bytes
+//     to the origin through the old relay (so rules/proxies stay in Clash.Meta), bodies the old side kept come from
 //     NativeBodyStore (B1 lane).
 // Credit: astemo6's draft origin/draft/native-mitm-b7b8 (6b53dc6) — HTTPMessage/Upstream/CertCache shapes.
 
@@ -27,7 +27,7 @@ enum S2Error: Error, Equatable {
     case protocolError(String)
     case unsupported(String)   // → the session falls back (before first byte) or cuts (after)
     case upstream(String)
-    case go(String)
+    case flow(String)
 }
 
 /// A bidirectional byte stream. NWConnection (plain), the TLS lane's decrypted client side and the upstream
@@ -103,15 +103,17 @@ protocol HTTPCodec {
 /// Connection facts the session needs from the TLS front.
 struct MitmAcceptedConnection {
     let stream: ByteStream     // decrypted client side
-    let host: String           // SNI / CONNECT host Go passed to listen()
+    let host: String           // SNI / CONNECT host the old core passed to listen()
     let port: Int              // origin port (443 unless the TLS lane learns otherwise)
     let alpn: String?          // negotiated ALPN (http/1.1 only in stage 2)
-    let connID: Int64          // stable id for logs / Go flow heads
+    let connID: Int64          // stable id for logs / old flow heads
+    /// fix/nc-e2e-gaps: false for the plain-HTTP front (port 80 flows handed to the rewrite engine without TLS).
+    var tls: Bool = true
 }
 
-/// The TLS lane's front. It conforms to LibmihomoNativeTLSFrontProtocol in its own file (Go calls listen()).
+/// The TLS lane's front. It conforms to NativeTLSFrontProtocol in its own file (the old core calls listen()).
 protocol MitmTLSFronting: AnyObject {
-    /// Go → native: loopback port presenting a leaf for host, 0 declines (Go terminates TLS itself).
+    /// the old core → native: loopback port presenting a leaf for host, 0 declines (the old core terminates TLS itself).
     func listen(host: String, alpn: String) -> Int64
     /// Set by the wire lane before registration; called once per decrypted client connection.
     var acceptHandler: ((MitmAcceptedConnection) -> Void)? { get set }
@@ -126,7 +128,7 @@ protocol MitmUpstreamLease: AnyObject {
     func release(reusable: Bool)
 }
 
-/// The upstream lane: origin connections through the Go relay (loopback CONNECT → mihomo rules/proxies), TLS
+/// The upstream lane: origin connections through the old relay (loopback CONNECT → Tern rules/proxies), TLS
 /// to the origin with system trust, bounded reuse pool. Raw bytes only (no URLSession).
 protocol MitmUpstreamConnecting: AnyObject {
     func open(host: String, port: Int, tls: Bool, completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void)
@@ -134,15 +136,15 @@ protocol MitmUpstreamConnecting: AnyObject {
 
 // MARK: - Body lane (B1 NativeBodyStore)
 
-/// The subset of NativeBodyStore a session reads (Go owns the handle; freed at MitmFlowEnd).
+/// The subset of NativeBodyStore a session reads (the old core owns the handle; freed at MitmFlowEnd).
 protocol NativeBodyReading: AnyObject {
     func len(_ h: Int64, raw: Bool) -> Int64
     func read(_ h: Int64, raw: Bool, off: Int64, n: Int64) -> Data?
 }
 
-// MARK: - Go flow API (B6, bridge/nativeflow.go)
+// MARK: - old flow API
 
-/// Body mode of a decision (bridge/mitm/flow.go "Body modes").
+/// Body mode of a decision.
 enum FlowBodyMode: String, Decodable {
     case none, client, upstream, read, lane
 }
@@ -206,7 +208,7 @@ enum FlowReadState: Equatable {
 }
 enum FlowBodyWhich: Int { case request = 0, response = 1 }
 
-/// Facts about the client connection Go needs in each flow head.
+/// Facts about the client connection the old core needs in each flow head.
 struct MitmConnInfo {
     var host: String
     var port: Int
@@ -214,8 +216,8 @@ struct MitmConnInfo {
     var connID: Int64
 }
 
-/// Wraps the B6 MitmFlow* gomobile API. All calls may block (never on the main thread); the session calls them
-/// on its own serial queue. Production: GoMitmFlowDriver (NativeMitmSession.swift); tests: a fake.
+/// Wraps the B6 MitmFlow* the old bridge API. All calls may block (never on the main thread); the session calls them
+/// on its own serial queue. Production: MitmFlowDriverAdapter (NativeMitmSession.swift); tests: a fake.
 protocol MitmFlowDriving: AnyObject {
     /// Request phase (MitmFlowBegin): need-body | forward | local | drop | busy | error.
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo) -> FlowDecision

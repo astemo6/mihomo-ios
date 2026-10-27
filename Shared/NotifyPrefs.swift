@@ -8,9 +8,9 @@ import UserNotifications
 ///
 /// Every kind is produced from real events:
 /// - network        tunnel, NetworkWatcher (the debounced network-changed event, same one event scripts get)
-/// - policyChange   core, policywatch.go: an automatic group (url-test / fallback) picked another node
-/// - policyFailure  core, policywatch.go: every node of a policy group failed its latency test
-/// - nodeFailure    core, policywatch.go: the node the main policy resolves to failed its latency test
+/// - policyChange   core, policywatch: an automatic group (url-test / fallback) picked another node
+/// - policyFailure  core, policywatch: every node of a policy group failed its latency test
+/// - nodeFailure    core, policywatch: the node the main policy resolves to failed its latency test
 /// - scripts        core, $notification.post / $notify from rewrites and modules
 /// - memory         tunnel, MemoryGuard closed connections near the extension's memory limit
 /// - vpn            tunnel, stopped by iOS for a reason other than the user (or reconnected after the system ended it)
@@ -32,7 +32,7 @@ enum NotifyKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Bit for LibmihomoSetPolicyEvents (policywatch.go: 1 change, 2 failure, 4 node).
+    /// Bit for SetPolicyEvents (policywatch: 1 change, 2 failure, 4 node).
     var coreBit: Int32 {
         switch self {
         case .policyChange: return 1
@@ -63,7 +63,7 @@ enum NotifyPrefs {
     /// Master switch and the kind's own switch.
     static func allows(_ k: NotifyKind) -> Bool { masterEnabled && isOn(k) }
 
-    /// The policy-watcher kinds that are on, as LibmihomoSetPolicyEvents' mask (0 = watcher stopped).
+    /// The policy-watcher kinds that are on, as SetPolicyEvents' mask (0 = watcher stopped).
     static var coreMask: Int32 {
         guard masterEnabled else { return 0 }
         var m: Int32 = 0

@@ -1,32 +1,29 @@
 // Native MitM stage 3 lane s3-h2: one decrypted HTTP/2 client connection, served natively.
 //
-//   Go engine (nativeterm.go: CONNECT, MitM host list, pinning; ALPN offer incl. "h2" only when the engine's h2
+//   old engine (nativeterm: CONNECT, MitM host list, pinning; ALPN offer incl. "h2" only when the engine's h2
 //   option and this switch are on) → MitmTLSFront (h2 listener: ALPN "h2, http/1.1") → TLS → ALPN h2 →
 //   NativeH2Session: H2Connection (server role) demultiplexes streams; every stream is an H2Exchange that maps
-//   onto the SAME flow API as an HTTP/1.1 request (MitmFlowDriving: Go — or the native rewrite engine when
+//   onto the SAME flow API as an HTTP/1.1 request (MitmFlowDriving: the old core — or the native rewrite engine when
 //   nativeMitmRewrite is on — decides rewrite / reject / redirect / map local / header + body rewrites /
 //   scripts / admission / body lane; nothing is decided here) → origin over h2 (one multiplexed connection per
 //   authority) or HTTP/1.1 (pooled), whatever the origin negotiates (H2Upstream.swift).
 //
-// Switch: app-group bool `nativeMitmH2`, default OFF. Off → the TLS front never offers h2 and Go never hands
-// over h2-only clients: every h2 connection stays on the Go path exactly as before. A breaker turns native h2
-// off for the run after repeated connection-level failures (new connections then fall back to the Go path /
+// Switch: app-group bool `nativeMitmH2`, default OFF. Off → the TLS front never offers h2 and the old core never hands
+// over h2-only clients: every h2 connection stays on the old path exactly as before. A breaker turns native h2
+// off for the run after repeated connection-level failures (new connections then fall back to the old path /
 // native HTTP/1.1 before any stream starts). Per stream, anything unsupported is refused cleanly:
 // extended CONNECT (:protocol, never advertised) → RST_STREAM(PROTOCOL_ERROR); CONNECT → 501; malformed
 // requests → RST_STREAM(PROTOCOL_ERROR); an "upgrade" decision → 502; errors before the response head → 502 /
 // 503 / 504, after it → RST_STREAM(INTERNAL_ERROR) (never a truncated body presented as complete); a "drop"
-// decision → RST_STREAM(INTERNAL_ERROR) (what Go's h2 server does for http.ErrAbortHandler).
+// decision → RST_STREAM(INTERNAL_ERROR) (what the old core's h2 server does for http.ErrAbortHandler).
 //
 // Memory: streams per connection are capped (SETTINGS_MAX_CONCURRENT_STREAMS, H2Limits); client DATA is held at
 // most up to the windows we grant (64 KB per stream, 256 KB per connection) and window is returned only after
 // the bytes moved on; outbound DATA waits for the peer's windows (per-stream queue ≤ low-water + one chunk);
-// Go flow pipes are bounded on the Go side (flowPipeCap / flowPipeBudget). The memory governor (feat/s3-mem)
+// old flow pipes are bounded on the old side (flowPipeCap / flowPipeBudget). The memory governor (feat/s3-mem)
 // plugs in through NativeH2Runtime.admitStream (false → REFUSED_STREAM) and the shared session cap.
 
 import Foundation
-#if !TERN_NO_GO
-import Libmihomo
-#endif
 
 // MARK: - Switch, limits, breaker
 
@@ -87,9 +84,6 @@ enum NativeH2Runtime {
         let trip = failures.count >= 3 && !tripped
         if trip { tripped = true; failures = [] }
         lock.unlock()
-        #if !TERN_NO_GO
-        if trip { LibmihomoMitmSetNativeH2(false) }
-        #endif
     }
 
     /// Re-arm (tests; a reload re-installs the front).
@@ -174,19 +168,19 @@ enum H2Request {
         guard let m = method, !m.isEmpty else { return .failure(.malformed("no :method")) }
         if m == "CONNECT" { return .failure(.connect) }
         guard let sch = scheme, !sch.isEmpty, let p = path, !p.isEmpty else { return .failure(.malformed("no :scheme / :path")) }
-        if let i = cookieAt { regular[i].value = cookies.joined(separator: "; ") } // RFC 9113 §8.2.3, as Go's h2 server
+        if let i = cookieAt { regular[i].value = cookies.joined(separator: "; ") } // RFC 9113 §8.2.3, as the old core's h2 server
         let host = authority ?? ""
         let length: Int64 = contentLength ?? (endStream ? 0 : -1)
         var headers: HTTPHeaderList = host.isEmpty ? [] : [("Host", host)]
         headers.append(contentsOf: regular)
-        // Unknown length: what Go's h2 server reports as ContentLength -1; the flow API's head JSON expresses it as
-        // chunked (Go removes Transfer-Encoding exactly like net/http's server does).
+        // Unknown length: what the old core's h2 server reports as ContentLength -1; the flow API's head JSON expresses it as
+        // chunked (the old core removes Transfer-Encoding exactly like a standard HTTP server does).
         if length < 0 { headers.append(("Transfer-Encoding", "chunked")) }
         let head = HTTPRequestHead(method: m, target: p, version: "HTTP/2.0", headers: headers)
         return .success(H2ParsedRequest(head: head, length: length, scheme: sch, authority: host))
     }
 
-    /// Request / response fields for an h2 peer from Go's decision headers: lowercase, no hop-by-hop (te only as
+    /// Request / response fields for an h2 peer from the old core's decision headers: lowercase, no hop-by-hop (te only as
     /// "trailers").
     static func h2Fields(_ headers: HTTPHeaderList, dropContentLength: Bool) -> HTTPHeaderList {
         var out: HTTPHeaderList = []
@@ -282,7 +276,7 @@ final class NativeH2Session: H2ConnectionOwner {
             newStream(sid, fields, endStream)
         case .refused(let sid, _, let reason):
             NativeH2Runtime.count { $0.refused += 1 }
-            if h2.streams[sid] != nil { // answerable (header list too large): 431 like Go's h2 server
+            if h2.streams[sid] != nil { // answerable (header list too large): 431 like the old core's h2 server
                 h2.sendHeaders(sid, [(":status", "431"), ("content-length", "0")], endStream: true)
                 h2.resetWhenSent(sid, .noError)
             }
@@ -323,7 +317,7 @@ final class NativeH2Session: H2ConnectionOwner {
         }
     }
 
-    /// A local answer that never involves Go (CONNECT refusal).
+    /// A local answer that never involves the old core (CONNECT refusal).
     func simpleAnswer(_ sid: UInt32, status: Int, text: String, requestOpen: Bool) {
         let body = Data(text.utf8)
         h2.sendHeaders(sid, [(":status", String(status)), ("content-type", "text/plain; charset=utf-8"),
@@ -455,7 +449,7 @@ final class H2Exchange {
         }
     }
 
-    /// Pushes a body Go asked for (need-body) until Go decides; then(decision, the rest of the body).
+    /// Pushes a body the old core asked for (need-body) until the old core decided; then(decision, the rest of the body).
     private func feedGo(_ which: FlowBodyWhich, _ src: H2BodySource, then: @escaping (FlowDecision, H2BodySource) -> Void) {
         src.pull { [self] chunk in
             guard !finished else { return }
@@ -467,7 +461,7 @@ final class H2Exchange {
                     switch r {
                     case .taken:
                         feedGo(which, src, then: then)
-                    case .stop:   // Go no longer wants it: stop reading the source
+                    case .stop:   // the old core no longer wants it: stop reading the source
                         src.abandon()
                         onFlow({ drv.await(id) }) { [self] d2 in then(d2, H2PrependSource(queue: queue, first: nil, rest: nil)) }
                     case .full:   // the decision is out: take it, keep this chunk for "more"
@@ -680,7 +674,7 @@ final class H2Exchange {
         close(clean: false)
     }
 
-    /// The client reset the stream / the connection is gone: cancel the flow (Go wakes its waits).
+    /// The client reset the stream / the connection is gone: cancel the flow (the old core wakes its waits).
     func abort(_ why: String) {
         guard !finished else { return }
         if flowID != 0 {
@@ -709,7 +703,7 @@ final class H2Exchange {
     }
 }
 
-/// A body Go produces (FlowRead) — a local answer, or a rewritten request / response body. When Go answers
+/// A body the old core produces (FlowRead) — a local answer, or a rewritten request / response body. When the old core answers
 /// "more" it needs the next piece of the original body first (feed), pushed with FlowWrite.
 final class H2GoReadSource: H2BodySource {
     let ex: H2Exchange
