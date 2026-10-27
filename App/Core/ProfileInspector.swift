@@ -98,7 +98,7 @@ struct InspectProvider: Codable, Hashable, Identifiable {
     var cachedDate: Date? { cachedAt.map { Date(timeIntervalSince1970: $0) } }
 }
 
-struct InspectResult: Codable {
+struct InspectResult: Codable, Equatable { // fix/nc-ui-smooth: Equatable so an identical reload publishes nothing
     var mode: String = "rule"
     var proxies: [InspectProxy] = []
     var groups: [InspectGroup] = []
@@ -117,8 +117,15 @@ final class ProfileInspector: ObservableObject {
 
     @Published private(set) var result = InspectResult() {
         // r7: derived values (members per group, node index, graph) are built once per result, not per render.
-        didSet { membersCache = [:]; nodeIndexCache = nil; graphCache = nil }
+        // fix/nc-ui-smooth: a selection-only change (select(group:node:)) keeps the member lists and the node index
+        // (neither depends on what is selected); only the graph, which follows the selections, is rebuilt. On the
+        // 3000-node profile every node tap used to rebuild all three on the main thread in the tap's re-render.
+        didSet {
+            graphCache = nil
+            if selectionOnlyChange { selectionOnlyChange = false } else { membersCache = [:]; nodeIndexCache = nil }
+        }
     }
+    private var selectionOnlyChange = false
     private struct MembersKey: Equatable { var proxies: [String]; var use: [String]; var filter: String? }
     private var membersCache: [String: (key: MembersKey, members: [String])] = [:]
     private var nodeIndexCache: [String: InspectProxy]?
@@ -209,17 +216,31 @@ final class ProfileInspector: ObservableObject {
             profilePath = nil
             return
         }
-        loading = true
-        defer { if seq == loadSeq { loading = false } }
+        // fix/nc-ui-smooth: 首页 and 策略 reload the profile every time they appear (tab switch). The spinner flag
+        // re-rendered both pages twice per switch; it is now raised only when a load takes longer than 150 ms.
+        let spinner = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled, let self, self.loadSeq == seq else { return }
+            self.loading = true
+        }
+        defer {
+            spinner.cancel()
+            if seq == loadSeq && loading { loading = false }
+        }
         let home = AppShared.homeURL.path
         let path = url.path
-        let r = await Task.detached(priority: .userInitiated) {
-            NCProfileInspectorPort.inspectProfile(home: home, path: path)
+        let old = profilePath == path ? result : nil
+        // The comparison runs with the parse, off the main thread: an identical answer (the usual case on a tab
+        // switch) publishes nothing, so the page in the middle of its transition is not rebuilt and the derived
+        // member lists / node index / graph are kept.
+        let (r, same) = await Task.detached(priority: .userInitiated) { () -> (InspectResult, Bool) in
+            let r = NCProfileInspectorPort.inspectProfile(home: home, path: path)
+            return (r, old.map { $0 == r } ?? false)
         }.value
         guard seq == loadSeq else { return }
-        result = r
+        if !same { result = r }
         if profilePath != path { delays = [:] }
-        profilePath = path
+        if profilePath != path { profilePath = path }
     }
 
     /// Saves group → node for the active profile; applied by the core on the next connect.
@@ -227,8 +248,11 @@ final class ProfileInspector: ObservableObject {
         guard let path = profilePath ?? AppShared.activeProfileURL?.path else { return }
         let err = NCProfileSelections.save(path, group: group, node: node)
         guard err.isEmpty else { return }
-        if let i = result.groups.firstIndex(where: { $0.name == group }) { result.groups[i].selected = node }
-        result.selected[group] = node // v0.19.8: also the synthesized GLOBAL
+        var r = result
+        if let i = r.groups.firstIndex(where: { $0.name == group }) { r.groups[i].selected = node }
+        r.selected[group] = node // v0.19.8: also the synthesized GLOBAL
+        selectionOnlyChange = true
+        result = r // one publish (was two)
     }
 
     /// hotfix/group-test-offline: the groups (GLOBAL included) as a graph, for expanding groups of groups to nodes.
@@ -297,7 +321,8 @@ final class ProfileInspector: ObservableObject {
     }
 
     /// Saves the live selection too, so the offline view and the next connect agree with it.
-    static func rememberLiveSelection(group: String, node: String) {
+    /// fix/nc-ui-smooth: nonisolated — callers write it on UIBackgroundIO's serial queue, off the main thread.
+    nonisolated static func rememberLiveSelection(group: String, node: String) {
         guard let path = AppShared.activeProfileURL?.path else { return }
         NCProfileSelections.save(path, group: group, node: node)
     }

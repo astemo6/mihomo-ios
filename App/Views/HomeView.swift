@@ -51,10 +51,14 @@ struct HomeView: View {
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
                     if vpn.isConnected && !liveGroups.isEmpty {
                         HomePolicySection(groups: liveGroups, live: true, available: liveAvailable)
-                    } else if !vpn.isConnected && !offlineCards.isEmpty {
+                    } else if !offlineCards.isEmpty {
                         // fix/app-toggle-hitch: also while connecting — the policy section used to vanish for the
                         // whole connect and pop back when connected (a layout jump right after the tap).
+                        // fix/nc-ui-smooth: and right after connecting, until the first live /proxies read fills the
+                        // live cards (the section disappeared for that moment and everything below jumped up and back).
+                        // While connected they are a placeholder only (no offline picker / edits on a live tunnel).
                         HomePolicySection(groups: offlineCards, live: false, available: offlineAvailable)
+                            .allowsHitTesting(!vpn.isConnected)
                     }
                     ModeCard()
                     // feat/home-analysis: Egern 分析 order — 连接数 tiles, 网络, 策略, 规则, 主机名, then 面板.
@@ -100,8 +104,19 @@ struct HomeView: View {
             .onAppear { DashboardModel.shared.setHomeVisible(true) }
             .onDisappear { DashboardModel.shared.setHomeVisible(false) }
             .task(id: "\(store.activeID ?? "")|\(disconnected)") { if disconnected { await offline.load() } }
-            .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { if $0 != mode { mode = $0 } }
-            .onReceive(DashboardModel.shared.$homeGroups.removeDuplicates()) { if $0 != liveGroups { liveGroups = $0 } }
+            // fix/nc-ui-smooth: a mode switch adds / removes the GLOBAL card; the cards below slide instead of jumping.
+            .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in
+                if m != mode { withAnimation(.easeInOut(duration: 0.2)) { mode = m } }
+            }
+            .onReceive(DashboardModel.shared.$homeGroups.removeDuplicates()) { g in
+                guard g != liveGroups else { return }
+                // Only a change of which cards are shown is animated; a new delay / node on the same cards is not.
+                if !liveGroups.isEmpty && !g.isEmpty && g.map(\.name) != liveGroups.map(\.name) {
+                    withAnimation(.easeInOut(duration: 0.2)) { liveGroups = g }
+                } else {
+                    liveGroups = g
+                }
+            }
             .onReceive(DashboardModel.shared.$availableGroups.removeDuplicates()) { if $0 != liveAvailable { liveAvailable = $0 } }
             .sheet(item: $editor.sheet) { which in
                 switch which {
@@ -679,7 +694,7 @@ struct GroupQuickPicker: View {
             try await ControllerClient.shared.select(group: group, node: node)
             await ControllerClient.shared.afterUserSwitch() // v0.19
             UISelectionFeedbackGenerator().selectionChanged()
-            if group != "GLOBAL" { ProfileInspector.rememberLiveSelection(group: group, node: node) }
+            if group != "GLOBAL" { let g = group; UIBackgroundIO.run { ProfileInspector.rememberLiveSelection(group: g, node: node) } } // fix/nc-ui-smooth: off main
             NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
             await load()
             await DashboardModel.shared.refreshSelectedNode()

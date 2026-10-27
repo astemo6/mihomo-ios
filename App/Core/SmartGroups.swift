@@ -74,11 +74,12 @@ final class SmartGroups: ObservableObject {
     }
 
     func refreshStatus() async {
+        // fix/nc-ui-smooth: publish only a change — 策略 observes this store and reloads it on every appear.
         guard VPNManager.shared.isConnected,
-              let r = try? await ControllerClient.shared.get(StatusResponse.self, "/smart") else { status = [:]; return }
+              let r = try? await ControllerClient.shared.get(StatusResponse.self, "/smart") else { if !status.isEmpty { status = [:] }; return }
         var m: [String: Status] = [:]
         for g in r.groups { m[g.name] = g }
-        status = m
+        if m != status { status = m }
     }
 
     /// One line for the group card.

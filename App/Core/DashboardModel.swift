@@ -127,7 +127,13 @@ final class DashboardModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: pollInterval)
             }
         })
-        Task { if let cfg = try? await c.configs(), let m = cfg["mode"] as? String { self.mode = m.lowercased() } }
+        Task {
+            if let cfg = try? await c.configs(), let m = cfg["mode"] as? String, self.mode != m.lowercased() { self.mode = m.lowercased() }
+            // fix/nc-ui-smooth: Home's live policy cards right away instead of after the first 2 s poll round
+            // (connections + tunnel stats + version first), so the cards do not wait on a full poll after connect.
+            guard self.running, !Task.isCancelled else { return }
+            await self.refreshSelectedNode()
+        }
     }
 
     /// P0-2: the tunnel records the speed every second, also while the app is in the background. Its history fills the
@@ -252,9 +258,13 @@ final class DashboardModel: ObservableObject {
 
     func setMode(_ m: String) async {
         mode = m
-        var o = CoreOverrides.load()
-        o.mode = m
-        o.save()
+        // fix/nc-ui-smooth: the overrides load + save (flock, two files read and written) ran on the main thread
+        // inside the segmented / menu picker's own animation. Serial queue: two quick switches are saved in order.
+        await UIBackgroundIO.perform {
+            var o = CoreOverrides.load()
+            o.mode = m
+            o.save()
+        }
         if VPNManager.shared.isConnected {
             try? await ControllerClient.shared.setMode(m)
             await ControllerClient.shared.afterUserSwitch() // v0.19: was always; now the 内核设置 switch (default on)

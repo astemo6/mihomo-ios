@@ -38,16 +38,18 @@ final class PolicyModel: ObservableObject {
     }
 
     private func apply(_ p: [String: ProxyItem]) {
-        all = p
+        // fix/nc-ui-smooth: publish only what changed. Coming back to 策略 (tab switch, sheet closed) re-reads
+        // /proxies; an identical answer used to invalidate the whole page twice right in the transition.
+        if p != all { all = p }
         // v0.19.8: the runtime's own group order (GLOBAL lists only its members once it is user-defined).
         var gs = LiveGroupOrder.names(p).compactMap { p[$0] }.filter { $0.isGroup && $0.hidden != true && $0.name != "GLOBAL" }
         if let g = p["GLOBAL"] { gs.append(g) }
         if let pending = pendingOrder, Date() < pending.until {
-            groups = gs
+            if gs != groups { groups = gs }
             applyOrder(pending.names) // a reload still applying: keep the saved order on screen
         } else {
             pendingOrder = nil
-            groups = gs
+            if gs != groups { groups = gs }
         }
     }
 
@@ -75,7 +77,8 @@ final class PolicyModel: ObservableObject {
         let rank = Dictionary(names.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
         let listed = groups.filter { rank[$0.name] != nil }.sorted { rank[$0.name]! < rank[$1.name]! }
         var it = listed.makeIterator()
-        groups = groups.map { rank[$0.name] != nil ? (it.next() ?? $0) : $0 }
+        let next = groups.map { rank[$0.name] != nil ? (it.next() ?? $0) : $0 }
+        if next != groups { groups = next }
     }
 
     /// Results of this session's live 测速 (0 = timeout), newest wins over the core's history.
@@ -119,7 +122,8 @@ final class PolicyModel: ObservableObject {
             try await ControllerClient.shared.select(group: group.name, node: node)
             await ControllerClient.shared.afterUserSwitch() // v0.19
             UISelectionFeedbackGenerator().selectionChanged()
-            if group.name != "GLOBAL" { ProfileInspector.rememberLiveSelection(group: group.name, node: node) }
+            // fix/nc-ui-smooth: the selection file is written off the main thread (serial, in tap order).
+            if group.name != "GLOBAL" { let g = group.name; UIBackgroundIO.run { ProfileInspector.rememberLiveSelection(group: g, node: node) } }
             await load()
             NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         } catch {
@@ -602,8 +606,20 @@ struct PolicyView: View {
             }
         }
         // Review 5: mirror only the outbound mode (fires with the current value on appear, then on every change).
-        .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in if mode != m { mode = m } }
+        // fix/nc-ui-smooth: 全局 hides the rule groups / 规则 brings them back — animated, not a jump.
+        .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in
+            if mode != m { withAnimation(.easeInOut(duration: 0.2)) { mode = m } }
+        }
         .onChange(of: sortMode) { _ in snapshotDelays() }
+        #if DEBUG
+        // fix/nc-ui-smooth: UIPerfScenario (UI performance tests, -UIPerfProbe) expands / collapses a group like a tap.
+        .onReceive(NotificationCenter.default.publisher(for: .uiPerfExpandGroup)) { n in
+            guard let name = n.object as? String else { return }
+            let on = (n.userInfo?["on"] as? Bool) ?? true
+            let key = vpn.isConnected ? name : "offline:" + name
+            withAnimation(.spring(response: 0.3)) { if on { expanded.insert(key) } else { expanded.remove(key) } }
+        }
+        #endif
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
         // The order changed underneath (another save, a reload, a subscription update): no drag override survives it.
         .onChange(of: orderGroups.map { $0.name }) { _ in resetDrag() }
@@ -661,7 +677,7 @@ struct PolicyView: View {
                     let d = PolicyGroupDisplay(name: g.name, kind: PolicyGroupDisplay.kind(live: g.type), now: g.now,
                                                members: ordered(g.all ?? []), selectable: g.isSelectable, profileIcon: g.icon,
                                                pinned: fixed)
-                    PolicyGroupCard(group: d,
+                    let card = PolicyGroupCard(group: d,
                                     testing: model.testing.contains(g.name),
                                     expanded: binding(g.name),
                                     nodeType: { model.all[$0]?.type },
@@ -687,7 +703,11 @@ struct PolicyView: View {
                                     },
                                     resolved: { model.resolution($0, graph: graph) },
                                     chain: graph.chain(from: g.name))
-                    .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
+                    card.onDrop(of: [UTType.text], delegate: dropTarget(g.name))
+                    // fix/nc-ui-smooth: members as lazy rows of this stack (only the rows on screen are built).
+                    if expanded.contains(g.name) {
+                        ForEach(0..<card.memberRowCount, id: \.self) { r in card.memberRow(r) }
+                    }
                   }
                 }
             }
@@ -733,7 +753,7 @@ struct PolicyView: View {
                       } else {
                         let d = PolicyGroupDisplay(name: g.name, kind: g.type, now: offline.current(of: g),
                                                    members: ordered(offline.members(of: g)), selectable: g.type == "select", profileIcon: g.icon)
-                        PolicyGroupCard(group: d,
+                        let card = PolicyGroupCard(group: d,
                                         testing: offline.testing.contains(g.name),
                                         expanded: binding("offline:" + g.name),
                                         nodeType: { name in
@@ -758,7 +778,10 @@ struct PolicyView: View {
                                         onDrag: dragAction(g.name),
                                         resolved: { graph.groups[$0] != nil ? graph.resolve($0, delays: offline.delays) : nil },
                                         chain: graph.chain(from: g.name, delays: offline.delays))
-                        .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
+                        card.onDrop(of: [UTType.text], delegate: dropTarget(g.name))
+                        if expanded.contains("offline:" + g.name) {
+                            ForEach(0..<card.memberRowCount, id: \.self) { r in card.memberRow(r) }
+                        }
                       }
                     }
                     if !offline.result.groups.isEmpty {
@@ -1021,53 +1044,98 @@ struct PolicyGroupCard: View {
                     }
                     .buttonStyle(.plain)
                 }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
-                    ForEach(group.members, id: \.self) { name in
-                        NodeCell(name: name,
-                                 type: nodeType(name),
-                                 udp: nodeUDP(name),
-                                 delay: delay(name),
-                                 selected: group.now == name,
-                                 enabled: group.selectable || onPin != nil,
-                                 pinned: group.pinned == name,
-                                 badge: badge?(name),
-                                 via: resolved?(name).map(Self.resolutionText),
-                                 axID: "policy.member." + group.name + "." + name)
-                        .onTapGesture {
-                            if group.selectable { onSelect(name) }
-                            else if let onPin { onPin(group.pinned == name ? nil : name) }
-                        }
-                        .contextMenu {
-                            if let onProbe, !Self.unprobeable.contains(name) {
-                                Button { onProbe(name) } label: { Label("出口与解锁检测", systemImage: "location.magnifyingglass") }
-                            }
-                            if let onPin {
-                                if group.pinned == name {
-                                    Button { onPin(nil) } label: { Label("解除固定", systemImage: "pin.slash") }
-                                } else {
-                                    Button { onPin(name) } label: { Label("固定此节点", systemImage: "pin") }
-                                }
-                            }
-                            if let onShare, let t = nodeType(name), !Self.nonShareable.contains(t.lowercased()) {
-                                Button { onShare(name) } label: { Label("分享节点", systemImage: "qrcode") }
-                            }
-                            if let onInteract, !interactions.isEmpty, !Self.unprobeable.contains(name) {
-                                Menu {
-                                    ForEach(interactions, id: \.0) { it in
-                                        Button(it.1) { onInteract(it.0, name) }
-                                    }
-                                } label: { Label("交互脚本", systemImage: "hand.tap") }
-                            }
-                        }
-                    }
-                }
             }
         }
         .padding(.horizontal, 12)
-        .padding(.bottom, expanded ? 12 : 0)
-        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+        // fix/nc-ui-smooth: the members are rows of the page's LazyVStack (memberRow), not a grid inside this card —
+        // a grid nested in one lazy row was built whole: expanding a 3000-node group built 3000 cells at once
+        // (7 s of dropped frames in the simulator) and every later re-render of the page diffed them all again.
+        // Expanded with members: the card continues into the rows below (square bottom corners, rows draw the rest).
+        .padding(.bottom, expanded ? (group.members.isEmpty ? 12 : 2) : 0)
+        .background(PolicyCardSegment(roundTop: true, roundBottom: !(expanded && !group.members.isEmpty)))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("policy.group." + group.name)
+    }
+
+    /// Rows of two member cells (LazyVGrid's former layout: 6 pt between the two columns).
+    static let memberColumns = 2
+    var memberRowCount: Int { (group.members.count + Self.memberColumns - 1) / Self.memberColumns }
+
+    /// One row of members, drawn as the continuation of this card (the 8 pt gap of the page's LazyVStack above it is
+    /// covered by its background). Only rows on screen are built.
+    @ViewBuilder func memberRow(_ row: Int) -> some View {
+        let first = row * Self.memberColumns
+        let last = row == memberRowCount - 1
+        HStack(alignment: .center, spacing: 6) {
+            ForEach(first..<min(first + Self.memberColumns, group.members.count), id: \.self) { i in
+                memberCell(group.members[i])
+            }
+            if first + 1 >= group.members.count {
+                Color.clear.frame(maxWidth: .infinity, maxHeight: 1).accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, last ? 12 : 0)
+        .background(PolicyCardSegment(roundTop: false, roundBottom: last).padding(.top, -PolicyCardSegment.rowGap))
+    }
+
+    @ViewBuilder private func memberCell(_ name: String) -> some View {
+            NodeCell(name: name,
+                     type: nodeType(name),
+                     udp: nodeUDP(name),
+                     delay: delay(name),
+                     selected: group.now == name,
+                     enabled: group.selectable || onPin != nil,
+                     pinned: group.pinned == name,
+                     badge: badge?(name),
+                     via: resolved?(name).map(Self.resolutionText),
+                     axID: "policy.member." + group.name + "." + name)
+            .onTapGesture {
+                if group.selectable { onSelect(name) }
+                else if let onPin { onPin(group.pinned == name ? nil : name) }
+            }
+            .contextMenu {
+                if let onProbe, !Self.unprobeable.contains(name) {
+                    Button { onProbe(name) } label: { Label("出口与解锁检测", systemImage: "location.magnifyingglass") }
+                }
+                if let onPin {
+                    if group.pinned == name {
+                        Button { onPin(nil) } label: { Label("解除固定", systemImage: "pin.slash") }
+                    } else {
+                        Button { onPin(name) } label: { Label("固定此节点", systemImage: "pin") }
+                    }
+                }
+                if let onShare, let t = nodeType(name), !Self.nonShareable.contains(t.lowercased()) {
+                    Button { onShare(name) } label: { Label("分享节点", systemImage: "qrcode") }
+                }
+                if let onInteract, !interactions.isEmpty, !Self.unprobeable.contains(name) {
+                    Menu {
+                        ForEach(interactions, id: \.0) { it in
+                            Button(it.1) { onInteract(it.0, name) }
+                        }
+                    } label: { Label("交互脚本", systemImage: "hand.tap") }
+                }
+            }
+
+    }
+}
+
+/// fix/nc-ui-smooth: a piece of a 策略 group card. The header and the member rows below it are separate rows of the
+/// page's LazyVStack; together they draw one card (continuous corners only at its top and bottom).
+struct PolicyCardSegment: View {
+    let roundTop: Bool
+    let roundBottom: Bool
+    /// The page LazyVStack's spacing, covered by each member row's background.
+    static let rowGap: CGFloat = 8
+
+    var body: some View {
+        let r = Theme.radius
+        ZStack {
+            RoundedRectangle(cornerRadius: r, style: .continuous).fill(Theme.card)
+            if !roundTop { Rectangle().fill(Theme.card).frame(height: r).frame(maxHeight: .infinity, alignment: .top) }
+            if !roundBottom { Rectangle().fill(Theme.card).frame(height: r).frame(maxHeight: .infinity, alignment: .bottom) }
+        }
+        .accessibilityHidden(true)
     }
 }
 

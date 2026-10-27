@@ -125,6 +125,7 @@ struct RootView: View {
         // feat/egern-style: dense Egern lists — 15 pt body text, 40 pt minimum rows, compact section gaps.
         .modifier(EgernDensity())
         .overlay(alignment: .bottomLeading) { UITestReadyMarker() }
+        .overlay(alignment: .bottomTrailing) { UIPerfProbeMarker() } // fix/nc-ui-smooth: Debug + -UIPerfProbe only
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView { showOnboarding = false }
                 .environmentObject(vpn)
