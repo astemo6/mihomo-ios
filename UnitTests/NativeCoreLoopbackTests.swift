@@ -1507,6 +1507,17 @@ extension NativeCoreLoopbackTests {
         try self.sudokuBigEcho(stream, bytes: 1 << 20, timeout: 90)
     }
 
+    /// Rekey path with the official constants on both ends: 33 MiB each way crosses KeyUpdateAfterBytes (32 MiB), so
+    /// the client rotates its send epoch and the official server rotates its own — the client must follow the
+    /// server's new epoch key mid-stream, byte-exact.
+    func testSudokuBidirectionalEpochRekey33MiB() throws {
+        XCTAssertEqual(NCSudokuRecordLayer.keyUpdateAfterBytes, 32 << 20, "official KeyUpdateAfterBytes")
+        let p = Self.sudokuProxy("loop-sudoku-rekey33", 18090, ["aead-method": .string("chacha20-poly1305")])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.sudokuBigEcho(stream, bytes: 33 << 20, timeout: 300)
+    }
+
     /// A real HTTP/1 fetch through the official server: GET a 48 KiB page from the :18095 origin.
     func testSudokuHTTPFetch() throws {
         let p = Self.sudokuProxy("loop-sudoku-http", 18090, [:])
