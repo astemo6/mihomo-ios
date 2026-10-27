@@ -293,6 +293,9 @@ enum NCQXImport {
             fields["unsupported"] = .string("Quantumult X 无公开 OpenConnect 格式")
             if let u = take("username") { fields["username"] = .string(u) }
             if let p = take("password") { fields["password"] = .string(p) }
+        case "masque":
+            report.warnings.append("quantumultx [server_local]: masque 协议在 Quantumult X 中无公开规范，已标记为不可用")
+            fields["unsupported"] = .string("Quantumult X 不支持 MASQUE 协议")
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.

@@ -39,6 +39,10 @@ jobs:
           XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
+      - name: Set up Go (masque-go loopback peer)
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
       - name: Start loopback servers
         run: |
           tools/loopback/start-servers.sh start
@@ -93,6 +97,7 @@ jobs:
         run: |
           tools/loopback/start-servers.sh stop || true
           cp /tmp/nc-loopback/sing-box.log results/sing-box.log 2>/dev/null || true
+          cp /tmp/nc-loopback/masque.log results/masque.log 2>/dev/null || true
           echo "--- sing-box.log (hy2/tuic/quic lines, last 200) ---"
           grep -i -E "hy2|hysteria|tuic|quic|error|warn" /tmp/nc-loopback/sing-box.log | tail -n 200 || true
       - uses: actions/upload-artifact@v6
@@ -102,6 +107,7 @@ jobs:
           path: |
             results/loopback.log
             results/sing-box.log
+            results/masque.log
             build-loop.log
           if-no-files-found: warn
           retention-days: 14

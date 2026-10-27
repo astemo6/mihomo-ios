@@ -56,6 +56,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18062 | sing-box VLESS inbound over WebSocket `/ed`, max_early_data 2048 in `Sec-WebSocket-Protocol` |
 | 18063 | sing-box Trojan inbound over gRPC (service `TunSvc`), self-signed TLS |
 | 18013 | trusttunnel_endpoint — H2 (TCP) & H3 (UDP) inbound, Basic auth `nc-loop-tt-user`/`nc-loop-tt-pw` |
+| 18012 | masque-proxy — RFC 9298 CONNECT-UDP (HTTP/3) / self-signed TLS (CN=localhost) |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
@@ -106,6 +107,8 @@ These materials are strictly for loopback testing with self-signed TLS certifica
 - Hysteria2 UDP echo: the shared `NCHysteria2Connection` (Shared) over its
   RFC 9221 QUIC datagram flow — spec UDPMessages to the hy2 inbound → UDP echo
   backend; a 3000-byte packet exercises fragmentation and reassembly both ways.
+- **MASQUE**: RFC 9298 CONNECT-UDP echo against `masque-proxy` on port 18012
+  (QUIC / HTTP/3 Datagrams targeting UDP echo `:18081`).
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.
