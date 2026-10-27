@@ -91,8 +91,15 @@ final class HomePanelStore: ObservableObject {
     /// card un-dimmed once the finger has been still for a moment; moving again keeps reordering.
     private var dragID: String?
 
+    /// Last finger location the section drop target reported. UIKit keeps calling dropSessionDidUpdate while the finger
+    /// rests (and, in the simulator, after XCUITest lifts it while the session winds down); those calls carry the same
+    /// point and must neither re-dim the card nor push the save back, or the card stays dimmed, the order is never
+    /// saved, the app never idles and the next long-press opens no menu (rel 0.20.2 CI 40601214518 test96).
+    private var lastHoverPoint: CGPoint?
+
     func beginDrag(_ id: String) {
         lastHoverTarget = nil
+        lastHoverPoint = nil
         dragID = id
         dragging = id
         scheduleCommit(after: 2.0) // a drag that never reaches Home does not leave the card dimmed
@@ -103,14 +110,17 @@ final class HomePanelStore: ObservableObject {
         commitDrag()
         dragID = nil
         lastHoverTarget = nil
+        lastHoverPoint = nil
     }
 
     /// Section drop target moved to `p`: move the dragged card into the place of the card under the finger.
     func dragHover(at p: CGPoint) {
         guard let d = dragID else { return }
+        if let q = lastHoverPoint, abs(q.x - p.x) < 3, abs(q.y - p.y) < 3 { return } // finger still: let the save run
+        lastHoverPoint = p
         lastDragActivity = Date()
         if dragging != d { dragging = d }
-        // Saved at the drop, on leaving Home, or after the finger has been still for 1 s (session ended unseen).
+        // Saved at the drop, on leaving Home, or 1 s after the finger stopped moving (session ended unseen).
         defer { scheduleCommit(after: 1.0) }
         guard let target = cardFrames.first(where: { $0.value.contains(p) })?.key else { return }
         if target == d {
