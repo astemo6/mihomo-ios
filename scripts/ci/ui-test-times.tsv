@@ -1,5 +1,6 @@
-# Light-appearance UI test durations in seconds (mean of zh-Hans run 40478110763 and en run 40473451340, 2026-10-27).
-# Used only to balance the light shards (scripts/ci/ui-shards.py); a test missing here counts as the median.
+# UI test durations in seconds (mean of zh-Hans run 40478110763 and en run 40473451340, 2026-10-27); `dark:` = the same
+# test in the dark appearance. Used only to balance the shards (scripts/ci/ui-shards.py); a test missing here counts as
+# the median. Refresh from a newer full run when a shard drifts past ~35 min.
 TernUITests/test01_TabsAndHome	60
 TernUITests/test02_HomePolicyPicker	72
 TernUITests/test03_MoreEveryPage	384
@@ -84,3 +85,7 @@ UISmoothPerfUITests/testA_ScenarioDemoProfile	46
 UISmoothPerfUITests/testB_ScenarioBigProfile	51
 UISmoothPerfUITests/testC_PushPopAndExpand	120
 UISmoothPerfUITests/testD_ScrollExpandedBigGroup	58
+dark:TernUITests/test01_TabsAndHome	39
+dark:TernUITests/test03_MoreEveryPage	354
+dark:TernUITests/test04_NodeManager	210
+dark:TernUITests/test05_AddNodeAndEditor	171

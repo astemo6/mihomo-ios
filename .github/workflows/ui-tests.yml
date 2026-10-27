@@ -12,10 +12,11 @@
 #
 # ci/speedup (2026-10-27, report work/nc/ci-speedup-report.md):
 # - one build per run instead of one per combo (each combo built for 6–15 min before);
-# - light tests split into N shards balanced on measured durations (scripts/ci/ui-shards.py + ui-test-times.tsv; tests
-#   are read from UITests/*.swift, so new tests are scheduled automatically; the last shard = the rest of TernUITests).
-#   N = 4 on astemo6 (~32 min of tests each; its runners also carry unit, E2E and the IPA build), 5 elsewhere (~26 min).
-#   The old 3 shards ran 29–61 min;
+# - the full matrix of a language is N jobs "<lang>:K/N", each = a share of the light tests + a share of the
+#   dark-appearance checks (test01/03/04/05, the old dark:0 job), balanced on measured durations (scripts/ci/ui-shards.py
+#   + ui-test-times.tsv; tests are read from UITests/*.swift, so new tests are scheduled automatically; job N's light
+#   part = the rest of TernUITests). N = 4 (~35 min of tests each) when the repository's runners also carry the unit
+#   combo / E2E / IPA / proto-loopback of the same run, else 5 (~28 min). The old light:1/2/3 + dark:0 ran 13–61 min;
 # - the unit tests run once, in their own `unit` combo, instead of inside light shard 2 of both languages (the en
 #   mirror's copy was the identical bundle on an identical simulator; UI_LANG / UI_STYLE are read by UI tests only);
 # - an explicit selection runs in `light:sel` (+ `dark:sel` unless it selects unit tests only) — no shard builds just
@@ -26,8 +27,8 @@
 #   Full CI = astemo6: shard=full extras=e2e,ipa,checks  +  astemo666 mirror: shard=full extras=proto[,masque-warp].
 #
 # Org mirror sharding (doubles concurrent macOS runners; free plan = 5 macOS jobs per account/org):
-#   astemo6/mihomo-ios   → ui zh-Hans light/dark + unit
-#   astemo666/mihomo-ios → ui en light/dark
+#   astemo6/mihomo-ios   → ui zh-Hans (light + dark) + unit
+#   astemo666/mihomo-ios → ui en (light + dark)
 #   any other repo       → everything
 # Full matrix in one repo: workflow_dispatch shard=all, or [shard:all] in the pushed commit message.
 # scripts/selftest-split.sh pushes a test/** branch to both remotes and waits for both runs.
@@ -57,7 +58,7 @@
 #   smoke = zh-Hans light SMOKE_TESTS (launch + tab/page navigation + node manager) + the `unit` combo
 #     (astemo6 / other repos; the astemo666 en mirror runs no UI job). The app, test bundle and framework are built
 #     in full, so a compile break still fails.
-#   full  = the repository split above: light:1…N + dark:0 per language (+ unit on astemo6 / other repos).
+#   full  = the repository split above: jobs 1…N per language (+ unit on astemo6 / other repos).
 # Markers / inputs (commit message of the pushed head; dispatch input `shard`):
 #   [shard:all]   / shard=all    full matrix, both languages, in this repo (wins over everything)
 #   [shard:smoke] / shard=smoke  force smoke even when UI files changed
@@ -241,12 +242,15 @@ jobs:
             fi
           fi
           # Combos "<lang>:<style>:<shard>" (shard 1–5 light, 0 dark, smoke, sel) and "unit" (TernUnitTests bundle).
-          # Light shards per language (scripts/ci/ui-shards.py balances them on measured durations): 4 on astemo6, whose
-          # 5 runners also carry unit + E2E + the IPA build in a full CI; 5 elsewhere (the en mirror, one-repo runs).
-          lights() { local n=$1 k out=""; for k in $(seq 1 "$n"); do out="$out,\"LANG:light:$k/$n\""; done; echo "${out#,},\"LANG:dark:0\""; }
-          case "$REPO" in astemo6/mihomo-ios) NZH=4 ;; *) NZH=5 ;; esac
-          [ "$MODE" != all ] || NZH=5
-          ZH=$(lights "$NZH"); ZH=${ZH//LANG/zh-Hans}; EN=$(lights 5); EN=${EN//LANG/en}
+          # Full-matrix jobs per language: "<lang>:K/N" = shard K of N of the light tests plus the dark-appearance checks
+          # (scripts/ci/ui-shards.py balances them on measured durations). N = 4 when the repository's 5 runners also
+          # carry other jobs of this run (astemo6: the unit combo, E2E, the IPA build; the mirror with proto-loopback
+          # extras), so the 4 UI jobs and the rest fill 5 runners at once; 5 otherwise and for shard=all.
+          jobs_for() { local n=$1 k out=""; for k in $(seq 1 "$n"); do out="$out,\"LANG:$k/$n\""; done; echo "${out#,}"; }
+          NZH=4; NEN=5
+          case ",${EXTRAS:-}," in *,proto,*|*,loopback,*|*,openconnect,*|*,masque-ip,*|*,masque-warp,*|*,all,*) NEN=4 ;; esac
+          [ "$MODE" != all ] || { NZH=5; NEN=5; }
+          ZH=$(jobs_for "$NZH"); ZH=${ZH//LANG/zh-Hans}; EN=$(jobs_for "$NEN"); EN=${EN//LANG/en}
           # Unit-only selection ([unit:] markers without [only:], or inputs.only naming TernUnitTests): no dark run.
           UNIT_ONLY=0
           if [ "$SELECTION" = 1 ]; then
@@ -310,7 +314,8 @@ jobs:
             [ -n "$BASE" ] && echo "- base: \`${BASE:0:12}\` ($BASE_DESC), $NCHANGED changed file(s)"
             echo "- combos: \`$COMBOS\` (ui runs: $UI)"
             [ -z "${EXTRAS:-}" ] || echo "- extras: e2e=$E2E proto-loopback=[${LOOP}] ipa=$IPA checks=$CHK"
-            case "$COMBOS" in *light:1/*) echo "- light shards (zh-Hans $NZH, en 5):"; python3 scripts/ci/ui-shards.py "$NZH" | sed 's/^/  /' ;; esac
+            case "$COMBOS" in *zh-Hans:1/*) echo "- zh-Hans jobs:"; python3 scripts/ci/ui-shards.py "$NZH" | sed 's/^/  /' ;; esac
+            case "$COMBOS" in *en:1/*) echo "- en jobs:"; python3 scripts/ci/ui-shards.py "$NEN" | sed 's/^/  /' ;; esac
             if [ -n "$UI_FILES" ]; then
               echo "- UI-affecting files:"
               printf '%s' "$UI_FILES" | head -n 30 | sed 's/^/  - /'
@@ -356,8 +361,12 @@ jobs:
           if [ "$combo" = unit ]; then
             LANG_=zh-Hans; STYLE=light; SHARD=unit; SHORT=unit
           else
-            LANG_=${combo%%:*}; rest=${combo#*:}; STYLE=${rest%%:*}; SHARD=${rest#*:}
-            SHORT=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")-$STYLE$([ "$SHARD" = 0 ] || echo "-${SHARD%/*}")
+            LANG_=${combo%%:*}; rest=${combo#*:}
+            L2=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")
+            case "$rest" in
+              */*) STYLE=light; SHARD=$rest; SHORT=$L2-${rest%/*} ;;                    # full matrix job K/N
+              *) STYLE=${rest%%:*}; SHARD=${rest#*:}; SHORT=$L2-$STYLE-$SHARD ;;         # light:smoke / light:sel / dark:sel
+            esac
           fi
           { echo "LANG_=$LANG_"; echo "STYLE=$STYLE"; echo "SHARD=$SHARD"; echo "SHORT=$SHORT"; } >> "$GITHUB_ENV"
       - uses: ./.github/actions/tern-prebuilt
@@ -368,14 +377,13 @@ jobs:
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           ONLY_INPUT: ${{ inputs.only }}
-          DARK_TESTS: test01_TabsAndHome test03_MoreEveryPage test04_NodeManager test05_AddNodeAndEditor
           SMOKE_TESTS: test01_TabsAndHome test03_MoreEveryPage test04_NodeManager
         run: |
           set +e
           xcrun simctl bootstatus "$DEV" -b
           xcrun simctl status_bar "$DEV" override --time "9:41" --batteryState charged --batteryLevel 100 || true
           mkdir -p shots results
-          SEL=()
+          SEL=(); DARK_SEL=()
           case "$SHARD" in
             sel)
               # Explicit selection ([only:] / [unit:] markers, inputs.only).
@@ -389,35 +397,39 @@ jobs:
               if [ ${#SEL[@]} -eq 0 ]; then echo "::error::selection combo without a selection"; exit 1; fi ;;
             unit) SEL=(-only-testing:TernUnitTests) ;;
             smoke) for t in $SMOKE_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
-            0) for t in $DARK_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
             */*)
-              # Light shard K of N (scripts/ci/ui-shards.py: balanced on scripts/ci/ui-test-times.tsv; shard N = the rest
-              # of TernUITests, so a test the shard script does not know still runs).
-              while IFS= read -r a; do SEL+=("$a"); done < <(python3 scripts/ci/ui-shards.py "${SHARD#*/}" "${SHARD%/*}")
-              echo "light shard $SHARD: ${#SEL[@]} selection argument(s)" ;;
+              # Full-matrix job K/N (scripts/ci/ui-shards.py): its light tests, then its dark-appearance checks.
+              while read -r kind arg; do
+                if [ "$kind" = dark ]; then DARK_SEL+=("$arg"); else SEL+=("$arg"); fi
+              done < <(python3 scripts/ci/ui-shards.py "${SHARD#*/}" "${SHARD%/*}")
+              echo "job $SHARD: ${#SEL[@]} light / ${#DARK_SEL[@]} dark selection argument(s)" ;;
             *) echo "::error::unknown shard $SHARD"; exit 1 ;;
           esac
-          xcrun simctl ui "$DEV" appearance "$STYLE" || true
-          # feat/jsc-engine: JavaScriptCore without JIT in the test host, as on a device (no JIT for apps and
-          # extensions). Round 2 (8e86e33): with JIT the busy-loop case was never terminated by the time limit.
-          TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" TEST_RUNNER_JSC_useJIT=false \
-          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath "results/$SHORT.xcresult" \
-            "${SEL[@]}" test-without-building 2>&1 | tee "results/$SHORT.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue|Executed"
-          RC=${PIPESTATUS[0]}
-          # review 5 P2-10: grep reads to EOF (no `| head`), so SIGPIPE can no longer end the test run early.
-          echo "$SHORT exit $RC"
-          [ "$RC" = 0 ] || tail -n 120 "results/$SHORT.log"
           FAILED=""
-          [ "$RC" = 0 ] || FAILED=" $SHORT"
+          run_pass() { # style tag args… — one xcodebuild test-without-building pass in that appearance
+            local style=$1 tag=$2; shift 2
+            xcrun simctl ui "$DEV" appearance "$style" || true
+            # feat/jsc-engine: JavaScriptCore without JIT in the test host, as on a device (no JIT for apps and
+            # extensions). Round 2 (8e86e33): with JIT the busy-loop case was never terminated by the time limit.
+            TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$style" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" TEST_RUNNER_JSC_useJIT=false \
+            xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath "results/$tag.xcresult" \
+              "$@" test-without-building 2>&1 | tee "results/$tag.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue|Executed"
+            local rc=${PIPESTATUS[0]}
+            # review 5 P2-10: grep reads to EOF (no `| head`), so SIGPIPE can no longer end the test run early.
+            echo "$tag exit $rc"
+            [ "$rc" = 0 ] || { tail -n 120 "results/$tag.log"; FAILED="$FAILED $tag"; }
+            echo "- $tag: passed $(grep -cE "^Test Case .* passed" "results/$tag.log"), failed $(grep -cE "^Test Case .* failed" "results/$tag.log"), skipped $(grep -cE "^Test Case .* skipped" "results/$tag.log")" >> "$GITHUB_STEP_SUMMARY"
+          }
+          echo "### Self-test $SHORT" >> "$GITHUB_STEP_SUMMARY"
+          [ ${#SEL[@]} -eq 0 ] || run_pass "$STYLE" "$SHORT" "${SEL[@]}"
+          [ ${#DARK_SEL[@]} -eq 0 ] || run_pass dark "$SHORT-dark" "${DARK_SEL[@]}"
           {
-            echo "### Self-test $SHORT"
-            echo "- passed $(grep -cE "^Test Case .* passed" "results/$SHORT.log"), failed $(grep -cE "^Test Case .* failed" "results/$SHORT.log"), skipped $(grep -cE "^Test Case .* skipped" "results/$SHORT.log")"
             for f in shots/*/report-*.md; do
               [ -f "$f" ] || continue
               n=$(sed -n '/^## issues/,/^## warnings/p' "$f" | grep -c '^\[' || true)
               echo "- $(basename "$(dirname "$f")") $(basename "$f" .md): $n issue(s)"
             done
-            echo "- failed combos:${FAILED:- none}"
+            echo "- failed:${FAILED:- none}"
           } >> "$GITHUB_STEP_SUMMARY"
           cat shots/*/report-*.md 2>/dev/null | grep -E "^\[|^# " | head -n 400
           echo "FAILED=$FAILED" >> "$GITHUB_ENV"
@@ -457,8 +469,9 @@ jobs:
 
   # Extras: the rest of the full CI in this run, on the builds above.
   e2e:
-    needs: [plan, build-e2e]
-    if: needs.plan.outputs.e2e == 'true'
+    # Queued after the IPA build (when this run has one) so it takes that runner instead of a UI job's.
+    needs: [plan, build-e2e, ipa]
+    if: ${{ !cancelled() && needs.plan.outputs.e2e == 'true' && needs.build-e2e.result == 'success' }}
     uses: ./.github/workflows/e2e-replay.yml
     with:
       ref: ${{ inputs.ref }}
