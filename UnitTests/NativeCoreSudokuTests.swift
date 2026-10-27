@@ -404,13 +404,12 @@ final class NativeCoreSudokuTests: XCTestCase {
     // MARK: - fix/nc-sudoku-interop: availability + canonical fields
     // (wire vectors: NativeCoreSudokuWireTests; official-server echo: NativeCoreLoopbackTests)
 
-    func testValidNodeGatedUntilInteropVerified() {
+    func testValidNodeIsAvailable() {
         let node = NCProxy(name: "sd", type: "sudoku", fields: [
             "server": .string("198.51.100.7"), "port": .number(443), "key": .string("k"),
         ])
         XCTAssertNil(NCSupport.sudokuUnsupported(node), "valid node")
-        XCTAssertEqual(NCSupport.unsupportedReason(node), NCSudoku.interopUnavailable,
-                       "unavailable until the official-server loopback is green")
+        XCTAssertNil(NCSupport.unsupportedReason(node), "available: official-server loopback is green")
     }
 
     func testTunnelModesAndSessionMuxAreExplicitMarkers() {
@@ -442,7 +441,7 @@ final class NativeCoreSudokuTests: XCTestCase {
         let o = NCSudoku.Options(proxy: node)
         XCTAssertEqual(o.aead, NCSudoku.AEADMethod.none)
         XCTAssertTrue(o.httpMaskEnabled)
-        XCTAssertNil(NCSupport.sudokuUnsupported(node))
+        XCTAssertNil(NCSupport.unsupportedReason(node))
     }
 
     func testSurgeLineNormalisesHTTPMaskFields() {
@@ -457,6 +456,6 @@ final class NativeCoreSudokuTests: XCTestCase {
         XCTAssertEqual(node.fields["http-mask"]?.bool, false)
         XCTAssertEqual(node.fields["custom-tables"]?.array?.compactMap { $0.string }, ["xpxvvpvv", "vxpvxvvp"])
         XCTAssertEqual(node.fields["multiplex"]?.string, "auto")
-        XCTAssertNil(NCSupport.sudokuUnsupported(node))
+        XCTAssertNil(NCSupport.unsupportedReason(node))
     }
 }

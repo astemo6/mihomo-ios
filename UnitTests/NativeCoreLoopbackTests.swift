@@ -1151,29 +1151,10 @@ extension NativeCoreLoopbackTests {
         return NCProxy(name: name, type: "sudoku", fields: f)
     }
 
-    /// TCP to the server + NCSudokuSession, the same path NCConnector's sudoku case takes once the node is
-    /// available (the node stays gated by NCSupport / NCConnector until this loopback is green).
+    /// The public path: the node is available and NCConnector dials it (TCP + NCSudokuSession).
     private func sudokuDial(_ proxy: NCProxy, target: NCTarget, timeout: TimeInterval = 30) throws -> NCRelayStream {
-        XCTAssertNil(NCSupport.sudokuUnsupported(proxy), "\(proxy.name): valid node")
-        let exp = self.expectation(description: "sudoku dial \(proxy.name)")
-        let box = LockedBox<(NCRelayStream?, Error?)>((nil, nil))
-        let queue = DispatchQueue(label: "nc.loopback.\(proxy.name)")
-        let raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)
-        raw.start { err in
-            if let err {
-                box.set((nil, err))
-                exp.fulfill()
-                return
-            }
-            NCSudokuSession.connect(raw: raw, proxy: proxy, target: target, queue: queue) { stream, err in
-                box.set((stream, err))
-                exp.fulfill()
-            }
-        }
-        self.wait(for: [exp], timeout: timeout)
-        let (stream, err) = box.get()
-        if let err { throw err }
-        return try XCTUnwrap(stream, "\(proxy.name): dial returned neither stream nor error")
+        XCTAssertNil(NCSupport.unsupportedReason(proxy), "\(proxy.name): node must be available")
+        return try self.connect(proxy: proxy, target: target, timeout: timeout)
     }
 
     /// Receives until EOF, or until the HTTP body reaches its Content-Length.

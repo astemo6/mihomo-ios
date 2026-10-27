@@ -5,8 +5,8 @@
 > server's legacy PRNG table seed (additive lagged Fibonacci, seeded table — `NCLaggedFibRand` / `NCLaggedFibSeedTable`),
 > client key normalisation (private key → master public key), padding-aware streaming decode (classic + packed
 > downlink), aead none passthrough, custom-table rotation hint. Verified by `NativeCoreLoopbackTests` against the
-> official binary built from source in proto-loopback.yml (:18090–:18094, HTTP origin :18095). The node stays
-> unavailable (`NCSudoku.interopUnavailable`) until that loopback is green. Not implemented (explicit markers, never a
+> official binary built from source in proto-loopback.yml (:18090–:18094, HTTP origin :18095); with that loopback
+> green the node is **available** (NCSupport / NCConnector dial it). Not implemented (explicit markers, never a
 > timeout): HTTP tunnel modes stream / poll / auto / ws, `multiplex: on`.
 
 Status 2026-10-26 (S2 complete): parsing layer (S1) plus pure-Swift data plane,

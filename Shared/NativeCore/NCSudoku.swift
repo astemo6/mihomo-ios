@@ -11,9 +11,6 @@ import Foundation
 /// - Design note: docs/nc-proto-sudoku.md
 enum NCSudoku {
 
-    /// Shown while the data plane is not yet verified against the official server (loopback pending).
-    static let interopUnavailable = "Sudoku 数据面与官方服务端的互通验证尚未完成，节点暂不可用"
-
     /// Supported AEAD encryption methods (raw values are the wire names mixed into the record keys).
     enum AEADMethod: String, CaseIterable, Equatable {
         case chacha20Poly1305 = "chacha20-poly1305"
