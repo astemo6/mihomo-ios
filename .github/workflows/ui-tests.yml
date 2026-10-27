@@ -6,8 +6,8 @@
 # - build-ui (macOS, once): build-for-testing of the TernUITests scheme → artifact (.github/workflows/build-for-testing.yml).
 # - ui (macOS matrix): every combo runs `test-without-building` on those products (.github/actions/tern-prebuilt) —
 #   XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile, zh-Hans and en,
-#   light and dark, plus one `unit` combo (the whole TernUnitTests bundle). Screenshots and per-test reports are
-#   uploaded as artifacts only.
+#   light and dark. Screenshots and per-test reports are uploaded as artifacts only.
+# - unit (macOS, once): the whole TernUnitTests bundle on the same products (queued after the IPA build when the run has one).
 # The release workflow (ios.yml) and project.yml are not touched by this file.
 #
 # ci/speedup (2026-10-27, report work/nc/ci-speedup-report.md):
@@ -171,6 +171,7 @@ jobs:
       combos: ${{ steps.plan.outputs.combos }}
       mode: ${{ steps.plan.outputs.mode }}
       ui: ${{ steps.plan.outputs.ui }}
+      unit: ${{ steps.plan.outputs.unit }}
       build_ui: ${{ steps.plan.outputs.build_ui }}
       build_e2e: ${{ steps.plan.outputs.build_e2e }}
       e2e: ${{ steps.plan.outputs.e2e }}
@@ -241,7 +242,8 @@ jobs:
               if [ -n "$UI_FILES" ]; then MODE=full; REASON="UI-affecting files changed"; else MODE=smoke; REASON="no UI-affecting file changed"; fi
             fi
           fi
-          # Combos "<lang>:<style>:<shard>" (shard 1–5 light, 0 dark, smoke, sel) and "unit" (TernUnitTests bundle).
+          # Combos: "<lang>:K/N" (full-matrix job), "<lang>:light:smoke", "<lang>:light:sel" / "<lang>:dark:sel"; "unit" is
+          # taken out below and runs in the unit job.
           # Full-matrix jobs per language: "<lang>:K/N" = shard K of N of the light tests plus the dark-appearance checks
           # (scripts/ci/ui-shards.py balances them on measured durations). N = 4 when the repository's 5 runners also
           # carry other jobs of this run (astemo6: the unit combo, E2E, the IPA build; the mirror with proto-loopback
@@ -284,8 +286,12 @@ jobs:
                  esac ;;
             esac
           fi
+          # The unit combo runs in its own job (`unit`, queued after the IPA build when the run has one).
+          UNIT=false
+          case "$COMBOS" in *'"unit"'*) UNIT=true; COMBOS=$(printf '%s' "$COMBOS" | sed -e 's/,"unit"//' -e 's/"unit",//' -e 's/"unit"//') ;; esac
           UI=false
           if [ "$DEDUPE_SKIP" != true ] && [ "$RUN_UI" = true ] && [ "$COMBOS" != '[]' ]; then UI=true; fi
+          if [ "$DEDUPE_SKIP" = true ] || [ "$RUN_UI" != true ]; then UNIT=false; fi
           # Extras (dispatch / call input): the rest of the full CI on the same build(s).
           E2E=false; IPA=false; CHK=false; LOOP=""
           for x in $(printf '%s' "${EXTRAS:-}" | tr ',' ' '); do
@@ -301,18 +307,19 @@ jobs:
           done
           LOOP=$(printf '%s' "$LOOP" | tr ',' '\n' | grep . | sort -u | paste -sd, - || true)
           BUILD_UI=$UI; BUILD_E2E=$E2E
+          [ "$UNIT" != true ] || BUILD_UI=true
           case ",$LOOP," in *,loopback,*) BUILD_UI=true ;; esac
           case ",$LOOP," in *,openconnect,*|*,masque-ip,*|*,masque-warp,*) BUILD_E2E=true ;; esac
-          echo "mode=$MODE ($REASON) base=${BASE:-none} ${BASE_DESC} changed=$NCHANGED combos=$COMBOS ui=$UI extras: e2e=$E2E loop=$LOOP ipa=$IPA checks=$CHK"
+          echo "mode=$MODE ($REASON) base=${BASE:-none} ${BASE_DESC} changed=$NCHANGED combos=$COMBOS ui=$UI unit=$UNIT extras: e2e=$E2E loop=$LOOP ipa=$IPA checks=$CHK"
           {
-            echo "mode=$MODE"; echo "combos=$COMBOS"; echo "ui=$UI"; echo "build_ui=$BUILD_UI"; echo "build_e2e=$BUILD_E2E"
+            echo "mode=$MODE"; echo "combos=$COMBOS"; echo "ui=$UI"; echo "unit=$UNIT"; echo "build_ui=$BUILD_UI"; echo "build_e2e=$BUILD_E2E"
             echo "e2e=$E2E"; echo "loop_jobs=$LOOP"; echo "ipa=$IPA"; echo "checks=$CHK"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### UI path: $MODE"
             echo "- reason: $REASON"
             [ -n "$BASE" ] && echo "- base: \`${BASE:0:12}\` ($BASE_DESC), $NCHANGED changed file(s)"
-            echo "- combos: \`$COMBOS\` (ui runs: $UI)"
+            echo "- combos: \`$COMBOS\` (ui runs: $UI), unit job: $UNIT"
             [ -z "${EXTRAS:-}" ] || echo "- extras: e2e=$E2E proto-loopback=[${LOOP}] ipa=$IPA checks=$CHK"
             case "$COMBOS" in *zh-Hans:1/*) echo "- zh-Hans jobs:"; python3 scripts/ci/ui-shards.py "$NZH" | sed 's/^/  /' ;; esac
             case "$COMBOS" in *en:1/*) echo "- en jobs:"; python3 scripts/ci/ui-shards.py "$NEN" | sed 's/^/  /' ;; esac
@@ -358,9 +365,7 @@ jobs:
       - name: Combo
         run: |
           combo="${{ matrix.combo }}"
-          if [ "$combo" = unit ]; then
-            LANG_=zh-Hans; STYLE=light; SHARD=unit; SHORT=unit
-          else
+          if true; then
             LANG_=${combo%%:*}; rest=${combo#*:}
             L2=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")
             case "$rest" in
@@ -395,7 +400,6 @@ jobs:
                 SEL+=(-only-testing:"TernUnitTests/$t")
               done
               if [ ${#SEL[@]} -eq 0 ]; then echo "::error::selection combo without a selection"; exit 1; fi ;;
-            unit) SEL=(-only-testing:TernUnitTests) ;;
             smoke) for t in $SMOKE_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done ;;
             */*)
               # Full-matrix job K/N (scripts/ci/ui-shards.py): its light tests, then its dark-appearance checks.
@@ -466,6 +470,62 @@ jobs:
       - name: Result
         run: |
           if [ -n "$FAILED" ]; then echo "UI tests failed:$FAILED"; exit 1; fi
+
+  unit:
+    # The whole TernUnitTests bundle once per run (smoke and full paths). Queued after the IPA build when this run has
+    # one, so it takes that runner instead of a UI job's (the UI jobs are the critical path).
+    needs: [plan, build-ui, ipa]
+    if: ${{ !cancelled() && needs.plan.outputs.unit == 'true' && needs.build-ui.result == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernUITests
+          xcode: ${{ needs.build-ui.outputs.xcode }}
+      - name: Run unit tests
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p shots results
+          # Same JSC setting as a device (no JIT); LiveActivityLayoutTests writes its PNGs to UI_SHOT_DIR.
+          TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" TEST_RUNNER_JSC_useJIT=false \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/unit.xcresult \
+            -only-testing:TernUnitTests test-without-building 2>&1 | tee results/unit.log \
+            | grep -E "Test Case .*(failed|passed)|error:|XCTAssert|Executed"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/unit.log
+          {
+            echo "### Unit tests"
+            echo "- passed $(grep -cE "^Test Case .* passed" results/unit.log), failed $(grep -cE "^Test Case .* failed" results/unit.log), skipped $(grep -cE "^Test Case .* skipped" results/unit.log)"
+            grep -E "Executed [0-9]+ tests?" results/unit.log | tail -n 1 | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ui-screens-unit
+          path: shots/
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ui-results-unit
+          path: results/unit.log
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: ui-xcresult-unit
+          path: results/unit.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Extras: the rest of the full CI in this run, on the builds above.
   e2e:
