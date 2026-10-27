@@ -54,6 +54,11 @@ targets:
       - path: Shared
       # feat/jsc-engine: the JavaScriptCore script engine also runs 脚本调试 in the app (and the unit tests).
       - path: PacketTunnel/JSCScriptEngine.swift
+      # sync/nc-kernel-0202 (as feat/nc-integrate): vendored Lua 5.4 C core + bridge — Shared/NativeCore/NCLuaEngine.swift
+      # is compiled into the app too.
+      - path: PacketTunnel/NativeCore/Lua
+      # The tunnel's script-hook runner (its NativeCoreEngine glue is behind TERN_TUNNEL).
+      - path: PacketTunnel/NativeCore/NCScriptHookRunner.swift
       # feat/native-mitm: the native body lane, built into the app only so the unit tests can drive it
       # (UnitTests/NativeBodyStoreTests.swift); the app never registers it.
       - path: PacketTunnel/NativeBodyStore.swift
@@ -76,9 +81,18 @@ targets:
       # native MitM stage 3 lane s3-script: the native script dispatcher (switch nativeMitmScript, default OFF), in the app
       # only for UnitTests/NativeMitmScriptTests.swift.
       - path: PacketTunnel/NativeMitM/Script
+        # NativeTaskRunner drives NativeCoreEngine/NativeTunnelCore — tunnel target only (as feat/nc-integrate).
+        excludes: ["NativeTaskRunner.swift"]
+      # NativeMitmSession's inner driver (pass-through) — the session is compiled here too.
+      - path: PacketTunnel/NativeMitM/NativeMitmFlowDriver.swift
       # native MitM stage 3 lane s3-h2: native HTTP/2 (switch nativeMitmH2, default OFF), in the app only for
       # UnitTests/NativeMitmH2Tests.swift + NativeMitmH2LoopbackTests.swift.
       - path: PacketTunnel/NativeMitM/H2
+      # sync/nc-kernel-0202 (as feat/nc-integrate): the control-plane engine + health-check scheduler (NCTunnelDelayTester,
+      # used by Shared/NativeCore/NCDelayTester.swift) + [nc-mem] sampler; tunnel-only paths are behind TERN_TUNNEL.
+      - path: PacketTunnel/NativeCore/NativeCoreEngine.swift
+      - path: PacketTunnel/NativeCore/NCHealthCheck.swift
+      - path: PacketTunnel/NativeCore/NCMemorySampler.swift
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig
@@ -99,6 +113,10 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Night AppIcon-Sky"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # sync/nc-kernel-0202 (as feat/nc-integrate): app Swift reaches the vendored Lua bridge.
+        SWIFT_OBJC_BRIDGING_HEADER: App/NCLuaBridge.h
+        HEADER_SEARCH_PATHS:
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/Lua
 
   PacketTunnel:
     type: app-extension

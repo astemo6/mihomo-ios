@@ -6,24 +6,7 @@ import Libmihomo
 
 // MARK: - Custom rules store
 
-struct CustomRule: Codable, Identifiable, Hashable {
-    var id: String = UUID().uuidString
-    var line: String
-    var enabled: Bool = true
-    var interval: Int? = nil
-}
-
-/// Result of LibmihomoCheckRuleLine / CheckCustomRules (bridge/customrules.go ruleCheck).
-struct RuleCheck: Decodable, Hashable {
-    var id: String?
-    var line: String?
-    var enabled: Bool?
-    var rule: String?
-    var policy: String?
-    var error: String?
-    var note: String?
-    var unresolved: String?
-}
+// CustomRule / RuleCheck: defined once in Shared/NativeCore/NCRuleValidator.swift (same fields).
 
 @MainActor
 final class CustomRulesStore: ObservableObject {

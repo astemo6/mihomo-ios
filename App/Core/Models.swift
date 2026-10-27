@@ -399,12 +399,4 @@ struct ParsedEngineText: Decodable {
     }
 }
 
-struct CAInfoModel: Decodable, Equatable {
-    var exists: Bool
-    var subject: String?
-    var fingerprint: String?
-    var sha1: String?
-    var notBefore: String?
-    var notAfter: String?
-    var algorithm: String?
-}
+// CAInfoModel: defined once in Shared/NativeCore/NCCAManager.swift (same fields, Codable).
