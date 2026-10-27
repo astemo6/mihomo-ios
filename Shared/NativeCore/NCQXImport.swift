@@ -283,6 +283,12 @@ enum NCQXImport {
             if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
             if let p = take("password") { fields["password"] = .string(p) }
             report.warnings.append("quantumultx [server_local]: lua proxy backend '\(name)' recognized")
+        case "openconnect", "anyconnect":
+            type = "openconnect"
+            report.warnings.append("quantumultx [server_local]: OpenConnect 无公开 Quantumult X 格式，标记不可用")
+            fields["unsupported"] = .string("Quantumult X 无公开 OpenConnect 格式")
+            if let u = take("username") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.

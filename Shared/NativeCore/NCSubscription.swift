@@ -39,7 +39,7 @@ enum NCSubscriptionParser {
         // converted afterwards. Member order and dedup numbering follow.
         var selfParsed: [NCProxy] = []
         var uriParsed: [NCProxy] = []
-        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https"]
+        let selfSchemes: Set<String> = ["wireguard", "wg", "snell", "ssh", "socks", "socks5", "socks5h", "http", "https", "openconnect", "anyconnect"]
         for line in body.components(separatedBy: .newlines) {
             let l = line.trimmingCharacters(in: .whitespaces)
             if l.isEmpty || l.hasPrefix("#") || l.hasPrefix("//") || l.hasPrefix(";") || l.hasPrefix("[") {
@@ -76,7 +76,7 @@ enum NCSubscriptionParser {
     /// the old core sent those lines to the Surge parser, which turned `ss=1.2.3.4:443, …` into a node typed after
     /// "1.2.3.4:443". Not listed: ssr / wireguard / custom, which buildQXNode does not map faithfully.
     static let qxNodeTypes: Set<String> = ["shadowsocks", "ss", "vmess", "vless", "trojan", "http", "socks5", "anytls",
-                                           "snell", "tuic", "juicity", "hysteria2"]
+                                           "snell", "tuic", "juicity", "hysteria2", "openconnect", "anyconnect"]
 
     /// A `key=value` subscription line is QX-shaped when the key is a QX type keyword AND the value starts with
     /// `host:port` (or `[v6]:port`) before its first comma. A Surge / Loon line is `Name = type, host, port, …`:
@@ -136,6 +136,7 @@ enum NCSubscriptionParser {
         case "mieru", "mierus": return parseMieru(rest)
         case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
         case "naive+https", "naive+quic", "naive", "http2", "http3": return parseNaiveH2H3(rest, scheme: scheme)
+        case "openconnect", "anyconnect": return parseOpenConnect(rest, scheme: scheme)
         default:
             // feat/nc-gost-relay: GOST relay (Clash.Meta `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
             // and Shadowrocket's Relay links (relay://BASE64(user:pass@host:port)?tls=1&peer=…#name).
@@ -1404,6 +1405,58 @@ enum NCSubscriptionParser {
         if let hm = q["handshake-mode"] { f["handshake-mode"] = .string(hm) }
         let name = q["profile"] ?? (p.name.isEmpty ? "mieru \(p.host)" : p.name)
         return NCProxy(name: name, type: "mieru", fields: f)
+    }
+
+    private static func parseOpenConnect(_ rest: String, scheme: String) -> NCProxy? {
+        let p = splitParts(rest)
+        guard !p.host.isEmpty else { return nil }
+        let port = p.port > 0 ? p.port : NCOpenConnect.defaultPort
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(port))
+        ]
+        if !p.userinfo.isEmpty {
+            let creds = p.userinfo.split(separator: ":", maxSplits: 1)
+            let user = String(creds[0]).removingPercentEncoding ?? String(creds[0])
+            f["username"] = .string(user)
+            if creds.count > 1 {
+                let pass = String(creds[1]).removingPercentEncoding ?? String(creds[1])
+                f["password"] = .string(pass)
+            }
+        }
+        let q = p.query
+        if let u = q["username"] ?? q["user"], f["username"] == nil { f["username"] = .string(u) }
+        if let pw = q["password"] ?? q["pass"], f["password"] == nil { f["password"] = .string(pw) }
+        if let g = q["group"] ?? q["auth_group"] ?? q["auth-group"] { f["auth-group"] = .string(g) }
+        if let c = q["cookie"] { f["cookie"] = .string(c) }
+        if let s = q["sni"] ?? q["servername"] ?? q["peer"] { f["sni"] = .string(s) }
+        if let ins = q["insecure"] ?? q["allowInsecure"] ?? q["skip-cert-verify"] ?? q["skip_cert_verify"] {
+            f["skip-cert-verify"] = .bool(ins == "1" || ins.lowercased() == "true")
+        }
+        if let fp = q["fingerprint"] ?? q["server_cert_pin"] ?? q["server-cert-pin"] ?? q["cert_sha256"] {
+            f["server-cert-pin"] = .string(fp)
+        }
+        if let dtls = q["dtls"] {
+            f["dtls"] = .bool(dtls == "1" || dtls.lowercased() == "true")
+        }
+        if let m = q["mtu"], let n = Int(m) {
+            f["mtu"] = .number(Double(n))
+        }
+        if let ua = q["user_agent"] ?? q["user-agent"] {
+            f["user-agent"] = .string(ua)
+        }
+        if let lh = q["local_hostname"] ?? q["local-hostname"] {
+            f["local-hostname"] = .string(lh)
+        }
+
+        // Unsupported fields explicitly recorded so NCSupport.unsupportedReason can explain
+        if let csd = q["csd"] ?? q["csd_wrapper"] ?? q["csd-wrapper"] { f["csd-wrapper"] = .string(csd) }
+        if let hip = q["hip"] ?? q["hip_report"] ?? q["hip-report"] { f["hip"] = .string(hip) }
+        if let tncc = q["tncc"] { f["tncc"] = .string(tncc) }
+        if let tok = q["token"] ?? q["token_mode"] ?? q["totp"] { f["token-secret"] = .string(tok) }
+
+        let name = p.name.isEmpty ? "\(scheme) \(p.host)" : p.name
+        return NCProxy(name: name, type: "openconnect", fields: f)
     }
 
     private static func parseHysteria1(_ rest: String) -> NCProxy? {
