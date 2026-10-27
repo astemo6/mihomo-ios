@@ -84,6 +84,14 @@ schemes:
         Tern: all
         TernUnitTests: [test]
         TernE2ETunnelTests: [test]
+    # fix/nc-mem-4: XcodeGen writes this flag to the TestAction too (disablePerformanceAntipatternChecker). With the
+    # checker on, its priority-inversion report (JSCThread) was picked up by XCTest on the main thread, which
+    # symbolicated it with CoreSymbolication — parsing the stabs of the ~100 MB Debug test bundle: +55 MB of
+    # footprint for ~2 s, the whole kernel peak the memory gate saw (runs 40419441795 / 40422441193 / 40425118192,
+    # main-thread backtraces in stage2.log). A device build never runs the checker.
+    run:
+      config: Debug
+      disableThreadPerformanceChecker: true
     test:
       config: Debug
       gatherCoverageData: false

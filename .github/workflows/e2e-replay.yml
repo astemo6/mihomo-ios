@@ -120,6 +120,44 @@ jobs:
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
             build-for-testing 2>&1 | tee build-e2e.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
           grep -q "TEST BUILD SUCCEEDED" build-e2e.log || { grep -E "error:" build-e2e.log | head -n 80; tail -n 120 build-e2e.log; exit 1; }
+      # fix/nc-mem-4: no Thread Performance Checker (libRPAC) in the test host. Its priority-inversion report (JSCThread,
+      # timing-dependent) made XCTest symbolicate the ~100 MB Debug test bundle on the main thread with CoreSymbolication:
+      # +55 MB for ~2 s, the whole kernel peak of the memory gate (runs 40419441795 / 40422441193 / 40431543693). The
+      # scheme flag alone (project-uitests.yml) did not keep it out of every run, so strip it from the generated xctestrun
+      # that test-without-building reads. A device / Release build never loads the checker.
+      - name: Disable Thread Performance Checker
+        run: |
+          python3 - <<'PY'
+          import glob, plistlib
+          for f in glob.glob("build/e2e/Build/Products/*.xctestrun"):
+              with open(f, "rb") as fh:
+                  d = plistlib.load(fh)
+              n = 0
+              def fix(env):
+                  global n
+                  if not isinstance(env, dict):
+                      return
+                  for k in list(env):
+                      if k.startswith("PERFC_"):
+                          del env[k]; n += 1
+                  v = env.get("DYLD_INSERT_LIBRARIES")
+                  if isinstance(v, str) and "RPAC" in v:
+                      env["DYLD_INSERT_LIBRARIES"] = ":".join(x for x in v.split(":") if "RPAC" not in x); n += 1
+              def walk(o):
+                  if isinstance(o, dict):
+                      for k, v in o.items():
+                          if k in ("EnvironmentVariables", "TestingEnvironmentVariables"):
+                              fix(v)
+                          else:
+                              walk(v)
+                  elif isinstance(o, list):
+                      for x in o:
+                          walk(x)
+              walk(d)
+              with open(f, "wb") as fh:
+                  plistlib.dump(d, fh)
+              print(f"{f}: {n} Thread Performance Checker setting(s) removed")
+          PY
       - name: Stage fixture into the app container
         run: |
           xcrun simctl bootstatus "$DEV" -b
