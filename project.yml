@@ -146,7 +146,8 @@ targets:
           - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/port
         GCC_PREPROCESSOR_DEFINITIONS: $(inherited)
         # Files shared with the app pick their Go-free variant with this (see nogo_check in the eval notes).
-        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) TERN_NO_GO
+        # sync/nc-kernel-0202: the synced kernel gates tunnel-only code (DNS scripts, /dns/query, controller hooks) on TERN_TUNNEL, as in feat/nc-integrate.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) TERN_NO_GO TERN_TUNNEL
 
   MihomoWidget:
     type: app-extension
