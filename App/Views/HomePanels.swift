@@ -74,8 +74,11 @@ final class HomePanelStore: ObservableObject {
     // MARK: drag reorder on Home
 
     /// The id being dragged on Home (nil when no drag is in flight).
-    @Published var dragging: String?
+    @Published var dragging: String? { didSet { if dragging != nil || oldValue != nil { lastDragActivity = Date() } } }
     private var commitWork: DispatchWorkItem?
+    /// Last time a Home drag started or ended. A long-press that turns into a drag can end with the finger over the
+    /// context menu, which would pick 「从首页移除」; the menu's remove ignores taps during / right after a drag.
+    private var lastDragActivity = Date.distantPast
 
     /// Live reorder while a dragged card hovers `target`: the dragged id takes the target's place in the pinned order.
     /// Saved shortly after the last move (and at the drop), so hovering over many cards writes once.
@@ -159,6 +162,13 @@ final class HomePanelStore: ObservableObject {
     func unpin(_ id: String) {
         model.pinned.removeAll { $0 == id }
         savePinned()
+    }
+
+    /// 「从首页移除」 from a Home card's long-press menu: ignored while a drag is in flight or within 1 s of one,
+    /// so a press-and-drag that ends over the menu never removes the card.
+    func unpinFromMenu(_ id: String) {
+        guard dragging == nil, Date().timeIntervalSince(lastDragActivity) > 1.0 else { return }
+        unpin(id)
     }
 
     func move(from: IndexSet, to: Int) {
@@ -342,7 +352,7 @@ extension HomePanelsSection {
                 arrangeItems(e.item.id)
                 Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
                 PanelEditButton { editPanel = e.item }
-                Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("从首页移除", systemImage: "minus.circle") }
+                Button(role: .destructive) { home.unpinFromMenu(e.item.id) } label: { Label("从首页移除", systemImage: "minus.circle") }
             }
             .modifier(HomeReorderDrag(id: e.item.id))
         case .tile(let t):
@@ -355,7 +365,7 @@ extension HomePanelsSection {
             .contextMenu {
                 arrangeItems(t.id)
                 Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
-                Button(role: .destructive) { home.unpin(t.id) } label: { Label("从首页移除", systemImage: "minus.circle") }
+                Button(role: .destructive) { home.unpinFromMenu(t.id) } label: { Label("从首页移除", systemImage: "minus.circle") }
             }
             .modifier(HomeReorderDrag(id: t.id))
     }
