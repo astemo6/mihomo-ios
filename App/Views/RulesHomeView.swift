@@ -31,6 +31,9 @@ struct RulesView: View {
     @State private var liveProviders: [String: ProviderItem] = [:]
     @State private var search = ""
     @State private var adding = false
+    /// fix/nc-0.20.2: + → 订阅规则集 (URL / 名称 / 策略 / 自动更新 / 启用), a managed remote rule set.
+    @State private var addingSub = false
+    @State private var editingSub: CustomRule?
     @State private var editing: CustomRule?
     @State private var updatingLive: Set<String> = []
     @State private var liveErrors: [String: String] = [:]
@@ -211,12 +214,15 @@ struct RulesView: View {
                     UpdateAllButton(busy: updatingAll || updater.running || !updatingLive.isEmpty, id: "rules.updateAll") {
                         Task { await updateAll() }
                     }
+                    // fix/nc-0.20.2: a direct 排序 button (the ⋯ menu only held 编辑排序).
+                    ReorderToolbarButton(isEditing: false, count: custom.remoteRules.count + profileSets.count,
+                                         id: "rules.reorder") { enterOrder() }
                     Menu {
-                        Button { enterOrder() } label: { Label("编辑排序", systemImage: "line.3.horizontal") }
-                            .accessibilityIdentifier("rules.reorder")
-                    } label: { Image(systemName: "ellipsis.circle") }
-                        .accessibilityIdentifier("rules.more")
-                    Button { adding = true } label: { Image(systemName: "plus") }
+                        Button { addingSub = true } label: { Label("订阅规则集", systemImage: "link.badge.plus") }
+                            .accessibilityIdentifier("rules.add.sub")
+                        Button { adding = true } label: { Label("手动添加", systemImage: "square.and.pencil") }
+                            .accessibilityIdentifier("rules.add.manual")
+                    } label: { Image(systemName: "plus") }
                         .accessibilityLabel(Text("添加规则订阅"))
                         .accessibilityIdentifier("rules.addSet")
                 }
@@ -228,6 +234,18 @@ struct RulesView: View {
         .task(id: vpn.isConnected) { await load() }
         .sheet(isPresented: $adding) {
             CustomRuleEditor(rule: CustomRule(line: "RULE-SET,,")) { r in custom.rules.insert(r, at: 0); custom.save() }
+        }
+        .sheet(isPresented: $addingSub) {
+            RuleSetSubscriptionSheet { r in
+                custom.rules.insert(r, at: 0)
+                custom.save()
+                if let u = CustomRulesStore.remoteURL(r.line), r.enabled { Task { await updateCustom(u, provider: nil) } }
+            }
+        }
+        .sheet(item: $editingSub) { r in
+            RuleSetSubscriptionSheet(editing: r) { nr in
+                if let i = custom.rules.firstIndex(where: { $0.id == nr.id }) { custom.rules[i] = nr; custom.save() }
+            }
         }
         .sheet(isPresented: $editingFinal) {
             PolicyPickerSheet(title: Text(verbatim: "Final"), current: finalPolicy ?? profileRules.finalInfo.policy,
@@ -310,7 +328,7 @@ struct RulesView: View {
 
             Section {
                 if mine.isEmpty && sets.isEmpty {
-                    Text(search.isEmpty ? "还没有规则订阅。点右上角 + 添加远程规则列表（Surge / QX / Loon / Clash 格式）。" : "没有匹配的订阅")
+                    Text(search.isEmpty ? "还没有规则订阅。点右上角 + →「订阅规则集」添加远程规则列表（Surge / QX / Loon / Clash 格式）。" : "没有匹配的订阅")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 ForEach(mine) { r in customRow(r) }
@@ -328,7 +346,7 @@ struct RulesView: View {
                 Text("订阅 \(mine.count + sets.count)")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("顺序就是匹配优先级：越靠上越先匹配。在 ⋯ 里选「编辑排序」调整顺序。")
+                    Text("顺序就是匹配优先级：越靠上越先匹配。点右上角「排序」拖动调整顺序。")
                     Text("轻点查看内容；右滑更新，左滑删除或编辑；开关启用或关闭；长按查看全部操作。")
                 }
                 .modifier(UITestOrderValue(id: "rules.sets.order", order: sets.map(\.name).joined(separator: " | ")))
@@ -349,7 +367,8 @@ struct RulesView: View {
         let provider = offline.result.ruleProviders.first { $0.url == url }
         let item = res.items.first { $0.kind == "ruleset" && $0.url == url }
         let check = custom.checks[r.id]
-        let name = provider?.name ?? Self.displayName(url)
+        let tag = RuleSetSubscriptionSheet.parse(r.line)?.tag ?? ""
+        let name = !tag.isEmpty ? tag : (provider?.name ?? Self.displayName(url))
         let lp = provider.flatMap { liveProviders[$0.name] }
         let busy = (provider.map { updatingLive.contains($0.name) || updater.busy.contains($0.id) } ?? false)
             || (item.map { res.busy.contains($0.key) } ?? false)
@@ -364,14 +383,19 @@ struct RulesView: View {
                         count: r.enabled ? (lp?.ruleCount ?? provider.flatMap { $0.count >= 0 ? $0.count : nil }) : nil,
                         updating: busy,
                         enabled: Binding(get: { r.enabled }, set: { on in setCustom(r, on) }),
-                        onTap: { editing = r }) {
-            if let p = check?.policy ?? RuleFormFields.parse(r.line)?.policy, !p.isEmpty { PolicyChip(name: p) }
+                        onTap: { editCustom(r) }) {
+            if let p = check?.policy ?? RuleFormFields.parse(r.line)?.policy ?? RuleSetSubscriptionSheet.parse(r.line)?.policy, !p.isEmpty { PolicyChip(name: p) }
         }
         .subscriptionActions(SubscriptionActions(
             update: r.enabled && !busy ? { Task { await updateCustom(url, provider: provider?.name) } } : nil,
-            edit: { editing = r }, url: url,
+            edit: { editCustom(r) }, url: url,
             enabled: r.enabled, setEnabled: { on in setCustom(r, on) },
             delete: { confirmDeleteCustom = r }))
+    }
+
+    /// A remote list the 订阅规则集 form can show opens there; anything else (logic rules, odd spellings) in the rule editor.
+    func editCustom(_ r: CustomRule) {
+        if RuleSetSubscriptionSheet.parse(r.line) != nil { editingSub = r } else { editing = r }
     }
 
     func setCustom(_ r: CustomRule, _ on: Bool) {

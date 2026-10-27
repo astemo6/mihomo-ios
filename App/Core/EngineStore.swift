@@ -119,12 +119,28 @@ final class EngineStore: ObservableObject {
         if config.modules == mods && gen == parseGeneration { moduleInfo = out }
     }
 
-    static func download(_ url: String) async throws -> String {
+    /// fix/nc-0.20.2: the module's own client User-Agent (some hosts answer 403 to anything else): Loon for plugins,
+    /// Quantumult X for QX snippets / rewrite_remote, Surge otherwise.
+    nonisolated static func moduleUserAgent(_ url: String, client: String? = nil) -> String {
+        switch client?.lowercased() {
+        case "qx", "quantumult x": return "Quantumult%20X/1.5.2"
+        case "loon": return "Loon/3.2.4"
+        case "surge": return "Surge iOS/3000"
+        default: break
+        }
+        let path = (URL(string: url)?.path ?? url).lowercased()
+        if path.hasSuffix(".plugin") || path.hasSuffix(".lpx") || path.contains("/loon/") { return "Loon/3.2.4" }
+        if path.hasSuffix(".snippet") || path.hasSuffix(".qxrewrite") || path.contains("/quantumultx/")
+            || path.contains("/quantumult-x/") || path.contains("/qx/") { return "Quantumult%20X/1.5.2" }
+        return "Surge iOS/3000"
+    }
+
+    static func download(_ url: String, client: String? = nil) async throws -> String {
         guard let u = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)), u.scheme?.hasPrefix("http") == true else {
             throw ProfileStore.StoreError.badURL
         }
         var req = URLRequest(url: u, timeoutInterval: 30)
-        req.setValue("Surge iOS/3000", forHTTPHeaderField: "User-Agent")
+        req.setValue(moduleUserAgent(url, client: client), forHTTPHeaderField: "User-Agent")
         let (data, resp) = try await URLSession.shared.data(for: req)
         // v0.11: readable reasons (was a generic system error).
         if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) { throw ProfileStore.StoreError.http(h.statusCode) }
@@ -140,7 +156,39 @@ final class EngineStore: ObservableObject {
         return s
     }
 
-    func addModule(url: String) async {
+    /// fix/nc-0.20.2: 添加订阅 form — a user-typed name is kept (customName), interval / enabled as chosen.
+    func addModule(fields f: SubscriptionFormFields) async {
+        await addModule(url: f.url, name: f.trimmedName, interval: f.interval, enabled: f.enabled)
+    }
+
+    /// fix/nc-0.20.2: 编辑订阅 — rename (empty = back to the module's own #!name), change URL / interval / 启用.
+    /// A changed URL is downloaded again.
+    func editModuleSubscription(_ id: String, fields f: SubscriptionFormFields) async {
+        guard let i = config.modules.firstIndex(where: { $0.id == id }) else { return }
+        var m = config.modules[i]
+        let urlChanged = !f.url.isEmpty && f.url != m.url
+        if urlChanged, config.modules.contains(where: { $0.id != id && $0.url == f.url }) {
+            message = String(localized: "模块已存在：「\(m.name)」")
+            return
+        }
+        m.url = f.url.isEmpty ? m.url : f.url
+        if f.trimmedName.isEmpty {
+            m.customName = nil
+            let own = moduleInfo[m.id]?.name ?? ""
+            m.name = own.isEmpty ? (URL(string: m.url)?.deletingPathExtension().lastPathComponent ?? m.name) : own
+        } else {
+            m.name = f.trimmedName
+            m.customName = true
+        }
+        m.interval = f.interval
+        m.enabled = f.enabled
+        config.modules[i] = m
+        if f.enabled { enableForModules() }
+        save()
+        if urlChanged { await updateModule(m) }
+    }
+
+    func addModule(url: String, name customName: String = "", interval: Int? = nil, enabled: Bool = true) async {
         // v0.19.2: opening the same install link twice (tern:// / surge:/// / a pasted URL) added a second copy,
         // so every rewrite and script of that module ran twice. The other add paths already refused duplicates.
         let wanted = url.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -158,12 +206,14 @@ final class EngineStore: ObservableObject {
                 message = String(localized: "未识别到可用的重写、脚本或 MitM 内容")
                 return
             }
-            var name = p.name
+            var name = customName.isEmpty ? p.name : customName
             if name.isEmpty { name = URL(string: url)?.deletingPathExtension().lastPathComponent ?? "模块" }
-            let m = EngineModule(name: name, url: wanted, enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
+            var m = EngineModule(name: name, url: wanted, enabled: enabled, args: nil, updatedAt: Date().timeIntervalSince1970,
+                                 interval: interval)
+            if !customName.isEmpty { m.customName = true }
             try text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
             config.modules.append(m)
-            enableForModules()
+            if enabled { enableForModules() }
             reparseModules()
             save()
             var msg = String(localized: "已添加「\(name)」：\(p.rules.count) 条规则/脚本，\(p.hostnames.count) 个 MitM 主机")
@@ -225,14 +275,15 @@ final class EngineStore: ObservableObject {
     /// QX [rewrite_remote] (v0.8.1): one module per line, named from tag= or the file name, enabled= kept.
     /// Downloaded by the app right away (works while disconnected); a failed download keeps the module so
     /// 更新 can fetch it later. Returns the error text, nil on success. A URL that is already a module is skipped.
-    func addRemoteModule(url: String, name: String, enabled: Bool, interval: Int) async -> String? {
+    func addRemoteModule(url: String, name: String, enabled: Bool, interval: Int, client: String? = nil) async -> String? {
         if config.modules.contains(where: { $0.url == url }) { return nil }
         SnapshotStore.shared.capture(String(localized: "添加模块前"))
         var m = EngineModule(name: name.isEmpty ? (URL(string: url)?.deletingPathExtension().lastPathComponent ?? "模块") : name,
                              url: url, enabled: enabled, args: nil, updatedAt: nil, interval: interval > 0 ? interval : nil)
         var err: String?
         do {
-            let text = try await Self.download(url)
+            if !name.isEmpty { m.customName = true }
+            let text = try await Self.download(url, client: client)
             try text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
             m.updatedAt = Date().timeIntervalSince1970
         } catch {

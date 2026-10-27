@@ -551,11 +551,12 @@ struct PolicyView: View {
                         }
                         Toggle("测速后自动排序", isOn: $autoSort)
                         Divider()
-                        Button { enterReorder() } label: { Label("编辑排序", systemImage: "line.3.horizontal") } // feat/group-order
-                            .accessibilityIdentifier("policy.reorder")
                         Button { editHome = true } label: { Label("编辑首页策略", systemImage: "house") } // feat/home-groups
-                    } label: { Image(systemName: "arrow.up.arrow.down") }
-                    .accessibilityLabel(Text("排序"))
+                    } label: { Image(systemName: "line.3.horizontal.decrease.circle") }
+                    .accessibilityLabel(Text("节点排序"))
+                    // fix/nc-0.20.2: the shared 排序 button opens 编辑排序 (drag handles) like 分流规则 / 重写 / 定时任务.
+                    ReorderToolbarButton(isEditing: false, count: max(model.groups.count, offline.result.groups.count),
+                                         id: "policy.reorder") { enterReorder() }
                     Button {
                         Task {
                             if vpn.isConnected {

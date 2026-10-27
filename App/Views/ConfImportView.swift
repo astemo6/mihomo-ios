@@ -131,7 +131,7 @@ enum ConfImport {
             await progress(String(localized: "正在下载远程重写…"))
             var failed: [String] = []
             for m in remotes {
-                if let e = await EngineStore.shared.addRemoteModule(url: m.url, name: m.name, enabled: m.enabled, interval: m.interval ?? 86400) {
+                if let e = await EngineStore.shared.addRemoteModule(url: m.url, name: m.name, enabled: m.enabled, interval: m.interval ?? 86400, client: "qx") {
                     failed.append("\(m.name)：\(e)")
                 }
             }

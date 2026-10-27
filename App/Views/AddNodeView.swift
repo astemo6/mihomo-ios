@@ -38,43 +38,45 @@ struct AddNodeView: View {
         var preset: [String: String] = [:]
     }
 
-    /// Same list and presets as QXAddNodeView.featured (protocols QX itself lacks).
-    static let featured: [Proto] = [
+    /// fix/nc-0.20.2 (user): one ordered protocol list — the common ones first (「常用」), newer / niche ones after
+    /// (「更多」). Only this picker uses the order; import / export are unaffected.
+    static let ordered: [Proto] = [
+        // 常用
+        Proto(title: "Shadowsocks", subtitle: "AEAD · 2022", type: "ss"),
+        Proto(title: "VMess", subtitle: "WS · gRPC · H2", type: "vmess"),
+        Proto(title: "VLESS", subtitle: "Reality · XTLS-Vision", type: "vless",
+              preset: ["flow": "xtls-rprx-vision", "client-fingerprint": "chrome", "tls": "true"]),
+        Proto(title: "Trojan", subtitle: "TLS · WS · gRPC", type: "trojan"),
+        Proto(title: "Hysteria2", subtitle: "QUIC · Brutal", type: "hysteria2"),
+        Proto(title: "TUIC v5", subtitle: "QUIC · BBR", type: "tuic"),
+        Proto(title: "WireGuard", subtitle: "UDP", type: "wireguard"),
+        Proto(title: "HTTP(S)", subtitle: "CONNECT", type: "http"),
+        Proto(title: "SOCKS5", subtitle: "TCP / UDP", type: "socks5"),
+        Proto(title: "Snell", subtitle: "v4 / v5", type: "snell"),
+        Proto(title: "AnyTLS", subtitle: "TLS", type: "anytls"),
+        // 更多
+        Proto(title: "Hysteria", subtitle: "v1", type: "hysteria"),
+        Proto(title: "ShadowTLS", subtitle: "Shadowsocks + ShadowTLS v3", type: "ss",
+              preset: ["plugin": "shadow-tls", "plugin-opts.version": "3", "cipher": "2022-blake3-aes-128-gcm"]),
+        Proto(title: "ShadowsocksR", subtitle: "SSR", type: "ssr"),
         Proto(title: "VLESS XHTTP", subtitle: "XHTTP · Reality", type: "vless",
               preset: ["network": "xhttp", "xhttp-opts.mode": "auto", "tls": "true", "client-fingerprint": "chrome"]),
         Proto(title: "AmneziaWG", subtitle: String(localized: "WireGuard · 抗识别"), type: "wireguard", preset: ["x-awg": "true"]),
-        Proto(title: "Sudoku", subtitle: String(localized: "TCP · HTTP 伪装"), type: "sudoku"),
-        Proto(title: "MASQUE", subtitle: "HTTP/3 · WARP", type: "masque"),
-        Proto(title: "TrustTunnel", subtitle: "HTTP/2 · HTTP/3", type: "trusttunnel"),
-        Proto(title: "ShadowQUIC", subtitle: "QUIC · TLS 1.3", type: "shadowquic"),
+        Proto(title: "Juicity", subtitle: "QUIC · BBR", type: "juicity"),
+        Proto(title: "Mieru", subtitle: "TCP / UDP", type: "mieru"),
+        Proto(title: "SSH", subtitle: String(localized: "密码 / 私钥"), type: "ssh"),
+        Proto(title: "Brook", subtitle: "server · ws · wss · quic", type: "brook"),
         Proto(title: "OpenVPN", subtitle: String(localized: "用户态 · PEM"), type: "openvpn"),
+        Proto(title: "TrustTunnel", subtitle: "HTTP/2 · HTTP/3", type: "trusttunnel"),
+        Proto(title: "MASQUE", subtitle: "HTTP/3 · WARP", type: "masque"),
+        Proto(title: "Sudoku", subtitle: String(localized: "TCP · HTTP 伪装"), type: "sudoku"),
+        Proto(title: "ShadowQUIC", subtitle: "QUIC · TLS 1.3", type: "shadowquic"),
         Proto(title: "GOST Relay", subtitle: "GOST v3 · TLS · WS · Mux", type: "gost-relay"),
         Proto(title: "Tailscale", subtitle: String(localized: "不支持 · 原生内核尚未接入"), type: "tailscale"),
     ]
-
-    /// Same list and presets as QXAddNodeView.protocols.
-    static let protocols: [Proto] = [
-        Proto(title: "VLESS", subtitle: "Reality · XTLS-Vision", type: "vless",
-              preset: ["flow": "xtls-rprx-vision", "client-fingerprint": "chrome", "tls": "true"]),
-        Proto(title: "Hysteria2", subtitle: "QUIC · Brutal", type: "hysteria2"),
-        Proto(title: "TUIC v5", subtitle: "QUIC · BBR", type: "tuic"),
-        Proto(title: "Juicity", subtitle: "QUIC · BBR", type: "juicity"),
-        Proto(title: "AnyTLS", subtitle: "TLS", type: "anytls"),
-        Proto(title: "ShadowTLS", subtitle: "Shadowsocks + ShadowTLS v3", type: "ss",
-              preset: ["plugin": "shadow-tls", "plugin-opts.version": "3", "cipher": "2022-blake3-aes-128-gcm"]),
-        Proto(title: "WireGuard", subtitle: "UDP", type: "wireguard"),
-        Proto(title: "Mieru", subtitle: "TCP / UDP", type: "mieru"),
-        Proto(title: "Brook", subtitle: "server · ws · wss · quic", type: "brook"),
-        Proto(title: "Snell", subtitle: "v4 / v5", type: "snell"),
-        Proto(title: "SSH", subtitle: String(localized: "密码 / 私钥"), type: "ssh"),
-        Proto(title: "Shadowsocks", subtitle: "AEAD · 2022", type: "ss"),
-        Proto(title: "ShadowsocksR", subtitle: "SSR", type: "ssr"),
-        Proto(title: "VMess", subtitle: "WS · gRPC · H2", type: "vmess"),
-        Proto(title: "Trojan", subtitle: "TLS · WS · gRPC", type: "trojan"),
-        Proto(title: "Hysteria", subtitle: "v1", type: "hysteria"),
-        Proto(title: "SOCKS5", subtitle: "TCP / UDP", type: "socks5"),
-        Proto(title: "HTTP(S)", subtitle: "CONNECT", type: "http"),
-    ]
+    static let commonCount = 11
+    static var common: [Proto] { Array(ordered.prefix(commonCount)) }
+    static var more: [Proto] { Array(ordered.dropFirst(commonCount)) }
 
     var body: some View {
         List {
@@ -137,17 +139,13 @@ struct AddNodeView: View {
             .listRowBackground(Theme.card)
 
             Section {
-                ForEach(Self.featured) { p in protoRow(p, new: true) }
-            } header: {
-                Text("新协议 \(Self.featured.count)")
-            } footer: {
-                Text("Quantumult X 不支持的协议，由 Tern 内核直接提供。")
-            }
+                ForEach(Self.common) { p in protoRow(p, new: false) }
+            } header: { Text("常用") }
             .listRowBackground(Theme.card)
 
             Section {
-                ForEach(Self.protocols) { p in protoRow(p, new: false) }
-            } header: { Text("常用协议") } footer: {
+                ForEach(Self.more) { p in protoRow(p, new: false) }
+            } header: { Text("更多") } footer: {
                 Text("协议由 Tern 内核 \(CoreVersion.label) 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。")
             }
             .listRowBackground(Theme.card)

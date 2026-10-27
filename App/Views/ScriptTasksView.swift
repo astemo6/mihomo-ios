@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Models (/mitm/tasks, /mitm/panels, /mitm/notifications, replay)
 
@@ -191,8 +192,12 @@ struct ScriptTasksView: View {
     @State private var editingModule: EngineModule?
     @State private var editingScript: EngineItem?
     @State private var updatingAll = false
-    /// 调整顺序 (⋯ menu, 2026-10-23): edit mode with drag handles, the same as 重写 and 规则.
+    /// fix/nc-0.20.2: the shared 排序 button (was ⋯ → 调整顺序): edit mode with drag handles, as 重写 and 规则.
     @State private var editMode: EditMode = .inactive
+    /// fix/nc-0.20.2: + → 执行日期 → 下一步 / 高级 / 文本方式添加.
+    @State private var adding = false
+    @State private var addNext: TaskAddPrompt.Next?
+    @State private var search = ""
 
     static let kinds = ["cron", "event", "interaction", "generic"]
 
@@ -201,10 +206,19 @@ struct ScriptTasksView: View {
         ManualOrder.apply(tasks.filter { prefs.deleted?[$0.id] != true }, order: prefs.order ?? []) { $0.id }
     }
 
+    /// `visible` filtered by the search field (name, cron, script path, source).
+    var shownTasks: [ScriptTaskState] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return visible }
+        return visible.filter { t in
+            [t.script.name, t.cron ?? "", t.script.path, t.source].contains { $0.lowercased().contains(q) }
+        }
+    }
+
     var deletedCount: Int { tasks.filter { prefs.deleted?[$0.id] == true }.count }
 
     var body: some View {
-        let shown = visible
+        let shown = shownTasks
         return List {
             Section {
                 Toggle(isOn: Binding(get: { !prefs.paused }, set: { prefs.paused = !$0; prefs.save(connected: vpn.isConnected) })) {
@@ -217,7 +231,7 @@ struct ScriptTasksView: View {
                          ? "关闭后定时和网络变化脚本都不会自动运行，手动运行不受影响。"
                          : "任务在 VPN 扩展里运行：连接后按计划执行，断开时不运行。开关和运行记录断开时也可以查看。")
                     if !tasks.isEmpty {
-                        Text("同一时间触发的任务按列表顺序启动。在 ⋯ 里选「调整顺序」后拖动排序。右滑更新或运行，左滑删除或编辑；长按查看全部操作。")
+                        Text("同一时间触发的任务按列表顺序启动。点右上角「排序」拖动调整顺序。右滑更新或运行，左滑删除或编辑；长按查看全部操作。")
                     }
                 }
             }
@@ -249,7 +263,7 @@ struct ScriptTasksView: View {
             }
             if loaded && tasks.isEmpty {
                 Section {
-                    EmptyStateRow(icon: "clock.arrow.circlepath", title: "没有任务", message: "在模块或「脚本」里添加定时、网络变化或交互脚本，例如：") {
+                    EmptyStateRow(icon: "clock.arrow.circlepath", title: "没有任务", message: "点右上角 + 添加计划任务，或在模块、「脚本」里添加定时、网络变化或交互脚本，例如：") {
                         Text("签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到\nevent-interaction https://…/b.js, tag=查询")
                             .font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
@@ -267,17 +281,17 @@ struct ScriptTasksView: View {
         .toolbar {
             if editMode.isEditing {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") { withAnimation { editMode = .inactive } }
-                        .accessibilityIdentifier("tasks.reorderDone")
+                    ReorderToolbarButton(isEditing: true, id: "tasks.reorderDone") { withAnimation { editMode = .inactive } }
                 }
             } else {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     UpdateAllButton(busy: updatingAll || res.updatingAll, id: "tasks.updateAll") { Task { await updateAll() } }
-                    Menu {
-                        Button { withAnimation { editMode = .active } } label: { Label("调整顺序", systemImage: "arrow.up.arrow.down") }
-                            .disabled(shown.count < 2)
-                    } label: { Image(systemName: "ellipsis.circle") }
-                        .accessibilityIdentifier("tasks.more")
+                    ReorderToolbarButton(isEditing: false, count: search.isEmpty ? visible.count : 0, id: "tasks.reorder") {
+                        withAnimation { editMode = .active }
+                    }
+                    Button { adding = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel(Text("添加任务"))
+                        .accessibilityIdentifier("tasks.add")
                 }
             }
         }
@@ -288,6 +302,16 @@ struct ScriptTasksView: View {
             ModuleSubSheet(module: m) { d in store.deleteModule(d); res.reload() }
         }
         .sheet(item: $editingScript, onDismiss: { Task { await load() } }) { ScriptFormSheet(item: $0) }
+        .sheet(isPresented: $adding) { TaskAddPrompt { addNext = $0 } }
+        .sheet(item: $addNext, onDismiss: { Task { try? await Task.sleep(nanoseconds: 600_000_000); await load() } }) { n in
+            switch n {
+            case .template(let c): TaskFormSheet(cron: c, source: 0, code: TaskFormSheet.template)
+            case .advanced(let c): TaskFormSheet(cron: c.isEmpty ? "0 8 * * *" : c)
+            case .text: LineEditorSheet(title: "文本方式添加", scripts: true, item: nil)
+            }
+        }
+        .searchable(text: $search, prompt: "搜索")
+        .onChange(of: search) { q in if !q.isEmpty && editMode.isEditing { editMode = .inactive } }
         .deleteConfirmation({ t in Text("删除「\(t.script.name)」？") }, item: $pendingDelete,
                             message: { t in Self.isLocal(t) ? DeleteText.recoverable : Text("只从任务列表移除，它不再自动运行；订阅本身不会改动。可以在列表底部「恢复已删除的任务」找回。") },
                             id: "tasks.confirmDelete") { t in delete(t) }
@@ -382,6 +406,8 @@ struct ScriptTasksView: View {
             let dur = t.duration.map { " · \($0) ms" } ?? ""
             out.append((t.lastOK == true ? "✓ " : "✗ ") + String(localized: "上次 \(rel)\(dur)"))
         }
+        // fix/nc-0.20.2: the script path / URL under the schedule (QX row layout).
+        if !t.script.path.isEmpty { out.insert(t.script.path, at: min(1, out.count)) }
         return out
     }
 
@@ -850,5 +876,219 @@ struct ScriptNoticesView: View {
         }
         .onAppear { items = NoticeHistory.load() }
         .refreshable { items = NoticeHistory.load() }
+    }
+}
+
+// MARK: - fix/nc-0.20.2: + → 执行日期 → 下一步 / 高级 / 文本方式添加 (modelled on Quantumult X's 计划任务)
+
+/// The 定时任务 add flow, step 1: one cron field (5 or 6 fields), then 下一步 (script editor with a template),
+/// 高级 (the full 计划任务 form) or 文本方式添加 (one Surge / Loon / QX task line).
+struct TaskAddPrompt: View {
+    enum Next: Identifiable { case template(String), advanced(String), text
+        var id: String { switch self { case .template(let c): return "t" + c; case .advanced(let c): return "a" + c; case .text: return "x" } }
+    }
+    let onNext: (Next) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var cron = "0 8 * * *"
+
+    var valid: Bool { TaskFormSheet.cronOK(cron) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("0 8 * * *", text: $cron)
+                        .font(.body.monospaced())
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("taskadd.cron")
+                    if !valid { Text("Cron 表达式无效（5 或 6 段，例如 0 8 * * *）").font(.caption).foregroundStyle(Theme.bad) }
+                } header: { Text("执行日期") } footer: { Text("Cron 表达式，只填时间部分，不含脚本。") }
+                Section {
+                    Button("下一步") { go(.template(TaskFormSheet.normCron(cron))) }
+                        .disabled(!valid).accessibilityIdentifier("taskadd.next")
+                    Button("高级") { go(.advanced(valid ? TaskFormSheet.normCron(cron) : "")) }
+                        .accessibilityIdentifier("taskadd.advanced")
+                    Button("文本方式添加") { go(.text) }
+                        .accessibilityIdentifier("taskadd.text")
+                }
+            }
+            .navigationTitle("添加任务").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func go(_ n: Next) {
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { onNext(n) }
+    }
+}
+
+/// 计划任务: 标签, 类型, Cron 表达式*, 脚本路径* (URL, 本地编辑 or a file from Files / iCloud), 图标, 超时, argument.
+/// Saves a Surge-style local script line (`标签 = type=cron,cronexp="…",script-path=…`) into 脚本, so the task is
+/// listed and run like every other.
+struct TaskFormSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var store = EngineStore.shared
+    @State var name = ""
+    @State var kind = "cron"
+    @State var cron = "0 8 * * *"
+    /// 0 本地编辑, 1 URL
+    @State var source = 1
+    @State var url = ""
+    @State var code = ""
+    @State var icon = ""
+    @State var timeout = "30"
+    @State var argument = ""
+    @State private var importing = false
+    @State private var importError: String?
+
+    static let template = """
+    // 计划任务模板：请求一个接口，发通知，然后 $done()
+    const url = "https://httpbin.org/get";
+    $httpClient.get({ url, headers: { "User-Agent": "Tern" } }, (error, response, data) => {
+      if (error) {
+        $notification.post("任务失败", "", String(error));
+      } else {
+        $notification.post("任务完成", "HTTP " + response.status, String(data).slice(0, 80));
+      }
+      $done();
+    });
+    """
+
+    static func normCron(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// 5- or 6-field cron (or an @macro) that the task parser accepts.
+    static func cronOK(_ s: String) -> Bool {
+        let c = normCron(s)
+        if c.hasPrefix("@") { return NCEngineParser.cronMacros[c.lowercased()] != nil }
+        let n = c.split(separator: " ").count
+        return (n == 5 || n == 6) && NCEngineParser.cronValid(c)
+    }
+
+    var scriptPath: String {
+        source == 1 ? url.trimmingCharacters(in: .whitespacesAndNewlines)
+            : EnginePaths.safe(name.isEmpty ? "task" : name) + ".js"
+    }
+
+    /// The saved line.
+    var line: String {
+        let tag0 = name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "=", with: " ").replacingOccurrences(of: ",", with: " ")
+        let ic0 = icon.trimmingCharacters(in: .whitespaces)
+        if kind == "interaction" { // QX spelling: Surge has no interaction task type
+            var s = "event-interaction \(scriptPath), tag=\(tag0.isEmpty ? "task" : tag0)"
+            if ic0.hasPrefix("http://") || ic0.hasPrefix("https://") { s += ", img-url=\(ic0)" }
+            return s
+        }
+        var parts: [String] = []
+        switch kind {
+        case "cron": parts = ["type=cron", "cronexp=\"\(Self.normCron(cron))\""]
+        case "event": parts = ["type=event", "event-name=network-changed"]
+        default: parts = ["type=generic"]
+        }
+        parts.append("script-path=\(scriptPath)")
+        if let t = Int(timeout), t > 0 { parts.append("timeout=\(t)") }
+        if !argument.isEmpty { parts.append("argument=\"\(argument.replacingOccurrences(of: "\"", with: "'"))\"") }
+        let ic = icon.trimmingCharacters(in: .whitespaces)
+        if ic.hasPrefix("http://") || ic.hasPrefix("https://") { parts.append("img-url=\(ic)") }
+        let tag = name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "=", with: " ")
+        return "\(tag.isEmpty ? "task" : tag) = " + parts.joined(separator: ",")
+    }
+
+    var canSave: Bool {
+        if kind == "cron" && !Self.cronOK(cron) { return false }
+        if source == 1 { return URL(string: scriptPath)?.scheme?.hasPrefix("http") == true }
+        return !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("基本") {
+                    TextField("标签", text: $name).accessibilityIdentifier("taskform.name")
+                    Picker("类型", selection: $kind) {
+                        Text("定时").tag("cron")
+                        Text("网络变化时").tag("event")
+                        Text("交互").tag("interaction")
+                        Text("通用（手动）").tag("generic")
+                    }
+                    .accessibilityIdentifier("taskform.kind")
+                }
+                .listRowBackground(Theme.card)
+                if kind == "cron" {
+                    Section {
+                        TextField("0 8 * * *", text: $cron).font(.body.monospaced())
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("taskform.cron")
+                        HStack {
+                            Button("每天 8:00") { cron = "0 8 * * *" }.buttonStyle(.bordered)
+                            Button("每小时") { cron = "0 * * * *" }.buttonStyle(.bordered)
+                        }
+                        if !Self.cronOK(cron) { Text("Cron 表达式无效（5 或 6 段）").font(.caption).foregroundStyle(Theme.bad) }
+                    } header: { Text("Cron 表达式 *") }
+                    .listRowBackground(Theme.card)
+                }
+                Section {
+                    Picker("", selection: $source) {
+                        Text("URL").tag(1)
+                        Text("本地").tag(0)
+                    }.pickerStyle(.segmented)
+                    if source == 1 {
+                        TextField("https://…/task.js", text: $url).keyboardType(.URL)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("taskform.url")
+                    } else {
+                        CodeEditor(text: $code, language: .javascript).frame(minHeight: 220).listRowInsets(EdgeInsets())
+                        Text("保存为 \(scriptPath)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Button { importing = true } label: { Label("从「文件」导入脚本", systemImage: "folder") }
+                    if let importError { Text(importError).font(.caption).foregroundStyle(Theme.bad) }
+                } header: { Text("脚本路径 *") }
+                .listRowBackground(Theme.card)
+                Section {
+                    TextField("https://…/icon.png（144×144）", text: $icon).keyboardType(.URL)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    HStack { Text("timeout（秒）"); TextField("30", text: $timeout).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
+                    TextField("argument（可选）", text: $argument).textInputAutocapitalization(.never).autocorrectionDisabled()
+                } header: { Text("图标与选项") }
+                .listRowBackground(Theme.card)
+                Section("生成的任务行") {
+                    Text(verbatim: line).scaledFont(10, design: .monospaced).textSelection(.enabled)
+                        .accessibilityIdentifier("taskform.line")
+                }
+                .listRowBackground(Theme.card)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("计划任务").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") { save(); dismiss() }.disabled(!canSave).accessibilityIdentifier("taskform.save")
+                }
+            }
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.javaScript, .plainText, .text]) { r in
+                switch r {
+                case .success(let u):
+                    let ok = u.startAccessingSecurityScopedResource()
+                    defer { if ok { u.stopAccessingSecurityScopedResource() } }
+                    if let s = try? String(contentsOf: u, encoding: .utf8) {
+                        code = s; source = 0; importError = nil
+                        if name.isEmpty { name = u.deletingPathExtension().lastPathComponent }
+                    } else { importError = String(localized: "无法读取这个文件") }
+                case .failure(let e): importError = e.localizedDescription
+                }
+            }
+        }
+    }
+
+    func save() {
+        if source == 0 { store.writeScript(scriptPath, code) }
+        store.config.scripts.append(EngineItem(line: line))
+        if !store.config.scriptsEnabled { store.config.scriptsEnabled = true }
+        store.save()
     }
 }

@@ -36,6 +36,8 @@ struct EngineModule: Codable, Identifiable, Hashable {
     var updatedAt: Double? = nil
     /// Auto-update interval in seconds (nil = 1 day).
     var interval: Int? = nil
+    /// fix/nc-0.20.2: the user typed this name (添加 / 编辑订阅): updates never replace it with the module's #!name.
+    var customName: Bool? = nil
 }
 
 /// r7 R7A-10: tolerant field-by-field decoding; an entry without `line` cannot be used and is skipped by the list.
@@ -62,6 +64,7 @@ extension EngineModule {
         policies = (try? c.decodeIfPresent([String: String].self, forKey: .policies)) ?? nil
         updatedAt = (try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? nil
         interval = (try? c.decodeIfPresent(Int.self, forKey: .interval)) ?? nil
+        customName = (try? c.decodeIfPresent(Bool.self, forKey: .customName)) ?? nil
     }
 }
 
