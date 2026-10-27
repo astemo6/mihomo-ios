@@ -26,12 +26,39 @@ extension TernUITests {
     /// 排序 → drag `moving` above `target` on its reorder handle → 完成. true when the rows end up in that order.
     private func reorderWithButton(_ buttonID: String, doneID: String? = nil, moving: XCUIElement, above target: XCUIElement) -> Bool {
         XCTAssertTrue(tapIfExists(app.element(id: buttonID), timeout: 6), "排序 \(buttonID)")
-        usleep(700_000)
-        XCTAssertNotNil(reorderControl(for: moving), "drag handle on \(moving.identifier) in edit mode")
+        // r3: the UIKit reorder control was not found by label/frame on 重写 / 定时任务 (zh light + dark) while the
+        // drag itself reordered the rows (edit mode on: `.onMove` is only attached while editing). Wait for the
+        // handle a while; when it still is not matched, note it — the drag below and the strict saved-order /
+        // relaunch checks of the caller decide.
+        var handle: XCUIElement? = nil
+        let deadline = Date().addingTimeInterval(4)
+        repeat {
+            usleep(400_000)
+            handle = reorderControl(for: moving)
+        } while handle == nil && Date() < deadline
+        if handle == nil { warnings.append("[\(Env.tag)] no reorder control matched on \(moving.identifier); dragging by row edge") }
         let moved = dragRow(moving, above: target)
         XCTAssertTrue(tapIfExists(app.element(id: doneID ?? buttonID), timeout: 4), "完成 \(doneID ?? buttonID)")
         usleep(900_000)
         return moved
+    }
+
+    /// r3 (test98): the URL field sat under the keyboard raised for 名称 (tap did not focus it: 「Neither element nor
+    /// any descendant has keyboard focus」). Taps until the field has keyboard focus: plain tap, then the form
+    /// scrolled up so the field clears the keyboard, then a tap near the field's top edge.
+    private func typeFocused(_ f: XCUIElement, _ text: String) {
+        func focused() -> Bool { (f.value(forKey: "hasKeyboardFocus") as? Bool) == true }
+        for attempt in 0..<4 {
+            switch attempt {
+            case 0: f.tap()
+            case 1: app.swipeUp(); usleep(500_000); f.tap()
+            case 2: f.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
+            default: app.swipeUp(); usleep(500_000); f.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+            }
+            usleep(500_000)
+            if focused() { f.typeText(text); return }
+        }
+        XCTFail("no keyboard focus on \(f.identifier)")
     }
 
     // MARK: 95. 重写 → 订阅: drag reorder, kept after relaunch
@@ -141,8 +168,7 @@ extension TernUITests {
         let name = app.textFields.matching(identifier: "taskform.name").firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 6), "计划任务 form")
         XCTAssertTrue(app.element(id: "taskform.nextRun").waitForExistence(timeout: 4), "next run in the form")
-        name.tap()
-        name.typeText("UITest Added")
+        typeFocused(name, "UITest Added")
         // URL source
         let url = app.textFields.matching(identifier: "taskform.url").firstMatch
         if !url.waitForExistence(timeout: 2) {
@@ -150,8 +176,7 @@ extension TernUITests {
             if seg.exists { seg.tap() }
         }
         XCTAssertTrue(url.waitForExistence(timeout: 4), "script URL field")
-        url.tap()
-        url.typeText("https://example.invalid/uitest-added.js")
+        typeFocused(url, "https://example.invalid/uitest-added.js")
         snap("fix0202-task-form")
         XCTAssertTrue(tapIfExists(app.element(id: "taskform.save"), timeout: 4), "保存")
         let row = app.element(id: "task.row.UITest Added")
