@@ -96,6 +96,11 @@ enum NCSupport {
             if let why = wireguardUnsupported(p) { return why }
         case "masque":
             if let why = masqueUnsupported(p) { return why }
+            // fix/nc-masque-ip: CONNECT-IP stays unavailable until the real RFC 9484 loopback is green
+            // (the connector still dials, so the loopback can run).
+            if NCMASQUE.Config(proxy: p)?.mode == .connectIP, !NCMASQUE.connectIPVerified {
+                return NCMASQUE.connectIPUnverified
+            }
         case "mieru":
             if let why = mieruUnsupported(p) { return why }
         case "brook":
@@ -327,7 +332,8 @@ enum NCSupport {
         let pass = p.password ?? f["password"]?.string ?? ""
         let hasKeys = !priv.isEmpty && !pub.isEmpty
         let hasCreds = !user.isEmpty || !pass.isEmpty
-        if !hasKeys && !hasCreds {
+        let explicitIP = (f["mode"]?.string?.lowercased() == "connect-ip")
+        if !hasKeys && !hasCreds && !explicitIP {
             return "MASQUE 缺少 private-key / public-key 或认证凭据"
         }
         if hasKeys && (f["ip"]?.string ?? "").isEmpty && (f["ipv6"]?.string ?? "").isEmpty && (f["network"]?.string ?? "") != "h3-l4proxy" {
@@ -353,7 +359,10 @@ enum NCSupport {
         case .connectUDP:
             if cfg.network == "h2" { return "MASQUE over HTTP/2 尚未接入（仅 HTTP/3）" }
         case .connectIP:
-            return "MASQUE CONNECT-IP（WARP）尚未接入：需隧道内 L3 网卡"
+            // fix/nc-masque-ip: RFC 9484 CONNECT-IP over HTTP/3 with a lwIP netif (PacketTunnel). WARP profiles
+            // (key pair → Cloudflare cf-connect-ip + mTLS) are not wired.
+            if hasKeys { return NCMASQUE.warpUnavailable }
+            if cfg.network == "h2" { return "MASQUE CONNECT-IP over HTTP/2 尚未接入（仅 HTTP/3）" }
         case .l4Proxy:
             return "MASQUE h3-l4proxy 尚未接入"
         }

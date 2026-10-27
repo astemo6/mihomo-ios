@@ -317,6 +317,7 @@ final class NCDataPlane {
             // connections into the lwIP stack — tear them down (this queue
             // IS NCLwIP.queue) before the stack itself stops, or they keep
             // believing `alive` with device ids the next stack never had.
+            NCMQIPStack.shared.teardownAll()
             NCWGStack.shared.teardownAll()
             stack.stop()
             if let flow { flushOutput(flow) } // the RSTs the aborts above emitted still reach the apps
@@ -1416,6 +1417,13 @@ final class NCDataPlane {
             session = NCUDPMieruSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "anytls":
             session = NCUDPAnyTLSSession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "masque" && NCMASQUE.Config(proxy: proxy)?.mode == .connectIP:
+            // fix/nc-masque-ip: RFC 9484 CONNECT-IP — UDP from the node's lwIP netif (NCMASQUEIPNetif.swift).
+            guard NCSupport.masqueUnsupported(proxy) == nil else {
+                udpDropped += 1
+                return
+            }
+            session = NCUDPWireGuardSession(proxy: proxy, queue: queue, acquire: { NCMQIPStack.shared.acquire($0) })
         case .proxy(let proxy) where proxy.type == "masque":
             // fix/nc-proto-masque-int: RFC 9298 CONNECT-UDP, one request stream per flow (NCMASQUEUDP.swift).
             session = NCUDPMASQUESession(proxy: proxy, target: target, queue: queue)

@@ -9,6 +9,11 @@
 #
 # Not covered, by design (see tools/loopback/README.md): WireGuard client (its NativeCore dialer exists only
 # inside the packet tunnel) and Mieru (sing-box has no mieru inbound to test against).
+#
+# Job `masque-ip` (fix/nc-masque-ip): MASQUE CONNECT-IP (RFC 9484) against a REAL CONNECT-IP proxy — the upstream
+# connect-ip-go integration proxy (built here with Go for linux/arm64, nothing vendored) in an Alpine VM under QEMU
+# (TCG; macOS runners have no Docker / nested virtualisation), tools/loopback/connectip. The netif is PacketTunnel
+# code, so the test class lives in TernE2ETunnelTests (scheme TernE2E).
 name: Proto loopback
 
 on:
@@ -19,6 +24,8 @@ on:
       - "UnitTests/NativeCoreLoopbackTests.swift"
       - "tools/loopback/**"
       - ".github/workflows/proto-loopback.yml"
+      - "PacketTunnel/NativeCore/NCMASQUEIPNetif.swift"
+      - "E2ETests/NCMASQUEIPLoopbackTests.swift"
 
 permissions:
   contents: read
@@ -118,3 +125,98 @@ jobs:
           path: results/loopback.xcresult
           if-no-files-found: ignore
           retention-days: 7
+
+  masque-ip:
+    if: github.repository == 'astemo6/mihomo-ios'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      MQ_PORT: "18446"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Go (builds the upstream CONNECT-IP proxy for the VM)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+      - name: Cache Alpine cloud image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/nc-mqip/alpine.qcow2
+          key: mqip-alpine-3.22.4-aarch64-cloudinit
+      - name: Build proxy + boot CONNECT-IP VM (background; overlaps the Xcode build)
+        run: |
+          brew install qemu
+          tools/loopback/connectip/start-connectip-vm.sh build
+          tools/loopback/connectip/start-connectip-vm.sh start
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+      - name: Generate project (with test targets)
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project-uitests.yml
+      - name: Pick simulator
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
+          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
+              m=[(r,x) for r,x in devs if x['name']==want]
+              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
+          ")
+          test -n "$DEV"
+          echo "DEV=$DEV" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEV" || true
+      - name: Build for testing (TernE2E — compiles the PacketTunnel sources)
+        run: |
+          set -o pipefail
+          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/mq \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            build-for-testing 2>&1 | tee build-mq.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
+          grep -q "TEST BUILD SUCCEEDED" build-mq.log || { tail -n 150 build-mq.log; exit 1; }
+      - name: Wait for CONNECT-IP proxy
+        run: tools/loopback/connectip/start-connectip-vm.sh wait 1200
+      - name: Run MASQUE CONNECT-IP loopback tests
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          # NC_MQIP_LOOPBACK=1: the tests fail loudly (never skip) when the proxy is unreachable.
+          TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_MQIP_LOOPBACK=1 TEST_RUNNER_NC_MQIP_PORT=$MQ_PORT \
+          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/mq -resultBundlePath results/masque-ip.xcresult \
+            -only-testing:TernE2ETunnelTests/NCMASQUEIPLoopbackTests test-without-building 2>&1 | tee results/masque-ip.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|mqip-loopback|masque-ip:"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/masque-ip.log
+          if grep -q "skipped" results/masque-ip.log && ! grep -q "passed" results/masque-ip.log; then RC=1; echo "::error::all CONNECT-IP loopback tests skipped"; fi
+          {
+            echo "### MASQUE CONNECT-IP loopback (real connect-ip-go proxy)"
+            grep -E "Executed [0-9]+ tests?" results/masque-ip.log | tail -n 1 | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - name: Stop CONNECT-IP VM
+        if: always()
+        run: |
+          tools/loopback/connectip/start-connectip-vm.sh stop || true
+          mkdir -p results
+          cp /tmp/nc-mqip/console.log results/mqip-console.log 2>/dev/null || true
+          echo "--- VM console (proxy / dnsmasq / setup lines, last 150) ---"
+          grep -a -E "proxy|dropping|dnsmasq|MQSETUP|connect-ip|read [0-9]+ bytes" /tmp/nc-mqip/console.log | tail -n 150 || true
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: masque-ip-loopback-results
+          path: |
+            results/masque-ip.log
+            results/mqip-console.log
+            build-mq.log
+          if-no-files-found: warn
+          retention-days: 14
