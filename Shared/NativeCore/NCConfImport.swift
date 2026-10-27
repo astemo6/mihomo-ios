@@ -326,6 +326,7 @@ enum NCConfImport {
         // feat/nc-gost-relay: Shadowrocket `Name = relay, host, port, user, pass, …` (GOST relay; a [Proxy] node
         // line, unrelated to the `relay` chain group) and the Clash.Meta spelling.
         case "relay", "gost-relay", "gostrelay": type = "gost-relay"
+        case "lua": type = "lua"
         case "direct": type = "direct"
         case "reject", "reject-tinygif": type = "reject"
         default:
@@ -406,6 +407,13 @@ enum NCConfImport {
             if positional.count >= 5, !positional[4].isEmpty, kv["password"] == nil { fields["password"] = .string(positional[4]) }
             if fields["udp"] == nil { fields["udp"] = .bool(true) }
             consumed.formUnion(NCGostRelay.applyParams(kv, into: &fields))
+        case "lua":
+            // Shadowrocket Lua custom protocol backend:
+            // Node = lua, server, port, file=backend.lua, username=user, password=pass
+            if let f = take("file") ?? take("script-path") { fields["file"] = .string(f) }
+            if let u = take("username") ?? take("user") { fields["username"] = .string(u) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            report.warnings.append("node '\(name)': lua proxy backend recognized")
         case "http", "https", "socks5":
             // Surge spells credentials positionally after the port for these
             // types; the k=v form is accepted too.
@@ -855,6 +863,7 @@ enum NCConfImport {
                 var name = "script"
                 var path = ""
                 var reqBody = false
+                var extra: [String: String] = [:]
                 for t in tokens.dropFirst() {
                     if let eq = t.firstIndex(of: "=") {
                         let k = String(t[..<eq]).trimmingCharacters(in: .whitespaces).lowercased()
@@ -862,9 +871,15 @@ enum NCConfImport {
                         if k == "tag" || k == "name" { name = v }
                         else if k == "script-path" { path = v }
                         else if k == "requires-body" { reqBody = (boolValue(v) ?? false) }
+                        else { extra[k] = v }
                     }
                 }
-                cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody))
+                if path.lowercased().hasSuffix(".lua") || type.lowercased() == "lua" || extra["engine"]?.lowercased() == "lua" {
+                    extra["engine"] = "lua"
+                    extra["status"] = "unsupported"
+                    cfg.report.warnings.append("script '\(name)': lua script recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
+                }
+                cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody, extra: extra))
             } else if let eq = trimmed.firstIndex(of: "=") {
                 let name = String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces)
                 let params = String(trimmed[trimmed.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
@@ -873,6 +888,7 @@ enum NCConfImport {
                 var pattern = ""
                 var path = ""
                 var reqBody = false
+                var extra: [String: String] = [:]
                 for t in tokens {
                     if let peq = t.firstIndex(of: "=") {
                         let k = String(t[..<peq]).trimmingCharacters(in: .whitespaces).lowercased()
@@ -881,10 +897,16 @@ enum NCConfImport {
                         else if k == "pattern" { pattern = v }
                         else if k == "script-path" { path = v }
                         else if k == "requires-body" { reqBody = (boolValue(v) ?? (v == "1")) }
+                        else { extra[k] = v }
                     }
                 }
+                if path.lowercased().hasSuffix(".lua") || type.lowercased() == "lua" || extra["engine"]?.lowercased() == "lua" {
+                    extra["engine"] = "lua"
+                    extra["status"] = "unsupported"
+                    cfg.report.warnings.append("script '\(name)': lua script recognized (unsupported: HTTP-layer Lua scripts are outside the Lua backend engine's scope)")
+                }
                 if !pattern.isEmpty {
-                    cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody))
+                    cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody, extra: extra))
                 }
             }
         }

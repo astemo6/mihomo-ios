@@ -257,6 +257,19 @@ struct NCScriptRule: Equatable {
     var requiresBody: Bool = false
     var timeoutMs: Int64 = 10000
     var extra: [String: String] = [:]
+
+    var isLua: Bool {
+        extra["engine"]?.lowercased() == "lua" || (scriptPath?.lowercased().hasSuffix(".lua") ?? false) || type.lowercased() == "lua"
+    }
+
+    var isPendingS2: Bool {
+        extra["status"] == "pending_s2"
+    }
+}
+
+extension NCProxy {
+    var isLua: Bool { type.lowercased() == "lua" }
+    var isLuaPendingS2: Bool { fields["lua-status"]?.string == "pending_s2" }
 }
 
 /// Non-fatal import findings: unmapped parameters and unrecognized sections
@@ -330,6 +343,9 @@ extension NCCanonicalConfig {
         out.logLevel = cfg.logLevel
         out.ipv6 = cfg.ipv6
         out.nodes = cfg.proxies
+        for p in cfg.proxies where p.isLua {
+            out.report.warnings.append("node '\(p.name)': lua proxy backend recognized")
+        }
         out.rules = cfg.rules
         out.groups = cfg.groups.map { g in
             let kind: NCGroupKind

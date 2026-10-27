@@ -53,6 +53,8 @@ targets:
       - path: Shared
       # feat/jsc-engine: the JavaScriptCore script engine also runs 脚本调试 in the app (and the unit tests).
       - path: PacketTunnel/JSCScriptEngine.swift
+      # feat/nc-lua: vendored Lua 5.4 C core and Swift bridge for App and UnitTests
+      - path: PacketTunnel/NativeCore/Lua
       # nc-script-runtime-verify: the tunnel's Surge type=dns / type=rule hook runner, in the app only so
       # UnitTests/NativeCoreScriptRuntimeVerifyTests.swift can drive it against the real script host (its
       # NativeCoreEngine glue is behind TERN_TUNNEL, like NativeScriptHost's tunnel-only calls).
@@ -116,6 +118,10 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Night AppIcon-Sky"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # feat/nc-lua: let App Swift (and UnitTests) call the vendored Lua bridge.
+        SWIFT_OBJC_BRIDGING_HEADER: App/NCLuaBridge.h
+        HEADER_SEARCH_PATHS:
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/Lua
 
   PacketTunnel:
     type: app-extension
