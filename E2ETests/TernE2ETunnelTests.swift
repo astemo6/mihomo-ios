@@ -921,9 +921,11 @@ final class TernE2ETunnelTests: XCTestCase {
         if !c.reset { c.abort() }
         net.forget(c)
         // fix/nc-tls-scripts (gap c, the App self-check's probe): an HTTP request WITH a Host header to an unmapped fake
-        // IP must be refused at the SYN — device build506 answered it (HTTP 204) because the Host was sniffed.
+        // IP must be refused before any byte is served — device build506 answered it (HTTP 204) because the Host was
+        // sniffed. The C stack calls accept() after the 3-way handshake, so the refusal is an RST right after it
+        // (same as stale-fakeip-reset; E2E 40543432526 saw "accepted, RST, status -").
         let res = net.httpGet(ip: "198.18.251.78", port: 80, host: "www.gstatic.com", path: "/generate_204", timeout: 6)
-        let refused = !res.established && res.reset
+        let refused = res.reset && res.status == nil
         r.record("stale-fakeip-host", refused ? .pass : .fail,
                  "HTTP with Host to unmapped 198.18.251.78:80 → \(res.established ? "accepted" : "no handshake")\(res.reset ? ", RST" : ""), status \(res.status.map { String($0) } ?? "-")")
     }
