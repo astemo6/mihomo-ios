@@ -556,7 +556,23 @@ final class NCSudokuCodec {
                              c3: UInt8(c[3]), v3: grid[c[3]])
             }
         }
-        // Fallback: first cell of each 2x2 box
+        // fix/nc-proto-sudoku-int: the fixed patterns miss 48 of the 288 grids (their decode was ambiguous, so
+        // ~1 in 6 bytes vanished). Every 4x4 grid has some unique 4-clue puzzle: search all C(16,4) positions.
+        for a in 0..<13 {
+            for b in (a + 1)..<14 {
+                for c in (b + 1)..<15 {
+                    for d in (c + 1)..<16 {
+                        var p = [UInt8](repeating: 0, count: 16)
+                        p[a] = grid[a]; p[b] = grid[b]; p[c] = grid[c]; p[d] = grid[d]
+                        if solveUnique(&p) != nil {
+                            return Hint4(c0: UInt8(a), v0: grid[a], c1: UInt8(b), v1: grid[b],
+                                         c2: UInt8(c), v2: grid[c], c3: UInt8(d), v3: grid[d])
+                        }
+                    }
+                }
+            }
+        }
+        // Unreachable for valid grids.
         return Hint4(c0: 0, v0: grid[0], c1: 2, v1: grid[2], c2: 8, v2: grid[8], c3: 10, v3: grid[10])
     }
 
