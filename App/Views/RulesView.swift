@@ -152,7 +152,7 @@ struct LocalRulesView: View {
     @State private var confirmDeleteProfile: ProfileRuleItem?
     @State private var confirmRestoreAll = false
     @ObservedObject private var hits = RuleHitsStore.shared
-    @AppStorage("rules.sortByHits") private var sortByHits = false
+    @AppStorage("rules.sortByHits", store: AppShared.defaults) private var sortByHits = false
     @State private var confirmReset = false
 
     struct Row: Hashable { var item: ProfileRuleItem; var session: Int? }

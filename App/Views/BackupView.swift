@@ -88,7 +88,9 @@ enum BackupManager {
             let tag = tagged.prefix(2), key = String(tagged.dropFirst(2))
             guard isBackedUpPref(key), let d = Data(base64Encoded: b64),
                   let arr = try? PropertyListSerialization.propertyList(from: d, format: nil) as? [Any], let v = arr.first else { continue }
-            if tag == "g:" { group.set(v, forKey: key) } else if tag == "s:" { standard.set(v, forKey: key) }
+            // feat/fresh-reinstall: settings that moved to the App Group defaults go there even from an older backup
+            // that tagged them "s:".
+            if tag == "g:" || DefaultsMigration.movedKeys.contains(key) { group.set(v, forKey: key) } else if tag == "s:" { standard.set(v, forKey: key) }
         }
     }
 

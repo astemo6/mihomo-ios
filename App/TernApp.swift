@@ -17,12 +17,16 @@ struct TernApp: App {
     @Environment(\.scenePhase) private var phase
 
     init() {
+        // feat/fresh-reinstall: before anything touches AppShared (it records its App Group choice in standard defaults).
+        let sandboxHadState = InstallMarker.snapshotSandboxState()
         EgernDensity.applyBars()
         // test/selftest: simulator UI tests only (-UITestSeed); wipes the demo container before any store loads.
         UITestSeed.resetIfNeeded()
         // feat/fresh-reinstall: install marker check before anything reads or writes the group store. On a reinstall
         // with leftover data the launch tasks wait for 保留 (全部清除 exits the app instead).
-        DataResetCoordinator.shared.evaluateLaunch(launchTasks: Self.launchTasks)
+        // feat/fresh-reinstall: user settings that were in UserDefaults.standard move to the App Group defaults (once).
+        DefaultsMigration.run()
+        DataResetCoordinator.shared.evaluateLaunch(sandboxHadState: sandboxHadState, launchTasks: Self.launchTasks)
         // feat/jsc-engine: `-TernJSCSelfTest` runs one the old JS engine-vs-JavaScriptCore conformance case and logs it.
         JSCScriptEngine.selfTestIfRequested()
     }

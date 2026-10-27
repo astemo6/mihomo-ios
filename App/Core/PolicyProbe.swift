@@ -120,9 +120,9 @@ final class ProbeStore: ObservableObject {
     static let autoKey = "unlock.autoRetest"
 
     private func scheduleAutoRetest() {
-        guard UserDefaults.standard.bool(forKey: Self.autoKey), VPNManager.shared.isConnected else { return }
-        let group = UserDefaults.standard.string(forKey: "unlock.group") ?? ""
-        let member = UserDefaults.standard.string(forKey: "unlock.member") ?? ""
+        guard AppShared.defaults.bool(forKey: Self.autoKey), VPNManager.shared.isConnected else { return }
+        let group = AppShared.defaults.string(forKey: "unlock.group") ?? ""
+        let member = AppShared.defaults.string(forKey: "unlock.member") ?? ""
         guard !group.isEmpty, member.isEmpty else { return } // a fixed node did not change
         autoTask?.cancel()
         autoTask = Task { [weak self] in
@@ -237,14 +237,14 @@ enum UnlockService: String, CaseIterable, Codable, Identifiable {
 
     /// The user's choice (更多 → 解锁检测 → 检测项目); default = every service.
     static var selected: [UnlockService] {
-        guard let raw = UserDefaults.standard.string(forKey: "unlock.services") else { return allCases }
+        guard let raw = AppShared.defaults.string(forKey: "unlock.services") else { return allCases }
         let set = Set(raw.split(separator: ",").map(String.init))
         let l = allCases.filter { set.contains($0.rawValue) }
         return l.isEmpty ? allCases : l
     }
 
     static func setSelected(_ l: [UnlockService]) {
-        UserDefaults.standard.set(l.map(\.rawValue).joined(separator: ","), forKey: "unlock.services")
+        AppShared.defaults.set(l.map(\.rawValue).joined(separator: ","), forKey: "unlock.services")
     }
 
     var title: String {

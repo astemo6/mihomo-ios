@@ -33,9 +33,9 @@ final class HomePanelStore: ObservableObject {
     private static let tasksKey = "panels.home.tasks"
     private static let namesKey = "panels.home.names"
 
-    @Published var hidden: Set<String> = Set(UserDefaults.standard.stringArray(forKey: HomePanelStore.hiddenKey) ?? [])
+    @Published var hidden: Set<String> = Set(AppShared.defaults.stringArray(forKey: HomePanelStore.hiddenKey) ?? [])
     @Published var tasks: [TaskPanelPin] = {
-        guard let d = UserDefaults.standard.data(forKey: HomePanelStore.tasksKey) else { return [] }
+        guard let d = AppShared.defaults.data(forKey: HomePanelStore.tasksKey) else { return [] }
         return (try? JSONDecoder().decode([TaskPanelPin].self, from: d)) ?? []
     }()
     /// Last results written by the engine (panel-cache.json), keyed by panel id.
@@ -45,7 +45,7 @@ final class HomePanelStore: ObservableObject {
     /// save the new order (menu showed 上移 disabled on the new first row) while the table kept drawing the old order.
     @Published private(set) var orderRevision = 0
     /// Panel names seen while connected, so the editor can name pinned panels while disconnected.
-    private var names: [String: String] = (UserDefaults.standard.dictionary(forKey: HomePanelStore.namesKey) as? [String: String]) ?? [:]
+    private var names: [String: String] = (AppShared.defaults.dictionary(forKey: HomePanelStore.namesKey) as? [String: String]) ?? [:]
 
     private var model: PanelsModel { PanelsModel.shared }
     static var homeURL: URL { EnginePaths.dir.appendingPathComponent("home-panels.json") }
@@ -86,7 +86,7 @@ final class HomePanelStore: ObservableObject {
             names[p.id] = p.name
             changed = true
         }
-        if changed { UserDefaults.standard.set(names, forKey: Self.namesKey) }
+        if changed { AppShared.defaults.set(names, forKey: Self.namesKey) }
     }
 
     // MARK: editing
@@ -151,7 +151,7 @@ final class HomePanelStore: ObservableObject {
     }
 
     private func savePinned() {
-        UserDefaults.standard.set(model.pinned, forKey: "panels.pinned")
+        AppShared.defaults.set(model.pinned, forKey: "panels.pinned")
         sync()
     }
 
@@ -163,8 +163,8 @@ final class HomePanelStore: ObservableObject {
         if tasks.contains(where: { !model.pinned.contains($0.panelID) }) { tasks.removeAll { !model.pinned.contains($0.panelID) } }
         let keptHidden = hidden.filter { model.pinned.contains($0) }
         if keptHidden != hidden { hidden = keptHidden }
-        UserDefaults.standard.set(Array(hidden), forKey: Self.hiddenKey)
-        if let d = try? JSONEncoder().encode(tasks) { UserDefaults.standard.set(d, forKey: Self.tasksKey) }
+        AppShared.defaults.set(Array(hidden), forKey: Self.hiddenKey)
+        if let d = try? JSONEncoder().encode(tasks) { AppShared.defaults.set(d, forKey: Self.tasksKey) }
         let body: [String: Any] = [
             "visible": visibleIDs.filter { !BuiltinTile.isBuiltin($0) }, // v0.19 tiles are app-drawn
             "tasks": tasks.map { t -> [String: Any] in

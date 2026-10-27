@@ -280,8 +280,8 @@ private struct AnalysisCardBox<Content: View>: View {
 /// Context menu shared by every analysis card.
 private struct AnalysisMenu: ViewModifier {
     let card: HomeAnalysisCard
-    @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
-    @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
+    @AppStorage(HomeAnalysisCard.hiddenKey, store: AppShared.defaults) private var hiddenRaw = ""
+    @AppStorage(HomeAnalysisCard.addedKey, store: AppShared.defaults) private var addedRaw = ""
     func body(content: Content) -> some View {
         content.contextMenu {
             if card.isOptIn {
@@ -312,7 +312,7 @@ private func toggleCollapsed(_ c: HomeAnalysisCard, _ raw: Binding<String>) {
 
 struct HomeConnectionTiles: View {
     @EnvironmentObject var vpn: VPNManager
-    @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
+    @AppStorage(HomeAnalysisCard.hiddenKey, store: AppShared.defaults) private var hiddenRaw = ""
     @State private var snap = HomeAnalysisModel.shared.connections
 
     var body: some View {
@@ -345,8 +345,8 @@ struct HomeConnectionTiles: View {
 
 struct HomeAnalysisSection: View {
     @EnvironmentObject var vpn: VPNManager
-    @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
-    @AppStorage(HomeAnalysisCard.collapsedKey) private var collapsedRaw = ""
+    @AppStorage(HomeAnalysisCard.addedKey, store: AppShared.defaults) private var addedRaw = ""
+    @AppStorage(HomeAnalysisCard.collapsedKey, store: AppShared.defaults) private var collapsedRaw = ""
 
     var body: some View {
         // Opt-in: only the panels the user added, in the fixed Egern order; nothing (not even the empty state) otherwise.
@@ -630,8 +630,8 @@ struct HomeTopHostsCard: View {
 /// 添加首页卡片 → 流量分析: 连接数 is a show / hide switch (on by default); 策略 / 规则 / 主机名 are opt-in panels with
 /// an add (+) or remove (−) button.
 struct HomeAnalysisEditorSection: View {
-    @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
-    @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
+    @AppStorage(HomeAnalysisCard.hiddenKey, store: AppShared.defaults) private var hiddenRaw = ""
+    @AppStorage(HomeAnalysisCard.addedKey, store: AppShared.defaults) private var addedRaw = ""
 
     var body: some View {
         Section {

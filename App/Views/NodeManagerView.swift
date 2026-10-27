@@ -38,7 +38,7 @@ struct NodeListView: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var model = NodeManagerModel.shared
     @ObservedObject private var nodeSubs = NodeSubStore.shared
-    @AppStorage("nodes.sort") private var sortRaw = NodeManagerModel.SortMode.config.rawValue
+    @AppStorage("nodes.sort", store: AppShared.defaults) private var sortRaw = NodeManagerModel.SortMode.config.rawValue
     @State private var query = ""
     @State private var protocolFilter = ""
     @State private var editing: NodeEditTarget?

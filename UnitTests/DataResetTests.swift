@@ -93,6 +93,21 @@ final class DataResetTests: XCTestCase {
         XCTAssertEqual(InstallMarker.evaluate(markerDir: sandbox, container: group, groupDomain: nil), .known)
     }
 
+    /// Updating from a build without the marker: the app's own preferences survived (they hold Tern keys), so it is
+    /// not a reinstall even though the group has data; the marker is written silently.
+    func testUpdateFromPreMarkerBuildIsNotAReinstall() throws {
+        XCTAssertEqual(InstallMarker.decide(markerPresent: false, containerHasData: true, sandboxHasState: true), .known)
+        XCTAssertTrue(InstallMarker.sandboxHasTernState([AppShared.rememberedGroupKey: "group.com.astemo6.tern"]))
+        XCTAssertTrue(InstallMarker.sandboxHasTernState(["onboardingDone.v1": true]))
+        XCTAssertTrue(InstallMarker.sandboxHasTernState(["panels.pinned": ["speed"]]))
+        XCTAssertFalse(InstallMarker.sandboxHasTernState(nil))
+        XCTAssertFalse(InstallMarker.sandboxHasTernState(["AppleLanguages": ["zh-Hans"], "NSInterfaceStyle": "x"]), "system keys only")
+        let sandbox = try dir("sb-update"), group = try dir("group-update")
+        try put("profiles.json", in: group, "[]")
+        XCTAssertEqual(InstallMarker.evaluate(markerDir: sandbox, container: group, groupDomain: nil, sandboxHasState: true), .known)
+        XCTAssertTrue(InstallMarker.exists(in: sandbox), "marker written on the update")
+    }
+
     func testNoAppGroupIsNeverAReinstall() throws {
         let sandbox = try dir("sb")
         XCTAssertEqual(InstallMarker.evaluate(markerDir: sandbox, container: nil, groupDomain: ["k": 1]), .firstInstall)
@@ -188,6 +203,80 @@ final class DataResetTests: XCTestCase {
 
     func testRealServiceNameIsTheOneKeychainUses() {
         XCTAssertEqual(Keychain.service, "com.astemo6.tern")
+    }
+
+    // MARK: defaults migration (standard → App Group)
+
+    func testDefaultsMigrationMovesUserSettingsOnce() throws {
+        let stdName = "com.astemo6.tern.unittests.mig-std-\(UUID().uuidString)"
+        let grpName = "com.astemo6.tern.unittests.mig-grp-\(UUID().uuidString)"
+        let std = try XCTUnwrap(UserDefaults(suiteName: stdName))
+        let grp = try XCTUnwrap(UserDefaults(suiteName: grpName))
+        defer { std.removePersistentDomain(forName: stdName); grp.removePersistentDomain(forName: grpName) }
+        std.set(["speed", "memory"], forKey: "panels.pinned")
+        std.set(["memory"], forKey: "panels.home.hidden")
+        std.set(Data("[]".utf8), forKey: "panels.home.tasks")
+        std.set(["speed": "网速"], forKey: "panels.home.names")
+        std.set("dark", forKey: "appearance")
+        std.set(3, forKey: "ui.launchTab")
+        std.set(["url": "https://dav.example/tern", "keep": 5], forKey: "webdav.settings")
+        std.set("abc", forKey: "unlock.services")
+        std.set(true, forKey: "onboardingDone.v1")          // device state: stays
+        std.set(Data("x".utf8), forKey: "ipinfo.lastLookup.v1") // cache: stays
+        std.set("old", forKey: "policy.sort")
+        grp.set("custom", forKey: "policy.sort")             // the group already has it: group wins
+
+        let moved = DefaultsMigration.run(standard: std, standardDomain: stdName, group: grp, groupDomain: grpName)
+        XCTAssertEqual(Set(moved), ["panels.pinned", "panels.home.hidden", "panels.home.tasks", "panels.home.names",
+                                    "appearance", "ui.launchTab", "webdav.settings", "unlock.services"])
+        XCTAssertEqual(grp.stringArray(forKey: "panels.pinned"), ["speed", "memory"])
+        XCTAssertEqual(grp.stringArray(forKey: "panels.home.hidden"), ["memory"])
+        XCTAssertEqual(grp.data(forKey: "panels.home.tasks"), Data("[]".utf8))
+        XCTAssertEqual(grp.dictionary(forKey: "panels.home.names") as? [String: String], ["speed": "网速"])
+        XCTAssertEqual(grp.string(forKey: "appearance"), "dark")
+        XCTAssertEqual(grp.integer(forKey: "ui.launchTab"), 3)
+        XCTAssertEqual(grp.dictionary(forKey: "webdav.settings")?["url"] as? String, "https://dav.example/tern")
+        XCTAssertEqual(grp.string(forKey: "policy.sort"), "custom", "existing group value is not overwritten")
+        for k in DefaultsMigration.movedKeys { XCTAssertNil(std.persistentDomain(forName: stdName)?[k], "standard copy dropped: \(k)") }
+        XCTAssertEqual(std.bool(forKey: "onboardingDone.v1"), true, "device state stays in standard")
+        XCTAssertNotNil(std.data(forKey: "ipinfo.lastLookup.v1"), "cache stays in standard")
+        XCTAssertTrue(std.bool(forKey: DefaultsMigration.flagKey))
+
+        // Once: a value written to standard later (an old code path) is not moved again.
+        std.set("light", forKey: "appearance")
+        XCTAssertEqual(DefaultsMigration.run(standard: std, standardDomain: stdName, group: grp, groupDomain: grpName), [])
+        XCTAssertEqual(grp.string(forKey: "appearance"), "dark")
+        // Same object for both (no App Group): nothing is moved or dropped.
+        XCTAssertEqual(DefaultsMigration.run(standard: grp, standardDomain: grpName, group: grp, groupDomain: grpName), [])
+    }
+
+    func testMovedKeysCoverEveryBackedUpStandardSetting() {
+        // Every key the full backup carries from the old "s:" domain that is a user setting now lives in the group.
+        for k in ["panels.pinned", "appearance", "ui.launchTab", "webdav.settings", "moduleGallery.sources", "qx.resourceParserURL",
+                  "usageAlerts.rules", "analytics.range", "rules.sortByHits", "policy.sort", "nodes.sort", "unlock.services"] {
+            XCTAssertTrue(DefaultsMigration.movedKeys.contains(k), k)
+        }
+        XCTAssertEqual(Set(DefaultsMigration.movedKeys).count, DefaultsMigration.movedKeys.count, "no duplicates")
+        XCTAssertFalse(DefaultsMigration.movedKeys.contains("onboardingDone.v1"))
+        XCTAssertFalse(DefaultsMigration.movedKeys.contains { $0.hasPrefix("UITest") })
+    }
+
+    /// A pre-move backup tags these settings "s:"; restoring it writes them into the group (where they are read now).
+    func testOldBackupPrefsRestoreIntoTheGroup() throws {
+        let stdName = "com.astemo6.tern.unittests.bk-std-\(UUID().uuidString)"
+        let grpName = "com.astemo6.tern.unittests.bk-grp-\(UUID().uuidString)"
+        let std = try XCTUnwrap(UserDefaults(suiteName: stdName))
+        let grp = try XCTUnwrap(UserDefaults(suiteName: grpName))
+        defer { std.removePersistentDomain(forName: stdName); grp.removePersistentDomain(forName: grpName) }
+        func enc(_ v: Any) throws -> String {
+            try PropertyListSerialization.data(fromPropertyList: [v], format: .binary, options: 0).base64EncodedString()
+        }
+        BackupManager.applyPrefs(["s:panels.pinned": try enc(["speed"]), "s:appearance": try enc("dark"),
+                                  "g:home.unlockPolicy": try enc("Netflix")], group: grp, standard: std)
+        XCTAssertEqual(grp.stringArray(forKey: "panels.pinned"), ["speed"])
+        XCTAssertEqual(grp.string(forKey: "appearance"), "dark")
+        XCTAssertEqual(grp.string(forKey: "home.unlockPolicy"), "Netflix")
+        XCTAssertNil(std.object(forKey: "panels.pinned"))
     }
 
     // MARK: settings search

@@ -7,7 +7,7 @@ struct MoreView: View {
     @EnvironmentObject var store: ProfileStore
     @ObservedObject private var router = ImportRouter.shared
     @State private var showOnboarding = false
-    @AppStorage(LaunchTab.key) private var launchRaw = 0
+    @AppStorage(LaunchTab.key, store: AppShared.defaults) private var launchRaw = 0
     /// fix/nav-jank: the 首页流量统计 row reads the stored setting instead of observing DashboardModel, which
     /// publishes every second and rebuilt this list and every pushed page (LazyDestination closures are never
     /// equal) during push / pop.
@@ -333,13 +333,13 @@ struct TrafficScopeView: View {
 enum LaunchTab {
     static let key = "ui.launchTab"
     static var current: AppSection {
-        AppSection(rawValue: UserDefaults.standard.integer(forKey: key)) ?? .home
+        AppSection(rawValue: AppShared.defaults.integer(forKey: key)) ?? .home
     }
     static var initial: Int { UITestSeed.enabled ? 0 : current.rawValue }
 }
 
 struct LaunchTabView: View {
-    @AppStorage(LaunchTab.key) private var raw = 0
+    @AppStorage(LaunchTab.key, store: AppShared.defaults) private var raw = 0
 
     var body: some View {
         List {

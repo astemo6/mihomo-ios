@@ -141,10 +141,10 @@ enum UsageAlerts {
     private static func allRules() -> [String: UsageAlertRule] { load(rulesKey) ?? [:] }
     private static func allStates() -> [String: UsageAlertState] { load(stateKey) ?? [:] }
     private static func load<T: Decodable>(_ key: String) -> T? {
-        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
+        AppShared.defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
     }
     private static func save<T: Encodable>(_ v: T, _ key: String) {
-        if let d = try? JSONEncoder().encode(v) { UserDefaults.standard.set(d, forKey: key) }
+        if let d = try? JSONEncoder().encode(v) { AppShared.defaults.set(d, forKey: key) }
     }
 }
 
@@ -201,12 +201,12 @@ enum ScheduledUpdates {
     static let taskID = "tern.subscriptions.refresh"
 
     static var notifyEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: enabledKey) }
-        set { UserDefaults.standard.set(newValue, forKey: enabledKey); if newValue { NotificationAuth.request() } }
+        get { AppShared.defaults.bool(forKey: enabledKey) }
+        set { AppShared.defaults.set(newValue, forKey: enabledKey); if newValue { NotificationAuth.request() } }
     }
     static var mode: UpdateNotifyMode {
-        get { UpdateNotifyMode(rawValue: UserDefaults.standard.string(forKey: modeKey) ?? "") ?? .problems }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: modeKey) }
+        get { UpdateNotifyMode(rawValue: AppShared.defaults.string(forKey: modeKey) ?? "") ?? .problems }
+        set { AppShared.defaults.set(newValue.rawValue, forKey: modeKey) }
     }
 
     private static var running = false

@@ -9,7 +9,8 @@ import UIKit
 // com.astemo6.tern). iOS keeps the App Group container after the app is deleted when another app of the same signing
 // team still uses that group, and Keychain items always survive a delete. The app's OWN sandbox (Documents, Library,
 // tmp) is always deleted with the app, so an install marker there tells a reinstall apart from an update:
-// - marker present                       → known install, nothing to do;
+// - marker present                       → known install, nothing to do (also: no marker but the app's own
+//   preferences hold Tern keys = an update from a build that predates the marker → marker written silently);
 // - marker missing, group container empty → first install: the marker is written silently;
 // - marker missing, group container holds Tern data → reinstall: 「检测到上次安装留下的配置」 asks 保留 / 全部清除
 //   before any store, geo install, scheduled update or tunnel start runs (DataResetCoordinator + TernApp gate).
@@ -51,8 +52,21 @@ enum InstallMarker {
         }
     }
 
+    /// Standard-defaults keys only Tern writes (the App Group choice, written on every launch since r7; onboarding;
+    /// the settings that moved to the group). Any of them in the app's own preferences = the sandbox survived, i.e.
+    /// an update from a build without the marker, not a reinstall.
+    static func sandboxHasTernState(_ standardDomain: [String: Any]?) -> Bool {
+        guard let d = standardDomain else { return false }
+        return d.keys.contains { $0.hasPrefix("tern.") || $0 == "onboardingDone.v1" || DefaultsMigration.movedKeys.contains($0) }
+    }
+
+    /// Read first thing in TernApp.init, before AppShared (which records its App Group choice in standard defaults).
+    static func snapshotSandboxState() -> Bool {
+        sandboxHasTernState(Bundle.main.bundleIdentifier.flatMap { UserDefaults.standard.persistentDomain(forName: $0) })
+    }
+
     enum Decision: Equatable {
-        /// The marker is there: an update or a normal launch.
+        /// The marker is there (or the sandbox predates it: an update from an older build): a normal launch.
         case known
         /// No marker, nothing left over: write the marker silently.
         case firstInstall
@@ -60,19 +74,20 @@ enum InstallMarker {
         case reinstall
     }
 
-    static func decide(markerPresent: Bool, containerHasData: Bool) -> Decision {
-        if markerPresent { return .known }
+    static func decide(markerPresent: Bool, containerHasData: Bool, sandboxHasState: Bool = false) -> Decision {
+        if markerPresent || sandboxHasState { return .known }
         return containerHasData ? .reinstall : .firstInstall
     }
 
     /// The launch check: decides and writes the marker unless the answer is `.reinstall` (the marker is written once
     /// the user has chosen). `container` nil = no App Group (unsigned build): the fallback store is the app's own
     /// Documents, which a delete removes, so that is never a reinstall.
-    static func evaluate(markerDir: URL = defaultDirectory, container: URL?, groupDomain: [String: Any]?) -> Decision {
+    static func evaluate(markerDir: URL = defaultDirectory, container: URL?, groupDomain: [String: Any]?,
+                         sandboxHasState: Bool = false) -> Decision {
         let present = exists(in: markerDir)
         let hasData = !present && container.map { DataReset.containerHasData($0, groupDomain: groupDomain) } == true
-        let d = decide(markerPresent: present, containerHasData: hasData)
-        if d == .firstInstall { write(in: markerDir) }
+        let d = decide(markerPresent: present, containerHasData: hasData, sandboxHasState: sandboxHasState)
+        if !present && d != .reinstall { write(in: markerDir) } // first install, or an update from a pre-marker build
         return d
     }
 }
@@ -224,6 +239,59 @@ enum DataReset {
     }
 }
 
+/// feat/fresh-reinstall (user report: after delete + reinstall with leftover data the 编辑首页 panels were gone while
+/// the policy bar stayed): every user setting lives in the App Group defaults now (AppShared.defaults), like the
+/// rest of Tern's data, so 「保留」 keeps all of it. These keys used to be in UserDefaults.standard (the app's own
+/// sandbox, deleted with the app); this copies each one into the group once, when the group does not hold it yet,
+/// and drops the standard copy. Left in standard on purpose: device / process state (onboardingDone.v1, the
+/// remembered App Group, the exit-IP lookup cache ipinfo.lastLookup.v1) and UI-test-only keys.
+enum DefaultsMigration {
+    static let flagKey = "tern.defaultsMovedToGroup.v1"
+
+    static let movedKeys: [String] = [
+        // 编辑首页 (HomePanelStore / PanelsModel)
+        "panels.home.hidden", "panels.home.tasks", "panels.home.names", "panels.pinned",
+        // 首页 分析 cards
+        "home.analysis.hidden", "home.analysis.added", "home.analysis.collapsed",
+        // 外观 / 开始标签页
+        "appearance", "ui.launchTab",
+        // 流媒体解锁 (ProbeStore / UnlockView)
+        "unlock.autoRetest", "unlock.group", "unlock.member", "unlock.services",
+        // 通知: usage alerts, scheduled update banners
+        "usageAlerts.rules", "usageAlerts.state", "notify.scheduledUpdates", "notify.scheduledUpdatesMode",
+        // WebDAV 备份 (address / user / options; passwords stay in the Keychain)
+        "webdav.settings",
+        // 模块库 sources, QX resource parser
+        "moduleGallery.sources", "moduleGallery.keleeOffered", "qx.resourceParserURL",
+        // 地理数据库 auto-update schedule (the databases are in the group container)
+        "geo.autoUpdate.nextDue", "geo.autoUpdate.lastRun", "geo.autoUpdate.lastError",
+        // list / page choices
+        "analytics.range", "network.scale", "scriptLogShowDebug", "nodes.subSort", "nodes.sort",
+        "policy.sort", "policy.autoSort", "policy.collapseAuto", "rules.sortByHits",
+    ]
+
+    /// TernApp.init, before any store reads its settings. Only persisted values move (never a launch argument).
+    /// Returns the keys copied into the group.
+    @discardableResult
+    static func run(standard: UserDefaults = .standard, standardDomain: String? = Bundle.main.bundleIdentifier,
+                    group: UserDefaults = AppShared.defaults, groupDomain: String = AppShared.appGroup) -> [String] {
+        guard group !== standard, !standard.bool(forKey: flagKey) else { return [] }
+        let std = standardDomain.flatMap { standard.persistentDomain(forName: $0) } ?? [:]
+        let grp = group.persistentDomain(forName: groupDomain) ?? [:]
+        var moved: [String] = []
+        for k in movedKeys {
+            guard let v = std[k] else { continue }
+            if grp[k] == nil {
+                group.set(v, forKey: k)
+                moved.append(k)
+            }
+            standard.removeObject(forKey: k)
+        }
+        standard.set(true, forKey: flagKey)
+        return moved
+    }
+}
+
 /// Drives the reinstall prompt and the wipe; TernApp shows `DataResetGateView` instead of the app while `phase` is not
 /// `.normal`.
 @MainActor
@@ -248,7 +316,7 @@ final class DataResetCoordinator: ObservableObject {
     }
 
     /// TernApp.init, before any store loads. `launchTasks` (geo install, storage sweep …) run now, or after 保留.
-    func evaluateLaunch(launchTasks: @escaping () -> Void) {
+    func evaluateLaunch(sandboxHadState: Bool, launchTasks: @escaping () -> Void) {
         #if DEBUG
         // UI test of the question itself (FreshReinstallUITests): the seeded container stands in for leftover data.
         if UITestSeed.enabled && UITestSeed.args.contains("-UITestReinstallPrompt") {
@@ -265,7 +333,7 @@ final class DataResetCoordinator: ObservableObject {
         let group = AppShared.appGroup
         let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
         let domain = UserDefaults(suiteName: group)?.persistentDomain(forName: group)
-        switch InstallMarker.evaluate(container: container, groupDomain: domain) {
+        switch InstallMarker.evaluate(container: container, groupDomain: domain, sandboxHasState: sandboxHadState) {
         case .reinstall:
             deferredLaunch = launchTasks
             phase = .reinstallPrompt

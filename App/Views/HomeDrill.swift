@@ -543,7 +543,7 @@ final class NetworkHistory {
 
 struct NetworkView: View {
     @EnvironmentObject var vpn: VPNManager
-    @AppStorage("network.scale") private var scale = 0
+    @AppStorage("network.scale", store: AppShared.defaults) private var scale = 0
     @State private var points: [NetworkHistory.Point] = []
     @State private var selected: NetworkHistory.Point?
     @State private var builtVersion = -1

@@ -117,7 +117,7 @@ enum GeoChecker {
 enum ResourceParserSetting {
     private static let key = "qx.resourceParserURL"
     static var url: String {
-        get { UserDefaults.standard.string(forKey: key) ?? "" }
-        set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespaces), forKey: key) }
+        get { AppShared.defaults.string(forKey: key) ?? "" }
+        set { AppShared.defaults.set(newValue.trimmingCharacters(in: .whitespaces), forKey: key) }
     }
 }

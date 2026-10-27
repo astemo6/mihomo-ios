@@ -32,7 +32,9 @@ enum AppAppearance: String, CaseIterable, Identifiable {
     }
 
     static var current: AppAppearance {
-        AppAppearance(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .system
+        // feat/fresh-reinstall: stored in the App Group defaults (survives a reinstall with 保留). The standard
+        // lookup only answers the `-appearance` launch argument (UI tests) once the value has moved.
+        AppAppearance(rawValue: AppShared.defaults.string(forKey: key) ?? UserDefaults.standard.string(forKey: key) ?? "") ?? .system
     }
 
     /// Sets the style on every window of every connected scene.
@@ -46,7 +48,7 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 }
 
 struct AppearanceView: View {
-    @AppStorage(AppAppearance.key) private var raw = AppAppearance.system.rawValue
+    @AppStorage(AppAppearance.key, store: AppShared.defaults) private var raw = AppAppearance.system.rawValue
 
     var body: some View {
         List {
