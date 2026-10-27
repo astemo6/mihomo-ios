@@ -20,6 +20,7 @@ enum NCSupport {
         // feat/nc-naive-h2h3 (NCNaive / NCH2ProxySession / NCH3ProxySession): NaïveProxy (h2, or h3 with
         // quic: true) and Shadowrocket-style HTTP/2 / HTTP/3 CONNECT proxies.
         "naive", "http2", "h2", "http3", "h3",
+        "trusttunnel", "trust-tunnel",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -32,7 +33,7 @@ enum NCSupport {
         guard types.contains(t) else {
             return "类型 \(t) 尚未接入"
         }
-        if t != "wireguard", t != "brook", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
+        if t != "wireguard", t != "brook", t != "trusttunnel", t != "trust-tunnel", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
         if p.fields["network"]?.string?.lowercased() == "xhttp", let why = NCXHTTPConfig.unsupportedReason(p) {
@@ -100,6 +101,8 @@ enum NCSupport {
             let u = (p.uuid ?? "").trimmingCharacters(in: .whitespaces)
             let pwd = (p.password ?? "").trimmingCharacters(in: .whitespaces)
             if u.isEmpty || pwd.isEmpty { return "Juicity 缺少 uuid / password" }
+        case "trusttunnel", "trust-tunnel":
+            if let why = trusttunnelUnsupported(p) { return why }
         case "vless":
             if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
                 // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).
@@ -236,6 +239,33 @@ enum NCSupport {
         if (p.server ?? "").isEmpty || (p.port ?? 0) == 0 { return "Brook 缺少 server / port" }
         if (NCBrookOptions.string(p, "password") ?? "").isEmpty { return "Brook 缺少 password" }
         if let t = NCBrookOptions.string(p, "token"), !t.isEmpty { return "Brook token（用户系统）尚未接入" }
+    /// TrustTunnel (NCTrustTunnel, feat/nc-trusttunnel): HTTP/2 and HTTP/3 tunnel proxy.
+    static func trusttunnelUnsupported(_ p: NCProxy) -> String? {
+        if (p.server ?? "").isEmpty { return "TrustTunnel 缺少 server" }
+        if (p.port ?? 0) == 0 { return "TrustTunnel 缺少 port" }
+        let username = p.fields["username"]?.string ?? ""
+        if username.isEmpty { return "TrustTunnel 缺少 username" }
+        let password = p.password ?? p.fields["password"]?.string ?? ""
+        if password.isEmpty { return "TrustTunnel 缺少 password" }
+        if p.fields["anti-dpi"]?.bool == true
+            || !(p.fields["client-random-prefix"]?.string ?? "").isEmpty
+            || !(p.fields["client_random_prefix"]?.string ?? "").isEmpty {
+            return "TrustTunnel anti-dpi / client-random-prefix 尚未接入"
+        }
+        if !(p.fields["client-random-auth-key"]?.string ?? "").isEmpty
+            || !(p.fields["client_random_auth_key"]?.string ?? "").isEmpty {
+            return "TrustTunnel client-random-auth-key 尚未接入"
+        }
+        if p.fields["icmp"]?.bool == true {
+            return "TrustTunnel icmp 尚未接入"
+        }
+        // fix/nc-proto-trusttunnel-int (review of #161): the HTTP/3 track sends no control stream / SETTINGS,
+        // writes payload raw instead of in HTTP/3 DATA frames, and its stream object is not retained during
+        // the handshake (dial completes with neither stream nor error). Unavailable until that is redone.
+        let quic = p.fields["quic"]?.bool ?? false
+        let net = (p.fields["network"]?.string ?? "").lowercased()
+        if quic || net == "h3" || net == "quic" { return "TrustTunnel HTTP/3（quic: true）尚未接入，请用 HTTP/2" }
+        if !net.isEmpty && net != "h2" && net != "tcp" { return "TrustTunnel network \(net) 尚未接入" }
         return nil
     }
 

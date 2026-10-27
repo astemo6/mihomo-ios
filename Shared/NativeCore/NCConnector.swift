@@ -839,6 +839,17 @@ enum NCConnector {
                 return
             }
             juicityStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "trusttunnel", "trust-tunnel":
+            // feat/nc-trusttunnel S2: HTTP/2 (Track A) & HTTP/3 (Track B) session dispatcher.
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("trusttunnel over a chain transport")) }
+                return
+            }
+            if let why = NCSupport.trusttunnelUnsupported(proxy) {
+                queue.async { completion(nil, Failure.unsupported(why)) }
+                return
+            }
+            NCTrustTunnelSessionManager.connect(proxy: proxy, target: target, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
