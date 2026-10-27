@@ -273,7 +273,15 @@ final class SnapshotStore: ObservableObject {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         guard let d = try? Data(contentsOf: fileURL(m.id)), let b = try? dec.decode(BackupFile.self, from: d) else { return nil }
-        return b.files.compactMapValues { Data(base64Encoded: $0) }
+        return Self.decodedFiles(b)
+    }
+
+    /// The snapshot's files by current path (snapshots taken before the rename keep the old storage dir in their
+    /// keys; mapped so a diff compares like with like instead of listing every settings file as removed + added).
+    nonisolated static func decodedFiles(_ b: BackupFile) -> [String: Data] {
+        var out: [String: Data] = [:]
+        for (k, v) in b.files { if let d = Data(base64Encoded: v) { out[LegacyImport.mapPath(k)] = d } }
+        return out
     }
 
     // MARK: Diff
@@ -360,7 +368,7 @@ final class SnapshotStore: ObservableObject {
             let dec = JSONDecoder()
             dec.dateDecodingStrategy = .iso8601
             guard let d = try? Data(contentsOf: url), let b = try? dec.decode(BackupFile.self, from: d) else { return nil }
-            let snap = b.files.compactMapValues { Data(base64Encoded: $0) }
+            let snap = SnapshotStore.decodedFiles(b)
             let cur = SnapshotStore.currentFiles()
             var raw: [Raw] = []
             for path in Set(cur.keys).union(snap.keys).sorted() {

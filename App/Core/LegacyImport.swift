@@ -36,23 +36,34 @@ enum LegacyImport {
         return rel
     }
 
-    /// One-time move of the old storage directory to the current one in the same container. Only when the current
-    /// directory is missing or empty, so it never overwrites anything.
+    /// One-time move of the old storage directory to the current one in the same container. Never overwrites: when
+    /// the current directory already exists (something — the tunnel on an on-demand start, a store's first save —
+    /// created it before the app's first launch after the update), every top-level item of the old directory that
+    /// the current one does not have yet is moved in, and the old directory is removed once it is empty.
+    /// (selfreview-g2: the whole-directory move used to give up as soon as the current directory held anything,
+    /// leaving every old setting behind for good.)
     static func migrateStorageDirIfNeeded(container: URL = AppShared.containerURL, currentDir: String = "tern") {
         let fm = FileManager.default
         let old = container.appendingPathComponent(storageDir, isDirectory: true)
         let new = container.appendingPathComponent(currentDir, isDirectory: true)
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: old.path, isDirectory: &isDir), isDir.boolValue else { return }
-        if fm.fileExists(atPath: new.path) {
-            guard ((try? fm.contentsOfDirectory(atPath: new.path)) ?? ["?"]).isEmpty else { return }
-            try? fm.removeItem(at: new)
+        if !fm.fileExists(atPath: new.path) {
+            do {
+                try fm.moveItem(at: old, to: new)
+                NSLog("[Tern] moved the old storage directory to %@/", currentDir)
+            } catch {
+                NSLog("[Tern] storage directory move failed: %@", error.localizedDescription)
+            }
+            return
         }
-        do {
-            try fm.moveItem(at: old, to: new)
-            NSLog("[Tern] moved the old storage directory to %@/", currentDir)
-        } catch {
-            NSLog("[Tern] storage directory move failed: %@", error.localizedDescription)
+        var moved = 0, kept = 0
+        for name in (try? fm.contentsOfDirectory(atPath: old.path)) ?? [] {
+            let dst = new.appendingPathComponent(name)
+            if fm.fileExists(atPath: dst.path) { kept += 1; continue }
+            do { try fm.moveItem(at: old.appendingPathComponent(name), to: dst); moved += 1 } catch { kept += 1 }
         }
+        if ((try? fm.contentsOfDirectory(atPath: old.path)) ?? ["?"]).isEmpty { try? fm.removeItem(at: old) }
+        NSLog("[Tern] merged the old storage directory into %@/: %d moved, %d already present", currentDir, moved, kept)
     }
 }

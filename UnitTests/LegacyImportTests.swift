@@ -94,5 +94,19 @@ final class LegacyImportTests: XCTestCase {
         LegacyImport.migrateStorageDirIfNeeded(container: c2)
         XCTAssertEqual(fm.contents(atPath: c2.appendingPathComponent("tern/dns.json").path), Data("new".utf8))
         XCTAssertTrue(fm.fileExists(atPath: c2.appendingPathComponent(oldDir + "/dns.json").path))
+
+        // selfreview-g2: the current dir already exists with other files (e.g. the tunnel started first) → the old
+        // items it lacks are merged in, the clash is left alone, and the old dir stays only while something is left.
+        let c3 = scratch()
+        try fm.createDirectory(at: c3.appendingPathComponent(oldDir + "/engine"), withIntermediateDirectories: true)
+        try Data("o".utf8).write(to: c3.appendingPathComponent(oldDir + "/overrides.json"))
+        try Data("e".utf8).write(to: c3.appendingPathComponent(oldDir + "/engine/engine.json"))
+        try fm.createDirectory(at: c3.appendingPathComponent("tern"), withIntermediateDirectories: true)
+        try Data("r".utf8).write(to: c3.appendingPathComponent("tern/runtime.yaml"))
+        LegacyImport.migrateStorageDirIfNeeded(container: c3)
+        XCTAssertEqual(fm.contents(atPath: c3.appendingPathComponent("tern/overrides.json").path), Data("o".utf8))
+        XCTAssertEqual(fm.contents(atPath: c3.appendingPathComponent("tern/engine/engine.json").path), Data("e".utf8))
+        XCTAssertEqual(fm.contents(atPath: c3.appendingPathComponent("tern/runtime.yaml").path), Data("r".utf8))
+        XCTAssertFalse(fm.fileExists(atPath: c3.appendingPathComponent(oldDir).path))
     }
 }
