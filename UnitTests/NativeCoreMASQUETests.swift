@@ -354,6 +354,9 @@ final class NativeCoreMASQUETests: XCTestCase {
         let truncated = parser.feed(Data([0x40]))
         XCTAssertEqual(truncated.count, 0)
 
+        // The parser keeps the partial header buffered (stream semantics); later cases use a fresh parser.
+        parser = NCMASQUE.CapsuleParser()
+
         // 2. Unknown capsule type (RFC 9297 §3.2 requires endpoints to ignore unknown capsules)
         let unknownType: UInt64 = 0x12345
         let unknownPayload = Data([0xde, 0xad, 0xbe, 0xef])
@@ -366,6 +369,7 @@ final class NativeCoreMASQUETests: XCTestCase {
         // 3. Consecutive mixed capsules in a single chunk
         let cap1 = NCMASQUE.encodeCapsule(type: NCMASQUE.capsuleTypeDatagram, value: Data([0x00, 0x01, 0x02]))
         let cap2 = NCMASQUE.encodeCapsule(type: NCMASQUE.capsuleTypeAddressAssign, value: Data([0x03, 0x04]))
+        parser = NCMASQUE.CapsuleParser()
         let batch = parser.feed(cap1 + cap2)
         XCTAssertEqual(batch.count, 2)
         XCTAssertEqual(batch[0].type, NCMASQUE.capsuleTypeDatagram)
@@ -375,7 +379,9 @@ final class NativeCoreMASQUETests: XCTestCase {
     func testNegotiationFailurePaths() {
         // 1. QPACK response with non-2xx status (e.g. 403 Forbidden: static index 68)
         var qpack403 = Data([0x00, 0x00]) // QPACK section prefix
-        qpack403.append(0xC0 | 68)         // Indexed static table index 68 (:status 403)
+        // Indexed static field line 1 T iiiiii: index 68 (:status 403) exceeds the 6-bit prefix (63),
+        // so it is 0xFF followed by the continuation 68 - 63 = 5 (RFC 9204 §4.5.2, RFC 7541 §5.1).
+        qpack403.append(contentsOf: [0xFF, 0x05])
         let fields = NCMASQUE.qpackDecodeFieldSection(qpack403)
         XCTAssertNotNil(fields)
         let status = fields?.first(where: { $0.name == ":status" })?.value
