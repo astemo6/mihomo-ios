@@ -1,6 +1,6 @@
 import XCTest
 import Security
-@testable import Mihomo
+@testable import Tern
 
 // feat/nc-full-export: 完整导出（.conf）round trip and failure atomicity. Every test works in scratch containers
 // and its own UserDefaults suite, never in the app's container.
@@ -61,7 +61,7 @@ final class TernFullExportTests: XCTestCase {
     let profileID = "prof-1"
     let scriptNames = ["中文脚本.js", "🚀 emoji 脚本.js", "a,b=c #x;[y].js"]
 
-    func home(_ root: URL) -> String { root.appendingPathComponent("mihomo").path }
+    func home(_ root: URL) -> String { root.appendingPathComponent("tern").path }
 
     func makeSource() throws -> (root: URL, defaults: UserDefaults, profile: Profile, engine: EngineConfig) {
         let root = fxScratch()
@@ -107,12 +107,12 @@ final class TernFullExportTests: XCTestCase {
         c.scriptResources = ["https://example.com/s.js": ScriptResourceSetting(disabled: true, interval: 600)]
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        fxWrite(root, "mihomo/engine/engine.json", try enc.encode(c))
+        fxWrite(root, "tern/engine/engine.json", try enc.encode(c))
         fxWrite(root, TernFullExport.moduleRel("mod-1"), Data("#!name=广告拦截\n[URL Rewrite]\n^http://ad - reject\n".utf8))
         fxWrite(root, TernFullExport.moduleRel("mod-2"), Data("hostname = local.example.com\n".utf8))
 
         for (i, n) in scriptNames.enumerated() {
-            fxWrite(root, "mihomo/engine/scripts/\(n)", Data("console.log('脚本 \(i) 🚀');\n".utf8))
+            fxWrite(root, "tern/engine/scripts/\(n)", Data("console.log('脚本 \(i) 🚀');\n".utf8))
         }
 
         let overrideIndex: [String: Any] = [
@@ -126,9 +126,9 @@ final class TernFullExportTests: XCTestCase {
         let subs: [[String: Any]] = [["id": "ns-1", "name": "机场, A", "url": "https://n.example.com/sub?a=1", "enabled": true,
                                       "userAgent": "clash.meta", "updateIntervalHours": 12, "groups": ["🚀 节点选择"]]]
         fxWrite(root, TernFullExport.nodeSubsRel, try JSONSerialization.data(withJSONObject: subs))
-        fxWrite(root, "mihomo/dns.json", Data(#"{"nameserver":["223.5.5.5"]}"#.utf8))
-        fxWrite(root, "mihomo/engine/store.json", Data(#"{"cookie":"secret"}"#.utf8)) // travels only with includeSensitive
-        fxWrite(root, "mihomo/secrets.json", Data(#"{"controller-secret":"pw"}"#.utf8))
+        fxWrite(root, "tern/dns.json", Data(#"{"nameserver":["223.5.5.5"]}"#.utf8))
+        fxWrite(root, "tern/engine/store.json", Data(#"{"cookie":"secret"}"#.utf8)) // travels only with includeSensitive
+        fxWrite(root, "tern/secrets.json", Data(#"{"controller-secret":"pw"}"#.utf8))
 
         try NCCAManager.generateCA(home: home(root))
         return (root, defaults, p, c)
@@ -146,6 +146,18 @@ final class TernFullExportTests: XCTestCase {
 
     struct ItemView: Equatable { var line: String; var enabled: Bool; var note: String? }
     func view(_ l: [EngineItem]) -> [ItemView] { l.map { ItemView(line: $0.line, enabled: $0.enabled, note: $0.note) } }
+
+    /// Rename (2026-10-27): a 完整导出 of the pre-rename app names its data files under the old storage dir; they
+    /// are imported into tern/.
+    func testLegacyStorageDirDataFilesImport() throws {
+        let src = try makeSource()
+        let text = try export(src)
+        XCTAssertTrue(text.contains("\ntern/dns.json = "))
+        let old = text.replacingOccurrences(of: "\ntern/", with: "\n" + LegacyImport.storageDir + "/")
+        let p = try TernFullExport.parse(old)
+        XCTAssertNotNil(p.dataFiles["tern/dns.json"])
+        XCTAssertNil(p.dataFiles[LegacyImport.storageDir + "/dns.json"])
+    }
 
     func testRoundTripRestoresEverything() throws {
         let src = try makeSource()
@@ -196,7 +208,7 @@ final class TernFullExportTests: XCTestCase {
 
         // Local scripts with 中文 / emoji / punctuation in their names.
         for n in scriptNames {
-            XCTAssertEqual(fxRead(dst, "mihomo/engine/scripts/\(n)"), fxRead(src.root, "mihomo/engine/scripts/\(n)"), n)
+            XCTAssertEqual(fxRead(dst, "tern/engine/scripts/\(n)"), fxRead(src.root, "tern/engine/scripts/\(n)"), n)
         }
 
         // Override scripts: this profile's list + content; the destination's other profile kept.
@@ -209,8 +221,8 @@ final class TernFullExportTests: XCTestCase {
 
         // Node subscriptions and settings files.
         XCTAssertTrue((fxJSON(fxRead(dst, TernFullExport.nodeSubsRel)) as? NSArray)?.isEqual(fxJSON(fxRead(src.root, TernFullExport.nodeSubsRel)) as? [Any] ?? []) == true)
-        XCTAssertEqual(fxRead(dst, "mihomo/dns.json"), fxRead(src.root, "mihomo/dns.json"))
-        XCTAssertNil(fxRead(dst, "mihomo/engine/store.json"))
+        XCTAssertEqual(fxRead(dst, "tern/dns.json"), fxRead(src.root, "tern/dns.json"))
+        XCTAssertNil(fxRead(dst, "tern/engine/store.json"))
 
         // MitM CA: the same certificate and the same private key.
         XCTAssertNotNil(NCCAManager.caCertDER(home: home(dst)))
@@ -226,23 +238,23 @@ final class TernFullExportTests: XCTestCase {
     func testSensitiveDataOnlyWhenOptedIn() throws {
         let src = try makeSource()
         let plain = try export(src)
-        XCTAssertFalse(plain.contains("controller-secret") || plain.contains("mihomo/secrets.json"))
+        XCTAssertFalse(plain.contains("controller-secret") || plain.contains("tern/secrets.json"))
         let full = try TernFullExport.build(profileID: profileID, root: src.root, defaults: src.defaults,
                                             appVersion: "0.20.0", appBuild: "1", passphrase: "test-passphrase",
                                             includeSensitive: true)
-        XCTAssertTrue(full.contains("mihomo/engine/store.json") && full.contains("mihomo/secrets.json"))
+        XCTAssertTrue(full.contains("tern/engine/store.json") && full.contains("tern/secrets.json"))
         let dst = fxScratch()
         _ = try TernFullExport.importText(full, root: dst, defaults: fxSuite())
-        XCTAssertEqual(fxRead(dst, "mihomo/engine/store.json"), Data(#"{"cookie":"secret"}"#.utf8))
-        XCTAssertEqual(fxRead(dst, "mihomo/secrets.json"), Data(#"{"controller-secret":"pw"}"#.utf8))
-        let attrs = try FileManager.default.attributesOfItem(atPath: dst.appendingPathComponent("mihomo/secrets.json").path)
+        XCTAssertEqual(fxRead(dst, "tern/engine/store.json"), Data(#"{"cookie":"secret"}"#.utf8))
+        XCTAssertEqual(fxRead(dst, "tern/secrets.json"), Data(#"{"controller-secret":"pw"}"#.utf8))
+        let attrs = try FileManager.default.attributesOfItem(atPath: dst.appendingPathComponent("tern/secrets.json").path)
         XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600)
     }
 
     /// Review 10-25 #3/#5: a module with no cache leaves the target's cache alone and refreshes; URLs round-trip exactly.
     func testUncachedModuleAndURLEscaping() throws {
         let src = try makeSource()
-        let engineURL = src.root.appendingPathComponent("mihomo/engine/engine.json")
+        let engineURL = src.root.appendingPathComponent("tern/engine/engine.json")
         var c = try JSONDecoder().decode(EngineConfig.self, from: Data(contentsOf: engineURL))
         let odd = "https://example.com/a,b%2Cc%20d.sgmodule?x=1,2"
         var m3 = EngineModule(name: "无缓存", url: odd, enabled: true, updatedAt: 1_700_000_000)

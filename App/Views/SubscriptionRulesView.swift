@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Mirrors bridge/subrules.go SubRules. Stored in <home>/subscriptions.json keyed by profile id and
-/// applied by the Go side whenever the runtime config is built (the downloaded file is untouched).
+/// Mirrors the retired bridge. Stored in <home>/subscriptions.json keyed by profile id and
+/// applied by the old side whenever the runtime config is built (the downloaded file is untouched).
 struct SubRules: Codable, Equatable {
     struct Rename: Codable, Equatable, Identifiable {
         var id = UUID()
@@ -206,7 +206,7 @@ struct SubscriptionRulesView: View {
                     Text("按地区").tag("region")
                 }
             } header: { Text("去重与排序") } footer: {
-                Text("同名节点会自动加序号。节点集（proxy-providers）只应用过滤和重命名（mihomo 原生 filter / override），旗帜、去重、排序只作用于配置里直接列出的节点。")
+                Text("同名节点会自动加序号。节点集（proxy-providers）只应用过滤和重命名（Clash 原生 filter / override），旗帜、去重、排序只作用于配置里直接列出的节点。")
             }
             .listRowBackground(Theme.card)
 

@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 
 /// Shadowsocks 2022 (SIP022, "2022-blake3-*") — single-PSK, no EIH.
-/// Implemented against sing-shadowsocks2 (the library mihomo ships):
+/// Implemented against sing-shadowsocks2 (the library Clash.Meta ships):
 ///
 /// - PSK: the password is the base64'd raw key (16 or 32 bytes).
 /// - Session key: BLAKE3 derive-key, context "shadowsocks 2022 session

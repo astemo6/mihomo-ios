@@ -1,8 +1,8 @@
 # =====================================================================
-#  Mihomo iOS 示例配置 · Sample profile (mihomo / Clash Meta YAML)
+#  Tern 示例配置 · Sample profile (Clash / Clash Meta YAML)
 # =====================================================================
 #  这是一份「读着学」的完整示例，作用类似 Quantumult X 的示例配置：
-#  每一段都写了注释，说明 mihomo 内核怎么理解它、本 App 在 iOS 上会怎么处理它。
+#  每一段都写了注释，说明内核怎么理解它、本 App 在 iOS 上会怎么处理它。
 #  Every section is commented; English hints are in parentheses.
 #
 #  · 所有服务器、密码、密钥、订阅链接都是占位符（example.com / xxxx / 全 0 密钥），
@@ -304,7 +304,7 @@ proxies:
     username: "xxxx"
     password: "xxxx"
 
-  # ===== mihomo v1.19.32 新协议 (new in recent mihomo) =====
+  # ===== 较新的协议 (newer protocols) =====
 
   # --- Sudoku（数独编码伪装，可加 HTTP 伪装）---
   - name: "🆕 Sudoku 示例"
@@ -380,7 +380,7 @@ proxies:
   # - name: "🧪 Tailscale 示例"
   #   type: tailscale
   #   auth-key: tskey-auth-xxxx          # 在 Tailscale 后台生成；不填时登录链接显示在 诊断 页
-  #   hostname: mihomo-ios
+  #   hostname: tern
   #   # control-url: https://headscale.example.com   # 自建 Headscale
   #   # state-dir: tailscale/my-node                  # 留空 = tailscale/<节点名>，始终在 App Group 内
   #   ephemeral: false
@@ -513,7 +513,7 @@ proxy-groups:
 # 8. 规则集 (rule-providers)
 # ---------------------------------------------------------------------
 # behavior：domain（域名列表）/ ipcidr（IP 段）/ classical（任意规则写法）。
-# format：yaml / text / mrs（mihomo 二进制格式，最省内存，只支持 domain 和 ipcidr）。
+# format：yaml / text / mrs（二进制规则集格式，最省内存，只支持 domain 和 ipcidr）。
 # 下面的 URL 是 MetaCubeX 公开的规则集（只是规则列表，不含节点）。
 rule-providers:
   ads:
@@ -595,7 +595,7 @@ rules:
 # =====================================================================
 # 10. App 扩展：模块 / 重写 / MitM / 脚本 / 定时任务 / 面板
 # =====================================================================
-# 这些不是 mihomo YAML 的一部分，不能写在本文件里生效；它们由 App 的引擎处理。
+# 这些不是 Clash YAML 的一部分，不能写在本文件里生效；它们由 App 的引擎处理。
 # 用法：更多 → 模块与资源 → 添加模块（填 .sgmodule / .plugin / .conf / .stoverride 链接），
 #       或 更多 → 本地模块，把下面的文字粘贴进去（Surge 和 Quantumult X 写法都认）。
 # MitM 需要先在 更多 → MitM 生成并信任证书；只解密 hostname 里列出的域名。

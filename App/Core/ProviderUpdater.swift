@@ -117,7 +117,7 @@ final class ProviderUpdater: ObservableObject {
     /// 「更新于」 time moves) and is not converted again.
     nonisolated static func run(_ t: ProviderTask) async -> Outcome {
         let cache = URL(fileURLWithPath: t.path)
-        let ua = t.userAgent ?? (t.kind == "proxy" ? "clash.meta" : "clash.meta mihomo-ios")
+        let ua = t.userAgent ?? (t.kind == "proxy" ? "clash.meta" : "clash.meta Tern")
         switch await NCConditionalFetch.fetch(t.url, cache: cache, userAgent: ua) {
         case .unchanged:
             return .unchanged

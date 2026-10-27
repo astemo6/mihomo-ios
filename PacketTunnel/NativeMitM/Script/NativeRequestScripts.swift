@@ -1,21 +1,21 @@
 // Native MitM final integration — http-request scripts in Swift (switch `nativeMitmScript`, default OFF).
 //
 // The rewrite engine stops at a request-phase script it has no outcome for (NativeRewriteEngine.decide with a
-// RequestScriptState → RequestScriptPause). This runs that script the way Go's requestPhase does (handler.go):
+// RequestScriptState → RequestScriptPause). This runs that script the way the old core's requestPhase does (handler.go):
 //
 //   1. the script slot (NativeScriptReserve: the same slots / large-bundle lock / queue; a refusal is a skip with
 //      reserveFailed's note and log line);
 //   2. requires-body: loadBody(scriptBodyLimit) — cached once loaded; admission (memory gates, reqCap, the body
-//      budget) by Go (MitmScriptReqBodyAdmit) and the body pushed by the session into Swift (need-body .request);
-//      a refused body is the 「跳过脚本：」 skip with Go's own words (MitmScriptReqBodySkip);
+//      budget) by the old core (MitmScriptReqBodyAdmit) and the body pushed by the session into Swift (need-body .request);
+//      a refused body is the 「跳过脚本：」 skip with the old core's own words (MitmScriptReqBodySkip);
 //   3. Match, prepare (the program in JavaScriptCore), the run (NativeScriptRun, $done parsed with
 //      requestPhase = true: abort / local answer / url / method / headers / body);
-//   4. the outcome for the engine (applied where Go applies it) and the same outcome for Go (FlowScripted): if
-//      the request has to go to Go after all (a later rule only Go handles, a chunked body, a response the native
+//   4. the outcome for the engine (applied where the old core applies it) and the same outcome for the old core (FlowScripted): if
+//      the request has to go to the old core after all (a later rule only the old core handles, a chunked body, a response the native
 //      flow hands back), MitmFlowBegin gets every outcome so far and requestPhase applies them instead of running
-//      the scripts again (bridge/mitm/flowscripted.go).
+//      the scripts again.
 //
-// Every log line and request-log note is written by Go's code; the body never enters Go.
+// Every log line and request-log note is written by the old core's code; the body never enters the old core.
 
 import Foundation
 
@@ -23,17 +23,17 @@ final class NativeRequestScripts {
     enum Step {
         case next              // an outcome was recorded: decide again
         case needBody          // the session must push the request body (the slot is held)
-        case handOver(String)  // Go takes the request with the outcomes so far
+        case handOver(String)  // the old core takes the request with the outcomes so far
     }
 
     let gen: Int64
-    private let go: ScriptHostAPI
+    private let hostAPI: ScriptHostAPI
     private let js: NativeJSEngine
     private let store: JSCNativeBlobProvider?
     private let nativeBase: Int64
 
     private(set) var state = RequestScriptState()
-    /// FlowScripted objects for Go (FlowHead.Scripted), in run order.
+    /// FlowScripted objects for the old core (FlowHead.Scripted), in run order.
     private(set) var scripted: [[String: Any]] = []
     /// Request-log notes in order (skipped / failed scripts).
     private(set) var notes: [String] = []
@@ -54,9 +54,9 @@ final class NativeRequestScripts {
     private(set) var pushFailed = false
     private var finished = false
 
-    init(gen: Int64, go: ScriptHostAPI, js: NativeJSEngine, store: JSCNativeBlobProvider?, nativeBase: Int64) {
+    init(gen: Int64, hostAPI: ScriptHostAPI, js: NativeJSEngine, store: JSCNativeBlobProvider?, nativeBase: Int64) {
         self.gen = gen
-        self.go = go
+        self.hostAPI = hostAPI
         self.js = js
         self.store = store
         self.nativeBase = nativeBase
@@ -69,26 +69,26 @@ final class NativeRequestScripts {
     // MARK: one script
 
     func step(_ p: RequestScriptPause) -> Step {
-        if token == 0 { token = go.token() }
-        let ans = go.reserve(gen: gen, rule: p.rule, token: token)
+        if token == 0 { token = hostAPI.token() }
+        let ans = hostAPI.reserve(gen: gen, rule: p.rule, token: token)
         guard let slot = ans.slot, slot > 0 else {
             if ans.gone == true { return .handOver("script rule gone") }
             record(p.rule, load: false, skip: ans.note ?? "", engine: RequestScriptOutcome(kind: .skipped))
             return .next
         }
         if p.requiresBody {
-            let limit = go.reqLimit(gen: gen, rule: p.rule)
-            if limit < 0 { go.release(slot: slot, ran: false); return .handOver("script rule gone") }
+            let limit = hostAPI.reqLimit(gen: gen, rule: p.rule)
+            if limit < 0 { hostAPI.release(slot: slot, ran: false); return .handOver("script rule gone") }
             if bodyLoaded {
                 if bodyOK && Int64(body?.count ?? 0) <= limit { return run(p, slot: slot) }
                 return skipBody(p, slot: slot, limit: limit)
             }
             if p.contentLength < 0 {
-                go.release(slot: slot, ran: false)
+                hostAPI.release(slot: slot, ran: false)
                 return .handOver("chunked request body")
             }
-            let a = go.reqBodyAdmit(gen: gen, rule: p.rule, url: p.url, contentLength: p.contentLength, token: token)
-            if a.gone == true { go.release(slot: slot, ran: false); return .handOver("script rule gone") }
+            let a = hostAPI.reqBodyAdmit(gen: gen, rule: p.rule, url: p.url, contentLength: p.contentLength, token: token)
+            if a.gone == true { hostAPI.release(slot: slot, ran: false); return .handOver("script rule gone") }
             bodyLoaded = true
             guard a.ok == true else {
                 if a.retry == true { bodyLoaded = false } // a later script with a larger limit may read it
@@ -129,8 +129,8 @@ final class NativeRequestScripts {
         clientBytes = bodyIn
         state.bodyLoaded = true
         if pushFailed || Int64(bodyIn.count) > bodyCap {
-            // readCapped failed: Go would forward what it has plus the rest — let Go take it with the bytes
-            go.release(slot: pd.slot, ran: false)
+            // readCapped failed: the old core would forward what it has plus the rest — let the old core take it with the bytes
+            hostAPI.release(slot: pd.slot, ran: false)
             bodyLoaded = false
             return .handOver("request body read failed")
         }
@@ -144,30 +144,30 @@ final class NativeRequestScripts {
     }
 
     private func skipBody(_ p: RequestScriptPause, slot: Int64, limit: Int64) -> Step {
-        go.release(slot: slot, ran: false)
+        hostAPI.release(slot: slot, ran: false)
         let blen: Int64 = bodyLoaded && bodyOK ? Int64(body?.count ?? 0) : -1
-        let note = go.reqBodySkip(gen: gen, rule: p.rule, why: reqSkip, blen: blen)
+        let note = hostAPI.reqBodySkip(gen: gen, rule: p.rule, why: reqSkip, blen: blen)
         record(p.rule, load: true, skip: note, engine: RequestScriptOutcome(kind: .skipped))
         return .next
     }
 
     /// Match, prepare, run, parse $done (slot held).
     private func run(_ p: RequestScriptPause, slot: Int64) -> Step {
-        let pr = go.prepare(gen: gen, rule: p.rule, slot: slot, reload: false)
+        let pr = hostAPI.prepare(gen: gen, rule: p.rule, slot: slot, reload: false)
         guard pr.ok, let key = pr.key else {
-            go.release(slot: slot, ran: true)
-            let f = go.fail(gen: gen, rule: p.rule, mode: "msg", detail: pr.err ?? "脚本运行时内部错误", stop: 0, timeoutMs: 0, afterDone: false)
+            hostAPI.release(slot: slot, ran: true)
+            let f = hostAPI.fail(gen: gen, rule: p.rule, mode: "msg", detail: pr.err ?? "脚本运行时内部错误", stop: 0, timeoutMs: 0, afterDone: false)
             record(p.rule, load: p.requiresBody, fail: f.note ?? "", engine: RequestScriptOutcome(kind: .failed))
             return .next
         }
-        let run = NativeScriptRun(gen: gen, rule: p.rule, go: go, js: js, lane: store, nativeBase: nativeBase, laneOK: false)
+        let run = NativeScriptRun(gen: gen, rule: p.rule, hostAPI: hostAPI, js: js, lane: store, nativeBase: nativeBase, laneOK: false)
         run.requestPhase = true
         let setup = setupJSON(base: pr.setupJSON, run: run, p: p)
-        let outcome = run.run(key: key, setup: setup, timeoutMs: pr.timeoutMs ?? 10_000) { [go, gen] in
-            let p2 = go.prepare(gen: gen, rule: p.rule, slot: slot, reload: true)
+        let outcome = run.run(key: key, setup: setup, timeoutMs: pr.timeoutMs ?? 10_000) { [hostAPI, gen] in
+            let p2 = hostAPI.prepare(gen: gen, rule: p.rule, slot: slot, reload: true)
             return p2.ok ? p2.key : nil
         }
-        go.release(slot: slot, ran: true)
+        hostAPI.release(slot: slot, ran: true)
         run.releaseNatives(keep: 0)
         switch outcome {
         case .failed(let note):
@@ -219,7 +219,7 @@ final class NativeRequestScripts {
         scripted.append(js)
     }
 
-    /// setupJSON(req, nil): Go's base + phase "request" + $request (Host added to the headers, the body blob).
+    /// setupJSON(req, nil): the old core's base + phase "request" + $request (Host added to the headers, the body blob).
     private func setupJSON(base: String, run: NativeScriptRun, p: RequestScriptPause) -> String {
         var obj = ((try? JSONSerialization.jsonObject(with: Data(base.utf8))) as? [String: Any]) ?? [:]
         obj["phase"] = "request"
@@ -233,16 +233,16 @@ final class NativeRequestScripts {
         return s
     }
 
-    /// Go's request phase ended (native decision or hand-over): the body share and the token go.
+    /// the old core's request phase ended (native decision or hand-over): the body share and the token go.
     func end() {
         if finished { return }
         finished = true
         if let pd = pending {
             pending = nil
-            go.release(slot: pd.slot, ran: false)
+            hostAPI.release(slot: pd.slot, ran: false)
         }
-        if ticket > 0 { go.bodyRelease(ticket: ticket); ticket = 0 }
-        if token != 0 { go.cancel(token); token = 0 }
+        if ticket > 0 { hostAPI.bodyRelease(ticket: ticket); ticket = 0 }
+        if token != 0 { hostAPI.cancel(token); token = 0 }
     }
 
     /// FlowHead.Scripted as JSON-ready objects.

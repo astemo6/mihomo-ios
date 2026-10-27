@@ -9,7 +9,7 @@ import Foundation
 /// `<profile>.yaml.pre-yaml-fix`.
 enum NCProfileYAMLRepair {
 
-    /// Keys mihomo only has inside a node / provider / dns block. One of them at column 0 is a key the old emitter
+    /// Keys Clash.Meta only has inside a node / provider / dns block. One of them at column 0 is a key the old emitter
     /// moved out of its mapping (the last key of a nested block, which `hasDedentedScalarKey` cannot see).
     static let nestedOnlyKeys: Set<String> = [
         "path", "headers", "Host", "host", "grpc-service-name", "max-early-data", "early-data-header-name",
@@ -19,7 +19,7 @@ enum NCProfileYAMLRepair {
     ]
 
     /// True when `text` has the old emitter's signature: a column-0 `key: <scalar>` line followed by an indented line
-    /// (invalid YAML — no block can follow a scalar), or a column-0 key mihomo only uses nested.
+    /// (invalid YAML — no block can follow a scalar), or a column-0 key Clash.Meta only uses nested.
     static func looksTruncated(_ text: String) -> Bool {
         let lines = text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" || $0 == "\r" })
             .map(String.init)
@@ -75,7 +75,7 @@ enum NCProfileYAMLRepair {
             } catch {
                 return false
             }
-            NSLog("[Mihomo] profile YAML repaired from its .conf source (old emitter cut it): %@", (profilePath as NSString).lastPathComponent)
+            NSLog("[Tern] profile YAML repaired from its .conf source (old emitter cut it): %@", (profilePath as NSString).lastPathComponent)
             return true
         }
     }

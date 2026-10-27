@@ -33,7 +33,7 @@ private struct UsageAlertState: Codable {
 enum UsageAlerts {
     private static let rulesKey = "usageAlerts.rules"
     private static let stateKey = "usageAlerts.state"
-    static let threadID = "mihomo.usage"
+    static let threadID = "tern.usage"
 
     static func rule(for id: String) -> UsageAlertRule { allRules()[id] ?? UsageAlertRule() }
 
@@ -198,7 +198,7 @@ enum UpdateNotifyMode: String, CaseIterable, Identifiable {
 enum ScheduledUpdates {
     static let enabledKey = "notify.scheduledUpdates"
     static let modeKey = "notify.scheduledUpdatesMode"
-    static let taskID = "mihomo.subscriptions.refresh"
+    static let taskID = "tern.subscriptions.refresh"
 
     static var notifyEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: enabledKey) }
@@ -238,7 +238,7 @@ enum ScheduledUpdates {
         var lines: [String] = failed.map { "\($0.name)：\($0.error ?? "")" }
         lines += drops.map { String(localized: "\($0.name)：节点 \($0.oldCount ?? 0) → \($0.newCount ?? 0)") }
         if lines.isEmpty { lines = results.map(\.name) }
-        UsageAlerts.post(id: "updates.summary", title: title, body: lines.prefix(4).joined(separator: "\n"), thread: "mihomo.updates")
+        UsageAlerts.post(id: "updates.summary", title: title, body: lines.prefix(4).joined(separator: "\n"), thread: "tern.updates")
     }
 
     // MARK: Background refresh

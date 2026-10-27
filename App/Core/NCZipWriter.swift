@@ -2,7 +2,7 @@ import Foundation
 import Compression
 
 /// B10 (nc-dego-rest): a minimal ZIP writer (PKWARE APPNOTE 6.3: local headers, central directory, end record;
-/// no ZIP64, no encryption) for the diagnostic bundle — what Go's archive/zip did in WriteDiagnosticBundle.
+/// no ZIP64, no encryption) for the diagnostic bundle — what the old core's archive/zip did in WriteDiagnosticBundle.
 /// Entries are DEFLATE-compressed with the Compression framework (COMPRESSION_ZLIB = raw DEFLATE, RFC 1951) and
 /// stored instead when that does not make them smaller. Names are flagged UTF-8 (general purpose bit 11).
 struct NCZipWriter {

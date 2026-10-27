@@ -1,6 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import Mihomo
+@testable import Tern
 
 /// AnyTLS framing/auth + UoT packet codec.
 final class NativeCoreAnyTLSTests: XCTestCase {

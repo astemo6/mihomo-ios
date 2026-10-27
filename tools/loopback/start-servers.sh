@@ -19,7 +19,7 @@
 #
 # Works on macOS and Linux; the same script is what proto-loopback.yml runs
 # on the CI runner and what you run locally before
-#   TEST_RUNNER_NC_LOOPBACK=1 xcodebuild test -only-testing:MihomoUnitTests/NativeCoreLoopbackTests …
+#   TEST_RUNNER_NC_LOOPBACK=1 xcodebuild test -only-testing:TernUnitTests/NativeCoreLoopbackTests …
 # (or just run the tests — they probe the SS port and skip when nothing is up).
 
 set -euo pipefail

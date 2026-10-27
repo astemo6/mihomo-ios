@@ -1,7 +1,7 @@
 import Foundation
 
 /// Minimal WebSocket client (RFC 6455) over an NCStream, carrying a byte
-/// stream in binary messages — the v2ray/mihomo "ws" transport for VMess and
+/// stream in binary messages — the v2ray/Clash.Meta "ws" transport for VMess and
 /// VLESS. Client frames are masked as required; server messages are
 /// reassembled across fragmentation and surfaced as stream bytes.
 final class NCWebSocketStream: NCRelayStream {
@@ -25,7 +25,7 @@ final class NCWebSocketStream: NCRelayStream {
         self.hostHeader = hostHeader
         self.path = path.hasPrefix("/") ? path : "/" + path
         // fix/nc-e2e-real (E2E 40278215218: every direct xray ws node "ws upgrade refused"): ws-opts.headers usually
-        // carries Host too, and it was sent as a second Host header after the one above — Go's net/http (xray /
+        // carries Host too, and it was sent as a second Host header after the one above — the old core's net/http (xray /
         // v2ray ws servers) answers 400 Bad Request to that; Cloudflare-fronted nodes tolerated it. Host is sent once.
         self.extraHeaders = headers.filter { $0.key.caseInsensitiveCompare("Host") != .orderedSame }
     }

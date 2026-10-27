@@ -18,7 +18,7 @@ struct CustomRule: Codable, Identifiable, Hashable {
     }
 }
 
-/// Result of custom rule validation (mirrors Go's ruleCheck in bridge/customrules.go).
+/// Result of custom rule validation.
 struct RuleCheck: Codable, Hashable {
     var id: String?
     var line: String?
@@ -65,7 +65,7 @@ enum RuleValidationError: LocalizedError {
 
 // MARK: - NCRuleValidator
 
-/// Pure Swift rule validator replacing bridge/customrules.go (CheckRuleLine, CheckCustomRules).
+/// Pure Swift rule validator replacing the retired bridge (CheckRuleLine, CheckCustomRules).
 enum NCRuleValidator {
 
     // MARK: - Type Maps & Tables
@@ -83,8 +83,8 @@ enum NCRuleValidator {
     ]
 
     static let unsupportedTypes: [String: String] = [
-        "USER-AGENT": "mihomo 不支持 USER-AGENT 规则（可用 MitM 重写代替）",
-        "URL-REGEX": "mihomo 规则不匹配 URL；REJECT 类策略会转为 MitM URL 重写",
+        "USER-AGENT": "不支持 USER-AGENT 规则（可用 MitM 重写代替）",
+        "URL-REGEX": "分流规则不匹配 URL；REJECT 类策略会转为 MitM URL 重写",
         "CELLULAR-RADIO": "iOS 扩展内无法获取蜂窝制式",
         "DEVICE-NAME": "不支持",
         "SUBNET": "不支持（Surge 网络条件规则）",
@@ -582,7 +582,7 @@ enum NCRuleValidator {
         return (try? JSONDecoder().decode(CustomRulesFile.self, from: data))?.rules ?? []
     }
 
-    // MARK: - Public API (Replacing Libmihomo)
+    // MARK: - Public API
 
     /// Check one rule line in the editor against the active profile.
     static func checkRuleLine(homeDir: String, profilePath: String, line: String) -> RuleCheck {

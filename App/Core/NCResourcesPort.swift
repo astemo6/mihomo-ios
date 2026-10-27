@@ -1,6 +1,6 @@
 import Foundation
 
-/// nc-integrate B4: bridge/resources.go (ResourceList / ResourceStore / ResourceSetError) in Swift — the rows of
+/// nc-integrate B4: the retired bridge (ResourceList / ResourceStore / ResourceSetError) in Swift — the rows of
 /// 模块与资源 (modules / rewrite sets of engine.json, remote rule sets of rules.json and of enabled modules, remote
 /// scripts) with their cache files, the validated write of a downloaded resource and the last-error record
 /// (<home>/resources-state.json).
@@ -186,7 +186,7 @@ enum NCResourcesPort {
         }
         let res = cfg.scriptResources ?? [:]
         for u in res.keys.sorted() where scripts[u] == nil && isRemoteURL(u) {
-            // Go ranged over the map (random order); sorted here so the list is stable.
+            // the old core ranged over the map (random order); sorted here so the list is stable.
             scripts[u] = Ref(interval: 0)
             scriptOrder.append(u)
         }

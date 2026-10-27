@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// fix/nc-ctrl-bsd (build 395 device report): the NativeCore controller's listener, a plain BSD socket bound to
-/// 127.0.0.1:<port> like the Go era's `net.Listen("tcp", "127.0.0.1:9090")`. On iOS 18.7 an
+/// 127.0.0.1:<port> like the old core era's `net.Listen("tcp", "127.0.0.1:9090")`. On iOS 18.7 an
 /// `NWListener(requiredInterfaceType: .loopback)` inside the packet tunnel reported `.ready` but never delivered a
 /// connection (controller accepted 0, the extension's own GET /version timed out), so the App's 策略组 / 连接 pages
 /// hung (「已取消」). Accept runs on a DispatchSource read source on the caller's serial queue.

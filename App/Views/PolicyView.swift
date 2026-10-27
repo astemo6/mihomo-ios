@@ -181,7 +181,7 @@ struct PolicyGroupDisplay {
     var now: String?
     var members: [String]
     var selectable: Bool
-    /// The profile's own `icon:` (mihomo proxy-groups); the user's choice in group-icons.json wins.
+    /// The profile's own `icon:` (Clash.Meta proxy-groups); the user's choice in group-icons.json wins.
     var profileIcon: String? = nil
     /// url-test / fallback member pinned in the core (v0.8), nil = automatic.
     var pinned: String? = nil
@@ -960,7 +960,7 @@ struct PolicyGroupCard: View {
                             Label("智能选择", systemImage: "sparkles").font(.subheadline)
                         }
                         .tint(Theme.accent)
-                        Text(smartInfo ?? String(localized: "开启后按近期延迟与失败记录综合评分，自动固定到最稳的节点；节点失效时 mihomo 会立即切走。"))
+                        Text(smartInfo ?? String(localized: "开启后按近期延迟与失败记录综合评分，自动固定到最稳的节点；节点失效时会立即切走。"))
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                     .padding(10)

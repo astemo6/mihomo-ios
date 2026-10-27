@@ -468,7 +468,7 @@ enum NCConnector {
                 return
             }
             // SS stream plugins wrap the whole SS stream — request head included — and apply to TCP only
-            // (mihomo StreamConnContext parity; UDP sessions never see a plugin). One implementation:
+            // (Clash.Meta StreamConnContext parity; UDP sessions never see a plugin). One implementation:
             // NCConnector.ssPluginStream (simple-obfs / v2ray-plugin = #101 NCSSPluginStream; gost-plugin /
             // shadow-tls / restls = nc-proto).
             if NCSS2022.isMethod2022(cipher) {
@@ -494,7 +494,7 @@ enum NCConnector {
                 completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
             }
         case "ssr":
-            // feat/nc-proto A5: every protocol / obfs mihomo registers (NCSSRProtocols); cipher none = dummy.
+            // feat/nc-proto A5: every protocol / obfs Clash.Meta registers (NCSSRProtocols); cipher none = dummy.
             guard let password = proxy.password, let cipher0 = proxy.cipher?.lowercased(),
                   NCSupport.ssrUnsupported(proxy) == nil else {
                 queue.async { completion(nil, Failure.unsupported(NCSupport.ssrUnsupported(proxy) ?? "ssr missing password/cipher")) }
@@ -556,7 +556,7 @@ enum NCConnector {
             let psk = Data(password.utf8)
             obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw0, err in
                 guard var raw = raw0 else { completion(nil, err); return }
-                // fix/nc-silent-fail: obfs-opts http / tls (simple-obfs) wraps the whole Snell stream (mihomo
+                // fix/nc-silent-fail: obfs-opts http / tls (simple-obfs) wraps the whole Snell stream (Clash.Meta
                 // Snell.streamConnContext); other modes are gated in NCSupport.snellUnsupported.
                 if let obfs = snellObfsOptions(proxy) {
                     raw = NCSSPluginStream(raw: raw, options: obfs, serverPort: String(port))
@@ -582,7 +582,7 @@ enum NCConnector {
             }
             if isXHTTP(proxy) {
                 // feat/nc-xhttp: Trojan over XHTTP — TLS (ALPN h2) or REALITY, then the XHTTP stream carries
-                // the Trojan request (Xray-style; mihomo itself only wires xhttp for VLESS).
+                // the Trojan request (Xray-style; Clash.Meta itself only wires xhttp for VLESS).
                 let finish: (NCRelayStream?, Error?) -> Void = { base, err in
                     guard let base else { completion(nil, err); return }
                     xhttpStream(raw: base, proxy: proxy, queue: queue) { x, xerr in
@@ -646,7 +646,7 @@ enum NCConnector {
             }
         case "vless":
             // feat/nc-proto3: encryption + xtls-rprx-vision — Vision frames ride the encryption conn and splice
-            // below it (mihomo vision.NewConn over *encryption.CommonConn), whatever TLS / REALITY sits underneath.
+            // below it (Clash.Meta vision.NewConn over *encryption.CommonConn), whatever TLS / REALITY sits underneath.
             let isVision = visionFlow(proxy)
             let encVision = vlessEncryption(proxy) != nil && isVision
             guard let uuid = proxy.uuid else {
@@ -964,13 +964,13 @@ enum NCConnector {
         return nil
     }
 
-    /// The node's ECH options — one reading for every layer (E3 NCProxy.echOpts: mihomo semantics, `enable`
+    /// The node's ECH options — one reading for every layer (E3 NCProxy.echOpts: Clash.Meta semantics, `enable`
     /// must be explicitly true). SS plugin ECH sits under plugin-opts and is refused by NCSupport/the ss dial.
     static func isECHEnabled(_ proxy: NCProxy) -> Bool {
         proxy.echOpts?.enable == true
     }
 
-    /// Static ECHConfigList from `ech-opts.config` (base64 / base64url of one ECHConfigList, as mihomo), validated.
+    /// Static ECHConfigList from `ech-opts.config` (base64 / base64url of one ECHConfigList, as Clash.Meta), validated.
     /// nil = no static config (dynamic lookup applies). Throws on a config that is present but unusable.
     static func staticECHConfigList(_ proxy: NCProxy) throws -> Data? {
         guard let opts = proxy.echOpts, opts.enable, opts.config != nil else { return nil }
@@ -997,7 +997,7 @@ enum NCConnector {
     }
 
     /// ECHConfigList for a node with ECH on: static `config`, else the HTTPS RR of `query-server-name` (else the
-    /// TLS server name), as mihomo's ech-opts. No list (no record, no ech SvcParam, lookup failed) is an error —
+    /// TLS server name), as Clash.Meta's ech-opts. No list (no record, no ech SvcParam, lookup failed) is an error —
     /// never a silent plaintext-SNI handshake. completion(nil, nil) only when ECH is off. Called back on `queue`.
     static func resolveECHConfigList(_ proxy: NCProxy, serverName: String, queue: DispatchQueue,
                                      completion: @escaping (Data?, Error?) -> Void) {
@@ -1029,12 +1029,12 @@ enum NCConnector {
         }
     }
 
-    /// Default ALPN when the node sets no `alpn` (mihomo defaults; the system-TLS path sent none):
+    /// Default ALPN when the node sets no `alpn` (Clash.Meta defaults; the system-TLS path sent none):
     /// - ws / httpupgrade / http transports: ["http/1.1"] (offering h2 lets a CDN pick h2 and the Upgrade breaks)
     /// - grpc / h2 transports: ["h2"]; xhttp: ["h2"]
-    /// - trojan over tcp: ["h2", "http/1.1"] (mihomo trojan default)
+    /// - trojan over tcp: ["h2", "http/1.1"] (Clash.Meta trojan default)
     /// - https proxy: ["http/1.1"]
-    /// - vmess / vless over tcp, anytls: none (mihomo sends no ALPN unless configured)
+    /// - vmess / vless over tcp, anytls: none (Clash.Meta sends no ALPN unless configured)
     static func defaultALPN(for proxy: NCProxy) -> [String] {
         let type = proxy.type.lowercased()
         if type == "https" || type == "http" { return ["http/1.1"] }
@@ -1127,7 +1127,7 @@ enum NCConnector {
         return (wsPathStrippingEarlyData(opts?["path"]?.string ?? "/"), headers)
     }
 
-    /// fix/nc-diag-439 (G): mihomo reads `?ed=N` off the ws path (Xray early data, sent in Sec-WebSocket-Protocol)
+    /// fix/nc-diag-439 (G): Clash.Meta reads `?ed=N` off the ws path (Xray early data, sent in Sec-WebSocket-Protocol)
     /// and never sends it as part of the request path; servers behind CDNs route on the bare path, so sending
     /// `/path?ed=2048` left the upgrade unanswered (ws-stage 5000 ms timeouts). We strip it and send no early data
     /// (servers accept a normal upgrade). Other query items are kept as written.
@@ -1144,7 +1144,7 @@ enum NCConnector {
     }
 
     /// fix/nc-diag-439 (G): ALPN for vmess / vless over NWConnection TLS — ws / httpupgrade offer only http/1.1
-    /// (mihomo); other transports keep the previous behaviour (no ALPN extension).
+    /// (Clash.Meta); other transports keep the previous behaviour (no ALPN extension).
     static func tlsALPN(_ proxy: NCProxy) -> [String]? {
         switch proxy.fields["network"]?.string ?? "tcp" {
         case "ws", "httpupgrade": return ["http/1.1"]
@@ -1152,7 +1152,7 @@ enum NCConnector {
         }
     }
 
-    /// fix/nc-diag-439 (G): TLS SNI for vmess / vless. `servername` (vmess) / `sni` first; without one mihomo takes
+    /// fix/nc-diag-439 (G): TLS SNI for vmess / vless. `servername` (vmess) / `sni` first; without one Clash.Meta takes
     /// the transport's host — ws `Host` header, h2 `host[0]`, http-opts `Host` — before falling back to `server`.
     /// For 优选-IP nodes (server = an IP literal) the old fallback sent no SNI at all and Cloudflare aborted the
     /// handshake (tls -9824 on build 439's CFT nodes).
@@ -1195,7 +1195,7 @@ enum NCConnector {
         switch network {
         case "ws":
             // fix/nc-silent-fail: every ws-opts mode — early data (max-early-data / ?ed=), v2ray-http-upgrade
-            // (+ fast-open). Trojan's default Host is its sni (mihomo trojan.go).
+            // (+ fast-open). Trojan's default Host is its sni (Clash.Meta trojan.go).
             let defaultHost = proxy.type == "trojan" ? (proxy.fields["sni"]?.string ?? server) : server
             let ws = NCV2RayWSStream(raw: raw, options: NCWSTransportOptions.parse(proxy, defaultHost: defaultHost))
             ws.start { err in
@@ -1219,7 +1219,7 @@ enum NCConnector {
         case "xhttp":
             xhttpStream(raw: raw, proxy: proxy, queue: queue, completion: completion)
         case "http":
-            // fix/nc-silent-fail: mihomo http-opts is an HTTP/1.1 request disguise over the (TLS) stream, not h2.
+            // fix/nc-silent-fail: Clash.Meta http-opts is an HTTP/1.1 request disguise over the (TLS) stream, not h2.
             completion(NCHTTPObfsStream(raw: raw, options: NCHTTPObfsOptions.parse(proxy, server: server)), nil)
         case "h2":
             let opts = proxy.fields["h2-opts"]?.object
@@ -1245,7 +1245,7 @@ enum NCConnector {
 
     static func isXHTTP(_ proxy: NCProxy) -> Bool { (proxy.fields["network"]?.string ?? "") == "xhttp" }
 
-    /// XHTTP runs HTTP/2 over the TLS stream, so it must negotiate h2 (mihomo wrapTLS(isH2: true) forces
+    /// XHTTP runs HTTP/2 over the TLS stream, so it must negotiate h2 (Clash.Meta wrapTLS(isH2: true) forces
     /// NextProtos [h2]); the other transports keep the system default (no ALPN).
     static func xhttpALPN(_ proxy: NCProxy) -> [String] { isXHTTP(proxy) ? ["h2"] : [] }
 

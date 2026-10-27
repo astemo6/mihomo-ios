@@ -15,7 +15,7 @@ struct NCTailscaleControlConfig {
     var controlURL: String
     /// Pre-authentication key (never logged).
     var authKey: String?
-    /// Hostname advertised to the tailnet (defaults to "mihomo-ios").
+    /// Hostname advertised to the tailnet (defaults to "tern").
     var hostname: String
     /// Relative state directory under home container (e.g. "tailscale/node-sha1").
     var stateDir: String
@@ -30,7 +30,7 @@ struct NCTailscaleControlConfig {
         name: String,
         controlURL: String = "",
         authKey: String? = nil,
-        hostname: String = "mihomo-ios",
+        hostname: String = "tern",
         stateDir: String,
         homePath: String,
         ephemeral: Bool = false,
@@ -39,7 +39,7 @@ struct NCTailscaleControlConfig {
         self.name = name
         self.controlURL = controlURL
         self.authKey = authKey
-        self.hostname = hostname.isEmpty ? "mihomo-ios" : hostname
+        self.hostname = hostname.isEmpty ? "tern" : hostname
         self.stateDir = stateDir
         self.homePath = homePath
         self.ephemeral = ephemeral

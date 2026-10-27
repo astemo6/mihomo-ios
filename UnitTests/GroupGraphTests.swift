@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// hotfix/group-test-offline: a select group made only of other groups is tested through the real nodes behind it,
 /// and each member group shows the delay of the node it resolves to.

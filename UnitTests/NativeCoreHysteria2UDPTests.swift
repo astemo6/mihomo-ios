@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Hysteria2 UDPMessage codec (Shared/NativeCore/NCHysteria2UDPCodec.swift): the spec wire layout
 /// (apernet/hysteria PROTOCOL.md — uint32 session ID, uint16 packet ID, u8 frag ID / count, varint

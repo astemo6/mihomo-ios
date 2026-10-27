@@ -90,7 +90,7 @@ enum NCBlake2b {
 }
 
 /// Argon2id (RFC 9106 / x/crypto/argon2 semantics): the KDF Snell uses.
-/// Single implementation, lanes supported; verified against Go vectors.
+/// Single implementation, lanes supported; verified against the old core vectors.
 enum NCArgon2 {
     /// H' — BLAKE2b long-output hash used for block seeding/extraction.
     static func blake2bLong(outputLength: Int, input: Data) -> Data {

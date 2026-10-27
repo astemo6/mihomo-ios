@@ -555,18 +555,11 @@ struct SettingsView: View {
             .listRowBackground(Theme.card)
 
             Section {
-                Stepper(value: $o.memoryLimitMB, in: CoreOverrides.memoryLimitRange, step: 1) {
-                    HStack {
-                        Text("内核内存上限")
-                        Spacer()
-                        Text("\(o.memoryLimitMB) MB").monospacedDigit().foregroundStyle(.secondary)
-                    }
-                }
                 Picker("隧道 MTU", selection: $o.tunMTU) {
                     ForEach(CoreOverrides.mtuChoices, id: \.self) { Text(String($0)).tag($0) }
                 }
             } header: { Text("性能") } footer: {
-                Text("iOS 限制网络扩展约 50 MB 内存。内存上限是 Go 运行时的软上限（默认 \(CoreOverrides.defaultMemoryLimitMB) MB）：调低更稳但更费电，调高可容纳更多连接。接近系统上限时扩展会先释放内存，再关闭连接。MTU 默认 4064，遇到个别网络异常可改为 1500。两项都在重新连接后生效。")
+                Text("iOS 限制网络扩展约 50 MB 内存，接近上限时扩展会先释放内存，再关闭连接。MTU 默认 4064，遇到个别网络异常可改为 1500，重新连接后生效。")
             }
             .listRowBackground(Theme.card)
 
@@ -858,8 +851,8 @@ struct AboutView: View {
         Credit(name: "Hako-Adapter", note: "PacketFlowBridge 思路：socketpair 连接 NEPacketTunnelFlow 与内核（现 ProjectClash/Clash-Adapter-Legacy）", license: "GPL-3.0", url: "https://github.com/ProjectClash/Clash-Adapter-Legacy"),
         Credit(name: "ProjectClash", note: "Hako / Hako-Adapter 的维护者，后续项目 Clash-Adapter", license: "GPL-3.0", url: "https://github.com/ProjectClash"),
         Credit(name: "MetaCubeX/meta-rules-dat", note: "内置 GeoIP / GeoSite / ASN 数据库", license: "见上游仓库", url: "https://github.com/MetaCubeX/meta-rules-dat"),
-        Credit(name: "goja · regexp2", note: "脚本与正则引擎", license: "MIT", url: "https://github.com/dop251/goja"),
-        Credit(name: "Tern jq", note: "Tern 自己的 jq 解释器（纯 Swift，不含 Go 代码），用于 jq 请求体 / 响应体重写，语义与 jq 1.7.1 一致", license: "GPL-3.0", url: "https://github.com/astemo6/mihomo-ios"),
+        Credit(name: "JavaScriptCore · ICU", note: "脚本引擎（系统 JavaScriptCore）与正则引擎（Tern 自己把 regexp2 / RE2 写法转成 ICU 执行）", license: "LGPL-2.1 · Unicode", url: "https://webkit.org"),
+        Credit(name: "Tern jq", note: "Tern 自己的 jq 解释器（纯 Swift），用于 jq 请求体 / 响应体重写，语义与 jq 1.7.1 一致", license: "GPL-3.0", url: "https://github.com/astemo6/mihomo-ios"),
     ]
 
     var body: some View {

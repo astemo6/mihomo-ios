@@ -9,8 +9,8 @@ import Network
 /// server dial or a DNS forward would enter NEPacketTunnelFlow, come back to NCDataPlane, be dialled again, and
 /// loop. NEIPv4Settings.excludedRoutes is no fix: the proxy servers' addresses (often behind host names, behind
 /// CDNs) are not known when the routes are set, DIRECT targets are arbitrary, and with includeAllNetworks iOS does
-/// not treat excluded routes as a way out for the provider itself. The Go core solved this by
-/// binding every socket to the physical interface (bridge physiface.go, IP_BOUND_IF); this is the Network.framework
+/// not treat excluded routes as a way out for the provider itself. the old core solved this by
+/// binding every socket to the physical interface; this is the Network.framework
 /// equivalent: `requiredInterface` = the current physical interface (Wi-Fi / cellular / wired, from a path monitor
 /// that never lists the tunnel), and the tunnel's interface type (.other: utun / ipsec) prohibited, so a dial made
 /// before the first path update still cannot pick the tunnel. Loopback destinations (the MitM front, the local

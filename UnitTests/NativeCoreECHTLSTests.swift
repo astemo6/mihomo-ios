@@ -1,6 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import Mihomo
+@testable import Tern
 
 /// Offline unit tests for RFC 9849 TLS Encrypted Client Hello (ECH) and RFC 8446 HelloRetryRequest.
 /// Covers:

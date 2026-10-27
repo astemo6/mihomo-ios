@@ -1,6 +1,6 @@
 import SwiftUI
 
-// 策略组编辑 (v0.9). Edits live in <home>/group-edits.json per profile (bridge/groupedits.go applies them
+// 策略组编辑 (v0.9). Edits live in <home>/group-edits.json per profile (the retired bridge them
 // when the runtime config is built); the profile file is never rewritten. 恢复原始 removes the edit.
 
 struct GroupSpec: Codable, Hashable {
@@ -152,7 +152,7 @@ struct GroupEditorView: View {
     @ViewBuilder var content: some View {
         Section {
             TextField("名称", text: $spec.name)
-                .disabled(isGlobal) // mihomo knows the global group only by this name
+                .disabled(isGlobal) // Clash.Meta knows the global group only by this name
                 .accessibilityIdentifier("group.name")
             Picker("类型", selection: $spec.type) {
                 ForEach(Self.types, id: \.0) { t in Text(LocalizedStringKey(t.1)).tag(t.0) }
@@ -327,7 +327,7 @@ struct GroupEditorView: View {
         }
         func matches(_ pattern: String?, _ s: String) -> Bool? {
             guard let p = pattern, !p.isEmpty else { return nil }
-            // mihomo accepts several filters separated by backticks; any match counts.
+            // Clash.Meta accepts several filters separated by backticks; any match counts.
             for part in p.split(separator: "`") {
                 if let re = try? NSRegularExpression(pattern: String(part)),
                    re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil { return true }

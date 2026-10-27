@@ -168,7 +168,7 @@ final class NCTailscaleClient {
 
         let controlURL = proxy.fields["control-url"]?.string ?? proxy.server ?? ""
         let authKey = proxy.fields["auth-key"]?.string ?? proxy.password
-        let hostname = proxy.fields["hostname"]?.string ?? "mihomo-ios"
+        let hostname = proxy.fields["hostname"]?.string ?? "tern"
         let ephemeral = proxy.fields["ephemeral"]?.bool ?? false
 
         let controlConfig = NCTailscaleControlConfig(

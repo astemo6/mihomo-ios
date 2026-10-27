@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure Swift persistent store backing $persistentStore / $prefs — Go's Store (bridge/mitm/store.go) ported:
+/// Pure Swift persistent store backing $persistentStore / $prefs — the old core's Store ported:
 /// a JSON object of strings in `<home>/engine/store.json` that the app can view and edit too.
 ///
 ///   - reads follow the file: when its modification date changed (the app's 持久化存储 editor, a restore) and this

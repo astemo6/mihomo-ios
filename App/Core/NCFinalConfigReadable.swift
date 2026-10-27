@@ -1,16 +1,16 @@
 import Foundation
 
-/// B1 (Go-zero): 「导出最终配置（含覆写）」 — Swift port of bridge/exportreadable.go FinalConfigReadable (+ the
+/// B1 (native-only): 「导出最终配置（含覆写）」 — Swift port of the retired bridge (+ the
 /// portable-export clean-up of exportconfig.go portableProviders / stripAuthHeader / inlineFileProvider and
 /// stripAppInternalsNode). The runtime config (NCRuntimeBuilder.build, as a connect builds it) rendered for
-/// people: block YAML in mihomo's conventional order — general keys, cache / GEO data, sniffer, tun, dns, hosts,
+/// people: block YAML in Clash.Meta's conventional order — general keys, cache / GEO data, sniffer, tun, dns, hosts,
 /// proxies, proxy-providers, proxy-groups, rule-providers, rules, then everything else alphabetically — with a
-/// short header and one Chinese comment per section; known objects use mihomo's documented key order.
+/// short header and one Chinese comment per section; known objects use Clash.Meta's documented key order.
 ///
-/// DIVERGENCE: Go walked a yaml.v3 node tree, so keys outside the documented lists kept the runtime order
+/// DIVERGENCE: the old core walked a yaml.v3 node tree, so keys outside the documented lists kept the runtime order
 /// (notably dns.nameserver-policy). NCJSONValue objects are unordered, so those keys are written alphabetically
 /// (the tunnel's nativecore-runtime.json sorts that map too, see NCRuntimeDNS). Quoting follows our own emitter
-/// (strings that would read as another type are double-quoted; YAML 1.1 booleans y/n/yes/no/on/off quoted, as Go).
+/// (strings that would read as another type are double-quoted; YAML 1.1 booleans y/n/yes/no/on/off quoted, as the old core).
 enum NCFinalConfigReadable {
 
     struct ExportError: Error, LocalizedError {
@@ -170,7 +170,7 @@ enum NCFinalConfigReadable {
     }
 
     static func writeHeader(_ out: inout String, profile: String, version: String, time: Date, notes: [String]) {
-        out += "# Tern 导出的最终配置（mihomo 格式）\n"
+        out += "# Tern 导出的最终配置（Clash 格式）\n"
         let v = oneLine(version)
         if !v.isEmpty { out += "# Tern 版本：" + v + "\n" }
         let p = oneLine(profile)
@@ -339,7 +339,7 @@ enum NCFinalConfigReadable {
         }
         dropNamed("proxy-groups", NCProfileCheck.probeGroup)
         if root["listeners"] != nil {
-            dropNamed("listeners", "mihomo-ios-probe")
+            dropNamed("listeners", NCRuntimeSteps.probeListener)
             if case .array(let a)? = root["listeners"], a.isEmpty { root["listeners"] = nil }
         }
         var notes: [String] = []

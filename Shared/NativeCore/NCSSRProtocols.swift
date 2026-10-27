@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 
 // ShadowsocksR protocols and obfs beyond origin / auth_sha1_v4 / http_simple (feat/nc-proto A5, based on
-// astemo6/Muse NativeCore). Byte layouts ported from mihomo v1.19.33 transport/ssr/protocol (auth_aes128_md5,
+// astemo6/Muse NativeCore). Byte layouts ported from Clash.Meta v1.19.33 transport/ssr/protocol (auth_aes128_md5,
 // auth_aes128_sha1, auth_chain_a, auth_chain_b) and transport/ssr/obfs (http_simple/http_post, random_head,
 // tls1.2_ticket_auth). Per-connection buffers hold at most one frame.
 
@@ -67,7 +67,7 @@ enum NCSSRKit {
 }
 
 /// Per-proxy user data (userID / userKey): random userID when protocol-param carries none — fixed for the
-/// proxy's lifetime like mihomo's newAuthAES128* / newAuthChain*.
+/// proxy's lifetime like Clash.Meta's newAuthAES128* / newAuthChain*.
 final class NCSSRUserData {
     let userID: Data
     let userKey: Data
@@ -250,7 +250,7 @@ struct NCXorShift128Plus {
         s0 = Self.le64(full, 0); s1 = Self.le64(full, 8)
     }
 
-    /// Go writes the length over the hash's first two bytes in place; same seed here without the aliasing.
+    /// the old core writes the length over the hash's first two bytes in place; same seed here without the aliasing.
     mutating func initFromBinAndLength(_ bin: Data, _ length: Int) {
         var full = [UInt8](bin.prefix(16))
         while full.count < 16 { full.append(0) }
@@ -462,7 +462,7 @@ final class NCSSRHTTPObfs: NCSSRObfsCodec {
     private let host: String, port: Int, ivSize: Int, param: String
     private var sentHeader = false, recvHeader = false
     private var inbuf = Data()
-    /// mihomo v1.19.33 transport/ssr/obfs/http_simple.go userAgent, verbatim (250 entries).
+    /// Clash.Meta v1.19.33 transport/ssr/obfs/http_simple.go userAgent, verbatim (250 entries).
     private static let userAgents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.162 Safari/537.36",
         "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",

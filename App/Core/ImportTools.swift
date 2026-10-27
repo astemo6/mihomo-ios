@@ -1,8 +1,8 @@
 import Foundation
 
 /// Pure Swift ports of bridge helpers used by the import / profile flows
-/// (bridge/classify.go ClassifyText, bridge/grouporder.go ForgetProfile,
-/// bridge/nativeformats.go DetectNodeFormat are the specs). ImportConf and
+/// (the retired bridge,
+/// the retired bridge are the specs). ImportConf and
 /// InspectProfile land in NCConfImportPort.swift and ProfileInspector.swift.
 enum ImportTools {
 
@@ -15,8 +15,8 @@ enum ImportTools {
     /// Removes a deleted profile's per-profile settings (the entries keyed
     /// by its id in profileSettingFiles) and its side files:
     /// `<file>.bak`, `<file>.gen`, `<profile>.selected.json`,
-    /// `<file>.source.conf`. Returns "" or the first error, like the Go
-    /// version. (Go additionally serialises writers with a file lock; the
+    /// `<file>.source.conf`. Returns "" or the first error, like the old core
+    /// version. (the old core additionally serialises writers with a file lock; the
     /// app is the only writer of these files, so a read-modify-write here
     /// is equivalent in practice.)
     static func forgetProfile(home: String, profileID: String, profilePath: String) -> String {
@@ -56,7 +56,7 @@ enum ImportTools {
 
     /// Reports what kind of node source a text is and how many nodes it
     /// holds, as JSON: {"count":N,"format":"…"} — formats and detection
-    /// order mirror the Go version: SIP008 / sing-box JSON, Clash YAML,
+    /// order mirror the old core version: SIP008 / sing-box JSON, Clash YAML,
     /// Base64 分享链接， 分享链接， Surge / QX / Loon 节点行， 未识别.
     static func detectNodeFormat(_ text: String) -> String {
         let (format, count) = detect(text)
@@ -102,7 +102,7 @@ enum ImportTools {
         return ("未识别", 0)
     }
 
-    /// JSON node sources, Go parseJSONNodes semantics (count only):
+    /// JSON node sources, the old core parseJSONNodes semantics (count only):
     /// an object with a `servers` array is SIP008 (entries need a server);
     /// an object with `outbounds`, or a bare array, is sing-box (entries
     /// need a server and a recognised proxy type).
@@ -134,7 +134,7 @@ enum ImportTools {
         }.count
     }
 
-    /// Go tryB64: no spaces/tabs anywhere, CR/LF stripped, then any of the
+    /// the old core tryB64: no spaces/tabs anywhere, CR/LF stripped, then any of the
     /// four base64 variants (std/url × padded/raw) may decode it.
     private static func tryB64(_ s: String) -> String? {
         let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -235,7 +235,7 @@ enum ImportTools {
     }
 
     /// ClassifyText tells the app what pasted / opened text is, so it can route it into the one internal
-    /// model: "profile" (mihomo / Clash YAML), "conf" (a full Surge / QX config), "module:<format>"
+    /// model: "profile" (Clash.Meta / Clash YAML), "conf" (a full Surge / QX config), "module:<format>"
     /// (Surge / QX / Loon / Stash / Egern module or rewrite snippet), "nodes" (share links / proxy
     /// lines) or "" (not recognised).
     static func classifyText(_ text: String) -> String {

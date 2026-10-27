@@ -1,8 +1,8 @@
 import Foundation
 
-/// A minimal YAML emitter for mihomo configurations and proxy nodes:
+/// A minimal YAML emitter for Clash.Meta configurations and proxy nodes:
 /// emits block mappings, sequences, and scalars (strings, numbers, booleans, null)
-/// compatible with both Go's yaml.v3 and NCYAML.
+/// compatible with both the old core's yaml.v3 and NCYAML.
 enum NCYAMLEmitter {
 
     /// Emit an arbitrary object (dictionary, array, primitive, or NCJSONValue) as a YAML string.

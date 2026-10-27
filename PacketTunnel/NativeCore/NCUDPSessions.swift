@@ -502,7 +502,7 @@ final class NCUDPSnellSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let raw: NCStream
     /// fix/nc-silent-fail: what the Snell frames ride — `raw`, or `raw` inside the obfs-opts simple-obfs
-    /// wrapper (mihomo applies obfs to the UDP connection too: ListenPacketContext → StreamConnContext).
+    /// wrapper (Clash.Meta applies obfs to the UDP connection too: ListenPacketContext → StreamConnContext).
     private let wire: NCRelayStream
     private let version: Int
     private let encoder: NCSnellStreamEncoder?

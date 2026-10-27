@@ -1,4 +1,4 @@
-name: Mihomo
+name: Tern
 options:
   projectFormat: xcode15_0
   deploymentTarget:
@@ -11,11 +11,11 @@ options:
 # ──────────────────────────────────────────────────────────────
 settings:
   base:
-    APP_BUNDLE_ID: com.astemo6.mihomo
-    TUNNEL_BUNDLE_ID: com.astemo6.mihomo.tunnel
+    APP_BUNDLE_ID: com.astemo6.tern
+    TUNNEL_BUNDLE_ID: com.astemo6.tern.tunnel
     # Widget + Control Center toggle (v0.7); only in the "-widget" IPA variant. Same convention as the tunnel.
-    WIDGET_BUNDLE_ID: com.astemo6.mihomo.widget
-    APP_GROUP_ID: group.com.astemo6.mihomo
+    WIDGET_BUNDLE_ID: com.astemo6.tern.widget
+    APP_GROUP_ID: group.com.astemo6.tern
     MARKETING_VERSION: "0.20.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
@@ -44,7 +44,7 @@ settings:
       SWIFT_COMPILATION_MODE: wholemodule
 
 targets:
-  Mihomo:
+  Tern:
     type: application
     platform: iOS
     sources:
@@ -79,9 +79,9 @@ targets:
       # native MitM stage 3 lane s3-script: the native script dispatcher (switch nativeMitmScript, default OFF), in the app
       # only for UnitTests/NativeMitmScriptTests.swift.
       - path: PacketTunnel/NativeMitM/Script
-        # Go-zero: NativeTaskRunner / NativeHTTPAPI drive NativeCoreEngine — tunnel target only.
+        # NativeTaskRunner / NativeHTTPAPI drive NativeCoreEngine — tunnel target only.
         excludes: ["TernPrelude.js", "NativeTaskRunner.swift"]
-      # Go-zero: NativeMitmSession's inner driver (pass-through) — the session is compiled here for the unit tests.
+      # NativeMitmSession's inner driver (pass-through) — the session is compiled here for the unit tests.
       - path: PacketTunnel/NativeMitM/NativeMitmFlowDriver.swift
       # nc-dego-rest: 脚本调试 runs in the app on the tunnel's prelude (NCScriptDebug) — an explicit resource, as
       # in the PacketTunnel target, instead of relying on XcodeGen's default phase for .js.
@@ -104,15 +104,15 @@ targets:
     dependencies:
       - target: PacketTunnel
         embed: true
-      - target: MihomoWidget
+      - target: TernWidget
         embed: true
       - sdk: NetworkExtension.framework
     settings:
       base:
-        PRODUCT_NAME: Mihomo
+        PRODUCT_NAME: Tern
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
         INFOPLIST_FILE: App/Info.plist
-        CODE_SIGN_ENTITLEMENTS: App/Mihomo.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/Tern.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Night AppIcon-Sky"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -124,10 +124,9 @@ targets:
       - path: PacketTunnel
         # native MitM stage 2: NativeMitM/ is built (runtime switch default OFF, NativeMitmRuntime); the three
         # stage-1 skeletons stay out until the tls/http/upstream lanes replace them.
-        # Go-zero: PacketFlowBridge and the Go-lane front (NativeTLSFront / NativeUpstream / NativeHTTP1Session) are
-        # deleted; NativeCore reads the packet flow itself (NCDataPlane).
+        # NativeCore reads the packet flow itself (NCDataPlane).
         excludes: ["**/*.entitlements", "NativeMitM/Script/TernPrelude.js"]
-      # The script prelude for the native script host (the one copy since bridge/mitm/prelude.js is gone).
+      # The script prelude for the native script host (the one copy).
       - path: PacketTunnel/NativeMitM/Script/TernPrelude.js
         buildPhase: resources
       # The Live Activity attributes are app + widget only (keeps ActivityKit out of the tunnel's memory).
@@ -141,8 +140,8 @@ targets:
     configFiles:
       Debug: Config/Tunnel.signing.xcconfig
       Release: Config/Tunnel.signing.xcconfig
-    # Go-zero: the tunnel kernel is NativeCore (Swift + vendored lwIP); neither the app nor the extension links any
-    # Go. The app writes the runtime config the tunnel reads (NativeRuntimePrep, Swift).
+    # The tunnel kernel is NativeCore (Swift + vendored lwIP). The app writes the runtime config the tunnel reads
+    # (NativeRuntimePrep, Swift).
     dependencies:
       - sdk: NetworkExtension.framework
     settings:
@@ -163,7 +162,7 @@ targets:
         # Files the app also compiles (NativeMitM/*, for the unit tests) call the tunnel engine only under this.
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) TERN_TUNNEL
 
-  MihomoWidget:
+  TernWidget:
     type: app-extension
     platform: iOS
     deploymentTarget: "17.0"
@@ -185,20 +184,20 @@ targets:
       - sdk: NetworkExtension.framework
     settings:
       base:
-        PRODUCT_NAME: MihomoWidget
+        PRODUCT_NAME: TernWidget
         PRODUCT_BUNDLE_IDENTIFIER: $(WIDGET_BUNDLE_ID)
         INFOPLIST_FILE: Widget/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Widget/MihomoWidget.entitlements
+        CODE_SIGN_ENTITLEMENTS: Widget/TernWidget.entitlements
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
 
 schemes:
-  Mihomo:
+  Tern:
     build:
       targets:
-        Mihomo: all
+        Tern: all
         PacketTunnel: all
-        MihomoWidget: all
+        TernWidget: all
     archive:
       config: Release

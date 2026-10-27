@@ -65,16 +65,16 @@ enum CoreText {
         if let g = groups(entries, s), let n = Int(g[0]) { return String(localized: "\(n) 条") }
         // Tailscale messages (delegated to TailscaleText).
         if let ts = TailscaleText.localize(s) { return ts }
-        // v0.19 覆写脚本: the core's prefix in Chinese, mihomo's own message (English) after it.
+        // v0.19 覆写脚本: the core's prefix in Chinese, Clash.Meta's own message (English) after it.
         if s.hasPrefix("脚本输出的配置校验失败: ") { return String(localized: "脚本输出的配置校验失败：\(String(s.dropFirst("脚本输出的配置校验失败: ".count)))") }
         if s.hasPrefix("脚本返回的不是配置对象: ") { return String(localized: "脚本返回的不是配置对象：\(String(s.dropFirst("脚本返回的不是配置对象: ".count)))") }
         if s.hasPrefix("读取配置失败: ") { return String(localized: "读取配置失败：\(String(s.dropFirst("读取配置失败: ".count)))") }
-        // feat/group-order reorder errors (bridge/grouporder.go groupsSeq / seqNames).
+        // feat/group-order reorder errors.
         if s.hasPrefix("策略组「"), s.hasSuffix("」重名") {
             let name = String(s.dropFirst("策略组「".count).dropLast("」重名".count))
             return String(localized: "策略组「\(name)」重名")
         }
-        // v0.19.3 script runtime guards (bridge/mitm/script.go).
+        // v0.19.3 script runtime guards.
         if s == "脚本调用栈溢出（递归过深）" { return String(localized: "脚本调用栈溢出（递归过深）") }
         if s == "脚本内存占用过高，已终止（保护隧道内存）" { return String(localized: "脚本内存占用过高，已终止（保护隧道内存）") }
         switch s {

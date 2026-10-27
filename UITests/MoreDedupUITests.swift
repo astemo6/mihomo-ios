@@ -4,7 +4,7 @@ import XCTest
 /// one home. The 配置 tab became 工具 (Egern-style cards with counts: 节点与订阅, 分流规则, 模块, 重写, 脚本, 定时任务,
 /// HTTPS 解密, DNS, logs, network tools); 更多 keeps settings-type rows with 配置 (配置管理) first and 更新资源 next to
 /// 存储空间; 高级设置 keeps 连接方式, 地理数据库, 内核 / 测速 / 出口. Profile long-press menu has 导出 above 删除.
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 63. 工具 tab / 更多 / 配置 / 更新资源 without duplicate entries (+ screenshots for review)
 

@@ -1,14 +1,14 @@
 import Foundation
 
-/// B6 (nc-dego-rest): 脚本调试 (script workbench) without Go — bridge/workbench.go ScriptDebugRun +
-/// bridge/mitm/debugrun.go DebugRun in Swift. One script runs in the app process on the same JavaScriptCore
+/// B6 (nc-dego-rest): 脚本调试 (script workbench) without the old core — the retired bridge +
+/// the retired bridge in Swift. One script runs in the app process on the same JavaScriptCore
 /// engine and prelude (TernPrelude.js) the tunnel uses, driven by NativeScriptRun (the tunnel's Swift run loop:
 /// timers, $done parsing, timeout), with a host that captures console lines and notifications instead of
 /// logging / posting them. $persistentStore is the real store (NCPersistentStore, engine/store.json).
 ///
-/// Differences from the Go workbench: $httpClient uses URLSession from the app (Go dialed directly from the app
+/// Differences from the old core workbench: $httpClient uses URLSession from the app (the old core dialed directly from the app
 /// too; redirects are always followed here, `policy` / `insecure` are ignored); $httpAPI gets no answer (no
-/// tunnel controller in the app process); the Egern ctx adapter (Go's egernadapter.go) is not applied.
+/// tunnel controller in the app process); the Egern ctx adapter (the old core's egernadapter.go) is not applied.
 enum NCScriptDebug {
 
     struct HTTP {
@@ -146,7 +146,7 @@ enum NCScriptDebug {
         defer { js.drop(key) }
 
         let host = DebugScriptHost(start: start, timeoutMs: Int64(timeout) * 1000, maxLogs: maxLogs)
-        let run = NativeScriptRun(gen: 0, rule: 0, go: host, js: js, lane: nil, nativeBase: Int64(1) << 52, laneOK: false)
+        let run = NativeScriptRun(gen: 0, rule: 0, hostAPI: host, js: js, lane: nil, nativeBase: Int64(1) << 52, laneOK: false)
         let isHTTP = typ == "http-request" || typ == "http-response"
         run.requestPhase = typ == "http-request"
 
@@ -157,7 +157,7 @@ enum NCScriptDebug {
             "export": true,
             "arg": ["has": inp.argument != nil, "obj": false, "s": inp.argument ?? ""] as [String: Any],
             "env": ["surge-version": "5.20.0", "surge-build": "3000", "language": language, "system": "iOS",
-                    "mihomo-ios": true] as [String: Any],
+                    "tern": true] as [String: Any],
             "egernEnv": [String: String](), "egernCron": "", "hasParams": false,
         ]
         var reqURL = "", reqMethod = "GET"

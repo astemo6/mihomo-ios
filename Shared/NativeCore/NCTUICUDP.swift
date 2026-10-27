@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// TUIC UDP relay (feat/nc-proto2, based on astemo6/Muse NativeCore); wire format from mihomo v1.19.33
+/// TUIC UDP relay (feat/nc-proto2, based on astemo6/Muse NativeCore); wire format from Clash.Meta v1.19.33
 /// transport/tuic v4/v5 (protocol.go, packet.go, frag.go).
 ///
 ///   v5 Packet:     [5][2] assoc u16  pkt u16  frag_total u8  frag_id u8  size u16  ADDR  data
@@ -122,7 +122,7 @@ enum NCTUICUDP {
         return p
     }
 
-    /// v5 reassembly (mihomo deFragger): per packet id, at most 16 open packets.
+    /// v5 reassembly (Clash.Meta deFragger): per packet id, at most 16 open packets.
     struct Defragger {
         private var bags: [UInt16: [Data?]] = [:]
         private var order: [UInt16] = []

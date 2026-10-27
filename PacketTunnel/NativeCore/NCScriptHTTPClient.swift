@@ -11,7 +11,7 @@
 // every Set-Cookie kept as its own pair; gzip / deflate / br decoded with NativeBodyDecode (Content-Encoding and
 // Content-Length then describe the decoded body, like the URLSession path did); redirects followed (301/302/303
 // → GET without body, 307/308 keep method and body; at most 10) unless noRedirect. One deadline for the whole
-// exchange: the script's timeout, else 15 s (Go's fetchReq).
+// exchange: the script's timeout, else 15 s (the old core's fetchReq).
 //
 // `policy` (a proxy / group / DIRECT / REJECT name) replaces the rule match for this request; an unknown name fails
 // the request ("unknown policy"), like Surge. `insecure` skips certificate verification on both the direct
@@ -96,7 +96,7 @@ enum NCScriptHTTPClient {
                 req.headers.removeAll { isHeader($0.0, "Content-Type") || isHeader($0.0, "Content-Length") }
             }
             if !sameOrigin {
-                // like Go's net/http: credentials are not sent to another host
+                // like the old core's net/http: credentials are not sent to another host
                 req.headers.removeAll { isHeader($0.0, "Authorization") || isHeader($0.0, "Cookie") }
             }
             req.url = next

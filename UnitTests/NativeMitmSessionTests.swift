@@ -1,8 +1,8 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
-/// Native MitM stage 2 (lane wire, B9): NativeMitmSession against fakes of the other lanes and of Go's flow API.
-/// Uses the integrated http lane (HTTPLaneCodec); what is under test is the wiring: which Go call happens when,
+/// Native MitM stage 2 (lane wire, B9): NativeMitmSession against fakes of the other lanes and of the old core's flow API.
+/// Uses the integrated http lane (HTTPLaneCodec); what is under test is the wiring: which the old core call happens when,
 /// keep-alive, body modes, cleanup on every exit.
 final class NativeMitmSessionTests: XCTestCase {
 
@@ -79,7 +79,7 @@ final class NativeMitmSessionTests: XCTestCase {
         func responsePhase(_ id: Int64, head: HTTPResponseHead, length: Int64) -> FlowDecision { log("response \(head.status) \(length)"); return resp(head) }
         func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult { pushed[which, default: Data()].append(data); return .taken }
         func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) { closedBodies.insert(which); log("close \(which.rawValue) \(error)") }
-        /// Streaming "read" like Go's: read returns (upper-cased) what was pushed so far; "more" until closed.
+        /// Streaming "read" like the old core's: read returns (upper-cased) what was pushed so far; "more" until closed.
         var streaming = false
         var closedBodies: Set<FlowBodyWhich> = []
         var taken: [FlowBodyWhich: Int] = [:]
@@ -147,7 +147,7 @@ final class NativeMitmSessionTests: XCTestCase {
         XCTAssertTrue(client.text.hasPrefix("HTTP/1.1 200 OK\r\n"), client.text)
         XCTAssertTrue(client.text.hasSuffix("\r\n\r\nhello"), client.text)
         XCTAssertTrue(client.text.contains("Content-Length: 5"))
-        XCTAssertTrue(client.text.contains("X-A: 1"))   // Go's headers, not the origin's
+        XCTAssertTrue(client.text.contains("X-A: 1"))   // the old core's headers, not the origin's
         XCTAssertEqual(up.opened.first?.0, "ex.com"); XCTAssertEqual(up.opened.first?.1, 443); XCTAssertEqual(up.opened.first?.2, true)
         XCTAssertTrue(up.leases[0].mem.text.hasPrefix("GET /a HTTP/1.1\r\nHost: ex.com\r\n"), up.leases[0].mem.text)
         XCTAssertEqual(driver.ended.count, 1); XCTAssertEqual(driver.ended.first?.1, 5); XCTAssertEqual(driver.ended.first?.2, "")
@@ -155,7 +155,7 @@ final class NativeMitmSessionTests: XCTestCase {
         XCTAssertEqual(NativeMitmRuntime.liveSessions, 0)
     }
 
-    /// Go's usual answer for a body it may rewrite: respond + read over the upstream body it has not seen yet;
+    /// the old core's usual answer for a body it may rewrite: respond + read over the upstream body it has not seen yet;
     /// "more" means push the next piece (2026-10-24: the session treated it as fatal → head sent, then a cut).
     func testStreamingReadFeedsUpstreamBodyOnMore() {
         driver.streaming = true
@@ -209,7 +209,7 @@ final class NativeMitmSessionTests: XCTestCase {
         driver.resp = { _ in FlowDecision.decode(#"{"id":1,"action":"respond","status":200,"body":"lane","length":150000,"lane":{"handle":42,"raw":false}}"#) }
         let up = Upstream(response: Data("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc".utf8))
         driver.begin = { _ in FlowDecision.decode(#"{"id":1,"action":"forward","method":"GET","url":"https://ex.com/a","body":"none","length":0}"#) }
-        // Go asked for the upstream body first (need-body 1), then answered from the lane.
+        // the old core asked for the upstream body first (need-body 1), then answered from the lane.
         var first = true
         let laneResp = driver.resp
         driver.resp = { h in if first { first = false; return FlowDecision.decode(#"{"id":1,"action":"need-body","which":1,"length":0}"#) }; return laneResp(h) }
@@ -219,7 +219,7 @@ final class NativeMitmSessionTests: XCTestCase {
         XCTAssertTrue(client.text.contains("Content-Length: 150000"))
         XCTAssertEqual(client.written.count - (client.written.range(of: Data("\r\n\r\n".utf8))!.upperBound), 150_000)
         XCTAssertEqual(driver.ended.first?.1, 150_000)
-        XCTAssertNotNil(bodies.store[42]) // handle left to Go (freed at MitmFlowEnd), never freed natively
+        XCTAssertNotNil(bodies.store[42]) // handle left to the old core (freed at MitmFlowEnd), never freed natively
     }
 
     func testClientGoneMidFlowCancelsFlowAndFreesSlot() {

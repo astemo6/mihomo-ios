@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// The canonical → legacy bridge must carry DNS semantics across, since
 /// the .conf runtime-load path feeds the engine through it.

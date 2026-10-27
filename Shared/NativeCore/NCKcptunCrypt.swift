@@ -3,20 +3,20 @@ import CryptoKit
 import CommonCrypto
 
 // kcptun packet crypto and Reed-Solomon FEC (kcp-go / klauspost/reedsolomon parity).
-// Reference: mihomo transport/kcptun + metacubex/kcp-go (crypt.go, fec.go).
+// Reference: Clash.Meta transport/kcptun + metacubex/kcp-go (crypt.go, fec.go).
 
 // MARK: - Options
 
 struct NCKcptunOptions: Equatable {
     // Memory limit constants (Network Extension ~50MiB budget priority)
-    static let defaultRcvWnd = 128      // mihomo default 512; capped to 128 to bound segment buffer
-    static let defaultSndWnd = 128      // mihomo default 128
-    static let defaultSmuxBuf = 524288  // 512 KiB; mihomo default 4 MiB
-    static let defaultStreamBuf = 262144 // 256 KiB; mihomo default 2 MiB
+    static let defaultRcvWnd = 128      // Clash.Meta default 512; capped to 128 to bound segment buffer
+    static let defaultSndWnd = 128      // Clash.Meta default 128
+    static let defaultSmuxBuf = 524288  // 512 KiB; Clash.Meta default 4 MiB
+    static let defaultStreamBuf = 262144 // 256 KiB; Clash.Meta default 2 MiB
     static let defaultMTU = 1350
     static let defaultDataShard = 10
     static let defaultParityShard = 3
-    /// kcptun / mihomo ciphers this port does not implement (reported as unsupported, never silently keyed as AES).
+    /// kcptun / Clash.Meta ciphers this port does not implement (reported as unsupported, never silently keyed as AES).
     static let unportedCrypts: Set<String> = ["tea", "xor", "sm4", "blowfish", "twofish", "cast5", "3des", "xtea", "aes-192"]
 
     var key: String
@@ -163,7 +163,7 @@ final class NCKcptunBlockCrypt {
             mode = .none
             return
         }
-        // kcptun/mihomo ciphers not ported: refuse instead of silently keying AES (mismatch = dead node).
+        // kcptun/Clash.Meta ciphers not ported: refuse instead of silently keying AES (mismatch = dead node).
         if NCKcptunOptions.unportedCrypts.contains(c) {
             return nil
         }
@@ -200,7 +200,7 @@ final class NCKcptunBlockCrypt {
             let k = deriveKey(length: 32)
             mode = .salsa20(k)
         default:
-            // Fallback to aes-256-cfb as mihomo default
+            // Fallback to aes-256-cfb as Clash.Meta default
             let k = deriveKey(length: 32)
             guard let aes = NCAES(key: k) else { return nil }
             mode = .aes256CFB(aes)

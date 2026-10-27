@@ -1,7 +1,7 @@
 import SwiftUI
 
 // 规则 (live from the controller, or offline from the profile), 自定义规则 (rules.json, Surge / QX /
-// Loon / mihomo syntax with live validation) and 提供者 (live, or offline from the cache files).
+// Loon / Clash.Meta syntax with live validation) and 提供者 (live, or offline from the cache files).
 
 // MARK: - Custom rules store
 
@@ -147,7 +147,7 @@ struct LocalRulesView: View {
     @State private var editing: CustomRule?
     @State private var adding = false
     /// User 2026-10-23 「本地规则点进去无法修改」: 配置规则 rows are edited / 停用 / 删除 like 自定义 rows, kept as
-    /// overrides (provider-overrides.json `#profile-rules`, bridge/profileruleoverrides.go).
+    /// overrides.
     @State private var editingProfile: ProfileRuleItem?
     @State private var confirmDeleteProfile: ProfileRuleItem?
     @State private var confirmRestoreAll = false
@@ -397,7 +397,7 @@ struct LocalRulesView: View {
         List {
             Section {
                 if localCustom.isEmpty {
-                    Text("点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法；远程规则列表在上一页的「订阅」里添加。")
+                    Text("点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / Clash 写法；远程规则列表在上一页的「订阅」里添加。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 ForEach(localCustom) { r in
@@ -432,7 +432,7 @@ struct LocalRulesView: View {
                 }
                 .onMove { custom.moveSubset(localCustom, from: $0, to: $1) }
             } footer: {
-                Text("策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 mihomo 规则集；QX filter_remote 没有 force-policy 时整份列表走 proxy（第一个手动选择组）。")
+                Text("策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 Clash 规则集；QX filter_remote 没有 force-policy 时整份列表走 proxy（第一个手动选择组）。")
                     .modifier(UITestOrderValue(id: "rules.custom.order", order: custom.orderToken))
             }
             .listRowBackground(Theme.card)
@@ -532,7 +532,7 @@ struct RuleCheckLine: View {
 /// v0.19.8: one rule type of the structured editor.
 struct RuleKind: Identifiable, Hashable {
     enum Group: String, CaseIterable { case domain, ip, other }
-    let id: String          // the mihomo rule type
+    let id: String          // the Clash.Meta rule type
     let group: Group
     let caption: String
     let placeholder: String
@@ -565,7 +565,7 @@ struct RuleKind: Identifiable, Hashable {
         }
     }
 
-    /// Surge / QX spellings → the mihomo type the form shows.
+    /// Surge / QX spellings → the Clash.Meta type the form shows.
     static let aliases: [String: String] = [
         "HOST": "DOMAIN", "HOST-SUFFIX": "DOMAIN-SUFFIX", "HOST-KEYWORD": "DOMAIN-KEYWORD", "HOST-REGEX": "DOMAIN-REGEX",
         "IP6-CIDR": "IP-CIDR6", "IP-CIDR6": "IP-CIDR6", "FINAL": "MATCH", "PROCESS": "PROCESS-NAME", "DEST-PORT": "DST-PORT",
@@ -788,7 +788,7 @@ struct CustomRuleEditor: View {
                 .accessibilityIdentifier("rule.line")
             if checking { ProgressView().controlSize(.small) } else { RuleCheckLine(check: check) }
             if remoteRefused { RemoteRefusedLine() }
-        } header: { Text("规则") } footer: { Text("实时校验：显示转换后的 mihomo 规则和对应的策略组。") }
+        } header: { Text("规则") } footer: { Text("实时校验：显示转换后的规则和对应的策略组。") }
         .listRowBackground(Theme.card)
     }
 
@@ -802,7 +802,7 @@ struct CustomRuleEditor: View {
             if checking { ProgressView().controlSize(.small) } else { RuleCheckLine(check: check) }
             if remoteRefused { RemoteRefusedLine() }
         } header: { Text("规则") } footer: {
-            Text("可以粘贴 Surge / QX / Clash 规则；切回表单时会填入各个字段。输入时实时校验：显示转换后的 mihomo 规则和对应的策略组。")
+            Text("可以粘贴 Surge / QX / Clash 规则；切回表单时会填入各个字段。输入时实时校验：显示转换后的规则和对应的策略组。")
         }
         .listRowBackground(Theme.card)
         Section("示例（轻点填入）") {

@@ -2,12 +2,12 @@
 // None. Runtime config building delegates to NCRuntimeBuilder (#112).
 // Inspect-specific statistics, provider cache inspection, group member
 // expansion (via NCGroupEditing.previewGroup), and result JSON shapes
-// mirror bridge/inspect.go exactly.
+// mirror the retired bridge.
 
 import Foundation
 import CryptoKit
 
-/// Pure Swift port of bridge/inspect.go InspectProfile.
+/// Pure Swift port of the retired bridge.
 /// Provides offline inspection of profile proxies, groups, rules, providers,
 /// and selections without starting the engine.
 enum NCProfileInspectorPort {
@@ -88,7 +88,7 @@ enum NCProfileInspectorPort {
         }
 
         // Groups
-        let probeGroup = "MIHOMO-PROBE"
+        let probeGroup = "TERN-PROBE"
         if let gl = raw["proxy-groups"]?.array {
             for x in gl {
                 guard let m = x.object else { continue }
@@ -200,7 +200,7 @@ enum NCProfileInspectorPort {
         case "MATCH", "FINAL":
             return InspectRule(type: "MATCH", payload: "", proxy: rest.trimmingCharacters(in: .whitespaces), options: nil)
         default:
-            // Go strings.Split keeps empty fields; options = TrimSpace(Join(parts[2:], ",")).
+            // the old core strings.Split keeps empty fields; options = TrimSpace(Join(parts[2:], ",")).
             let parts = rest.split(separator: ",", omittingEmptySubsequences: false).map { String($0) }
             let payload = parts.first?.trimmingCharacters(in: .whitespaces) ?? ""
             let proxy = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
@@ -264,7 +264,7 @@ enum NCProfileInspectorPort {
                 continue
             }
 
-            // nc-integrate: Go providerCache hashes the runtime `url` with MD5 (mihomo GetPathByHash), not x-source/SHA1.
+            // nc-integrate: the old core providerCache hashes the runtime `url` with MD5 (Clash.Meta GetPathByHash), not x-source/SHA1.
             let cp = ncProviderCachePath(home: homeDir, kind: kind, m)
             p.cachePath = cp
             if !cp.isEmpty,

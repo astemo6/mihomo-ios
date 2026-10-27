@@ -5,7 +5,7 @@ import XCTest
 /// names the page), one slim row right under the status bar (system inline bar with the trailing buttons on 策略 /
 /// 请求 / 工具 / 更多, the pinned Quantumult X-style exit header on 首页), same gap on every tab. Home's header stays put
 /// while the cards scroll under it. Screenshots of every tab, top and scrolled, plus Home at a large Dynamic Type size.
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 72. Shared tab-root top
 

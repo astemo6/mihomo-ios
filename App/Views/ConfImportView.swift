@@ -1,7 +1,7 @@
 import SwiftUI
 
-// Surge / Quantumult X .conf → mihomo profile (+ a module for its rewrite / MitM / script sections).
-// Translation happens once, at import (bridge/confimport.go); afterwards it is an ordinary profile.
+// Surge / Quantumult X .conf → Tern profile (+ a module for its rewrite / MitM / script sections).
+// Translation happens once, at import; afterwards it is an ordinary profile.
 
 struct ConfImportResult: Decodable {
     struct Report: Decodable {
@@ -66,7 +66,7 @@ struct ConfImportResult: Decodable {
                 for x in r where !o.excludedRoutes.contains(x) { o.excludedRoutes.append(x) }
             }
             if let u = testURL, CoreOverrides.isValidTestURL(u) { o.testURL = u }
-            // v0.19.8: 5–10 s (bridge importedCheckTimeout); a QX 2000 made most nodes 超时 in mihomo.
+            // v0.19.8: 5–10 s (bridge importedCheckTimeout); a QX 2000 made most nodes 超时 in Clash.Meta.
             if let t = testTimeoutMs, t > 0 { o.testTimeoutMs = min(max(t, 5000), 10000) }
             o.save()
             if let s = trustedSSIDs, !s.isEmpty {
@@ -178,7 +178,7 @@ struct ConfReportSection: View {
                             Label(LocalizedStringKey(rep.format == "qx" ? "Quantumult X 配置" : "Surge 配置"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
                                 .font(.headline)
                             Spacer()
-                            Text("→ mihomo").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
+                            Text("→ Tern").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
                         }
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                             stat("节点", rep.proxies ?? 0)

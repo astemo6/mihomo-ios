@@ -1,8 +1,8 @@
 import Foundation
 
-/// Flexible JSON value: mihomo configs are loosely typed maps (a proxy's fields
+/// Flexible JSON value: Clash.Meta configs are loosely typed maps (a proxy's fields
 /// differ per protocol), so the native core decodes into this tree and reads
-/// typed views from it — the same shape the Go side keeps as map[string]any.
+/// typed views from it — the same shape the old side keeps as map[string]any.
 enum NCJSONValue: Equatable {
     case null
     case bool(Bool)
@@ -59,7 +59,7 @@ struct NCProxy: Equatable {
     var uuid: String? { fields["uuid"]?.string }
     var udp: Bool { fields["udp"]?.bool ?? false }
 
-    /// Structured ECH options (`ech-opts`), aligned with mihomo's ECHOptions.
+    /// Structured ECH options (`ech-opts`), aligned with Clash.Meta's ECHOptions.
     var echOpts: NCECHOpts? {
         if let obj = fields["ech-opts"]?.object {
             return NCECHOpts(object: obj)
@@ -91,12 +91,12 @@ struct NCDNSConfig: Equatable {
     var fakeIPRange: String { fields["fake-ip-range"]?.string ?? "198.18.0.1/16" }
     var fakeIPRange6: String? { fields["fake-ip-range6"]?.string }
     var fakeIPFilter: [String] { fields["fake-ip-filter"]?.array?.compactMap { $0.string } ?? [] }
-    /// mihomo `fake-ip-filter-mode`: "blacklist" (default — listed names get
+    /// Clash.Meta `fake-ip-filter-mode`: "blacklist" (default — listed names get
     /// real IPs), "whitelist" (ONLY listed names get fake IPs) or "rule"
-    /// (mihomo's rule-style filter, not implemented natively: treated as
+    /// (Clash.Meta's rule-style filter, not implemented natively: treated as
     /// blacklist and reported at load).
     var fakeIPFilterMode: String { (fields["fake-ip-filter-mode"]?.string ?? "blacklist").lowercased() }
-    /// Fallback nameservers (mihomo dns.fallback).
+    /// Fallback nameservers (Clash.Meta dns.fallback).
     var fallbackServers: [String] { fields["fallback"]?.array?.compactMap { $0.string } ?? [] }
     var nameservers: [String] { fields["nameserver"]?.array?.compactMap { $0.string } ?? [] }
     /// fix/nc-start-empty: bootstrap lists, used as the default upstream when `nameserver` has nothing forwardable.
@@ -106,7 +106,7 @@ struct NCDNSConfig: Equatable {
 }
 
 /// The runtime config the native core runs. Decoded from the JSON form of
-/// runtime.yaml (see bridge/nativecore.go: NativeConfigJSON).
+/// runtime.yaml.
 struct NCConfig: Equatable {
     var mode: String // rule | global | direct
     var logLevel: String
@@ -118,7 +118,7 @@ struct NCConfig: Equatable {
     var sniffer: NCSnifferConfig = NCSnifferConfig(fields: [:])
     var raw: [String: NCJSONValue]
     /// Named sub-rule sets (`sub-rules:` in the source config), parsed.
-    /// Only the mihomo-YAML path carries them; other construction sites
+    /// Only the Clash.Meta-YAML path carries them; other construction sites
     /// leave this empty.
     var subRules: [String: [NCRule]] = [:]
 

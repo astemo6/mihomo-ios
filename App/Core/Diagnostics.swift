@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 /// 诊断 → 导出诊断包: asks the running tunnel to flush its core-log / memory rings, collects the app's
-/// own state, and writes one redacted zip (NCDiagnosticBundle + NCZipWriter; was bridge/diagbundle.go + redact.go).
+/// own state, and writes one redacted zip.
 @MainActor
 enum DiagnosticsExporter {
     /// Builds the bundle and returns its file URL (in the app's temporary directory).

@@ -1,8 +1,8 @@
-// NativeCore (feat/native-core-eval, gap C4) — the Go-free tunnel's request log and log stream
+// NativeCore (feat/native-core-eval, gap C4) — the native-only tunnel's request log and log stream
 // (astemo6/Muse NativeCore, 2026-10-25).
 //
 // NativeRequestLogStore is the NativeRequestRecorder's sink in the native tunnel: it folds the recorder's events into entries
-// with the semantics of bridge/mitm/nativerecord.go applyNative (drop / local / forward open an entry; response /
+// with the semantics of the retired bridge (drop / local / forward open an entry; response /
 // end / cancel / upstream / error / abort finish it), keeps the OPEN entries (≤ 256, with headers) and the last 200
 // summaries (no headers) in memory, and appends every finished entry to the App Group ring
 // (NativeRequestLogFile, 2 × 256 KB on disk). The controller serves /mitm/requests from it; the app falls back to
@@ -190,7 +190,7 @@ final class NativeRequestLogStore: NativeRequestLogSink {
         }
     }
 
-    /// status -1 keeps the entry's status (Go finishAt).
+    /// status -1 keeps the entry's status (the old core finishAt).
     private func finish(_ entry: NativeRequestLogEntry, status: Int, ms: Double) {
         var e = entry
         if status >= 0 { e.status = status }
@@ -243,7 +243,7 @@ final class NativeRequestLogStore: NativeRequestLogSink {
     }
 }
 
-/// In-memory log lines for the controller's history endpoints and live stream (no Go log ring in NativeCore).
+/// In-memory log lines for the controller's history endpoints and live stream (no the old core log ring in NativeCore).
 final class NativeLogRing {
     static let shared = NativeLogRing()
 
@@ -315,7 +315,7 @@ final class NativeLogRing {
 
     /// fix/nc-ctrl-bsd: writes the ring (≤ generalMax lines, oldest first) to `<home>/diag/core-log.txt`, plus the
     /// memory snapshot to `diag/memory.txt` when given — what 诊断包 reads. Nothing wrote these files in the native core
-    /// (the Go core's diag dump went away with it), so both sections were always empty. Returns the line count.
+    /// (the old core's diag dump went away with it), so both sections were always empty. Returns the line count.
     @discardableResult
     func dumpDiagnostics(home: URL, memory: String? = nil) -> Int {
         let dir = home.appendingPathComponent("diag", isDirectory: true)

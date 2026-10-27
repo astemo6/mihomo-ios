@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// Gap D1 (feat/nc-modes, on astemo6/Muse's NativeCore): the local mixed port (mihomo `mixed-port` semantics) for
+/// Gap D1 (feat/nc-modes, on astemo6/Muse's NativeCore): the local mixed port (Clash.Meta `mixed-port` semantics) for
 /// 仅代理 and VPN 混合. One loopback listener on CoreOverrides.mixedPort answers, by the first byte of a connection:
 ///   - SOCKS5 (0x05): no-auth, CONNECT only (UDP ASSOCIATE / BIND answer 0x07 "command not supported");
 ///   - HTTP: `CONNECT host:port` (HTTPS tunnels — what NEProxySettings' httpsServer sends) and absolute-form plain
@@ -12,7 +12,7 @@ import Network
 /// SOCKS (the ClientHello is sniffed for ALPN first, as NCDataPlane does). Connections show in the controller's
 /// /connections (ids "lp<N>") and count in the traffic totals.
 ///
-/// feat/nc-lan-share (需同步 feat/nc-kernel): 局域网共享. The listener follows NCLanShare (mihomo allow-lan /
+/// feat/nc-lan-share (需同步 feat/nc-kernel): 局域网共享. The listener follows NCLanShare (Clash.Meta allow-lan /
 /// bind-address / authentication / skip-auth-prefixes / lan-allowed-ips / lan-disallowed-ips, from the runtime config
 /// the app builds out of 更多 → 连接方式 → 局域网共享): allow-lan off → loopback only (as before); on → every interface
 /// (bind-address "*") or the one address given. Clients outside lan-allowed-ips are dropped at accept; with
@@ -393,7 +393,7 @@ final class NCLocalProxy {
         let parts = lines.removeFirst().split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         guard parts.count == 3 else { return httpError(c, 400, "Bad Request") }
         let (method, uri, version) = (parts[0], parts[1], parts[2])
-        // 局域网共享 authentication (Proxy-Authorization: Basic); mihomo answers 407 + Proxy-Authenticate.
+        // 局域网共享 authentication (Proxy-Authorization: Basic); Clash.Meta answers 407 + Proxy-Authenticate.
         if c.needsAuth && !lan.verifyHTTP(headerLines: lines) {
             return httpError(c, 407, "Proxy Authentication Required", extra: "Proxy-Authenticate: Basic realm=\"Tern\"\r\n")
         }

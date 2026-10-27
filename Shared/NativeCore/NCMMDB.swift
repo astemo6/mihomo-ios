@@ -103,7 +103,7 @@ final class NCMMDB {
 
     /// Every code an IP carries. fix/nc-diag-439 (A): MetaCubeX `Meta-geoip0` stores a network that belongs to several
     /// lists as an ARRAY of codes (`["google","us"]`, `["cloudflare","cn"]` — 1,030 networks carry `cn` this way);
-    /// mihomo's MetaV0 reader matches GEOIP against any of them. The single-code reader returned nil for those, so
+    /// Clash.Meta's MetaV0 reader matches GEOIP against any of them. The single-code reader returned nil for those, so
     /// `GEOIP,cn` silently missed. Order kept as stored; empty when nothing covers the IP.
     func countryCodes(for ip: NCIP) -> [String] {
         guard let record = lookup(ip) else { return [] }

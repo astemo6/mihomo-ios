@@ -1,10 +1,10 @@
 import Network
 import Security
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/s2-tls (native MitM stage 2, B7): leaf identity cache + PKCS#12 import + the loopback TLS server.
-/// NativeMitmTLSFixtures.json: PKCS#12 blobs written by Go exactly like Engine.LeafIdentity (pkcs12.Legacy, password
+/// NativeMitmTLSFixtures.json: PKCS#12 blobs written by the old core exactly like Engine.LeafIdentity (pkcs12.Legacy, password
 /// "tern", leaf + throwaway test CA) plus one pkcs12.Modern copy as a probe (design §4.2 open question).
 final class NativeMitmTLSTests: XCTestCase {
     private func fixtures() throws -> [String: String] {
@@ -70,7 +70,7 @@ final class NativeMitmTLSTests: XCTestCase {
     }
 
     func testImportModernPKCS12Probe() throws {
-        // Probe only (design §4.2): Go ships Legacy; log whether this OS also reads the AES profile.
+        // Probe only (design §4.2): the old core ships Legacy; log whether this OS also reads the AES profile.
         do {
             _ = try LeafIdentityCache.importPKCS12(try p12("api.example.com#modern"), password: "tern")
             print("NativeMitmTLS probe: pkcs12.Modern import OK on \(ProcessInfo.processInfo.operatingSystemVersionString)")
@@ -124,7 +124,7 @@ final class NativeMitmTLSTests: XCTestCase {
         let front = MitmTLSFront(identities: LeafIdentityCache { _ in nil })
         XCTAssertEqual(front.listen("api.example.com", alpn: "http/1.1"), 0) // no onAccept
         front.onAccept = { $0.close() }
-        XCTAssertEqual(front.listen("api.example.com", alpn: "http/1.1"), 0) // no identity → Go path
+        XCTAssertEqual(front.listen("api.example.com", alpn: "http/1.1"), 0) // no identity → old path
         XCTAssertEqual(front.listen("", alpn: nil), 0)
         XCTAssertEqual(front.listenerCount, 0)
     }

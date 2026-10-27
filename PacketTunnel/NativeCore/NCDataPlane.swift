@@ -158,7 +158,7 @@ final class NCDataPlane {
         let conn: NCTunStack.TCPConn
         var target: NCTarget        // dial target (domain after deref/sniff, else the IP)
         var ruleDomain: String?     // domain fed to rule matching, when known
-        // fix/nc-tcp1: redir-host — the real destination IP the domain was mapped from (DNS answer). mihomo keeps
+        // fix/nc-tcp1: redir-host — the real destination IP the domain was mapped from (DNS answer). Clash.Meta keeps
         // metadata.DstIP in redir-host (only fake-ip clears it), so IP rules match it without resolving the domain.
         var mappedIP: NCIP?
         var protocolHint: String?   // rv2-rules: sniffed "tls" / "quic" / "http" (PROTOCOL rules)
@@ -434,12 +434,12 @@ final class NCDataPlane {
         } else if let fakeDomain {
             // Destination known from DNS: no sniffing needed — unless a
             // force-domain entry demands a look at the real SNI anyway and
-            // skip-domain doesn't veto it (mihomo force-domain / skip-domain).
+            // skip-domain doesn't veto it (Clash.Meta force-domain / skip-domain).
             if !(sniff.matchesForceDomain(fakeDomain) && !sniff.matchesSkipDomain(fakeDomain)) {
                 connect(s)
             }
         } else if !sniff.parsePureIP {
-            connect(s) // pure-IP destination and parse-pure-ip off: mihomo doesn't sniff
+            connect(s) // pure-IP destination and parse-pure-ip off: Clash.Meta doesn't sniff
         }
         return true
     }
@@ -726,7 +726,7 @@ final class NCDataPlane {
         s.state = .connecting
         // rv2-rules: a fake-IP destination is never matched or dialed as an
         // IP. Unmapped (pool lost) → the sniffed domain if any, else drop
-        // (mihomo rejects "fake DNS record missing").
+        // (Clash.Meta rejects "fake DNS record missing").
         if let ip = s.target.ip, engine.isFakeAddress(ip) {
             guard let d = s.ruleDomain else {
                 // fix/nc-mitm-live: RST (was a silent FIN close) so the app fails fast and re-resolves instead of
@@ -744,7 +744,7 @@ final class NCDataPlane {
                                       network: "tcp")
         ctx.protocolHint = s.protocolHint
         // One match per connection (load-balance advances once); IP rules
-        // resolve the domain asynchronously when needed (mihomo semantics).
+        // resolve the domain asynchronously when needed (Clash.Meta semantics).
         engine.routeAsync(ctx, queue: queue) { [weak self, weak s] policyName, ruleText, resolution in
             guard let self, let s, s.state == .connecting else { return }
             self.dial(s, policyName: policyName, ruleText: ruleText, resolution: resolution)
@@ -932,7 +932,7 @@ final class NCDataPlane {
 
     // MARK: /app/stats (fix/nc-e2e-gaps)
 
-    /// mihomo's chains.last: the rule's policy (group), else the dialed chain; the MitM hop is the App's
+    /// Clash.Meta's chains.last: the rule's policy (group), else the dialed chain; the MitM hop is the App's
     /// engine outbound (left out of 策略 / 规则 there).
     private static func statsPolicy(_ s: TCPSession) -> String {
         if s.policyName == "MITM" { return NCStatsRecorder.engineOutbound }
@@ -1101,7 +1101,7 @@ final class NCDataPlane {
             }
             // Not fake-IP business (filter host, other record types): forward
             // the query to its assigned upstream (per-domain policy first),
-            // with mihomo's fallback / fallback-filter detour when configured.
+            // with Clash.Meta's fallback / fallback-filter detour when configured.
             let route = engine.dnsRoute(for: data)
             guard let primary = route.primary else {
                 udpDropped += 1
@@ -1228,7 +1228,7 @@ final class NCDataPlane {
         return "[DNS] \(name) \(type) failed (SERVFAIL to client): \(trace.summary)"
     }
 
-    /// fix/nc-tcp0: every upstream failed — answer SERVFAIL (mihomo's DNS server does) instead of dropping the query;
+    /// fix/nc-tcp0: every upstream failed — answer SERVFAIL (Clash.Meta's DNS server does) instead of dropping the query;
     /// a silent drop leaves iOS's resolver waiting and then backing off from the tunnel DNS server.
     private func sendServfail(_ query: Data, session: UInt32) {
         guard let reply = NCPacketTrace.dnsServfail(for: query) else { return }
@@ -1275,7 +1275,7 @@ final class NCDataPlane {
         let target = engine.derefFakeIP(info.dst)
         let restored = target.host != info.dst.host
         // QUIC to a MitM host is dropped so the client falls back to TCP, where the native MitM front sees it
-        // (bridge/mitm Inject's UDP REJECT rule on the Go path).
+        //.
         if info.dst.port == 443, target.host != info.dst.host, engine.isMitm(host: target.host, port: 443) {
             udpDropped += 1
             return

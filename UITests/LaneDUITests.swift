@@ -2,7 +2,7 @@ import XCTest
 
 /// Lane D (UI & copy): one name for the node list the user edits (「本地节点」, the 节点与订阅 row that opens it), 高级设置's
 /// subtitle names 隧道 (高级设置 → 网络 → 隧道), and a panel 刷新 that fails says why instead of only stopping the spinner.
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 92. Lane D copy + panel refresh failure
 

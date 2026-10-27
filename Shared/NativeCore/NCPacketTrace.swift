@@ -119,7 +119,7 @@ enum NCPacketTrace {
     }
 
     /// A SERVFAIL answer to `query` (same id / question, QR + RA set, RD copied, no records): what the tunnel resolver
-    /// sends when every upstream failed, like mihomo's DNS server — a silent drop made iOS's resolver wait, retry and
+    /// sends when every upstream failed, like Clash.Meta's DNS server — a silent drop made iOS's resolver wait, retry and
     /// eventually stop asking the tunnel DNS at all. nil when the query is not a parseable DNS question.
     static func dnsServfail(for query: Data) -> Data? {
         let q = [UInt8](query)

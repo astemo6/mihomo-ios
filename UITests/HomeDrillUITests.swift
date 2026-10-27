@@ -5,7 +5,7 @@ import XCTest
 /// opens the filtered 连接, a connection its detail — the same hierarchy as Egern.
 /// Demo data: -UITestDemoAnalytics (synthetic ConnectionAnalytics, example.* hosts: 20 open + 99 closed connections,
 /// a synthetic 网络 sample stretch with one gap); -UITestDemoExitIP for the 出口 IP tile.
-extension MihomoUITests {
+extension TernUITests {
 
     /// A Home element by id, or by a label fragment when an enclosing identifier took over the id.
     func homeElement(id: String, label: String? = nil) -> XCUIElement {

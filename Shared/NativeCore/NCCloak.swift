@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-// Cloak SS plugin (cbeuw/Cloak v2 client protocol), aligning with mihomo plugin: cloak / Shadowrocket.
+// Cloak SS plugin (cbeuw/Cloak v2 client protocol), aligning with Clash.Meta plugin: cloak / Shadowrocket.
 // Wire format:
 // 1. ECIES handshake disguised as TLS 1.3 ClientHello:
 //    - Ephemeral X25519 public key in ClientHello.random (32 bytes)
@@ -45,7 +45,7 @@ struct NCCloakPluginOptions: Equatable {
 
     /// Parses plugin-opts dictionary into NCCloakPluginOptions.
     /// Supports both Shadowrocket / Cloak upstream keys (PascalCase / camelCase: UID, PublicKey, ServerName,
-    /// AlternativeNames, BrowserSig, EncryptionMethod, Transport, NumConn, StreamTimeout) and mihomo kebab-case
+    /// AlternativeNames, BrowserSig, EncryptionMethod, Transport, NumConn, StreamTimeout) and Clash.Meta kebab-case
     /// (uid, public-key, server-name, alternative-names, browser-signature, encryption-method, transport, num-conn, stream-timeout).
     static func parse(_ opts: [String: NCJSONValue], fallbackHost: String? = nil) -> (NCCloakPluginOptions?, String?) {
         func lookup(_ key: String) -> NCJSONValue? {

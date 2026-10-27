@@ -5,14 +5,14 @@ import AppIntents
 import NetworkExtension
 import ActivityKit
 
-// Mihomo widget extension (v0.7, only in the "-widget" IPA): a Home / Lock Screen widget with the
+// Tern widget extension (v0.7, only in the "-widget" IPA): a Home / Lock Screen widget with the
 // connection state, current policy / node and a toggle (interactive, iOS 17+), and a Control Center toggle
 // (iOS 18+). It shares data with the app only through the App Group (resolved at runtime like the app and
 // the tunnel, so re-signed builds keep working) and drives the tunnel with the public NETunnelProviderManager
 // API. Nothing here touches the Network Extension's memory.
 
 @main
-struct MihomoWidgets: WidgetBundle {
+struct TernWidgets: WidgetBundle {
     var body: some Widget {
         StatusWidget()
         ConnectionLiveActivity()
@@ -109,7 +109,7 @@ struct CycleModeIntent: AppIntent {
 
 @available(iOS 18.0, *)
 struct ModeControl: ControlWidget {
-    static let kind = "MihomoModeControl"
+    static let kind = "TernModeControl"
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: Self.kind, provider: Provider()) { mode in
@@ -135,7 +135,7 @@ struct ModeControl: ControlWidget {
 
 @available(iOS 18.0, *)
 struct TunnelToggleControl: ControlWidget {
-    static let kind = "MihomoTunnelToggle"
+    static let kind = "TernTunnelToggle"
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: Self.kind, provider: Provider()) { on in
@@ -204,7 +204,7 @@ struct StatusProvider: TimelineProvider {
 }
 
 struct StatusWidget: Widget {
-    let kind = "MihomoStatus"
+    let kind = "TernStatus"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: StatusProvider()) { entry in
@@ -316,7 +316,7 @@ struct StatusWidgetView: View {
 
 struct ConnectionLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: MihomoActivityAttributes.self) { context in
+        ActivityConfiguration(for: TernActivityAttributes.self) { context in
             LiveActivityLockContent(state: context.state, profile: context.attributes.profile, stale: context.isStale)
                 .activityBackgroundTint(WidgetTheme.bg.opacity(0.85))
                 .activitySystemActionForegroundColor(WidgetTheme.accent)

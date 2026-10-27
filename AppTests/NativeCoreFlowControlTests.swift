@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// nc-sessions-flow: a protocol wrapper's send completion must not fire before the raw stream's
 /// completion does (that is the uplink back-pressure), must fire exactly once when it does, and must

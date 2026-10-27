@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// feat/nc-selfcheck-2: the pure logic behind 一键自检 — startup-log parsing (the exact line formats the extension
 /// writes), the config-integrity comparison (E2E: 1/1/3 vs 9/29/85 must FAIL with the numbers), node sampling,

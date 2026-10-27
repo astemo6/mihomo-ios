@@ -2,7 +2,7 @@ import XCTest
 
 /// fb-subs-global device feedback (offline, simulator): 节点与订阅 is one page, and a config subscription has the
 /// same swipes as a node subscription (right 更新, left 删除 / 停用) plus 停用 that keeps it from becoming active.
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 56. 节点与订阅: a config subscription switched off (unified rows: the switch is its 停用 flag) cannot become
     // the current profile; swipes / menu are covered by test79.

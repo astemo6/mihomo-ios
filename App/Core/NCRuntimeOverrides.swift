@@ -1,14 +1,14 @@
 import Foundation
 
 /// E-B1 stage 1: the override inputs of the runtime-config builder —
-/// a port of the bridge's readOverrides pipeline (bridge/bridge.go
-/// readOverrides + defaultOverrides sanitization, bridge/secrets.go,
-/// bridge/secretguard.go, bridge/dns.go readDNSOverride,
-/// bridge/localdns.go readLocalDNS) for NCRuntimeBuilder.
+/// a port of the bridge's readOverrides pipeline (the retired bridge
+/// readOverrides + defaultOverrides sanitization, the retired bridge,
+/// the retired bridge,
+/// the retired bridge) for NCRuntimeBuilder.
 ///
 /// The overrides.json payload itself decodes through the app's own
 /// CoreOverrides model (Shared/AppShared.swift), whose defaults match
-/// Go's defaultOverrides; this file adds the parts only the Go side
+/// the old core's defaultOverrides; this file adds the parts only the old side
 /// did: the secrets.json overlay, controller-secret generation with
 /// write-back, the extra range clamps, and the dns.json / localdns.json
 /// attachments.
@@ -77,10 +77,10 @@ struct NCRuntimeSettings {
     var home: String
     var manualPath: String
 
-    /// Go's IPv6 resolution for the build. Note: Go switches on
+    /// the old core's IPv6 resolution for the build. Note: the old core switches on
     /// ipv6Mode with "auto" reading an atomic the extension was meant
     /// to set through the bridge; nothing on the eval line sets it in
-    /// the app process, so Go effectively built with false. The app
+    /// the app process, so the old core effectively built with false. The app
     /// has a real check (CoreOverrides.resolvedIPv6, the same one the
     /// NE settings use), and the runtime config should agree with the
     /// NE settings, so "auto" resolves through it here.
@@ -130,14 +130,14 @@ struct NCRuntimeSettings {
             manualPath: manualNodesPath(home: home))
     }
 
-    /// bridge runtimeinputs.go manualNodesPath:
+    /// the retired bridge manualNodesPath:
     /// filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml").
-    /// home is <container>/mihomo; the App writes the manual profile to
+    /// home is <container>/tern; the App writes the manual profile to
     /// AppShared.profileURL(id: "manual-nodes") = <container>/profiles/manual-nodes.yaml,
     /// so the store lives beside home, not under it (review R-1).
     static func manualNodesPath(home: String) -> String {
         if home.isEmpty { return "" }
-        // Go filepath.Dir: drop everything after the last separator
+        // the old core filepath.Dir: drop everything after the last separator
         // (a trailing "/" leaves the path itself: Dir("/a/b/") == "/a/b").
         // No standardizingPath: it may strip the container's /private prefix.
         let dir: String
@@ -170,7 +170,7 @@ struct NCRuntimeSettings {
     /// nothing is persisted and a per-process secret is used; otherwise a new
     /// random secret is written back into secrets.json (other keys kept, file
     /// 0600). Review R-5: the read-modify-write holds secrets.json's NCPathLock
-    /// (Go `defer lockPath(sp)()`), and the branches follow Go exactly:
+    /// (the old core `defer lockPath(sp)()`), and the branches follow the old core exactly:
     ///   - read OK but not a JSON object      -> process secret
     ///   - read failed, file does not exist   -> start from {} and write back
     ///   - read failed for any other reason   -> process secret (never clobber
@@ -180,7 +180,7 @@ struct NCRuntimeSettings {
         if home.isEmpty { return processSecretValue() }
         let homeURL = URL(fileURLWithPath: home)
         if !FileManager.default.fileExists(atPath: homeURL.appendingPathComponent("overrides.json").path) {
-            NSLog("[Mihomo] 控制器密钥为空且 overrides.json 不存在，本次使用随机密钥")
+            NSLog("[Tern] 控制器密钥为空且 overrides.json 不存在，本次使用随机密钥")
             return processSecretValue()
         }
         let secretsURL = homeURL.appendingPathComponent("secrets.json")
@@ -189,13 +189,13 @@ struct NCRuntimeSettings {
             do {
                 let data = try Data(contentsOf: secretsURL)
                 guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-                    NSLog("[Mihomo] 控制器密钥为空且 secrets.json 无法解析，本次使用随机密钥")
+                    NSLog("[Tern] 控制器密钥为空且 secrets.json 无法解析，本次使用随机密钥")
                     return processSecretValue()
                 }
                 raw = obj
             } catch {
                 if !isNotExist(error) {
-                    NSLog("[Mihomo] 控制器密钥为空且无法读取 secrets.json，本次使用随机密钥")
+                    NSLog("[Tern] 控制器密钥为空且无法读取 secrets.json，本次使用随机密钥")
                     return processSecretValue()
                 }
             }
@@ -208,16 +208,16 @@ struct NCRuntimeSettings {
                 let data = try JSONSerialization.data(withJSONObject: raw)
                 try NCRuntimeFiles.writeAtomic(data, to: secretsURL.path)
             } catch {
-                NSLog("[Mihomo] 控制器密钥为空，写回 secrets.json 失败（%@），本次使用随机密钥", error.localizedDescription)
+                NSLog("[Tern] 控制器密钥为空，写回 secrets.json 失败（%@），本次使用随机密钥", error.localizedDescription)
                 return processSecretValue()
             }
             _ = chmod(secretsURL.path, 0o600)
-            NSLog("[Mihomo] 控制器密钥为空，已生成随机密钥并写回 secrets.json")
+            NSLog("[Tern] 控制器密钥为空，已生成随机密钥并写回 secrets.json")
             return s
         }
     }
 
-    /// Go os.IsNotExist for a Data(contentsOf:) failure.
+    /// the old core os.IsNotExist for a Data(contentsOf:) failure.
     private static func isNotExist(_ error: Error) -> Bool {
         let ns = error as NSError
         if ns.domain == NSCocoaErrorDomain

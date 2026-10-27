@@ -1,8 +1,8 @@
 import Foundation
 import CryptoKit
 
-/// Pure Swift implementation of policy group reordering and profile copying/regeneration (去 Go 第 B5 批).
-/// Replaces bridge/grouporder.go functions:
+/// Pure Swift implementation of policy group reordering and profile copying/regeneration (去 the old core 第 B5 批).
+/// Replaces the retired bridge:
 /// - GroupOrderCopy
 /// - GroupOrderRegenerate
 /// - GroupOrderRegenerateForced

@@ -1,6 +1,6 @@
 import Foundation
 
-/// One row of the module & resource manager (bridge/resources.go ResourceItem).
+/// One row of the module & resource manager.
 struct ResourceItem: Decodable, Identifiable, Hashable {
     var key: String
     var kind: String          // module | ruleset | script
@@ -29,7 +29,7 @@ struct ResourceItem: Decodable, Identifiable, Hashable {
 /// QX-style remote resources inside the single module manager: modules / rewrite sets, remote rule
 /// sets and remote scripts, each with an interval, last update, enable toggle and last error.
 /// Settings stay in their own stores (engine.json modules / scriptResources, rules.json); this class
-/// downloads and hands the bytes to Go (ResourceStore), which validates, converts and writes the cache.
+/// downloads and hands the bytes to the old core (ResourceStore), which validates, converts and writes the cache.
 @MainActor
 final class ResourceStore: ObservableObject {
     static let shared = ResourceStore()
@@ -55,7 +55,7 @@ final class ResourceStore: ObservableObject {
         items = (try? JSONDecoder().decode([ResourceItem].self, from: Data(json.utf8))) ?? []
     }
 
-    /// v0.19.8: reload() off the main thread (the Go side reads every module and resource file), for page opens.
+    /// v0.19.8: reload() off the main thread (the old side reads every module and resource file), for page opens.
     func reloadInBackground() async {
         let home = self.home
         let list = await Task.detached(priority: .userInitiated) { () -> [ResourceItem] in
@@ -120,7 +120,7 @@ final class ResourceStore: ObservableObject {
         guard it.isRemote else { return false }
         busy.insert(it.key)
         defer { busy.remove(it.key) }
-        let ua = it.kind == "script" ? "Surge iOS/3000" : "Surge iOS/3000 Mihomo-iOS"
+        let ua = it.kind == "script" ? "Surge iOS/3000" : "Surge iOS/3000 Tern"
         let r = await Self.fetchAndStore(home: home, key: it.key, url: it.url, userAgent: ua)
         if r.ok, it.kind == "module" {
             let es = EngineStore.shared

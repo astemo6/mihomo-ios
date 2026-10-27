@@ -3,7 +3,7 @@ import XCTest
 /// hotfix/group-longpress (device 2026-10-21 「长按策略组无法编辑，之前是可以的」): a long-press anywhere on a policy
 /// group header opens its menu with 编辑策略组, offline (来自配置文件) in 规则 and in 全局 mode. The header is also the
 /// direct-reorder drag source (test31 keeps checking that drag).
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 57. 策略: long-press a group header → 编辑策略组 / 更换图标 menu
 

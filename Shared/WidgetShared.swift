@@ -78,7 +78,7 @@ struct LiveStats: Codable, Equatable {
         if let d = try? JSONEncoder().encode(self) { AppShared.defaults.set(d, forKey: Self.key) }
     }
 
-    /// Parses LibmihomoLiveStatus(): "up\tdown\ttotalUp\ttotalDown\tnode" plus, since feat/traffic-scope,
+    /// Parses LiveStatus(): "up\tdown\ttotalUp\ttotalDown\tnode" plus, since feat/traffic-scope,
     /// "\tproxyUp\tproxyDown\tproxyUpTotal\tproxyDownTotal".
     init(status: String, time: Date = Date()) {
         let f = status.components(separatedBy: "\t")

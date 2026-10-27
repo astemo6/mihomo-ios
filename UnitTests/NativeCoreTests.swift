@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // NativeCore batch 1 (docs/native-core-design.md): config decode, rule engine,
 // fake-IP pool, group resolution, SOCKS/HTTP builders, Shadowsocks AEAD.
@@ -247,7 +247,7 @@ final class NativeCoreShadowsocksTests: XCTestCase {
 }
 
 final class NativeCoreBridgeExportTests: XCTestCase {
-    /// The Go bridge export turns runtime.yaml into the JSON NCConfig eats —
+    /// the old bridge export turns runtime.yaml into the JSON NCConfig eats —
     /// this is the seam between the old core and the native one.
     func testNativeConfigJSONExport() throws {
         let home = FileManager.default.temporaryDirectory
@@ -263,7 +263,7 @@ final class NativeCoreBridgeExportTests: XCTestCase {
           - MATCH,DIRECT
         """
         try Data(yaml.utf8).write(to: home.appendingPathComponent("runtime.yaml"))
-        // Go-zero: was LibmihomoNativeConfigJSON (Go re-encoding runtime.yaml); the app now writes
+        // native-only: was NativeConfigJSON (the old core re-encoding runtime.yaml); the app now writes
         // nativecore-runtime.json from the NCYAML tree (NativeRuntimePrep), so decode that tree directly.
         let text = try String(contentsOf: home.appendingPathComponent("runtime.yaml"), encoding: .utf8)
         guard case .object(let root)? = NCYAML.parse(text) else { return XCTFail("runtime.yaml did not parse") }
@@ -447,7 +447,7 @@ final class NativeCoreCryptoTests: XCTestCase {
     }
 }
 
-// MARK: - VMess (vectors generated with the real sing-vmess Go library)
+// MARK: - VMess (vectors generated with the real sing-vmess the old core library)
 
 final class NativeCoreVMessTests: XCTestCase {
     private func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
@@ -489,7 +489,7 @@ final class NativeCoreVMessTests: XCTestCase {
     }
 
     func testSealedLengthAndHeader() {
-        // Rebuild the Go vector inputs: lenKey/lenNonce above seal BE16(100)
+        // Rebuild the old core vector inputs: lenKey/lenNonce above seal BE16(100)
         // with authID as AAD; payKey/payNonce seal the 100-byte ramp header.
         let cmdKey = unhex("b50d916ac0cec067981af8e5f38a758f")
         let auth = unhex("00112233445566778899aabbccddeeff")

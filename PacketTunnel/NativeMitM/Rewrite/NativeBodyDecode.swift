@@ -1,15 +1,15 @@
-// Native MitM stage 3b — Content-Encoding decoding with Go's exact accept / reject behaviour.
+// Native MitM stage 3b — Content-Encoding decoding with the old core's exact accept / reject behaviour.
 //
-// Go (bridge/mitm/bodylimits.go decodeBody) decodes gzip / x-gzip (compress/gzip, multistream), deflate (gzip
+// the old core decodes gzip / x-gzip (compress/gzip, multistream), deflate (gzip
 // magic → gzip; a zlib header whose whole stream checks out → zlib; otherwise raw flate) and br (strict brotli).
-// A body Go fails to decode passes through untouched, so a decoder that accepted a little more or less than Go's
+// A body the old core fails to decode passes through untouched, so a decoder that accepted a little more or less than the old core's
 // would change the response. Apple's COMPRESSION_ZLIB reads past the end of a deflate stream and cannot say
 // where it stopped, so gzip / zlib / raw deflate are decoded here by a small inflate that reads input exactly the
-// way Go's compress/flate does (a byte at a time, only when bits are needed), with Go's validity rules
+// way the old core's compress/flate does (a byte at a time, only when bits are needed), with the old core's validity rules
 // (complete Huffman codes except one length-1 code, HLIT ≤ 286, HDIST ≤ 30, distances within the history,
-// stored-length complement), and the gzip / zlib framing checks of Go's readers (header, FEXTRA, FNAME / FCOMMENT
+// stored-length complement), and the gzip / zlib framing checks of the old core's readers (header, FEXTRA, FNAME / FCOMMENT
 // ≤ 511 bytes, CRC-32 + ISIZE / Adler-32, further gzip members). brotli uses Apple's decoder (only on Apple
-// platforms) and must reach the stream end. Anything else → nil: the caller hands the request back to Go.
+// platforms) and must reach the stream end. Anything else → nil: the caller hands the request back to the old core.
 
 import Foundation
 #if canImport(Compression)
@@ -19,10 +19,10 @@ import Compression
 enum NativeBodyDecode {
     enum Outcome: Equatable {
         case decoded(Data)
-        case unsupported(String)   // hand back to Go
+        case unsupported(String)   // hand back to the old core
     }
 
-    /// decodeBody(enc, b, limit) where Go would succeed with the same bytes; .unsupported otherwise.
+    /// decodeBody(enc, b, limit) where the old core would succeed with the same bytes; .unsupported otherwise.
     static func decode(_ encRaw: String, _ b: Data, limit: Int) -> Outcome {
         let enc = RWAscii.lower(RWAscii.trimSpace(encRaw))
         if !RWAscii.isPrintable(encRaw) { return .unsupported("encoding bytes") }
@@ -37,12 +37,12 @@ enum NativeBodyDecode {
             if bytes.count > 2 && bytes[0] == 0x1F && bytes[1] == 0x8B { return gunzip(bytes, limit: limit) }
             if bytes.count >= 2 && bytes[0] & 0x0F == 8 && bytes[0] >> 4 <= 7 && (UInt16(bytes[0]) << 8 | UInt16(bytes[1])) % 31 == 0
                 && bytes[1] & 0x20 != 0 {
-                return .unsupported("zlib dictionary") // Go: an Adler-32 of 1 is "the empty dictionary"
+                return .unsupported("zlib dictionary") // the old core: an Adler-32 of 1 is "the empty dictionary"
             }
             if let z = zlibHeader(bytes) {
                 if case .decoded(let d) = zlib(bytes, headerLen: z, limit: limit) { return .decoded(d) }
-                // Go: the zlib stream did not check out → raw flate over the whole body. Its zlib attempt reads
-                // up to limit+1 decoded bytes; a body that only failed by being too big is Go's raw-flate retry
+                // the old core: the zlib stream did not check out → raw flate over the whole body. Its zlib attempt reads
+                // up to limit+1 decoded bytes; a body that only failed by being too big is the old core's raw-flate retry
                 // of a zlib stream, which ends in an error or garbage: hand back.
                 return .unsupported("zlib fallback")
             }
@@ -108,7 +108,7 @@ enum NativeBodyDecode {
 
     // MARK: zlib (compress/zlib reader)
 
-    /// The zlib header length when Go's zlib.NewReader accepts the first two bytes (FDICT → nil: hand back).
+    /// The zlib header length when the old core's zlib.NewReader accepts the first two bytes (FDICT → nil: hand back).
     static func zlibHeader(_ b: [UInt8]) -> Int? {
         guard b.count >= 2 else { return nil }
         let h = UInt16(b[0]) << 8 | UInt16(b[1])
@@ -160,7 +160,7 @@ enum NativeBodyDecode {
                 }
                 switch st {
                 case COMPRESSION_STATUS_END:
-                    // Bytes after the end of the stream: Go's reading of them is not pinned down here.
+                    // Bytes after the end of the stream: the old core's reading of them is not pinned down here.
                     return stream.pointee.src_size == 0 ? .decoded(out) : .unsupported("brotli trailing")
                 case COMPRESSION_STATUS_OK:
                     if n == 0 && stream.pointee.src_size == 0 { return .unsupported("brotli truncated") }
@@ -225,7 +225,7 @@ struct Inflater {
     private struct Corrupt: Error {}
     private struct TooLarge: Error {}
 
-    /// Go's moreBits: one input byte (an error at the end of input).
+    /// the old core's moreBits: one input byte (an error at the end of input).
     private mutating func needBits(_ n: UInt32) throws {
         while bitcnt < n {
             guard pos < b.count else { throw Corrupt() }
@@ -263,7 +263,7 @@ struct Inflater {
         if maxLen == 0 { return h } // empty: any use fails
         var code = 0
         for i in minLen...maxLen { code = (code << 1) + h.count[i] }
-        // code after the loop = nextcode-style total; Go: code != 1<<max && !(code == 1 && max == 1) → reject
+        // code after the loop = nextcode-style total; the old core: code != 1<<max && !(code == 1 && max == 1) → reject
         if code != 1 << maxLen && !(code == 1 && maxLen == 1) { return nil }
         h.empty = false
         // o[len] = number of symbols with shorter codes
@@ -279,7 +279,7 @@ struct Inflater {
         return h
     }
 
-    /// One symbol, bit by bit (input bytes are taken only when the code needs their bits, as in Go's huffSym).
+    /// One symbol, bit by bit (input bytes are taken only when the code needs their bits, as in the old core's huffSym).
     private mutating func decode(_ h: Huffman) throws -> Int {
         if h.empty { throw Corrupt() }
         var code = 0, first = 0, index = 0

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 final class NativeCoreRuleProviderStoreTests: XCTestCase {
     private var dir: URL!
@@ -212,7 +212,7 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
         }
     }
 
-    /// Go-era configs carry http://127.0.0.1:9090/rules/convert?url=<src>&kind=<kind>; NativeCore has no
+    /// old-core configs carry http://127.0.0.1:9090/rules/convert?url=<src>&kind=<kind>; NativeCore has no
     /// converter (27 × 401 on device, build 401), so the store fetches <src> directly.
     func testLoopbackConvertUnwrapped() {
         let src = "https://example.com/QX/Filter/Ads.list"
@@ -344,7 +344,7 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
             ]),
             "rules": .array([.string("MATCH,全部")]),
         ])
-        let canonical = NCCanonicalConfig.from(mihomo: cfg)
+        let canonical = NCCanonicalConfig.from(clash: cfg)
         XCTAssertEqual(Set(canonical.subscriptions.map { $0.name }), ["订阅", "Air", "Inl"])
 
         let store = NCNodeSubscriptionStore(dir: home.appendingPathComponent("nativecore-nodesubs"), home: home)

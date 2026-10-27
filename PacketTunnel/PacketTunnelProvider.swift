@@ -5,7 +5,7 @@ import Darwin
 
 /// Posts local notifications for scripts ($notification.post / $notify) and, feat/loon-menu-notify, for the core's
 /// policy watcher events (policywatch.go), each behind its 更多 → 通知 switch. feat/native-core-eval: nothing calls it
-/// through Go any more; kept for the native policy watcher / script host to post through (not wired yet).
+/// through the old core any more; kept for the native policy watcher / script host to post through (not wired yet).
 final class ScriptNotifier: NSObject {
     func notify(_ payload: String?) {
         guard let data = payload?.data(using: .utf8),
@@ -79,7 +79,7 @@ enum TunnelNotice {
 final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private let notifier = ScriptNotifier()
-    /// feat/native-core-eval: the tunnel kernel (NativeCore, Swift + lwIP). The extension does not link Go.
+    /// feat/native-core-eval: the tunnel kernel (NativeCore, Swift + lwIP). The extension does not link the old core.
     private let core = NativeTunnelCore.shared
     private var memoryGuard: MemoryGuard?
     /// feat/s3-mem: replaces memoryGuard while the app-group switch nativeMemGovernor is on (default off).
@@ -146,14 +146,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         Self.logRuntimeGeneration(home: AppShared.homeURL.path)
         GeoBootstrap.install { StartupLog.write($0) }
         var overrides = CoreOverrides.load()
-        // v0.8 IPv6 自动: decided once per start from the physical network; Go gets the same answer.
+        // v0.8 IPv6 自动: decided once per start from the physical network; the old core gets the same answer.
         overrides.ipv6 = overrides.resolvedIPv6()
         StartupLog.write("ipv6 mode \(overrides.ipv6Mode) → \(overrides.ipv6 ? "on" : "off"), ip preference \(overrides.ipPreference)")
-        // feat/native-core-eval: scripts run in JavaScriptCore driven by the native MitM lane (no Go engine).
+        // feat/native-core-eval: scripts run in JavaScriptCore driven by the native MitM lane (no old engine).
         _ = JSCScriptEngine.register()
         NativeBodyStore.register()
         if #available(iOS 17, *) {
-            // Every MitM host the app's snapshot names is terminated natively (selective / Go handover no longer exist).
+            // Every MitM host the app's snapshot names is terminated natively (selective / the old core handover no longer exist).
             let on = NativeMitmRuntime.install(front: MitmTLSFront.shared, upstream: NCUpstreamConnector.shared,
                                                codec: HTTPLaneCodec(), force: true, selective: false)
             StartupLog.write("native MitM: \(on ? "on" : "off")")
@@ -168,7 +168,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let mixedPort = overrides.mixedPort
         let localProxyNeeded = proxyOnly || overrides.isMixed
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
-        // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,
+        // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (old side,
         // physiface.go). The VPN configuration's value is the one iOS enforces (overrides.json is logged next to it).
         let includeAll = protocolConfiguration.includeAllNetworks
         // Gap D2: with includeAllNetworks the core's own sockets are bound to the physical interface (NCOutboundBinding).
@@ -414,7 +414,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler?("没有可用的配置".data(using: .utf8))
                 return
             }
-            // LibmihomoReload re-parses the profile (YAML + provider downloads, seconds).
+            // Reload re-parses the profile (YAML + provider downloads, seconds).
             // Never block the NE callback thread on it: handleAppMessage must stay responsive,
             // otherwise an in-flight reload delays stopTunnel's completion and iOS may kill
             // the extension. The completionHandler may be called asynchronously.
@@ -482,11 +482,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     static func error(_ msg: String) -> NSError {
-        NSError(domain: "Mihomo.PacketTunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
+        NSError(domain: "Tern.PacketTunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
     }
 }
 
-/// feat/native-core-eval: what the Go core's FreeMemory / ShedMemory did, for native memory: idle upstreams and the
+/// feat/native-core-eval: what the old core's FreeMemory / ShedMemory did, for native memory: idle upstreams and the
 /// malloc zones' free pages go back to iOS.
 enum NativeTunnelMemory {
     static func relieve() {
@@ -494,7 +494,7 @@ enum NativeTunnelMemory {
         malloc_zone_pressure_relief(nil, 0)
     }
 
-    /// level 1 = light, 2 = critical (closes the oldest quarter of connections too, like Go's critical shed).
+    /// level 1 = light, 2 = critical (closes the oldest quarter of connections too, like the old core's critical shed).
     @discardableResult
     static func shed(level: Int, reason: String) -> String {
         relieve()
@@ -503,7 +503,7 @@ enum NativeTunnelMemory {
     }
 }
 
-/// v0.18 隧道内存/// v0.18 隧道内存: one snapshot = Swift-measured footprint / peak / available + Go numbers + Tailscale status.
+/// v0.18 隧道内存/// v0.18 隧道内存: one snapshot = Swift-measured footprint / peak / available + the old core numbers + Tailscale status.
 enum MemorySnapshotWriter {
     private static var trackedPeak: UInt64 = 0
     private static let lock = NSLock()
@@ -527,15 +527,15 @@ enum MemorySnapshotWriter {
 /// Keeps the extension under the ~50 MB jetsam limit. v0.6.1, after the first device test: iOS sends
 /// "critical" pressure events constantly once the footprint is near 40 MB, and closing every connection
 /// on each event broke browsing. Now the footprint decides, with hysteresis:
-///   ≥ 40 MB (timer) / warning event ≥ 36 MB / any critical event   shed memory in Go (LibmihomoShedMemory):
+///   ≥ 40 MB (timer) / warning event ≥ 36 MB / any critical event   shed memory in the old core:
 ///                                       MitM caches, request-log bodies, DNS caches, idle connections when
-///                                       little is available, then GC + scavenge; Go logs what it freed and
+///                                       little is available, then GC + scavenge; the old core logs what it freed and
 ///                                       backs off while a shed frees nothing (v0.19.22: the guard used to call
 ///                                       FreeMemory every 3 s for hours at a 40 MB plateau, freeing nothing)
 ///   ≥ 47 MB or < 3 MB available         close the oldest 25 % of connections (50 % below 2 MB available),
 ///                                       then not again until the footprint fell below 42 MB or 30 s passed.
 final class MemoryGuard {
-    private let queue = DispatchQueue(label: "mihomo.memoryguard", qos: .utility)
+    private let queue = DispatchQueue(label: "tern.memoryguard", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
     private var interval = 10
@@ -586,7 +586,7 @@ final class MemoryGuard {
         }
         let avail = ProcessMemory.availableBytes()
         if critical || fp >= warningShedAtBytes {
-            // Go rate-limits and backs off by itself (ShedMemory), so every event may ask.
+            // the old core rate-limits and backs off by itself (ShedMemory), so every event may ask.
             NativeTunnelMemory.shed(level: critical ? 2 : 1, reason: critical ? "memory pressure critical" : "memory pressure warning")
         }
         evaluate(fp: fp, avail: avail, freeAt: UInt64.max, why: "memory pressure")
@@ -643,14 +643,14 @@ final class MemoryGuard {
 }
 
 /// v0.11: speed / totals / main node for the Live Activity, every 10 s and only while the app's
-/// 实时活动 switch is on (one Go call + one small App Group write; nothing allocated otherwise).
+/// 实时活动 switch is on (one the old core call + one small App Group write; nothing allocated otherwise).
 ///
 /// r7 (review7 R7A-7): stop() runs on the sampler's own queue (like MemoryGuard / NetworkWatcher since R6A-2), so a
-/// handler already inside LibmihomoLiveStatus() can no longer save the pre-disconnect speed after the "disconnected"
+/// handler already inside LiveStatus() can no longer save the pre-disconnect speed after the "disconnected"
 /// write. r7 (backlog B19): with 实时活动 off the timer no longer wakes the extension every 10 s — it re-checks
 /// every 10 min, and the app's Darwin notification (LiveStats.wantedChangedNotification) switches it at once.
 final class LiveStatsSampler {
-    private let queue = DispatchQueue(label: "mihomo.livestats", qos: .utility)
+    private let queue = DispatchQueue(label: "tern.livestats", qos: .utility)
     private var timer: DispatchSourceTimer?
     /// Queue-confined.
     private var stopped = false
@@ -724,7 +724,7 @@ final class LiveStatsSampler {
 
 /// Adds the core's traffic counters to today's bucket in TrafficHistory every two minutes.
 final class TrafficRecorder {
-    private let queue = DispatchQueue(label: "mihomo.traffic", qos: .utility)
+    private let queue = DispatchQueue(label: "tern.traffic", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var lastUp: Int64 = 0
     private var lastDown: Int64 = 0

@@ -97,7 +97,7 @@ struct ConnectionView: View {
         } header: { Text("流量") } footer: {
             switch o.blockQUIC {
             case "off":
-                Text("不拦截 QUIC（mihomo 原生行为）：规则选中的节点不支持 UDP 时，QUIC 会改为直连，绕过你的规则。")
+                Text("不拦截 QUIC（Clash 原生行为）：规则选中的节点不支持 UDP 时，QUIC 会改为直连，绕过你的规则。")
             case "always":
                 Text("拒绝所有 QUIC（UDP 443），App 自动改用 TCP，规则与 MitM 对它们都生效。")
             default:
@@ -109,11 +109,11 @@ struct ConnectionView: View {
         ipv6Section
     }
 
-    /// Loon parity: 直连时丢弃 STUN and UDP 回落 (bridge netextras.go).
+    /// Loon parity: 直连时丢弃 STUN and UDP 回落.
     var udpSection: some View {
         Section {
             Toggle("阻止 WebRTC", isOn: $o.blockWebRTC).accessibilityIdentifier("conn.blockWebRTC")
-            // 阻止 WebRTC rejects every STUN / TURN, so 直连时丢弃 STUN is included while it is on (bridge netextras.go).
+            // 阻止 WebRTC rejects every STUN / TURN, so 直连时丢弃 STUN is included while it is on.
             Toggle("直连时丢弃 STUN", isOn: o.blockWebRTC ? .constant(true) : $o.stunDropDirect)
                 .disabled(o.blockWebRTC)
                 .accessibilityIdentifier("conn.stunDrop")
@@ -130,7 +130,7 @@ struct ConnectionView: View {
                      : "直连时丢弃 STUN：规则最终走直连的 STUN 请求（UDP 3478、3479、5349、19302 等端口）被拒绝，网页的 WebRTC 不会经直连暴露本机 IP；走代理的照常。发往 Apple 的 FaceTime 请求不受影响。")
                 Text(o.udpFallback == "reject"
                      ? "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，拒绝这些 UDP，不改走直连。"
-                     : "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，这些 UDP 改走直连（mihomo 默认）。")
+                     : "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，这些 UDP 改走直连（Clash 默认）。")
             }
         }
         .listRowBackground(Theme.card)
@@ -299,7 +299,7 @@ struct ConnectionView: View {
                     Text("用户名和密码都填写才会启用认证。").font(.caption).foregroundStyle(Theme.warn)
                 }
                 if o.lanAuth.username.contains(":") {
-                    // mihomo splits "user:pass" at the first ':', so this user could never sign in (v0.19.1).
+                    // Clash.Meta splits "user:pass" at the first ':', so this user could never sign in (v0.19.1).
                     Text("用户名不能包含冒号").font(.caption).foregroundStyle(Theme.warn)
                 }
                 NavigationLink { LanUsersView(users: $o.lanUsers, mainUser: o.lanAuth.password.isEmpty ? "" : o.lanAuth.username) } label: {

@@ -3,10 +3,10 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// One entry point for everything that arrives from outside: our own mihomo:// links, pasted links of
+/// One entry point for everything that arrives from outside: our own tern:// links, pasted links of
 /// other clients (loon:// stash:// surge:/// quantumult-x:/// — recognised, never registered as URL
 /// schemes), and opened documents (.yaml .sgmodule .plugin .stoverride .conf .list).
-/// Everything ends up in the one internal model: a mihomo profile, or a module in the module store.
+/// Everything ends up in the one internal model: a Clash.Meta profile, or a module in the module store.
 enum ImportAction: Identifiable, Equatable {
     case profileURL(url: String, name: String)
     case profileText(name: String, text: String)
@@ -148,7 +148,7 @@ final class ImportRouter: ObservableObject {
         let action = path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
 
         switch scheme {
-        case "mihomo", "clash", "clash-meta":
+        case "tern", "clash", "clash-meta":
             switch action {
             case "connect", "start": return .connect
             case "disconnect", "stop": return .disconnect
@@ -156,7 +156,7 @@ final class ImportRouter: ObservableObject {
             case "install-config", "install-profile", "import-profile", "subscribe":
                 if let u = query(comps, ["url"]) { return .profileURL(url: u, name: query(comps, ["name"]) ?? "") }
             case "install-module", "install-plugin", "install-override", "import-module":
-                if let u = query(comps, ["url"]) { return .moduleURL(url: u, source: "mihomo") }
+                if let u = query(comps, ["url"]) { return .moduleURL(url: u, source: "Tern") }
             default: break
             }
             return .unsupported(s)
@@ -218,7 +218,7 @@ final class ImportRouter: ObservableObject {
         if values?.isDirectory == true {
             return (nil, 0, uti, String(localized: "「\(url.lastPathComponent)」是文件夹，请选择其中的配置文件"))
         }
-        // Review 5 P2-8: refuse big files before copying or reading them (a video opened "in Mihomo" used to be
+        // Review 5 P2-8: refuse big files before copying or reading them (a video opened "in Tern" used to be
         // copied to tmp and loaded whole before the 16 MB check).
         let limit = 16 << 20
         let tooBig = String(localized: "文件太大（超过 16 MB），不是配置或模块")
@@ -305,7 +305,7 @@ final class ImportRouter: ObservableObject {
         default:
             if let a = route(text: text, name: name) { return a }
             if ext == "snippet" { return .moduleText(name: name, text: text, source: "Quantumult X") }
-            return .unsupported(String(localized: "无法识别「\(url.lastPathComponent)」的内容：支持 mihomo 配置、Surge / QX 配置、模块、规则列表和节点链接"))
+            return .unsupported(String(localized: "无法识别「\(url.lastPathComponent)」的内容：支持 Clash 配置、Surge / QX 配置、模块、规则列表和节点链接"))
         }
     }
 

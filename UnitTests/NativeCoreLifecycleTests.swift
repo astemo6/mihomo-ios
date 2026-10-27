@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // nc-lifecycle: the process-wide teardown primitives the tunnel core's
 // stop path uses (NCConnector.closeAllSharedSessions, the DNS singleton

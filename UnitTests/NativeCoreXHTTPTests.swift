@@ -1,7 +1,7 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
-/// feat/nc-xhttp: XHTTP (splithttp) transport — config parsing (mihomo xhttp-opts), request construction
+/// feat/nc-xhttp: XHTTP (splithttp) transport — config parsing (Clash.Meta xhttp-opts), request construction
 /// (paths, placements, padding, browser headers), the multi-stream HTTP/2 core, the relay stream's three
 /// modes against a scripted in-memory server, share-link import / export, and the NCSupport gate.
 /// (sing-box has no XHTTP inbound, so there is no loopback case.)
@@ -60,7 +60,7 @@ final class NativeCoreXHTTPTests: XCTestCase {
         XCTAssertThrowsError(try NCXHTTPConfig.parse(proxy(opts: ["sc-max-each-post-bytes": .number(0)])))
         XCTAssertThrowsError(try NCXHTTPConfig.parse(proxy(opts: ["sc-min-posts-interval-ms": .string("x")])))
         XCTAssertThrowsError(try NCXHTTPConfig.parse(proxy(opts: ["x-padding-bytes": .string("9-1")])))
-        // numbers (YAML ints) read like mihomo's weakly typed decode
+        // numbers (YAML ints) read like Clash.Meta's weakly typed decode
         let n = try NCXHTTPConfig.parse(proxy(opts: ["sc-max-each-post-bytes": .number(4096), "sc-min-posts-interval-ms": .number(5)]))
         XCTAssertEqual(n.scMaxEachPostBytes, NCXHTTPRange(4096, 4096))
         XCTAssertEqual(n.scMinPostsIntervalMs, NCXHTTPRange(5, 5))
@@ -89,7 +89,7 @@ final class NativeCoreXHTTPTests: XCTestCase {
             XCTAssertTrue((12...14).contains(id.count))
             XCTAssertTrue(id.allSatisfy { $0.isNumber })
         }
-        // 10^1..10^3 < 2^31: rejected like mihomo
+        // 10^1..10^3 < 2^31: rejected like Clash.Meta
         XCTAssertThrowsError(try NCXHTTPConfig.parse(proxy(opts: ["session-table": .string("number"), "session-length": .string("1-3")])))
         XCTAssertThrowsError(try NCXHTTPConfig.parse(proxy(opts: ["session-table": .string("ab€"), "session-length": .string("40")])))
     }
@@ -185,7 +185,7 @@ final class NativeCoreXHTTPTests: XCTestCase {
         let r = cfg.packetRequest(sessionID: "s", seq: 0, data: payload)
         XCTAssertNil(r.body)
         let h = r.h2Headers()
-        XCTAssertEqual(header(h, "content-length"), "0") // POST without body, like Go's transport
+        XCTAssertEqual(header(h, "content-length"), "0") // POST without body, like the old core's transport
         var joined = ""
         var i = 0
         while let part = header(h, "x-data-\(i)") {

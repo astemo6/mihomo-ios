@@ -3,7 +3,7 @@ import Network
 import os
 
 // kcptun smux multi-stream session, stream multiplexer, and node-shared UDP session lifecycle.
-// Reference: xtaci/smux + metacubex/smux (session.go, stream.go, frame.go), mihomo transport/kcptun (client.go).
+// Reference: xtaci/smux + metacubex/smux (session.go, stream.go, frame.go), Clash.Meta transport/kcptun (client.go).
 //
 // Threading: every KCP / FEC / crypt / snappy / smux-parser touch runs on the session's own serial queue
 // (NCSessionQueues). Streams hand data and completions back on the queue of the caller that opened them.

@@ -1,11 +1,11 @@
 // DIVERGENCES:
 // None. All data structures, JSON keys, dictionary shapes, section translations,
-// and warning/error outputs mirror bridge/confimport.go and bridge/qximport.go exactly.
+// and warning/error outputs mirror the retired bridge.
 
 import Foundation
 
-/// Pure Swift port of bridge/confimport.go + bridge/qximport.go.
-/// Converts Surge .conf and Quantumult X .conf to mihomo YAML,
+/// Pure Swift port of the retired bridge.
+/// Converts Surge .conf and Quantumult X .conf to Clash.Meta YAML,
 /// modules, remote modules, connection settings, and an import report.
 enum NCConfImportPort {
 
@@ -73,7 +73,7 @@ enum NCConfImportPort {
 
     // MARK: - Public API
 
-    /// ImportConf converts a Surge or Quantumult X profile to mihomo. Returns JSON {yaml, module, report, error}.
+    /// ImportConf converts a Surge or Quantumult X profile to Clash.Meta. Returns JSON {yaml, module, report, error}.
     static func importConf(_ text: String) -> String {
         let res = importConfResult(text)
         let enc = JSONEncoder()
@@ -824,7 +824,7 @@ enum NCConfImportPort {
         func addPolicy(_ d: String, _ v: String) {
             let k = qxPolicyDomain(d)
             guard qxWildcardOK(k) else {
-                rep.notes.append("[dns] 通配写法 mihomo 不支持，已跳过：" + d)
+                rep.notes.append("[dns] 通配写法不支持，已跳过：" + d)
                 return
             }
             if policy[k] == nil {
@@ -902,7 +902,7 @@ enum NCConfImportPort {
                     if qxWildcardOK(hd) {
                         hosts[hd] = vDomain
                     } else {
-                        rep.notes.append("[dns] 通配写法 mihomo 不支持，已跳过：" + d)
+                        rep.notes.append("[dns] 通配写法不支持，已跳过：" + d)
                     }
                 }
             default:
@@ -1189,7 +1189,7 @@ enum NCConfImportPort {
                     "url": sp.url,
                     "x-convert": "nodes",
                     // fix/nc-open-6-10 #10: fetched like QuanX fetched it (the panel picks the format / allows the
-                    // client by this UA); mihomo honours `header` the same way.
+                    // client by this UA); Clash.Meta honours `header` the same way.
                     "header": ["User-Agent": [NCNodeSubscriptionStore.qxUserAgent]] as [String: Any],
                     "path": "./proxies/" + NCRuleValidator.providerNameFor(url: sp.url, kind: "nodes") + ".yaml",
                     "interval": sp.interval,

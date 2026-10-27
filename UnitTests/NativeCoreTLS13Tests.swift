@@ -1,11 +1,11 @@
 import XCTest
 import CryptoKit
-@testable import Mihomo
+@testable import Tern
 
 /// Vectors for the hand-rolled TLS 1.3 key schedule and the REALITY
 /// handshake math. Sources: RFC 8448 §3, RFC 5869 test case 1, and vectors
-/// generated locally with Go's standard library / x/crypto (the same crypto
-/// the Go core uses) — never from the Swift implementation under test.
+/// generated locally with the old core's standard library / x/crypto (the same crypto
+/// the old core uses) — never from the Swift implementation under test.
 final class NativeCoreTLS13Tests: XCTestCase {
     private func unhex(_ s: String) -> Data {
         let clean = s.filter { !$0.isWhitespace }
@@ -64,7 +64,7 @@ final class NativeCoreTLS13Tests: XCTestCase {
     }
 
     func testRealityAuthKeyVector() {
-        // Go (crypto/ecdh + x/crypto/hkdf): client private = bytes 0x20...0x3f,
+        // the old core (crypto/ecdh + x/crypto/hkdf): client private = bytes 0x20...0x3f,
         // server public below, clientRandom = bytes 0x00...0x1f.
         let clientPriv = try! Curve25519.KeyAgreement.PrivateKey(
             rawRepresentation: Data((0x20..<0x40).map { UInt8($0) }))
@@ -75,7 +75,7 @@ final class NativeCoreTLS13Tests: XCTestCase {
     }
 
     func testRealitySealSessionIDVector() {
-        // Go crypto/aes+cipher GCM: key = bytes 0x00...0x1f, nonce = a0...ab,
+        // the old core crypto/aes+cipher GCM: key = bytes 0x00...0x1f, nonce = a0...ab,
         // plain = the session-id block, AAD = bytes 0x00...0x3f.
         // NCTLS13 takes the nonce from clientRandom[20..<32], so the random
         // below ends with a0...ab.
@@ -89,7 +89,7 @@ final class NativeCoreTLS13Tests: XCTestCase {
     }
 
     func testRealitySealSessionIDGoStdlibVector() {
-        // Also generated with Go's standard library (crypto/aes +
+        // Also generated with the old core's standard library (crypto/aes +
         // cipher.NewGCM Seal) in a throwaway program: key = bytes 0x00...0x1f,
         // nonce = bytes 0x00...0x0b, plain = the session-id block above,
         // AAD = bytes 0x00...0x3f. The clientRandom passed to NCTLS13 ends

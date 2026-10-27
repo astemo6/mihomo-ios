@@ -3,13 +3,13 @@
 // URL parsing for plain http(s) URLs (url.Parse), net.SplitHostPort, httputil's query cleaning (url.ParseQuery +
 // Values.Encode), http.StatusText and http.DetectContentType.
 //
-// The escape tables and every function here are held to Go by UnitTests/NativeMitmRegexFixtures.json (generated
-// by bridge/mitm/rewriteicu_test.go from the Go standard library itself).
+// The escape tables and every function here are held to the old core by UnitTests/NativeMitmRegexFixtures.json (generated
+// by the retired bridge the old core standard library itself).
 
 import Foundation
 
 enum NetURL {
-    // net/url shouldEscape tables (bit set: the byte is escaped), generated from Go 1.26:
+    // net/url shouldEscape tables (bit set: the byte is escaped), generated from the old core 1.26:
     // pathEsc = (&url.URL{Path: "/"+b}).EscapedPath() != "/"+b, queryEsc = url.QueryEscape(b) != b.
     static let pathEsc: [UInt32] = [4294967295, 3489662895, 2013265920, 3087007745, 4294967295, 4294967295, 4294967295, 4294967295]
     static let queryEsc: [UInt32] = [4294967295, 4227899391, 2013265921, 3087007745, 4294967295, 4294967295, 4294967295, 4294967295]
@@ -27,7 +27,7 @@ enum NetURL {
         }
     }
 
-    /// url.unescape (path or query-component mode). nil: a bad escape (Go errors).
+    /// url.unescape (path or query-component mode). nil: a bad escape (the old core errors).
     static func unescape(_ s: [UInt8], query: Bool) -> [UInt8]? {
         var out = [UInt8]()
         out.reserveCapacity(s.count)
@@ -99,7 +99,7 @@ enum NetURL {
     }
 
     /// url.ParseRequestURI(t) as http's server sees it, for origin-form ("/…") and plain absolute http(s) targets.
-    /// nil: Go errors, or a form Swift does not reproduce ("*", "//…", authority oddities).
+    /// nil: the old core errors, or a form Swift does not reproduce ("*", "//…", authority oddities).
     static func parseRequestURI(_ t: String) -> Target? {
         let b = Array(t.utf8)
         if b.isEmpty || b.contains(where: { $0 < 0x20 || $0 == 0x7F }) { return nil }
@@ -138,7 +138,7 @@ enum NetURL {
     }
 
     /// url.Parse for "http://host[:port][/path][?query]" with a plain host (letters, digits, "-", ".", optional
-    /// ":digits"), no userinfo, no fragment. nil: anything else (Go's result is not reproduced).
+    /// ":digits"), no userinfo, no fragment. nil: anything else (the old core's result is not reproduced).
     static func parseAbsolute(_ s: String) -> Absolute? {
         let b = Array(s.utf8)
         if b.contains(where: { $0 < 0x20 || $0 == 0x7F || $0 == UInt8(ascii: "#") }) { return nil }
@@ -153,7 +153,7 @@ enum NetURL {
         return Absolute(scheme: scheme, host: host, path: t.path, query: t.query, forceQuery: t.forceQuery)
     }
 
-    /// net.SplitHostPort. nil: Go reports an error.
+    /// net.SplitHostPort. nil: the old core reports an error.
     static func splitHostPort(_ hp: String) -> (String, String)? {
         let b = Array(hp.utf8)
         guard let i = b.lastIndex(of: UInt8(ascii: ":")) else { return nil }
@@ -216,7 +216,7 @@ enum NetURL {
 }
 
 enum NetStatus {
-    /// http.StatusText (Go 1.26).
+    /// http.StatusText (the old core 1.26).
     static let text: [Int: String] = [
         100: "Continue", 101: "Switching Protocols", 102: "Processing", 103: "Early Hints",
         200: "OK", 201: "Created", 202: "Accepted", 203: "Non-Authoritative Information", 204: "No Content", 205: "Reset Content",

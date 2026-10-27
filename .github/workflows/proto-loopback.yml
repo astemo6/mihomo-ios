@@ -64,7 +64,7 @@ jobs:
       - name: Build for testing
         run: |
           set -o pipefail
-          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/loop \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
             build-for-testing 2>&1 | tee build-loop.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
@@ -76,9 +76,9 @@ jobs:
           mkdir -p results
           # NC_LOOPBACK=1: the tests must fail loudly here, not skip, if the servers died.
           TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_LOOPBACK=1 \
-          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/loop -resultBundlePath results/loopback.xcresult \
-            -only-testing:MihomoUnitTests/NativeCoreLoopbackTests test-without-building 2>&1 | tee results/loopback.log \
+            -only-testing:TernUnitTests/NativeCoreLoopbackTests test-without-building 2>&1 | tee results/loopback.log \
             | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed"
           RC=${PIPESTATUS[0]}
           [ "$RC" = 0 ] || tail -n 150 results/loopback.log

@@ -1,10 +1,10 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // Coverage for PR #117 (fix/nc-dns) at the layer the unit-test target can
 // see. The coalescing coordinator, the in-flight cap and the DoT/DoH pools
 // themselves live in PacketTunnel/NativeCore/NCUDPSessions.swift, which is
-// NOT part of the app / MihomoUnitTests target, so their behavior cannot be
+// NOT part of the app / TernUnitTests target, so their behavior cannot be
 // exercised from here without changing production project structure (out of
 // scope for a test-only change; see the PR body). What CAN be pinned here
 // is the wire-format contract the coordinator's correctness rests on:

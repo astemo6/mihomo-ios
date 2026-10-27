@@ -1,6 +1,6 @@
 import Foundation
 
-/// v2ray-plugin http-upgrade transport (mihomo transport/v2ray-plugin +
+/// v2ray-plugin http-upgrade transport (Clash.Meta transport/v2ray-plugin +
 /// transport/vmess websocket.go httpUpgrade): the SAME GET as the websocket
 /// handshake but without the Sec-WebSocket-* headers; once the server answers
 /// 101 with `Upgrade: websocket`, the connection is a raw byte stream — no
@@ -77,7 +77,7 @@ final class NCV2RayUpgradeStream: NCRelayStream {
         pump()
     }
 
-    /// mihomo's check (sagernet sing-shadowsocks2 / vmess websocket): a 101
+    /// Clash.Meta's check (sagernet sing-shadowsocks2 / vmess websocket): a 101
     /// whose headers carry `Upgrade: websocket` and a Connection token `upgrade`.
     private static func isUpgrade101(_ head: String) -> Bool {
         let lines = head.lowercased().components(separatedBy: "\r\n")
@@ -152,9 +152,9 @@ final class NCV2RayUpgradeStream: NCRelayStream {
 /// Shadowsocks stream-plugin transport (simple-obfs http/tls, v2ray-plugin
 /// websocket). Wraps a connected stream to the SS server so the WHOLE SS
 /// byte stream — request head included — rides inside the plugin, matching
-/// mihomo's adapter/outbound/shadowsocks.go StreamConnContext, which wraps
+/// Clash.Meta's adapter/outbound/shadowsocks.go StreamConnContext, which wraps
 /// the raw conn with the plugin before the SS codec sees it. TCP only; SS
-/// UDP sessions never go through a plugin (mihomo parity).
+/// UDP sessions never go through a plugin (Clash.Meta parity).
 ///
 /// Layering: the pure wire formats live in Shared/NativeCore/NCSSPlugin.swift;
 /// this class only drives them over NCRelayStream (obfs rides the raw socket,
@@ -168,7 +168,7 @@ final class NCSSPluginStream: NCRelayStream {
     private let upgrade: NCV2RayUpgradeStream?
 
     /// Flips after the first send (obfs disguise / mux create frame go out
-    /// with it), like mihomo's firstRequest/firstResponse flags.
+    /// with it), like Clash.Meta's firstRequest/firstResponse flags.
     private var started = false
 
     // Receive-side state, one per plugin shape.
@@ -182,7 +182,7 @@ final class NCSSPluginStream: NCRelayStream {
         self.serverPort = serverPort
         if case .v2rayPlugin = options.kind {
             var headers = options.headers
-            // mihomo v2ray NewV2rayObfs: a Host header overrides the Host
+            // Clash.Meta v2ray NewV2rayObfs: a Host header overrides the Host
             // used for the upgrade request (and for the TLS server name).
             let hostHeader = headers.removeValue(forKey: "Host") ?? options.host
             if options.httpUpgrade {
@@ -238,7 +238,7 @@ final class NCSSPluginStream: NCRelayStream {
             let sink: NCRelayStream? = (upgrade as NCRelayStream?) ?? (ws as NCRelayStream?)
             guard let sink else { once.call(); return }
             if opts.mux {
-                // mihomo mux.go NewMux pre-fills the create frame; the first
+                // Clash.Meta mux.go NewMux pre-fills the create frame; the first
                 // Write flushes create + data together.
                 if first {
                     sink.send(NCSSPlugin.V2RayMux.createFrame() + NCSSPlugin.V2RayMux.dataFrame(payload: data), completion: once.call)
@@ -294,7 +294,7 @@ final class NCSSPluginStream: NCRelayStream {
     }
 
     func cancel() {
-        // Best-effort mux session end (mihomo Mux.Close), then tear the
+        // Best-effort mux session end (Clash.Meta Mux.Close), then tear the
         // transport down — the ws / upgrade streams' cancel closes the raw stream.
         if case .v2rayPlugin = opts.kind, opts.mux {
             ((upgrade as NCRelayStream?) ?? (ws as NCRelayStream?))?.send(NCSSPlugin.V2RayMux.endFrame())

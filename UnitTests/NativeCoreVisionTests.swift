@@ -1,8 +1,8 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Deterministic tests for the xtls-rprx-vision padding state machines
-/// (NCVision.swift), ported from mihomo's transport/vless/vision. Randomness
+/// (NCVision.swift), ported from Clash.Meta's transport/vless/vision. Randomness
 /// is pinned through NCVisionWriter.randomBelow so frame layouts are exact.
 final class NativeCoreVisionTests: XCTestCase {
     private let uuid: [UInt8] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]

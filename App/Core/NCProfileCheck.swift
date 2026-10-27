@@ -1,13 +1,13 @@
 import Foundation
 
-/// B1 (Go-zero): the profile editor's live check — Swift port of bridge/profilecheck.go (ProfileCheck,
-/// checkProfileText, locate, firstBadLine) and bridge/robust.go FriendlyError. Parses the edited text the way a
-/// connect does (YAML, the profile's overrides, NCRuntimeBuilder, then NCConfigValidator — mihomo's
-/// executor.ParseWithBytes in Go) and points at the line / column of the problem in the user's text.
+/// B1 (native-only): the profile editor's live check — Swift port of the retired bridge (ProfileCheck,
+/// checkProfileText, locate, firstBadLine) and the retired bridge. Parses the edited text the way a
+/// connect does (YAML, the profile's overrides, NCRuntimeBuilder, then NCConfigValidator — Clash.Meta's
+/// executor.ParseWithBytes in the old core) and points at the line / column of the problem in the user's text.
 ///
 /// DIVERGENCES: yaml.v3 gave a node tree with positions and its own error text ("line N: …"); NCYAML now
 /// records the line for the failures it can localize (unclosed flow / quote, see NCYAMLError) and otherwise
-/// firstBadLine (the same binary search Go used to refine yaml.v3's line) supplies it — either way the line
+/// firstBadLine (the same binary search the old core used to refine yaml.v3's line) supplies it — either way the line
 /// is carried in the error message itself (「YAML 格式错误：第 N 行：无法解析」), not only in Result.line,
 /// and locate() finds the item in the text with a line scanner over the top-level block (column = the
 /// item's first key, as yaml.v3's mapping node reports it).
@@ -70,7 +70,7 @@ enum NCProfileCheck {
     }
 
     /// bridge ProbeGroup (probe.go): never counted as a user group.
-    static let probeGroup = "MIHOMO-PROBE"
+    static let probeGroup = "TERN-PROBE"
 
     private static func isBlank(_ text: String) -> Bool {
         text.split(separator: "\n").allSatisfy {
@@ -250,7 +250,7 @@ enum NCProfileCheck {
         }
     }
 
-    // MARK: - FriendlyError (bridge/robust.go)
+    // MARK: - FriendlyError
 
     private static let errHints: [(String, String)] = [
         (#"(?i)yaml:|unmarshal|mapping values are not allowed|did not find expected"#, "配置文件格式错误（YAML）"),

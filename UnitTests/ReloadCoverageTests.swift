@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// r7 (review7 R7A-1): every file a backup / snapshot / sync restore writes must have a reload path. A store that
 /// caches one of them in memory and writes its whole list back would otherwise undo the restore on its next save.

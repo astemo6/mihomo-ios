@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Split Self-test across the main repo and the org mirror (two free-plan macOS concurrency pools).
-#   origin = astemo6/mihomo-ios   → go + ui zh-Hans light/dark
+#   origin = astemo6/mihomo-ios   → ui zh-Hans light/dark
 #   mirror = astemo666/mihomo-ios → ui en light/dark
 # (shard rule lives in .github/workflows/ui-tests.yml)
 #
@@ -54,7 +54,7 @@ print("%s %s %s %s" % (r["id"], r["status"], r["conclusion"] or "-", r["html_url
 status() { # name → prints both, returns 0 green / 1 failed / 2 running
   local b="test/$1" m o rc=0
   m=$(run_for "$MAIN_REPO" "$b"); o=$(run_for "$MIRROR_REPO" "$b")
-  echo "main   ($MAIN_REPO, go + zh-Hans): $m"
+  echo "main   ($MAIN_REPO, zh-Hans): $m"
   echo "mirror ($MIRROR_REPO, en):         $o"
   for x in "$m" "$o"; do
     set -- $x

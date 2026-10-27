@@ -3,7 +3,6 @@
 # once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test ([unit:<Class>] adds a unit test class),
 # [skip-ui] skips the UI shards.
 # - plan: picks the UI path (smoke or full matrix, see "UI path" below). Ubuntu, ~20 s.
-# - (Go-zero: the former go job — go vet / go test / -race on bridge/ — is gone with bridge/.)
 # - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
 #   zh-Hans and en, light and dark. Screenshots and per-test reports are uploaded as artifacts only.
 # The release workflow (ios.yml) and project.yml are not touched by this file.
@@ -37,7 +36,7 @@
 #   Everything else (PacketTunnel/**, Geo/**, Config/**, UnitTests/**, scripts/**, .github/**,
 #   docs) is not UI-affecting → smoke.
 #   smoke = one combo, zh-Hans light (astemo6 / other repos; the astemo666 en mirror runs no UI job):
-#     SMOKE_TESTS (launch + tab/page navigation + node manager) + every MihomoUnitTests class. The app,
+#     SMOKE_TESTS (launch + tab/page navigation + node manager) + every TernUnitTests class. The app,
 #     test bundle and framework are built in full, so a compile break still fails.
 #   full  = today's matrix (repository split above; light:1/2/3 + dark:0 per language).
 # Markers / inputs (commit message of the pushed head; dispatch input `shard`):
@@ -61,7 +60,7 @@ on:
         required: false
         default: true
       only:
-        description: "Optional -only-testing filter, e.g. MihomoUITests/MihomoUITests/test04_NodeManager"
+        description: "Optional -only-testing filter, e.g. TernUITests/TernUITests/test04_NodeManager"
         type: string
         required: false
         default: ""
@@ -290,7 +289,7 @@ jobs:
         if: env.SKIP_SHARD != '1'
         run: |
           set -o pipefail
-          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/uit \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
             build-for-testing 2>&1 | tee build-uit.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
@@ -309,13 +308,13 @@ jobs:
           ONLY=()
           if [ -n "$ONLY_INPUT" ]; then ONLY=(-only-testing:"$ONLY_INPUT"); fi
           for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[only:[A-Za-z0-9_]+\]' | sed -E 's/\[only:(.*)\]/\1/'); do
-            ONLY+=(-only-testing:"MihomoUITests/MihomoUITests/$t")
+            ONLY+=(-only-testing:"TernUITests/TernUITests/$t")
           done
-          # [unit:<TestClass>] adds a unit test class (MihomoUnitTests) to an [only:] selection.
+          # [unit:<TestClass>] adds a unit test class (TernUnitTests) to an [only:] selection.
           for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[unit:[A-Za-z0-9_]+\]' | sed -E 's/\[unit:(.*)\]/\1/'); do
-            ONLY+=(-only-testing:"MihomoUnitTests/$t")
+            ONLY+=(-only-testing:"TernUnitTests/$t")
           done
-          DARK_ONLY=(-only-testing:MihomoUITests/MihomoUITests/test01_TabsAndHome -only-testing:MihomoUITests/MihomoUITests/test03_MoreEveryPage -only-testing:MihomoUITests/MihomoUITests/test04_NodeManager -only-testing:MihomoUITests/MihomoUITests/test05_AddNodeAndEditor)
+          DARK_ONLY=(-only-testing:TernUITests/TernUITests/test01_TabsAndHome -only-testing:TernUITests/TernUITests/test03_MoreEveryPage -only-testing:TernUITests/TernUITests/test04_NodeManager -only-testing:TernUITests/TernUITests/test05_AddNodeAndEditor)
           # Review 6 OPT-1: light shard 1 = these tests, shard 2 = everything else (new tests land there).
           # r7 (review7 R7A-9): test22–test30 (~8 min) moved to shard 1 — shard 2 had grown to ~61 min of tests with
           # test56–test70 (39596801011: light:1 34.9 min, light:2 60.8 min).
@@ -335,23 +334,23 @@ jobs:
           # Smoke path (no UI-affecting change, see header): launch + navigation UI tests and every unit test class.
           SMOKE_TESTS="test01_TabsAndHome test03_MoreEveryPage test04_NodeManager"
           if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = smoke ]; then
-            for t in $SMOKE_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
-            SEL+=(-only-testing:MihomoUnitTests)
+            for t in $SMOKE_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done
+            SEL+=(-only-testing:TernUnitTests)
           fi
           if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 1 ]; then
-            for t in $SHARD1_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
+            for t in $SHARD1_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done
           fi
           if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 2 ]; then
-            for t in $SHARD1_TESTS $SHARD3_TESTS; do SEL+=(-skip-testing:"MihomoUITests/MihomoUITests/$t"); done
+            for t in $SHARD1_TESTS $SHARD3_TESTS; do SEL+=(-skip-testing:"TernUITests/TernUITests/$t"); done
           fi
           if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 3 ]; then
-            for t in $SHARD3_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
+            for t in $SHARD3_TESTS; do SEL+=(-only-testing:"TernUITests/TernUITests/$t"); done
           fi
           xcrun simctl ui "$DEV" appearance "$STYLE" || true
           # feat/jsc-engine: JavaScriptCore without JIT in the test host, as on a device (no JIT for apps and
           # extensions). Round 2 (8e86e33): with JIT the busy-loop case was never terminated by the time limit.
           TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" TEST_RUNNER_JSC_useJIT=false \
-          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+          xcodebuild -project Tern.xcodeproj -scheme TernUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$SHORT.xcresult" \
             "${SEL[@]}" test-without-building 2>&1 | tee "results/$SHORT.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue"
           RC=${PIPESTATUS[0]}
@@ -374,8 +373,8 @@ jobs:
         if: always() && env.SKIP_SHARD != '1'
         run: |
           mkdir -p crashes
-          cp ~/Library/Logs/DiagnosticReports/Mihomo* crashes/ 2>/dev/null || true
-          find "$HOME/Library/Developer/CoreSimulator/Devices/$DEV" -name "Mihomo*.ips" -exec cp {} crashes/ \; 2>/dev/null || true
+          cp ~/Library/Logs/DiagnosticReports/Tern* crashes/ 2>/dev/null || true
+          find "$HOME/Library/Developer/CoreSimulator/Devices/$DEV" -name "Tern*.ips" -exec cp {} crashes/ \; 2>/dev/null || true
           ls -la crashes
       - uses: actions/upload-artifact@v6
         if: always() && env.SKIP_SHARD != '1'

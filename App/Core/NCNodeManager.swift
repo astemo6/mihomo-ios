@@ -1,13 +1,13 @@
 import Foundation
 
-/// nc-integrate B2: bridge/nodemanager.go NodeSummaryIn / NodeConfigIn / NodeSummaryJSON in Swift.
+/// nc-integrate B2: the retired bridge / NodeConfigIn / NodeSummaryJSON in Swift.
 /// The runtime tree comes from NCRuntimeBuilder (bridge runtimeRawWithHome = buildRuntime(readRuntimeProfile(…),
 /// overridesFor(…), 0)); provider nodes are read from the inline payload or the provider cache file
 /// (ncProviderCachePath = bridge providerCache), parsed as YAML `proxies:` or, failing that, as a node list
 /// (NCSubscriptionParser = bridge parseNodeText).
 ///
-/// Divergences: Go kept a 30 s runtime cache only for NodeSummary / NodeConfig (name-only) — the *In variants
-/// the app calls always rebuilt, so does this. Go's recover() on panic has no Swift counterpart (nothing here traps).
+/// Divergences: the old core kept a 30 s runtime cache only for NodeSummary / NodeConfig (name-only) — the *In variants
+/// the app calls always rebuilt, so does this. the old core's recover() on panic has no Swift counterpart (nothing here traps).
 enum NCNodeManager {
 
     /// bridge runtimeRawWithHome: the runtime tree, or [:] when the profile cannot be read / built.

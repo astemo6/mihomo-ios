@@ -101,7 +101,7 @@ enum NCIP: Equatable, Hashable {
         case .v4(let v):
             return "\((v >> 24) & 0xff).\((v >> 16) & 0xff).\((v >> 8) & 0xff).\(v & 0xff)"
         case .v6(let b):
-            // IPv4-mapped addresses print as plain IPv4, matching mihomo's display.
+            // IPv4-mapped addresses print as plain IPv4, matching Clash.Meta's display.
             if b[0..<10].allSatisfy({ $0 == 0 }), b[10] == 0xff, b[11] == 0xff {
                 return "\(b[12]).\(b[13]).\(b[14]).\(b[15])"
             }

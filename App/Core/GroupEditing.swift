@@ -1,8 +1,8 @@
 import Foundation
 import CryptoKit
 
-/// Pure Swift implementation of policy group editing operations (去 Go 第 B5 批).
-/// Replaces bridge/groupedits.go and bridge/groupmembers.go functions:
+/// Pure Swift implementation of policy group editing operations (去 the old core 第 B5 批).
+/// Replaces the retired bridge:
 /// - GroupSpecs
 /// - GroupEditCheck
 /// - GroupPreview

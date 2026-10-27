@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // Coverage for PR #120 (fix/nc-compat): Loon plugin reference lines, the
 // full #! metadata set, .lpx expression script lines with typed plugin-

@@ -1,10 +1,10 @@
 import Foundation
 
-/// B10 (nc-dego-rest): bridge/diagbundle.go WriteDiagnosticBundle + diagnosticFiles in Swift. Builds the same
+/// B10 (nc-dego-rest): the retired bridge + diagnosticFiles in Swift. Builds the same
 /// redacted file set (configs first so every secret is known, then the logs) and writes it as one zip with
-/// NCZipWriter, entries under "mihomo-diagnostics/", sorted by name, DEFLATE.
+/// NCZipWriter, entries under "tern-diagnostics/", sorted by name, DEFLATE.
 ///
-/// Not included compared with Go: resources.json (bridge ResourceList, B4 — no Swift port yet).
+/// Not included compared with the old core: resources.json (bridge ResourceList, B4 — no Swift port yet).
 extension DiagnosticSummary {
 
     enum BundleError: Error, LocalizedError {
@@ -67,7 +67,7 @@ extension DiagnosticSummary {
         for (k, v) in sectionFiles(home: home, appInfo: appInfo, cachedModuleInfo: cachedModuleInfo, redactor: r) {
             out[k] = v
         }
-        out["README.txt"] = "Mihomo iOS 诊断包\n\n" +
+        out["README.txt"] = "Tern 诊断包\n\n" +
             "selfcheck.txt         最近一次「一键自检」的结果（有才包含）\n" +
             "info.txt              App / 扩展 / 内核版本、App Group、VPN 状态\n" +
             "startup-log.txt       启动阶段日志（本次 + 上一次）\n" +
@@ -89,7 +89,7 @@ extension DiagnosticSummary {
         var zip = NCZipWriter()
         let now = Date()
         for name in files.keys.sorted() {
-            zip.add(name: "mihomo-diagnostics/" + name, contents: Data((files[name] ?? "").utf8), modified: now)
+            zip.add(name: "tern-diagnostics/" + name, contents: Data((files[name] ?? "").utf8), modified: now)
         }
         let url = URL(fileURLWithPath: outPath)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

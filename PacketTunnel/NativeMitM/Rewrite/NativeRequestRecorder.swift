@@ -1,8 +1,8 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 // Native MitM stage 3a — request-log records for requests NativeRewriteDriver answered in Swift.
 //
-// Such a request never reaches Go, so the request log (HTTP capture) is recorded here. The
+// Such a request never reaches the old core, so the request log (HTTP capture) is recorded here. The
 // driver hands small events to this recorder; it batches them off the request path in-memory,
 // so a native entry reads in the list and the detail view.
 //
@@ -32,7 +32,7 @@ final class InMemoryNativeRequestLogSink: NativeRequestLogSink {
     }
 }
 
-/// One event (bridge/mitm/nativerecord.go NativeRecord; field names are the JSON keys).
+/// One event.
 struct NativeRequestEvent: Encodable, Equatable {
     var k: Int64
     var ev: String           // drop / local / forward / response / end / cancel / upstream / error / abort
@@ -47,7 +47,7 @@ struct NativeRequestEvent: Encodable, Equatable {
     var status: Int? = nil
     var headers: [[String]]? = nil
     var len: Int64? = nil
-    var body: Data? = nil    // local answer body, only while capture is on (JSON: base64, like Go's []byte)
+    var body: Data? = nil    // local answer body, only while capture is on (JSON: base64, like the old core's []byte)
     var sent: Int64? = nil
     var resp: Bool? = nil
     var why: String? = nil
@@ -82,7 +82,7 @@ final class NativeRequestRecorder {
         self.maxQueued = maxQueued
         self.flushAt = min(flushAt, maxQueued)
         self.delay = delay
-        // keys only need to be unique per tunnel run on the Go side; a random base keeps a recreated recorder apart
+        // keys only need to be unique per tunnel run on the old side; a random base keeps a recreated recorder apart
         keySeq = Int64(UInt32.random(in: 1...UInt32.max)) << 20
         if watchMemory {
             let p = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
@@ -102,7 +102,7 @@ final class NativeRequestRecorder {
         return keySeq
     }
 
-    /// Queues one event (the request path: no encoding, no Go call here).
+    /// Queues one event (the request path: no encoding, no the old core call here).
     func add(_ e: NativeRequestEvent) {
         lock.lock()
         if pausedUntil != 0 {
@@ -130,7 +130,7 @@ final class NativeRequestRecorder {
         }
     }
 
-    /// Sends what is queued. Runs on the recorder's serial queue only, so batches reach Go in order.
+    /// Sends what is queued. Runs on the recorder's serial queue only, so batches reach the old core in order.
     private func flush() {
         lock.lock()
         let batch = buf

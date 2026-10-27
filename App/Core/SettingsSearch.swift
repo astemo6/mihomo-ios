@@ -132,7 +132,7 @@ enum SettingsSearchIndex {
         e("geo", "地理数据库", adv, "globe.asia.australia", .green, .geo,
           ["GeoIP", "GeoSite", "MMDB", "ASN", "地理", "IP 库", "数据库", "规则库", "geo", "database", "geodata", "自动更新", "auto update"]),
         e("coreSettings", "内核设置", adv, "slider.horizontal.3", .neutral, .coreSettings,
-          ["内核", "mihomo", "clash", "日志级别", "性能", "断开连接", "内核内存上限", "内存", "MTU", "core", "kernel", "log level", "memory limit"]),
+          ["内核", "clash", "日志级别", "性能", "断开连接", "内核内存上限", "内存", "MTU", "core", "kernel", "log level", "memory limit"]),
         e("controller", "外部控制器", [more, "高级设置", "内核设置"], "antenna.radiowaves.left.and.right", .neutral, .coreSettings,
           ["控制器", "external controller", "API", "secret", "dashboard", "面板", "yacd", "metacubexd", "9090"]),
         e("sniffer", "域名嗅探（Sniffer）", [more, "高级设置", "内核设置"], "eye", .neutral, .coreSettings, ["嗅探", "sniffer", "SNI", "sniff"]),

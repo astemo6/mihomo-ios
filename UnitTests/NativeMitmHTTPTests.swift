@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Native MitM stage 2 lane `http` (B8a): PacketTunnel/NativeMitM/HTTP. Every stream is also fed split at every byte
 /// position, one byte at a time, and in seeded random chunks — the normalized event list must not change.

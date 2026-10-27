@@ -4,7 +4,7 @@ import Foundation
 /// rules, their on-disk cache, freshness and the in-memory match indexes.
 ///
 /// Sources, unified:
-/// - mihomo `rule-providers:` entries (behavior classical/domain/ipcidr,
+/// - Clash.Meta `rule-providers:` entries (behavior classical/domain/ipcidr,
 ///   type http/file/inline)
 /// - RULE-SET rules whose payload is itself a URL (Surge/Loon/QX style:
 ///   `RULE-SET,https://…,Policy`) — registered keyed by that URL with
@@ -172,7 +172,7 @@ final class NCRuleProviderStore {
         return URLSession(configuration: c, delegate: nil, delegateQueue: q)
     }()
 
-    /// Go-era configs point remote QX/Surge/Loon rule lists at the bridge's own converter
+    /// old-core configs point remote QX/Surge/Loon rule lists at the bridge's own converter
     /// (http://127.0.0.1:<port>/rules/convert?url=<src>&kind=<kind>). NativeCore has no converter:
     /// its parser reads every dialect itself, so fetch the source list directly.
     static func unwrapLoopbackConvert(_ urlString: String) -> String {
@@ -213,7 +213,7 @@ final class NCRuleProviderStore {
 
     // MARK: provider discovery
 
-    /// Providers declared in a mihomo-shaped config, plus implicit URL
+    /// Providers declared in a Clash.Meta-shaped config, plus implicit URL
     /// providers from RULE-SET rules that carry a URL payload.
     static func providers(from cfg: NCConfig) -> [Provider] {
         var out: [Provider] = []
@@ -590,13 +590,13 @@ final class NCRuleProviderStore {
     }
 
     /// Domain-only membership (DNS nameserver-policy `rule-set:` keys,
-    /// fake-ip-filter `rule-set:` entries): mihomo matches only the
+    /// fake-ip-filter `rule-set:` entries): Clash.Meta matches only the
     /// provider's domain entries there.
     func containsDomain(name: String, domain: String) -> Bool {
         contains(name: name, ctx: NCMatchContext(domain: domain))
     }
 
-    /// mihomo RuleSet.ShouldResolveIP: the set holds IP entries.
+    /// Clash.Meta RuleSet.ShouldResolveIP: the set holds IP entries.
     func needsIP(name: String) -> Bool {
         lock.lock(); let idx = indexes[aliasMap[name] ?? name]; lock.unlock()
         return idx?.needsIP ?? false

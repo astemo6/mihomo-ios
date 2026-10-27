@@ -1,7 +1,7 @@
 import Foundation
 
 /// 智能选择 option for url-test / fallback groups, stored per profile in <home>/groups.json
-/// ({"<profile id>": {"smart": [names]}}); the Go side scores members and pins the best (bridge/smart.go).
+/// ({"<profile id>": {"smart": [names]}}); the old side scores members and pins the best.
 @MainActor
 final class SmartGroups: ObservableObject {
     static let shared = SmartGroups()

@@ -63,7 +63,7 @@ extension XCUIElement {
     }
 }
 
-class MihomoUITestCase: XCTestCase {
+class TernUITestCase: XCTestCase {
     var app: XCUIApplication!
     /// Problems found on the way (missing translations, specifiers, overflow); reported together at the end
     /// so one bad string does not hide the rest of the screens.

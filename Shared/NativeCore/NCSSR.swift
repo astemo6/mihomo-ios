@@ -319,7 +319,7 @@ final class NCSSRAuthState {
     }
 }
 
-/// SSR `auth_sha1_v4` protocol framing — byte layout from mihomo's
+/// SSR `auth_sha1_v4` protocol framing — byte layout from Clash.Meta's
 /// transport/ssr/protocol/auth_sha1_v4.go.
 final class NCSSRAuthSHA1V4 {
     let key: Data
@@ -471,7 +471,7 @@ final class NCSSRAuthSHA1V4 {
 
 /// SSR obfs `http_simple`: wraps the first chunk in a fake GET request
 /// (every head byte %XX-encoded) and strips the response's HTTP header.
-/// Layout from mihomo's transport/ssr/obfs/http_simple.go.
+/// Layout from Clash.Meta's transport/ssr/obfs/http_simple.go.
 final class NCSSRHTTPSimple {
     let host: String
     let port: Int

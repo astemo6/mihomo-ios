@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// v0.20.0 build 372 launch crash: qxRawPair sliced `line` / `rest` with indices from lowercased copies
 /// (String.Index range trap). Quantumult X `url request-header REGEX request-header REPL` lines hit it.

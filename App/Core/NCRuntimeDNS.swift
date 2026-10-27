@@ -1,7 +1,7 @@
 import Foundation
 
 /// E-B1 stage 3g: the DNS / inbound / startup / netextras steps —
-/// ports of bridge/dns.go (applyDNSOverride,
+/// ports of the retired bridge (applyDNSOverride,
 /// defaultProxyServerNameserver), localdns.go (applyLocalDNS,
 /// applyInbound, lanCredentials), inbounds.go
 /// (sanitizeProfileInbounds), startup.go (geoxFor,
@@ -10,7 +10,7 @@ import Foundation
 /// applyQUICBlock), ipv6.go (applyIPPreference), netextras.go
 /// (applyUDPFallback) and probe.go (applyProbe).
 ///
-/// nameserver-policy order: Go threads an ordered YAML node
+/// nameserver-policy order: the old core threads an ordered YAML node
 /// through runtime.yaml, but the artifact the tunnel consumes
 /// (nativecore-runtime.json) is re-decoded into a map and sorted
 /// there too — so the policy is a plain dictionary here, with the
@@ -339,7 +339,7 @@ extension NCRuntimeSteps {
         "shadowsocks", "vmess", "vless", "trojan", "tuic",
         "hysteria2", "anytls", "sudoku", "mieru",
     ]
-    static let probeListener = "mihomo-ios-probe"
+    static let probeListener = "tern-probe"
 
     /// bridge loopbackListen.
     static func loopbackListen(_ a0: String) -> Bool {
@@ -569,12 +569,12 @@ extension NCRuntimeSteps {
     /// bridge rewriteProviderURLs.
     static func rewriteProviderURLs(_ raw: inout [String: NCJSONValue]) {
         for key in ["rule-providers", "proxy-providers"] {
-            // Review R-6: Go `pv, ok := raw[key].(map[string]any); if !ok { continue }` —
+            // Review R-6: the old core `pv, ok := raw[key].(map[string]any); if !ok { continue }` —
             // an absent key stays absent, a wrongly-typed one is left for the core to reject.
             guard case .object(var pv)? = raw[key] else { continue }
             for name in pv.keys {
                 guard case .object(var m) = pv[name] ?? .null else { continue }
-                // Go: `p, _ := m["proxy"].(string)` — only a string proxy counts.
+                // the old core: `p, _ := m["proxy"].(string)` — only a string proxy counts.
                 if case .string(let proxy)? = m["proxy"], !proxy.isEmpty,
                    proxy.lowercased() != "direct" { continue }
                 if case .string(let s) = m["url"] ?? .null {
@@ -603,7 +603,7 @@ extension NCRuntimeSteps {
         return (m.str("x-convert"), u)
     }
 
-    /// bridge rewriteConvertProviders, NativeCore edition. The Go bridge pointed "convert" providers at its own
+    /// bridge rewriteConvertProviders, NativeCore edition. the old bridge pointed "convert" providers at its own
     /// loopback converter (http://127.0.0.1:<port>/rules/convert | /nodes/convert + a Bearer header). NativeCore
     /// has no such endpoint (device: 27× HTTP 401, remote rule lists never loaded), and it reads every dialect
     /// itself — NCRuleProviderStore parses QX/Surge/Loon/classical/domain-set lines, NCSubscriptionParser parses
@@ -615,7 +615,7 @@ extension NCRuntimeSteps {
         _ o: NCRuntimeSettings
     ) {
         for key in ["proxy-providers", "rule-providers"] {
-            // Review R-6: Go type-asserts the providers map and skips anything else.
+            // Review R-6: the old core type-asserts the providers map and skips anything else.
             guard case .object(var pv)? = raw[key] else { continue }
             for name in pv.keys {
                 guard case .object(var m) = pv[name] ?? .null else { continue }
@@ -647,7 +647,7 @@ extension NCRuntimeSteps {
         _ raw: inout [String: NCJSONValue],
         testURL: String
     ) {
-        // Review R-6: Go mutates in place through asList / asMap, so an absent or
+        // Review R-6: the old core mutates in place through asList / asMap, so an absent or
         // wrongly-typed proxy-groups / proxy-providers is never written back.
         if case .array(var groups)? = raw["proxy-groups"] {
             for gi in groups.indices {
@@ -679,7 +679,7 @@ extension NCRuntimeSteps {
     static func applyIPPreference(_ raw: inout [String: NCJSONValue], pref: String) {
         if pref.isEmpty { return }
         // Review R-6: only write back containers that exist with the right type
-        // (Go ranges over asList / asMap results and mutates the elements in place).
+        // (the old core ranges over asList / asMap results and mutates the elements in place).
         if case .array(var proxies)? = raw["proxies"] {
             for i in proxies.indices {
                 if case .object(var m) = proxies[i], m["ip-version"] == nil {
@@ -692,7 +692,7 @@ extension NCRuntimeSteps {
         if case .object(var pp)? = raw["proxy-providers"] {
             for name in pp.keys {
                 if case .object(var pm) = pp[name] ?? .null {
-                    // Go: ov := asMap(pm["override"]); ...; pm["override"] = ov
+                    // the old core: ov := asMap(pm["override"]); ...; pm["override"] = ov
                     var ov = pm.map("override")
                     if ov["ip-version"] == nil {
                         ov["ip-version"] = .string(pref)

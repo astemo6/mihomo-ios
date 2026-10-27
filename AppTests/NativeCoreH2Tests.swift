@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// HTTP/2 client core driven purely with byte fixtures.
 final class NativeCoreH2Tests: XCTestCase {

@@ -225,7 +225,7 @@ struct MitMView: View {
         .alert("提示", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
             Button("好") { store.message = nil }
         } message: { Text(store.message ?? "") }
-        // fix/nav-jank: the CA check (Go leaf + SecTrust evaluation) runs off main, not during the push.
+        // fix/nav-jank: the CA check (the old core leaf + SecTrust evaluation) runs off main, not during the push.
         .task { await store.refreshCAInBackground() }
         .task { if vpn.isConnected { status = try? await ControllerClient.shared.mitmStatus() } }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in Task { await store.refreshCAInBackground() } }

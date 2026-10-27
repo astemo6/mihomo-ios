@@ -7,7 +7,7 @@ import Foundation
 // languages. It is the one default index source, works offline, and is never fetched from the network;
 // user-added index URLs sit next to it. Each entry has one preferred URL plus `alternates` — the same
 // module published in other formats (Surge .sgmodule, Loon .plugin, Stash .stoverride, QX .snippet / .conf),
-// which the preview lets the user pick from. bridge/v015_builtin_modules_test.go checks the file's shape.
+// which the preview lets the user pick from. the retired bridge the file's shape.
 
 enum BuiltinModuleIndex {
     static let sourceID = "builtin"

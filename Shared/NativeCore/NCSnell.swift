@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// Snell (Surge) protocol, versions 1–5 as mihomo implements them:
+/// Snell (Surge) protocol, versions 1–5 as Clash.Meta implements them:
 ///
 /// - KDF: Argon2id(psk, salt, time=3, mem=8 KiB, lanes=1, out=32), key
 ///   truncated to the cipher size. Salt is 16 bytes per stream direction.

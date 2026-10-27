@@ -1,7 +1,7 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
-// Native MitM stage 3b (feat/s3-mem): production wiring of NativeMemoryGovernor — the process readings, the Go
-// bridge (bridge/nativegov.go), the native reclaimers, and the sampler that replaces MemoryGuard while the
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
+// Native MitM stage 3b (feat/s3-mem): production wiring of NativeMemoryGovernor — the process readings, the old core
+// bridge, the native reclaimers, and the sampler that replaces MemoryGuard while the
 // `nativeMemGovernor` switch is on.
 
 import Foundation
@@ -13,10 +13,12 @@ struct ProcessMemorySampler: NativeMemorySampling {
     }
 }
 
-/// Pure Swift memory control (no-op stand-in when Go is not running).
+/// The tunnel has no second runtime with its own heap limit: no limit to set, nothing to shed beyond the native
+/// reclaimers. info() is nil, so the governor never asks for a limit and its diagnostics line carries no limit part
+/// (it used to print an all-zero "heap limit 0 B" section).
 final class NativeNoopMemoryControl: RuntimeMemoryControlling {
     func setActive(_ on: Bool) {}
-    func info() -> RuntimeMemoryInfo? { RuntimeMemoryInfo() }
+    func info() -> RuntimeMemoryInfo? { nil }
     func setLimit(_ bytes: Int64) -> Int64 { bytes }
     func freeOSMemory() -> Bool { true }
     func shed(level: Int, flags: MemoryShedFlags, reason: String) -> String { "" }
@@ -50,8 +52,8 @@ extension NativeMemoryGovernor {
     }
 
     /// JSC collection off the caller's thread: JSGarbageCollect takes the VM lock, which a script run holds for up to
-    /// ~1 s — admission (a Go goroutine opening a body) must not wait for it. Coalesced: one pending at a time.
-    private static let jscQueue = DispatchQueue(label: "mihomo.nativememgovernor.jsc", qos: .utility)
+    /// ~1 s — admission (an old-core thread opening a body) must not wait for it. Coalesced: one pending at a time.
+    private static let jscQueue = DispatchQueue(label: "tern.nativememgovernor.jsc", qos: .utility)
     private static let jscLock = NSLock()
     private static var jscPending = false
     static func collectJSCAsync() {
@@ -83,12 +85,12 @@ extension BoundedLRU {
 }
 
 /// Replaces MemoryGuard while `nativeMemGovernor` is on: timer (10 s, 2 s from `high`), memory-pressure source,
-/// Go's memory sample (connection activity + periodic memory line; Go's own governor stands down), the 隧道内存
+/// the old core's memory sample (connection activity + periodic memory line; the old core's own governor stands down), the 隧道内存
 /// snapshot. All on one serial queue.
 final class NativeMemoryGovernorSampler {
     let governor: NativeMemoryGovernor
-    private let go: RuntimeMemoryControlling
-    private let queue = DispatchQueue(label: "mihomo.nativememgovernor", qos: .utility)
+    private let control: RuntimeMemoryControlling
+    private let queue = DispatchQueue(label: "tern.nativememgovernor", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
     private var interval = 0
@@ -98,24 +100,24 @@ final class NativeMemoryGovernorSampler {
     /// Called on every tick with footprint / available (the tunnel writes the 隧道内存 snapshot here).
     private let onSample: (UInt64, Int) -> Void
 
-    init(governor: NativeMemoryGovernor, go: RuntimeMemoryControlling, onSample: @escaping (UInt64, Int) -> Void = { _, _ in }) {
+    init(governor: NativeMemoryGovernor, control: RuntimeMemoryControlling, onSample: @escaping (UInt64, Int) -> Void = { _, _ in }) {
         self.governor = governor
-        self.go = go
+        self.control = control
         self.onSample = onSample
     }
 
-    /// Production: process readings, Go bridge, standard reclaimers, logs to the startup log.
+    /// Production: process readings, old bridge, standard reclaimers, logs to the startup log.
     static func makeDefault(onSample: @escaping (UInt64, Int) -> Void) -> NativeMemoryGovernorSampler {
-        let go = NativeNoopMemoryControl()
-        let g = NativeMemoryGovernor(memory: ProcessMemorySampler(), go: go, reclaimers: NativeMemoryGovernor.standardReclaimers(),
+        let control = NativeNoopMemoryControl()
+        let g = NativeMemoryGovernor(memory: ProcessMemorySampler(), control: control, reclaimers: NativeMemoryGovernor.standardReclaimers(),
                                      log: { StartupLog.write($0) })
-        return NativeMemoryGovernorSampler(governor: g, go: go, onSample: onSample)
+        return NativeMemoryGovernorSampler(governor: g, control: control, onSample: onSample)
     }
 
     func start() {
         queue.async { [self] in
             guard !stopped else { return }
-            go.setActive(true)
+            control.setActive(true)
             NativeMemoryGovernor.setActive(governor)
             let p = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
             p.setEventHandler { [weak self] in
@@ -143,7 +145,7 @@ final class NativeMemoryGovernorSampler {
             pressure?.cancel()
             pressure = nil
             NativeMemoryGovernor.setActive(nil)
-            go.setActive(false)
+            control.setActive(false)
         }
     }
 
@@ -169,7 +171,7 @@ final class NativeMemoryGovernorSampler {
         let avail = ProcessMemory.availableBytes()
         governor.tick()
         onSample(fp, avail)
-        // the governor's own line next to Go's periodic memory line: every 5 min from `elevated`, else 30 min
+        // the governor's own line next to the old core's periodic memory line: every 5 min from `elevated`, else 30 min
         let every: TimeInterval = governor.level >= .elevated ? 300 : 1800
         if Date().timeIntervalSince(lastLine) >= every {
             lastLine = Date()

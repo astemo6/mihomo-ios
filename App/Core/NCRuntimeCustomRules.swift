@@ -1,12 +1,12 @@
 import Foundation
 
-/// E-B1 stage 3f: ports of bridge/customrules.go's build half
+/// E-B1 stage 3f: ports of the retired bridge's build half
 /// (applyCustomRules / convertCustom / addRemoteProvider /
 /// addRemoteModuleRules), the mitm core-rule resolution the module
 /// inject uses (ResolveCoreRules / RemoteCoreRules, config.go), and
-/// bridge/facetime.go. The CustomRule model, parseQXRemote,
+/// the retired bridge. The CustomRule model, parseQXRemote,
 /// providerNameFor and prettyProviderName come from the B4 graft
-/// (NCRuleValidator), already verified against the same Go code.
+/// (NCRuleValidator), already verified against the same old code.
 
 extension NCRuntimeSteps {
 
@@ -171,7 +171,7 @@ extension NCRuntimeSteps {
         raw["rules"] = .array(pre.map { NCJSONValue.string($0) } + raw.list("rules"))
     }
 
-    /// bridge addRemoteModuleRules. Go reads the overrides of the
+    /// bridge addRemoteModuleRules. the old core reads the overrides of the
     /// *current* home through a global; here the caller passes the
     /// settings of the profile being built (the same one in
     /// practice).

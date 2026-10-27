@@ -1,12 +1,12 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // fix/app-toggle-hitch (build 404, iPhone17,1: the Home switch hitched ~1.5 s while the connect regenerated the
 // runtime every time). Pins the generation cache: identical bytes rewritten still hit, any input change misses,
 // tunnel-only / log / output files are ignored, a changed output or a leftover prepare marker misses.
 final class NativeRuntimePrepCacheTests: XCTestCase {
     private var root: URL!
-    private var home: String { root.appendingPathComponent("mihomo").path }
+    private var home: String { root.appendingPathComponent("tern").path }
     private var profiles: String { root.appendingPathComponent("profiles").path }
     private var profile: String { (profiles as NSString).appendingPathComponent("p1.yaml") }
 

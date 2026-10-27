@@ -2,7 +2,7 @@ import Foundation
 
 /// fix/nc-tails: /app/stats accounting for connections that enter through a local listener instead of the TUN —
 /// the mixed port (NCLocalProxy: HTTP / CONNECT / SOCKS5 on loopback or LAN) and the fixed-policy probe listeners
-/// (NCProbeProxy, e.g. MIHOMO-PROBE on 127.0.0.1:7899). Before, they showed in /connections at most, never in
+/// (NCProbeProxy, e.g. TERN-PROBE on 127.0.0.1:7899). Before, they showed in /connections at most, never in
 /// 统计's 主机 / 策略 / 规则 lists or the closed-connection list.
 ///
 /// One small value per live connection (kept inside the listener's own Conn object, so nothing outlives the
@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Not thread-safe: the owning listener mutates it on its own serial queue (as NCDataPlane does with TCPSession).
 struct NCListenerFlowStats {
-    /// mihomo chains.last: the rule's policy (group); the dialed node / chain is `chain`.
+    /// Clash.Meta chains.last: the rule's policy (group); the dialed node / chain is `chain`.
     private(set) var policy = ""
     private(set) var chain = ""
     private(set) var rule = ""

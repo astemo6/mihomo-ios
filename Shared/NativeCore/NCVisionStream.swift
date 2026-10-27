@@ -12,7 +12,7 @@ import Foundation
 /// layer's unparsed raw tail — inner plaintext that arrived past the last
 /// record — then live raw bytes via receiveSpliced.
 /// The record layer Vision frames ride on and splices out of: the hand-rolled TLS 1.3 client (REALITY / tls) or,
-/// with VLESS `encryption`, the encryption conn (mihomo vision.NewConn accepts *encryption.CommonConn; direct
+/// with VLESS `encryption`, the encryption conn (Clash.Meta vision.NewConn accepts *encryption.CommonConn; direct
 /// bytes then go to CommonConn.Conn, i.e. through the XorConn layer when xorpub is on). feat/nc-proto3.
 protocol NCVisionCarrier: AnyObject {
     func send(_ data: Data)

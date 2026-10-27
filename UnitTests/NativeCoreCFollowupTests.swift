@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-c-followup: fixture tests for the behaviour changes PR #139
 /// (fix/nc-callsite-audit) landed without parity tests — NCSubscription D1
@@ -23,7 +23,7 @@ final class NativeCoreSubscriptionOrderTests: XCTestCase {
     🇹🇼 TW Surge = ss, 5.5.5.5, 8388, encrypt-method=aes-128-gcm, password=pw
     """
 
-    /// bridge nodes.go parseNodeText order: self-parsed lines (QX / Surge
+    /// the retired bridge parseNodeText order: self-parsed lines (QX / Surge
     /// named lines, wireguard / snell / ssh / socks / http schemes) first in
     /// line order, then the converted :// URIs in line order.
     func testMixedBodyOrderSelfParsedFirst() {
@@ -39,7 +39,7 @@ final class NativeCoreSubscriptionOrderTests: XCTestCase {
     /// Regression (found by this follow-up, pre-dates #139): a Surge
     /// "Name = ss, host, port, …" line used to be handed to the QX builder
     /// first, which accepts any key — the node came out typed "🇹🇼 tw surge"
-    /// with server "ss". Go dispatches on the qxTypes keyword set.
+    /// with server "ss". the old core dispatches on the qxTypes keyword set.
     func testSurgeLineIsNotParsedAsQX() {
         let nodes = NCSubscriptionParser.parse(mixedBody)
         let tw = nodes.first { $0.name == "🇹🇼 TW Surge" }
@@ -54,7 +54,7 @@ final class NativeCoreSubscriptionOrderTests: XCTestCase {
         XCTAssertEqual(qx?.port, 443)
     }
 
-    /// Name collisions are numbered AFTER reordering (Go uniqueNames runs on
+    /// Name collisions are numbered AFTER reordering (the old core uniqueNames runs on
     /// the reordered list): a QX line and a URI with the same name — the QX
     /// node keeps the bare name even though the URI came first in the file.
     /// Pinned because this is the one way D1 can move an existing
@@ -244,7 +244,7 @@ final class NativeCoreLoonArgumentFixtureTests: XCTestCase {
     /// pass through applyLoonArgs byte-for-byte (parseLoonExpressionLine
     /// types them later), and there is no ${key} → value pass. On a legacy
     /// line, where Loon defines only {key}, the {key} pass leaves the "$"
-    /// in front (bridge parse.go applyLoonArgs does the same; pinned as Go
+    /// in front (the retired bridge applyLoonArgs does the same; pinned as the old core
     /// parity — no real Loon plugin writes ${key} on a legacy line).
     func testExpressionLinesUntouchedAndNoDollarPass() throws {
         let args = NCEngineRuleset.parseLoonArguments(expressionPlugin)
@@ -284,7 +284,7 @@ final class NativeCoreEgernStashDetectionTests: XCTestCase {
 
     /// A rules-only Stash override: `rules:` + `- DOMAIN,…` items. Before
     /// P1 this shape matched isEgern's extra Stash branch and was parsed
-    /// as an Egern module (Go IsEgern has no such branch).
+    /// as an Egern module (the old core IsEgern has no such branch).
     private let stashRulesOnly = """
     name: Block Ads
     rules:
@@ -308,7 +308,7 @@ final class NativeCoreEgernStashDetectionTests: XCTestCase {
     """
 
     /// MITM-only Egern module: no top-level Egern key other than mitm, so
-    /// detection rests on the indented "  hostnames:" marker (Go IsEgern
+    /// detection rests on the indented "  hostnames:" marker (the old core IsEgern
     /// keeps leading indentation; Swift used to trim it and miss this).
     private let egernMitmOnly = """
     name: MITM only
@@ -373,7 +373,7 @@ final class NativeCoreEgernStashDetectionTests: XCTestCase {
     }
 
     /// Indented keys are not top-level: a nested "scriptings:" under some
-    /// other map does not make a document Egern (Go TrimRight semantics).
+    /// other map does not make a document Egern (the old core TrimRight semantics).
     func testIndentedEgernKeyIsNotTopLevel() {
         let doc = """
         name: Not Egern

@@ -2,24 +2,24 @@ import Foundation
 
 // DIVERGENCES:
 // 1. Validation Backend:
-//    - Go (bridge/profilenodes.go): Calls `validateProfileBytes` which drives Go mihomo core's
+//    - the old core: Calls `validateProfileBytes` which drives the old core Clash.Meta core's
 //      `buildRuntime` and `executor.ParseWithBytes`.
-//    - Swift (NCProfileNodes): Uses `NCYAML.parse`, `NCRuntimeBuilder.build` and `NCConfigValidator` (port of the mihomo parse) to validate
+//    - Swift (NCProfileNodes): Uses `NCYAML.parse`, `NCRuntimeBuilder.build` and `NCConfigValidator` (port of the Clash.Meta parse) to validate
 //      YAML syntax, config structure, proxy schemas, and runtime generation.
-//    - Impact: Pure Swift validation with zero Cgo/Go dependency; preserves the same tolerance for
+//    - Impact: Pure Swift validation with zero old-core dependency; preserves the same tolerance for
 //      pre-existing errors (errors already present in the unedited file do not block the edit).
 // 2. File Lock Mapping:
-//    - Go: `sync.Map` of `*sync.Mutex` keyed by `filepath.Clean(path)` in `bridge/filelock.go`.
+//    - the old core: `sync.Map` of `*sync.Mutex` keyed by `filepath.Clean(path)` in the retired bridge.
 //    - Swift: `NCFileLock` with `NSLock` keyed by `(path as NSString).standardizingPath`.
 //    - Impact: 1:1 equivalent serialization of read-modify-write calls within the app process.
 // 3. LastError Threading:
-//    - Go: Global `setLastError` / `LastError` strings in bridge.
+//    - the old core: Global `setLastError` / `LastError` strings in bridge.
 //    - Swift: `NCProfileNodes.lastError` protected by `NSLock`.
 //    - Impact: Thread-safe error storage for functions returning "" on failure.
 
 /// In-process path mutex to serialize read-modify-write cycles for each profile file.
 /// nc-integrate: delegates to NCPathLock (Shared), the lock NCManualNodes / NCProfileCopy / NCChainCandidates /
-/// NCOverrideOutput / NCProviderPorts take for the same files — Go had one lock map (bridge/filelock.go); two
+/// NCOverrideOutput / NCProviderPorts take for the same files — the old core had one lock map; two
 /// separate maps let a node edit and e.g. a selection or override-output write interleave on one profile.
 final class NCFileLock {
     static let shared = NCFileLock()
@@ -29,7 +29,7 @@ final class NCFileLock {
     }
 }
 
-/// Pure Swift implementation of profile node operations matching bridge/profilenodes.go specifications.
+/// Pure Swift implementation of profile node operations matching the retired bridge.
 enum NCProfileNodes {
 
     // MARK: - Last Error Support
@@ -367,7 +367,7 @@ enum NCProfileNodes {
             return NCProfileCheck.withLine("YAML 解析失败", String(data: data, encoding: .utf8) ?? "")
         }
         if !home.isEmpty && !path.isEmpty {
-            // Full check (Go: buildRuntime + parseRuntimeCached) — NCConfigValidator.
+            // Full check (the old core: buildRuntime + parseRuntimeCached) — NCConfigValidator.
             return NCConfigValidator.validate(home: home, path: path, profile: data)
         }
         return nil

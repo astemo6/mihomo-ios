@@ -1,7 +1,7 @@
 import Foundation
 
 /// 智能选择 (smart selection) for url-test / fallback groups — a pure Swift
-/// port of bridge/smart.go (the Go core's scorer). It is an option on the
+/// port of the retired bridge (the old core's scorer). It is an option on the
 /// group, not a new group type: the user enables it per group in the app,
 /// stored per profile in <home>/groups.json
 /// ({"<profile id>": {"smart": ["GroupName", …]}}, App/Core/SmartGroups.swift).
@@ -15,14 +15,14 @@ import Foundation
 /// moment the pinned member's health check fails, so a dead pin never
 /// blackholes traffic.
 ///
-/// Differences from the Go version, both from the native core's shape:
+/// Differences from the old core version, both from the native core's shape:
 /// history is kept per member name (fed by every recorded delay check of
-/// that proxy) instead of per (proxy, test URL) — Go falls back to the
+/// that proxy) instead of per (proxy, test URL) — the old core falls back to the
 /// proxy's default history the same way when no per-URL history exists;
 /// and the pin is applied by the resolver (NCGroupEngine.smartPins)
-/// instead of through mihomo's group Set.
+/// instead of through Clash.Meta's group Set.
 final class NCSmartSelector {
-    /// One member's scored state, field-for-field Go's smartMember.
+    /// One member's scored state, field-for-field the old core's smartMember.
     struct MemberStatus: Equatable {
         var name: String
         var score: Double // lower is better; -1 = no data
@@ -32,7 +32,7 @@ final class NCSmartSelector {
         var alive: Bool
     }
 
-    /// One group's status, field-for-field Go's smartGroupStatus.
+    /// One group's status, field-for-field the old core's smartGroupStatus.
     struct GroupStatus: Equatable {
         var name: String
         var type: String = ""
@@ -44,7 +44,7 @@ final class NCSmartSelector {
         var members: [MemberStatus] = []
     }
 
-    static let window = 10 // Go smartWindow
+    static let window = 10 // the old core smartWindow
 
     private let lock = NSLock()
     private var enabled: [String] = []
@@ -57,7 +57,7 @@ final class NCSmartSelector {
         configure(enabledGroups: enabledGroups)
     }
 
-    /// (Re)arm the selector for a profile's smart groups (Go startSmart):
+    /// (Re)arm the selector for a profile's smart groups (the old core startSmart):
     /// pins and status reset, history survives (it belongs to the proxies,
     /// not to the arming).
     func configure(enabledGroups: [String]) {
@@ -86,7 +86,7 @@ final class NCSmartSelector {
         aliveMap[name] = ms > 0
     }
 
-    /// One scoring pass over the enabled groups (Go smartTick). `groups` is
+    /// One scoring pass over the enabled groups (the old core smartTick). `groups` is
     /// the effective config's group list; `currentMember` resolves a
     /// group's current member (with pins applied). Returns the pins to
     /// publish to the resolver.
@@ -125,20 +125,20 @@ final class NCSmartSelector {
                 st.pinned = pinned
             }
             // The resolver's pins update after tick returns, so a fresh
-            // switch is reflected here directly (Go reads g.Now() after Set).
+            // switch is reflected here directly (the old core reads g.Now() after Set).
             st.now = switchedTo ?? currentMember(g) ?? pins[name] ?? ""
             statusMap[name] = st
         }
         return pins
     }
 
-    /// Status snapshot sorted by group name (Go's GET /smart shape).
+    /// Status snapshot sorted by group name (the old core's GET /smart shape).
     func statusList() -> [GroupStatus] {
         lock.lock(); defer { lock.unlock() }
         return statusMap.values.sorted { $0.name < $1.name }
     }
 
-    /// GET /smart response body: {"groups": [ … ]} with Go's field names
+    /// GET /smart response body: {"groups": [ … ]} with the old core's field names
     /// and omissions (pinned / reason / switchedAt / checkedAt only when set).
     func statusJSON() -> [String: Any] {
         let groups: [[String: Any]] = statusList().map { st in
@@ -160,7 +160,7 @@ final class NCSmartSelector {
         return ["groups": groups]
     }
 
-    // MARK: - Scoring (verbatim ports of Go smartScore / smartPick)
+    // MARK: - Scoring (verbatim ports of the old core smartScore / smartPick)
 
     /// Scores one node from its health-check history (oldest first, delay
     /// 0 = failure). Lower is better; +inf = no usable data.
@@ -190,7 +190,7 @@ final class NCSmartSelector {
     }
 
     /// Index of the member to pin, or nil to keep the current one
-    /// (Go smartPick's -1). Switches only on a clear win (< 85 %).
+    /// (the old core smartPick's -1). Switches only on a clear win (< 85 %).
     static func smartPick(scores: [Double], cur: Int) -> Int? {
         var best = -1
         for (i, s) in scores.enumerated() {

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Pure wire vectors for the hysteria2 auth exchange (QPACK, RFC 9204) and the
 /// TCP request header. Vectors cross-checked off-device: the request block is

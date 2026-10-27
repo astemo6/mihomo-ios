@@ -5,7 +5,7 @@ import Security
 /// Swift implementation of PKCS#12 export (RFC 7292) for native MitM and the CA export.
 ///
 /// fix/nc-ut-export: the PFX is the classic, universally readable layout — the one `openssl pkcs12 -export -legacy`,
-/// macOS Keychain and Go's `pkcs12.Legacy` write:
+/// macOS Keychain and the old core's `pkcs12.Legacy` write:
 ///   - private key: PKCS8ShroudedKeyBag, pbeWithSHAAnd3-KeyTripleDES-CBC (PKCS#12 KDF, SHA-1, 2048 iterations);
 ///   - certificates: CertBags in a plain `data` ContentInfo;
 ///   - integrity: MacData = HMAC-SHA1 with a PKCS#12-KDF key (ID 3).

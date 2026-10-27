@@ -141,14 +141,14 @@ struct AddNodeView: View {
             } header: {
                 Text("新协议 \(Self.featured.count)")
             } footer: {
-                Text("Quantumult X 不支持的协议，由 mihomo 内核直接提供。")
+                Text("Quantumult X 不支持的协议，由 Tern 内核直接提供。")
             }
             .listRowBackground(Theme.card)
 
             Section {
                 ForEach(Self.protocols) { p in protoRow(p, new: false) }
             } header: { Text("常用协议") } footer: {
-                Text("协议由 mihomo 内核 \(CoreVersion.label) 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。")
+                Text("协议由 Tern 内核 \(CoreVersion.label) 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。")
             }
             .listRowBackground(Theme.card)
         }
@@ -237,7 +237,7 @@ struct AddNodeView: View {
         withAnimation(.easeOut(duration: 0.2)) { message = t; isError = error }
     }
 
-    /// selftest: detection ran LibmihomoDetectNodeFormat on the main thread on every keystroke, which parses
+    /// selftest: detection ran DetectNodeFormat on the main thread on every keystroke, which parses
     /// the whole text (a pasted Base64 subscription or a file of several MB froze the editor). Now debounced
     /// and off the main thread; a newer edit cancels an older result.
     func detect(_ t: String) {

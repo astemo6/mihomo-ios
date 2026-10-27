@@ -2,7 +2,7 @@ import Foundation
 
 /// feat/subs-split (user 2026-10-21 「节点订阅里…没有禁用、删除选项」): the user's 停用 / 删除 / 编辑 / 图标 of the
 /// proxy-providers (节点集) a profile declares. Kept per profile in <home>/provider-overrides.json — the override
-/// store, never written into the profile — and applied by bridge/provideroverrides.go in buildRuntime.
+/// store, never written into the profile — and applied by the retired bridge buildRuntime.
 /// Keyed by the provider's name in the profile, so updating the profile keeps them.
 /// - 停用: not loaded, removed from every group's `use:` (a group left empty gets DIRECT); reversible.
 /// - 删除: the same, and the row is hidden; 恢复已删除的节点集 brings it back (updating the profile does not).
@@ -17,7 +17,7 @@ struct ProviderOverride: Codable, Hashable {
     var filter: String? = nil
     var excludeFilter: String? = nil
     /// Rule sets only (key `rule:<name>`, user 2026-10-23 「对应的还要有删除，禁用，修改功能」): the policy of the profile's
-    /// RULE-SET rules (applied by bridge/ruleprovideroverrides.go).
+    /// RULE-SET rules.
     var policy: String? = nil
     /// Display only (app side): what a 停用 rule set showed before it left the runtime, so its row stays listed.
     var shownPolicy: String? = nil
@@ -26,7 +26,7 @@ struct ProviderOverride: Codable, Hashable {
     /// order the user arranged them on 规则 → 订阅 = matching priority, top first (bridge applyRuleSetOrder).
     var order: [String]? = nil
     /// Only on the entry keyed `profileRulesKey` (user 2026-10-23 「本地规则点进去无法修改」): the user's 编辑 / 停用 /
-    /// 删除 of the profile's own rules (bridge/profileruleoverrides.go). The `finalKey` entry uses `policy`.
+    /// 删除 of the profile's own rules. The `finalKey` entry uses `policy`.
     var rules: [ProfileRuleOverride]? = nil
 
     var isEmpty: Bool {
@@ -119,7 +119,7 @@ final class ProviderOverrideStore: ObservableObject {
         write()
     }
 
-    // MARK: 配置规则 / Final (bridge/profileruleoverrides.go)
+    // MARK: 配置规则 / Final
 
     /// Changes the override of one profile rule (an override left empty is removed).
     func updateProfileRule(_ profileID: String, rule: String, index: Int, _ change: (inout ProfileRuleOverride) -> Void) {

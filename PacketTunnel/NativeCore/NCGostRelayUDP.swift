@@ -1,6 +1,6 @@
 import Foundation
 
-/// GOST v3 relay UDP (feat/nc-gost-relay; mihomo transport/gost relayPacketConn): one relay connection per
+/// GOST v3 relay UDP (feat/nc-gost-relay; Clash.Meta transport/gost relayPacketConn): one relay connection per
 /// stack UDP session, opened with CONNECT|UDP + network=udp toward the flow's target, then datagrams ride it
 /// as LEN(BE16) ‖ payload in both directions. The association is bound to that one target, which matches the
 /// data plane's one-session-per-flow model. Underlying tls / ws / mux come from NCConnector.gostRelayStream.

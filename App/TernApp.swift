@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 @main
-struct MihomoApp: App {
+struct TernApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var vpn = VPNManager.shared
     @StateObject private var router = ImportRouter.shared
@@ -18,13 +18,15 @@ struct MihomoApp: App {
         EgernDensity.applyBars()
         // test/selftest: simulator UI tests only (-UITestSeed); wipes the demo container before any store loads.
         UITestSeed.resetIfNeeded()
+        // Rename (2026-10-27): a re-signed build that kept its App Group still has the old storage directory.
+        LegacyImport.migrateStorageDirIfNeeded()
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
         DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
         // fix/nc-storage-other: crashed-prepare staging dirs and orphaned atomic-write temp files (older than 10 min).
         DispatchQueue.global(qos: .background).async { StorageScan.sweepOnLaunch() }
         // r7 B28: scripts' $environment.language follows the UI language (read by the engine on its next load).
         DispatchQueue.global(qos: .utility).async { EngineConfig.stampLanguage() }
-        // feat/jsc-engine: `-TernJSCSelfTest` runs one goja-vs-JavaScriptCore conformance case and logs it.
+        // feat/jsc-engine: `-TernJSCSelfTest` runs one the old JS engine-vs-JavaScriptCore conformance case and logs it.
         JSCScriptEngine.selfTestIfRequested()
     }
 
@@ -146,7 +148,7 @@ struct RootView: View {
                 if store.profiles.isEmpty { showOnboarding = true } else { Onboarding.isDone = true }
             }
             if vpn.isConnected { dash.start() }
-            // Cold launch from 「用 Mihomo 打开」: if onOpenURL did not deliver the document, do it now.
+            // Cold launch from 「用 Tern 打开」: if onOpenURL did not deliver the document, do it now.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { router.drainColdLaunchURLs() }
         }
     }
@@ -260,7 +262,7 @@ enum Theme {
         return nil
     }
 
-    /// Controller connection rules come as Go type names ("DomainSuffix", "GeoIP"); shown with the profile spelling.
+    /// Controller connection rules come as the old core type names ("DomainSuffix", "GeoIP"); shown with the profile spelling.
     static func ruleTypeName(_ raw: String) -> String {
         let known: [String: String] = [
             "domain": "DOMAIN", "domainsuffix": "DOMAIN-SUFFIX", "domainkeyword": "DOMAIN-KEYWORD", "domainregex": "DOMAIN-REGEX",

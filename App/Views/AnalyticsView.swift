@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 连接分析 (v0.7, Egern-style analytics, NOT on Home): traffic per policy, rule hit counts and top hosts.
-/// P0-2: the tunnel records them (bridge/statsrecorder.go, also while the app is in the background or killed) and
+/// P0-2: the tunnel records them and
 /// refreshFromTunnel copies them in on DashboardModel's 2 s poll; ingest then only keeps the live connection list
 /// (and the per-day history steps). Against an extension that has no /app/stats yet (an older build still running)
 /// they are accumulated in the app from the /connections snapshots, as before. Session-scoped: resets when the

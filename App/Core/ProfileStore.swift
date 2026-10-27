@@ -217,7 +217,7 @@ final class ProfileStore: ObservableObject {
     /// 「导出最终配置（含覆写）」: the YAML the core runs for this profile (覆写脚本, 节点处理, 节点订阅, node-set
     /// edits, core overrides; credentials as in the profile; controller / probe plumbing removed), built in Swift (NCFinalConfigReadable)
     /// off the main thread, as `<name> · 最终配置.yaml`. feat/export-readable: written for people (block YAML in
-    /// mihomo's usual order, a header naming the profile / Tern version / export time, one comment per section);
+    /// Clash.Meta's usual order, a header naming the profile / Tern version / export time, one comment per section);
     /// the tunnel's own runtime.yaml is unchanged.
     func exportFinalFile(of p: Profile) async -> Result<URL, Error> {
         let home = AppShared.homeURL.path
@@ -248,7 +248,7 @@ final class ProfileStore: ObservableObject {
 
     // MARK: Validation / conversion
 
-    /// Validates YAML text with the full config parse (NCConfigValidator, the Swift port of mihomo's). Returns nil if OK, else the error.
+    /// Validates YAML text with the full config parse (NCConfigValidator, the Swift port of Clash.Meta's). Returns nil if OK, else the error.
     nonisolated static func validate(text: String) async -> String? {
         await Task.detached(priority: .userInitiated) {
             let tmp = AppShared.homeURL.appendingPathComponent("validate-\(UUID().uuidString).yaml")
@@ -259,7 +259,7 @@ final class ProfileStore: ObservableObject {
         }.value
     }
 
-    /// If text is not a mihomo YAML (no proxies / proxy-providers), try converting share links / base64.
+    /// If text is not a Clash.Meta YAML (no proxies / proxy-providers), try converting share links / base64.
     nonisolated static func normalize(_ text: String) -> String {
         let looksYAML = text.contains("proxies:") || text.contains("proxy-providers:") || text.contains("proxy-groups:")
         if looksYAML { return text }

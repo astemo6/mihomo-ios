@@ -1,7 +1,7 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
-// v0.19.5: Swift-only logic that the Go suite cannot reach. Hosted in the app (simulator, Debug); every test
+// v0.19.5: Swift-only logic that the old core suite cannot reach. Hosted in the app (simulator, Debug); every test
 // works in its own scratch directory / UserDefaults suite, never in the app's container.
 
 private func scratch(_ name: String = #function) -> URL {
@@ -32,13 +32,13 @@ final class BackupTests: XCTestCase {
         write(root, "profiles.json", #"[{"id":"p1","name":"演示","kind":"local"}]"#)
         write(root, "profiles/p1.yaml", "proxies: []\n# 注释\n")
         write(root, "profiles/p1.yaml.bak", "old\n")
-        write(root, "mihomo/overrides.json", #"{"mode":"global"}"#)
-        write(root, "mihomo/override-scripts/index.json", #"{"p1":[{"id":"s1"}]}"#)
-        write(root, "mihomo/override-scripts/s1.js", "function main(c){return c}\n")
-        write(root, "mihomo/engine/engine.json", "{}")
-        write(root, "mihomo/engine/ca/ca.key", "SECRET-CA-KEY-MARKER")
-        write(root, "mihomo/cache.db", "not backed up")
-        write(root, "mihomo/geoip.metadb", "not backed up")
+        write(root, "tern/overrides.json", #"{"mode":"global"}"#)
+        write(root, "tern/override-scripts/index.json", #"{"p1":[{"id":"s1"}]}"#)
+        write(root, "tern/override-scripts/s1.js", "function main(c){return c}\n")
+        write(root, "tern/engine/engine.json", "{}")
+        write(root, "tern/engine/ca/ca.key", "SECRET-CA-KEY-MARKER")
+        write(root, "tern/cache.db", "not backed up")
+        write(root, "tern/geoip.metadb", "not backed up")
     }
 
     func testRoundTripWithoutCA() throws {
@@ -50,13 +50,13 @@ final class BackupTests: XCTestCase {
         XCTAssertEqual(n, 7)
         let restored = try BackupManager.restore(data, root: b, defaults: db)
         XCTAssertEqual(restored, 7)
-        for rel in ["profiles.json", "profiles/p1.yaml", "profiles/p1.yaml.bak", "mihomo/overrides.json",
-                    "mihomo/override-scripts/index.json", "mihomo/override-scripts/s1.js", "mihomo/engine/engine.json"] {
+        for rel in ["profiles.json", "profiles/p1.yaml", "profiles/p1.yaml.bak", "tern/overrides.json",
+                    "tern/override-scripts/index.json", "tern/override-scripts/s1.js", "tern/engine/engine.json"] {
             XCTAssertEqual(read(b, rel), read(a, rel), rel)
         }
-        XCTAssertNil(read(b, "mihomo/engine/ca/ca.key"), "CA only when asked for")
-        XCTAssertNil(read(b, "mihomo/cache.db"))
-        XCTAssertNil(read(b, "mihomo/geoip.metadb"))
+        XCTAssertNil(read(b, "tern/engine/ca/ca.key"), "CA only when asked for")
+        XCTAssertNil(read(b, "tern/cache.db"))
+        XCTAssertNil(read(b, "tern/geoip.metadb"))
         XCTAssertEqual(db.string(forKey: "activeProfileID"), "p1")
     }
 
@@ -66,8 +66,8 @@ final class BackupTests: XCTestCase {
         let (data, n) = try BackupManager.makeData(includeCA: true, root: a, defaults: suite())
         XCTAssertEqual(n, 8)
         try BackupManager.restore(data, root: b, defaults: suite())
-        XCTAssertEqual(read(b, "mihomo/engine/ca/ca.key"), "SECRET-CA-KEY-MARKER")
-        let perms = try FileManager.default.attributesOfItem(atPath: b.appendingPathComponent("mihomo/engine/ca/ca.key").path)[.posixPermissions] as? Int
+        XCTAssertEqual(read(b, "tern/engine/ca/ca.key"), "SECRET-CA-KEY-MARKER")
+        let perms = try FileManager.default.attributesOfItem(atPath: b.appendingPathComponent("tern/engine/ca/ca.key").path)[.posixPermissions] as? Int
         XCTAssertEqual(perms, 0o600)
     }
 
@@ -90,7 +90,7 @@ final class BackupTests: XCTestCase {
     }
 
     func testEncryptedWrongPasswordTamperedAndBadRounds() throws {
-        let enc = try BackupCrypto.encrypt(Data("{\"app\":\"mihomo-ios\",\"files\":{}}".utf8), password: "a")
+        let enc = try BackupCrypto.encrypt(Data("{\"app\":\"tern\",\"files\":{}}".utf8), password: "a")
         XCTAssertThrowsError(try BackupCrypto.decrypt(enc, password: "b")) { e in
             XCTAssertEqual(e as? BackupCrypto.CryptoError, .wrongPassword)
         }
@@ -133,14 +133,14 @@ final class BackupTests: XCTestCase {
         let b = scratch()
         let ok = Data("ok".utf8).base64EncodedString()
         let json = """
-        {"app":"mihomo-ios","files":{"profiles/x.yaml":"\(ok)","../evil":"\(ok)","profiles/../../evil2":"\(ok)",
-        "mihomo/cache.db":"\(ok)","/etc/hosts":"\(ok)","profilesX/y":"\(ok)"},"defaults":{"activeProfileID":"x","other":"y"}}
+        {"app":"tern","files":{"profiles/x.yaml":"\(ok)","../evil":"\(ok)","profiles/../../evil2":"\(ok)",
+        "tern/cache.db":"\(ok)","/etc/hosts":"\(ok)","profilesX/y":"\(ok)"},"defaults":{"activeProfileID":"x","other":"y"}}
         """
         let d = suite()
         let n = try BackupManager.restore(Data(json.utf8), root: b, defaults: d)
         XCTAssertEqual(n, 1)
         XCTAssertEqual(read(b, "profiles/x.yaml"), "ok")
-        XCTAssertNil(read(b, "mihomo/cache.db"))
+        XCTAssertNil(read(b, "tern/cache.db"))
         XCTAssertNil(read(b, "profilesX/y"))
         XCTAssertNil(read(b.deletingLastPathComponent(), "evil"))
         XCTAssertEqual(d.string(forKey: "activeProfileID"), "x")
@@ -150,7 +150,7 @@ final class BackupTests: XCTestCase {
     /// v0.19.5: created / version / appVersion / defaults are optional (only app + files are needed).
     func testMinimalBackupRestores() throws {
         let b = scratch()
-        let json = #"{"app":"mihomo-ios","files":{"profiles.json":"\#(Data("[]".utf8).base64EncodedString())"}}"#
+        let json = #"{"app":"tern","files":{"profiles.json":"\#(Data("[]".utf8).base64EncodedString())"}}"#
         XCTAssertEqual(try BackupManager.restore(Data(json.utf8), root: b, defaults: suite()), 1)
         XCTAssertEqual(read(b, "profiles.json"), "[]")
     }
@@ -372,14 +372,14 @@ final class ProfileStoreLogicTests: XCTestCase {
         var current = before
         current.name = "Renamed"
         current.updateIntervalHours = 6
-        current.userAgent = "mihomo"
+        current.userAgent = SubscriptionUA.metaCore
         var downloaded = before
         downloaded.userInfo = SubscriptionUserInfo(upload: 1, download: 2, total: 3, expire: 0)
         downloaded.lastUpdated = Date(timeIntervalSince1970: 100)
         let m = ProfileStore.mergeRefreshed(current: current, downloaded: downloaded)
         XCTAssertEqual(m.name, "Renamed")
         XCTAssertEqual(m.updateIntervalHours, 6)
-        XCTAssertEqual(m.userAgent, "mihomo")
+        XCTAssertEqual(m.userAgent, SubscriptionUA.metaCore)
         XCTAssertEqual(m.userInfo, downloaded.userInfo)
         XCTAssertEqual(m.lastUpdated, downloaded.lastUpdated)
         var unnamed = current
@@ -405,7 +405,7 @@ final class ProfileStoreLogicTests: XCTestCase {
     }
 }
 
-// MARK: v0.19.6 (review 7) scale + concurrency, through the same gomobile calls the app makes. Scratch dirs only.
+// MARK: v0.19.6 (review 7) scale + concurrency, through the same the old bridge calls the app makes. Scratch dirs only.
 
 final class ScaleTests: XCTestCase {
     private func bigProfile(_ root: URL, nodes: Int = 3000, rules: Int = 10000) -> String {
@@ -444,7 +444,7 @@ final class ScaleTests: XCTestCase {
         XCTAssertTrue(ProfileStore.manualNodes(path: nil).isEmpty)
     }
 
-    /// The Go side serialises read-modify-write per file (v0.19.6); before, most concurrent additions were lost.
+    /// the old side serialises read-modify-write per file (v0.19.6); before, most concurrent additions were lost.
     func testConcurrentProfileNodeWrites() async {
         let root = scratch(), path = bigProfile(root, nodes: 50, rules: 50)
         await withTaskGroup(of: String.self) { g in
@@ -503,26 +503,26 @@ final class ScaleTests: XCTestCase {
 final class SnapshotDedupeTests: XCTestCase {
     func testContentHashIgnoresKeyOrderTimestampsAndVolatileFiles() {
         let a: [String: Data] = [
-            "mihomo/group-edits.json": Data(#"{"b":{"x":1,"y":[1,2]},"a":"Proxy"}"#.utf8),
+            "tern/group-edits.json": Data(#"{"b":{"x":1,"y":[1,2]},"a":"Proxy"}"#.utf8),
             "profiles.json": Data(#"[{"id":"p1","name":"Sub","lastUpdated":"2026-10-20T07:00:00Z","userInfo":{"upload":1}}]"#.utf8),
             "profiles/p1.yaml": Data("proxies: []\n".utf8),
         ]
         var b = a
-        b["mihomo/group-edits.json"] = Data(#"{"a":"Proxy","b":{"y":[1,2],"x":1}}"#.utf8)
+        b["tern/group-edits.json"] = Data(#"{"a":"Proxy","b":{"y":[1,2],"x":1}}"#.utf8)
         b["profiles.json"] = Data(#"[{"name":"Sub","id":"p1","lastUpdated":"2026-10-20T07:00:45Z","userInfo":{"upload":99}}]"#.utf8)
-        b["mihomo/runtime-groups.json"] = Data(#"{"order":["A","B"]}"#.utf8)
-        b["mihomo/engine/store.json"] = Data(#"{"token":"changes"}"#.utf8)
+        b["tern/runtime-groups.json"] = Data(#"{"order":["A","B"]}"#.utf8)
+        b["tern/engine/store.json"] = Data(#"{"token":"changes"}"#.utf8)
         XCTAssertEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(b))
 
         var c = a
-        c["mihomo/group-edits.json"] = Data(#"{"a":"DIRECT","b":{"x":1,"y":[1,2]}}"#.utf8)
+        c["tern/group-edits.json"] = Data(#"{"a":"DIRECT","b":{"x":1,"y":[1,2]}}"#.utf8)
         XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(c))
         var d = a
         d["profiles/p1.yaml"] = Data("proxies: [x]\n".utf8)
         XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(d))
         // Array order is configuration (group order, rule order).
         var e = a
-        e["mihomo/group-edits.json"] = Data(#"{"a":"Proxy","b":{"x":1,"y":[2,1]}}"#.utf8)
+        e["tern/group-edits.json"] = Data(#"{"a":"Proxy","b":{"x":1,"y":[2,1]}}"#.utf8)
         XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(e))
     }
 
@@ -574,13 +574,13 @@ final class Review5CoreExtTests: XCTestCase {
     func testScriptStoreOnlyWhenAsked() throws {
         let a = scratch()
         write(a, "profiles.json", "[]")
-        write(a, "mihomo/engine/store.json", #"{"cookie":"SECRET-STORE-MARKER"}"#)
+        write(a, "tern/engine/store.json", #"{"cookie":"SECRET-STORE-MARKER"}"#)
         let (plain, _) = try BackupManager.makeData(includeCA: false, includeStore: false, root: a, defaults: suite())
         let obj = try JSONSerialization.jsonObject(with: plain) as? [String: Any]
-        XCTAssertNil((obj?["files"] as? [String: String])?["mihomo/engine/store.json"])
+        XCTAssertNil((obj?["files"] as? [String: String])?["tern/engine/store.json"])
         let (full, _) = try BackupManager.makeData(includeCA: false, includeStore: true, root: a, defaults: suite())
         let obj2 = try JSONSerialization.jsonObject(with: full) as? [String: Any]
-        XCTAssertNotNil((obj2?["files"] as? [String: String])?["mihomo/engine/store.json"])
+        XCTAssertNotNil((obj2?["files"] as? [String: String])?["tern/engine/store.json"])
     }
 
     func testWebDAVStampsUTCAndLegacy() {
@@ -629,12 +629,12 @@ final class Review6AppTests: XCTestCase {
 // Device report 2026-10-21 (「为什么有好多dns被拦截了」): QUIC refusals must not count as blocks in DNS 日志.
 final class RejectClassifierTests: XCTestCase {
     func testQUICRuleForms() {
-        // As mihomo v1.19.33 logs them (rules/logic/logic.go Payload()).
+        // As Clash.Meta v1.19.33 logs them (rules/logic/logic.go Payload()).
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443)))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER)))))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443/8443) && (RuleSet,__mitm_hosts) && (NOT,(!(RuleSet,__quic_allow)))))"))
         XCTAssertTrue(RejectClassifier.isMitMQUIC(rule: "AND(((Network,udp) && (DstPort,443/8443) && (RuleSet,__mitm_hosts)))"))
-        // Profile / import spellings (mihomo, Surge, QX-converted).
+        // Profile / import spellings (Clash.Meta, Surge, QX-converted).
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((NETWORK,UDP),(DST-PORT,443))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((IN-TYPE,INNER))))"))
         XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((PROTOCOL,UDP),(DEST-PORT,443))"))

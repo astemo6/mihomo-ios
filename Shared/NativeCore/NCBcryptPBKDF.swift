@@ -3,7 +3,7 @@ import Foundation
 
 // bcrypt_pbkdf (OpenBSD) + Blowfish for passphrase-protected OpenSSH private keys (feat/nc-proto3, based on
 // astemo6/Muse NativeCore). Ported from golang.org/x/crypto/blowfish and x/crypto/ssh/internal/bcrypt_pbkdf,
-// which mihomo v1.19.33 uses via metacubex/ssh ParsePrivateKeyWithPassphrase.
+// which Clash.Meta v1.19.33 uses via metacubex/ssh ParsePrivateKeyWithPassphrase.
 
 /// Blowfish state as one flat table: P[0..<18], S0[18..<274], S1, S2, S3 (1042 words, 4 KB).
 struct NCBlowfish {

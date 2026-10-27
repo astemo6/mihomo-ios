@@ -507,7 +507,7 @@ final class SelfCheck: ObservableObject {
         var c = RuntimeCounts()
         c.proxies = (rt["proxies"] as? [Any])?.count ?? 0
         c.providers = (rt["proxy-providers"] as? [String: Any])?.count ?? 0
-        c.groups = ((rt["proxy-groups"] as? [[String: Any]]) ?? []).filter { ($0["name"] as? String) != "MIHOMO-PROBE" }.count
+        c.groups = ((rt["proxy-groups"] as? [[String: Any]]) ?? []).filter { ($0["name"] as? String) != "TERN-PROBE" }.count
         c.rules = (rt["rules"] as? [Any])?.count ?? 0
         c.ruleProviders = (rt["rule-providers"] as? [String: Any])?.count ?? 0
         if let rw = json("nativecore-rewrite.json") as? [String: Any] {

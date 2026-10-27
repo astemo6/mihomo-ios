@@ -1,17 +1,17 @@
 import Foundation
 
-/// B6 (nc-dego-rest): the core half of 覆写脚本 (override scripts) in Swift — bridge/overridescript.go
+/// B6 (nc-dego-rest): the core half of 覆写脚本 (override scripts) in Swift — the retired bridge
 /// ScriptInputSnapshot / ScriptOutputApplyFor / ScriptOutputClear / ScriptOutputStatus / ScriptOutputYAML.
 /// The scripts run in the app (JSOverrideEngine); this hands them the profile as JSON and stores their output as
 /// <home>/scripted/<profile id>.yaml + .json meta (SHA-256 of the source profile), which
 /// NCRuntimeFiles.readRuntimeProfile (#112) reads instead of the profile while the source is unchanged.
 ///
-/// Differences from Go, by design or for now:
-///   - dns.nameserver-policy: Go handed it to scripts in the profile's own key order and wrote the script's
+/// Differences from the old core, by design or for now:
+///   - dns.nameserver-policy: the old core handed it to scripts in the profile's own key order and wrote the script's
 ///     order back. NCYAML / NCJSONValue have no ordered maps, so input keys are sorted and output is written
 ///     sorted — the tunnel's nativecore-runtime.json sorts that map anyway (see NCRuntimeDNS header).
 ///   - Validation of the output: NCRuntimeBuilder.build with the app's overrides + NCConfigValidator (the Swift
-///     port of mihomo's config parse, B1 ValidateConfigIn).
+///     port of Clash.Meta's config parse, B1 ValidateConfigIn).
 enum NCOverrideOutput {
 
     /// bridge errScriptSourceChanged (OverrideScripts compares the message).
@@ -92,7 +92,7 @@ enum NCOverrideOutput {
         if case .object(let p)? = raw["proxy-providers"], p.isEmpty {
             raw.removeValue(forKey: "proxy-providers")
         }
-        // NCYAMLEmitter writes whole numbers as integers (Go's normalizeJSONNumbers).
+        // NCYAMLEmitter writes whole numbers as integers (the old core's normalizeJSONNumbers).
         return NCYAMLEmitter.emit(NCJSONValue.object(raw))
     }
 

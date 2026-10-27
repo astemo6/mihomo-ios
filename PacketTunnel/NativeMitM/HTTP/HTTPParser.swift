@@ -16,7 +16,7 @@
 //   • response side: a 101, or a 2xx to CONNECT, emits the head then `.upgrade(rest)`; later feeds yield `.passthrough`.
 //
 // Errors are fail-closed and sticky: once `feed` throws, every later call throws the same error (kill the connection;
-// the Go path is the fallback). Events produced earlier in the throwing call are dropped.
+// the old path is the fallback). Events produced earlier in the throwing call are dropped.
 //
 // Zero copy: body bytes are handed out as the caller's own Data when a whole read is body (the common streaming case);
 // otherwise as a compact copy with startIndex 0. Heads keep their exact original bytes in `rawBytes`.
@@ -356,7 +356,7 @@ final class HTTPParser {
         if head.isConnect { return .none }
         if hasTE {
             if cl != nil { throw HTTPParseError.conflictingFraming }
-            // Like Go's server: "chunked" is the only transfer coding accepted on requests.
+            // Like the old core's server: "chunked" is the only transfer coding accepted on requests.
             guard te == ["chunked"] else { throw HTTPParseError.unsupportedTransferEncoding }
             return .chunked
         }

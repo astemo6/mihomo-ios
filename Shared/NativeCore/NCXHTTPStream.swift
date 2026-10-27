@@ -1,7 +1,7 @@
 import Foundation
 
 // XHTTP (splithttp) wire side (feat/nc-xhttp): one HTTP/2 connection per dial — the TLS / REALITY / plain
-// stream the connector already opened — carrying the mode's requests as h2 streams, like mihomo's per-dial
+// stream the connector already opened — carrying the mode's requests as h2 streams, like Clash.Meta's per-dial
 // http.Transport (transport/xhttp/client.go, no reuse-settings): stream-one = one POST whose response is the
 // download; stream-up = a GET download + one streaming POST upload; packet-up = a GET download + sequential
 // POSTs of at most sc-max-each-post-bytes, spaced by sc-min-posts-interval-ms, each acknowledged before the next.
@@ -401,7 +401,7 @@ final class NCXHTTPStream: NCRelayStream {
     /// packet-up: one POST body never exceeds this, whatever sc-max-each-post-bytes allows (default 1 MB):
     /// smaller posts are always accepted by the server and cap the per-connection upload buffer (memory first).
     static let maxPostBytes = 256 * 1024
-    /// mihomo PacketUpWriter.Close: the last batch gets this long to go out before the connection closes.
+    /// Clash.Meta PacketUpWriter.Close: the last batch gets this long to go out before the connection closes.
     static let closeFlushTimeout: TimeInterval = 1
 
     let mode: Mode
@@ -452,7 +452,7 @@ final class NCXHTTPStream: NCRelayStream {
         self.postLimit = Swift.max(1, Swift.min(config.scMaxEachPostBytes.rand(), Self.maxPostBytes))
     }
 
-    /// Sends the preface and the mode's opening requests, then completes at once — like mihomo, which
+    /// Sends the preface and the mode's opening requests, then completes at once — like Clash.Meta, which
     /// returns the conn as soon as the connection is up instead of waiting for response headers (a CDN
     /// may hold those until the first body byte).
     func start(completion: @escaping (Error?) -> Void) {

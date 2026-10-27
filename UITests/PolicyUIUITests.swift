@@ -6,7 +6,7 @@ import XCTest
 ///  #3 分流规则 → ⋯ → 编辑排序 reorders the 订阅 like 策略 → 编辑排序, and the order is kept;
 ///  #4 a collapsed 策略 group row is as tall as a 分流规则 订阅 row;
 ///  #6 Home cards: long-press → 半宽 / 全宽 and 编辑排序.
-extension MihomoUITests {
+extension TernUITests {
 
     private func orderValue(_ id: String) -> String {
         let e = app.element(id: id)

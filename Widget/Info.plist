@@ -29,9 +29,9 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>MihomoAppGroup</key>
+	<key>TernAppGroup</key>
 	<string>$(APP_GROUP_ID)</string>
-	<key>MihomoTunnelBundleID</key>
+	<key>TernTunnelBundleID</key>
 	<string>$(TUNNEL_BUNDLE_ID)</string>
 	<key>NSExtension</key>
 	<dict>

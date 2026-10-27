@@ -1,7 +1,7 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
-/// Vectors generated with github.com/metacubex/blake3 (the library mihomo
+/// Vectors generated with github.com/metacubex/blake3 (the library Clash.Meta
 /// itself uses), over the standard i % 251 input pattern.
 final class NativeCoreBlake3Tests: XCTestCase {
     private func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02x", $0) }.joined() }

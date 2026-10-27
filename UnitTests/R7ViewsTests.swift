@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Review 7 views lane: Home chain display (P3-5) and the masked links on 更新资源 (P3-6).
 @MainActor

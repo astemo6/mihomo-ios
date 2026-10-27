@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/app-policy-ui (user 2026-10-26): group 测速 streams each member's result as it lands (#2), 分流规则 → 编辑排序
 /// writes the RULE-SET order back into the runtime's rules and keeps it across a profile refresh (#3), and Home

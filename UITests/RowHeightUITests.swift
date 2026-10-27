@@ -3,7 +3,7 @@ import XCTest
 /// fix/more-row-height (user 「更多页每行的高度与其他页行高度不一样」): 更多's rows and 工具's cards share one row metric
 /// (TernRowMetrics: 30 pt tile, 12 pt spacing, 2 pt padding, a Dynamic Type minimum height). Before, a one-line 更多 row
 /// was ~40 pt while a 工具 card was ~56–60 pt.
-extension MihomoUITests {
+extension TernUITests {
 
     /// Height of the list cell holding `e` (the row's own element when no cell contains it).
     func rowCellHeight(_ e: XCUIElement) -> CGFloat {

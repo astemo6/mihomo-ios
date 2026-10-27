@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 // Coverage for PR #119 (fix/nc-app-ui), items 3+4: NCYAML.parseWithError
 // reports the 1-based line of the problems the lenient parser can localize

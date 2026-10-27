@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Declarative per-protocol form (Shadowrocket style). Keys are mihomo proxy keys; dots = nested maps.
+/// Declarative per-protocol form (Shadowrocket style). Keys are Clash.Meta proxy keys; dots = nested maps.
 struct FieldSpec: Identifiable {
     enum Kind { case text, secure, int, bool, choice([String]), list, pem }
     var id: String { key }
@@ -18,7 +18,7 @@ enum NodeProtocols {
         ("wireguard", "WireGuard"), ("snell", "Snell"), ("anytls", "AnyTLS"), ("mieru", "Mieru"),
         ("brook", "Brook"),
         ("ssh", "SSH"), ("socks5", "SOCKS5"), ("http", "HTTP(S)"),
-        // v0.13: protocols added to mihomo after v1.19.0 (all in v1.19.33).
+        // v0.13: protocols added to Clash.Meta after v1.19.0 (all in v1.19.33).
         ("sudoku", "Sudoku"), ("masque", "MASQUE"), ("trusttunnel", "TrustTunnel"), ("shadowquic", "ShadowQUIC"),
         ("openvpn", "OpenVPN"), ("gost-relay", "GOST Relay"),
         // v0.18: experimental — tsnet runs inside the 50 MB tunnel extension.
@@ -314,7 +314,7 @@ enum NodeProtocols {
         case "tailscale":
             return [
                 FieldSpec(key: "auth-key", label: "Auth Key", kind: .secure, placeholder: "tskey-auth-…"),
-                FieldSpec(key: "hostname", label: "设备名", placeholder: "mihomo-ios"),
+                FieldSpec(key: "hostname", label: "设备名", placeholder: "tern"),
                 FieldSpec(key: "control-url", label: "控制服务器（Headscale）", placeholder: "https://controlplane.tailscale.com"),
                 FieldSpec(key: "state-dir", label: "状态目录", placeholder: "留空为 tailscale/节点名"),
                 FieldSpec(key: "ephemeral", label: "临时设备（Ephemeral）", kind: .bool),
@@ -375,7 +375,7 @@ enum NodeProtocols {
         }
     }
 
-    // v0.8 高级: only where mihomo v1.19.33 reads the key for that protocol.
+    // v0.8 高级: only where Clash.Meta v1.19.33 reads the key for that protocol.
     static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "trusttunnel"]
     static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "http", "socks5", "trusttunnel", "gost-relay"]
     static let smuxTypes: Set<String> = ["ss", "vmess", "vless", "trojan"]

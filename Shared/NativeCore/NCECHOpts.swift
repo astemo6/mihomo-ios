@@ -1,6 +1,6 @@
 import Foundation
 
-/// Structured model for node ECH options (`ech-opts`), aligned with mihomo's `ECHOptions`
+/// Structured model for node ECH options (`ech-opts`), aligned with Clash.Meta's `ECHOptions`
 /// (adapter/outbound/ech.go).
 ///
 /// Sub-fields:

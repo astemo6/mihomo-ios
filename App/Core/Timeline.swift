@@ -1,6 +1,6 @@
 import Foundation
 
-// v0.17 请求时间线 (parity #8). The core records what it can measure (bridge/timeline.go):
+// v0.17 请求时间线 (parity #8). The core records what it can measure:
 //  • passive, per real connection while 请求 is open: the DNS answer the core received for the host
 //    shortly before the connection (upstream exchange time from the core's own events, or a cache hit),
 //    and the first upload / download byte after the core established the outbound connection, as a
@@ -96,7 +96,7 @@ enum TimelineAPI {
         try await ControllerClient.shared.get(TimelineConns.self, "/timeline/conns", timeout: 4)
     }
 
-    /// One measurement through the connection's outbound (chain as mihomo lists it, outbound first).
+    /// One measurement through the connection's outbound (chain as Clash.Meta lists it, outbound first).
     static func probe(_ c: ConnectionItem) async throws -> TimelineProbe {
         if UITestSeed.enabled && UITestSeed.args.contains("-UITestDemoConnections") {
             try? await Task.sleep(nanoseconds: 300_000_000)

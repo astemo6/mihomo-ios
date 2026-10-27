@@ -32,7 +32,7 @@ final class NCStream {
         if let sni = tlsServerName, !sni.isEmpty {
             sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, sni)
         }
-        // fix/nc-diag-439 (G): explicit ALPN (ws over TLS offers only http/1.1, like mihomo — an edge that is offered
+        // fix/nc-diag-439 (G): explicit ALPN (ws over TLS offers only http/1.1, like Clash.Meta — an edge that is offered
         // h2 may pick it and the ws upgrade then fails).
         for p in alpn where !p.isEmpty {
             sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, p)
@@ -69,7 +69,7 @@ final class NCStream {
     /// Starts the connection; `ready` fires exactly once (nil error on success).
     ///
     /// fix/nc-delay-test: when the queue carries an NCDialTrace (a delay probe), the connect is traced (DNS / TCP /
-    /// TLS split from NWConnection's establishment report) and `.waiting` fails at once with its reason, the way a Go
+    /// TLS split from NWConnection's establishment report) and `.waiting` fails at once with its reason, the way an old-core
     /// dial returns its error — before, a probe whose DNS or route failed sat in `.waiting` until the probe timeout and
     /// was reported as a bare 超时. Real flows keep NWConnection's waiting behaviour; a slow one (≥ slowDialMs) gets
     /// one rate-limited `[dial]` line with the same split.

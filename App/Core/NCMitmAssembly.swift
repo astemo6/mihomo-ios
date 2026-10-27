@@ -1,7 +1,7 @@
 import Foundation
 
 /// E-B1 stage 4: the engine config + ruleset assembly — a port of
-/// bridge/mitm/config.go's Config / LoadConfig / Build (the parse
+/// the retired bridge's Config / LoadConfig / Build (the parse
 /// layer itself is the B6 port, NCEngineRuleset). The prep consumes
 /// the built ruleset's core rules (mapped onto the profile by
 /// NCRuntimeSteps.resolveCoreRules) and hostnames; the full rule /
@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Parser-state note (nc-callsite-audit): the parser now tracks a
 /// module's skip-cert-verify / h2 flags (NCEngineRuleset), and Build
-/// propagates skip-cert-verify with Go's only-true semantics. The
+/// propagates skip-cert-verify with the old core's only-true semantics. The
 /// panel model carries taskId, but no Swift parser assigns it yet,
 /// so filterSwitches' task-bound check is in place but inert until
 /// a dialect parser starts filling taskId in.
@@ -18,7 +18,7 @@ import Foundation
 // MARK: - Config (mitm.Config / Item / Module / ScriptResource)
 
 /// The Decodable conformances are hand-written with decodeIfPresent
-/// throughout: Go's json.Unmarshal tolerates missing keys (zero
+/// throughout: the old core's json.Unmarshal tolerates missing keys (zero
 /// values), while Swift's synthesized conformance would reject a
 /// sparse engine.json outright.
 struct NCEngineItem: Decodable {
@@ -129,7 +129,7 @@ struct NCEngineConfig: Decodable {
     }
 
     /// mitm LoadConfig: engine/engine.json; a missing file is the
-    /// all-off config. Go ignores the Unmarshal error and keeps
+    /// all-off config. the old core ignores the Unmarshal error and keeps
     /// whatever fields decoded — so after a strict decode failure,
     /// fall back to a per-field lossy pass (case-insensitive keys,
     /// per-element lossy arrays) instead of dropping the whole file
@@ -314,7 +314,7 @@ enum NCMitmBuild {
     /// mitm filterScripts.
     private static func filterScripts(_ cfg: NCEngineConfig, _ rs: NCEngineRuleset) {
         guard let resources = cfg.scriptResources, !resources.isEmpty else { return }
-        // Go applies the interval override to the script in place
+        // the old core applies the interval override to the script in place
         // before deciding; the Swift models are value types, so
         // mutate by index first.
         for i in rs.rules.indices where rs.rules[i].kind == "script" {
@@ -338,7 +338,7 @@ enum NCMitmBuild {
         var off = Set<String>()
         rs.tasks = rs.tasks.filter { t in
             // The Swift task model carries the script's path/name
-            // flat; Go tests t.Script (a task without one is allowed).
+            // flat; the old core tests t.Script (a task without one is allowed).
             if t.path.isEmpty { return true }
             let allowed = scriptAllowed(cfg, path: t.path) { _ in }
             if !allowed { off.insert(t.name) }

@@ -1,9 +1,9 @@
 import XCTest
 import CryptoKit
-@testable import Mihomo
+@testable import Tern
 
 /// SS2022 (SIP022): session-key vectors generated with
-/// sing-shadowsocks2's own SessionKey (the library mihomo ships);
+/// sing-shadowsocks2's own SessionKey (the library Clash.Meta ships);
 /// HChaCha20 against the published XChaCha draft vector; headers and
 /// packets validated by independent CryptoKit operations in the test.
 final class NativeCoreSS2022Tests: XCTestCase {
@@ -24,7 +24,7 @@ final class NativeCoreSS2022Tests: XCTestCase {
 
     func testSessionKeyVectors() {
         // Ground truth from sing-shadowsocks2 shadowaead_2022.SessionKey
-        // (re-verified 2026-10-24 against the module source + a clean Go
+        // (re-verified 2026-10-24 against the module source + a clean the old core
         // run; an earlier generation of this vector was wrong).
         let salt32 = Data((0..<32).map { UInt8(0x20 + $0) })
         XCTAssertEqual(hex(NCSS2022.sessionKey(psk: psk32, salt: salt32, keyLen: 32)),

@@ -7,7 +7,7 @@ final class NCPathLock {
     private var locks: [String: NSLock] = [:]
 
     func withLock<T>(for path0: String, _ body: () throws -> T) rethrows -> T {
-        // bridge filelock.go keys by filepath.Clean(path): one lock per file however the path is spelled.
+        // the retired bridge keys by filepath.Clean(path): one lock per file however the path is spelled.
         let path = (path0 as NSString).standardizingPath
         mutex.lock()
         let lock: NSLock
@@ -26,7 +26,7 @@ final class NCPathLock {
     }
 }
 
-/// Pure Swift manual node profile manager matching bridge/nodes.go specifications.
+/// Pure Swift manual node profile manager matching the retired bridge.
 enum NCManualNodes {
 
     static let manualGroupName = "手动节点"

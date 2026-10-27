@@ -1,11 +1,11 @@
-// NativeCore (feat/native-core-eval, gap C3) — $httpAPI, cron / event / generic task scripts and panels in the Go-free
+// NativeCore (feat/native-core-eval, gap C3) — $httpAPI, cron / event / generic task scripts and panels in the native-only
 // tunnel (astemo6/Muse NativeCore, 2026-10-25).
 //
-// - NativeHTTPAPI: the Surge $httpAPI subset bridge/httpapi.go answered (policies, policy groups, select get/set,
+// - NativeHTTPAPI: the Surge $httpAPI subset the retired bridge (policies, policy groups, select get/set,
 //   outbound mode get/set, current profile, reload) plus GET /v1/rules, POST /v1/dns/flush, and the two Loon
 //   $config helpers (/loon/config, /loon/sub_policies) the prelude's synchronous "apisync" op uses.
-// - NCCron: bridge/mitm/cron.go (5 or 6 fields, names, steps, Vixie dom/dow OR), local time.
-// - NativeTaskRunner: bridge/mitm/tasks.go's tasker for the tasks / panels the app exports into
+// - NCCron: the retired bridge (5 or 6 fields, names, steps, Vixie dom/dow OR), local time.
+// - NativeTaskRunner: the retired bridge's tasker for the tasks / panels the app exports into
 //   nativecore-scripts.json ("tasks" at manifest index -1 - k, "panels"): cron schedule, network-changed event runs
 //   (debounced), manual runs, panel refresh ($input / $panel, normalizePanelResult), task-prefs.json (paused /
 //   enabled / deleted), task-history.json (20 runs per task), panel-cache.json, home-panels.json (visible panels
@@ -681,7 +681,7 @@ final class NativeTaskRunner {
         guard let sd = try? JSONSerialization.data(withJSONObject: setup), let ss = String(data: sd, encoding: .utf8) else {
             return (nil, "脚本参数错误")
         }
-        let run = NativeScriptRun(gen: 0, rule: t.i, go: host, js: JSCScriptEngine.shared, lane: nil,
+        let run = NativeScriptRun(gen: 0, rule: t.i, hostAPI: host, js: JSCScriptEngine.shared, lane: nil,
                                   nativeBase: NativeBodyStore.defaultBlobBase, laneOK: false)
         let out = run.run(key: key, setup: ss, timeoutMs: p.timeoutMs ?? t.timeoutMs ?? 30_000) {
             let p2 = host.prepare(gen: 0, rule: t.i, slot: 0, reload: true)
@@ -731,7 +731,7 @@ final class NativeTaskRunner {
         lock.unlock()
     }
 
-    /// PUT /mitm/panels-home: the Home panel configuration (also persisted, like Go).
+    /// PUT /mitm/panels-home: the Home panel configuration (also persisted, like the old core).
     func setHome(_ body: Data) -> Bool {
         guard let h = try? JSONDecoder().decode(Home.self, from: body) else { return false }
         try? body.write(to: dir.appendingPathComponent("home-panels.json"), options: .atomic)
@@ -803,7 +803,7 @@ final class NativeTaskRunner {
         return out
     }
 
-    /// Runs the panel's script and stores what $done returned (Go refreshPanel). Blocks the calling thread.
+    /// Runs the panel's script and stores what $done returned (the old core refreshPanel). Blocks the calling thread.
     func refreshPanel(_ id: String) -> [String: Any]? {
         lock.lock()
         guard let i = panels.firstIndex(where: { $0.panel.id == id }) else { lock.unlock(); return nil }

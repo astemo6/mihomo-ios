@@ -51,7 +51,7 @@ public struct NCTailscalePeerCounts: Codable, Equatable {
     }
 }
 
-/// Node state enumeration matching Go bridge and UI conventions.
+/// Node state enumeration matching old bridge and UI conventions.
 public enum NCTailscaleLoginState: String, Codable {
     case idle = "idle"
     case needsLogin = "needsLogin"

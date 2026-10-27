@@ -1,10 +1,10 @@
 // Native MitM stage 2, lane `upstream` (B8b): bounded keep-alive pool of UpstreamConnections, keyed by
-// UpstreamTarget (host, port, tls, policy). Mirrors the Go path's http.Transport defaults where they matter:
+// UpstreamTarget (host, port, tls, policy). Mirrors the old path's http.Transport defaults where they matter:
 // MaxIdleConnsPerHost 2, a global idle cap, an idle timeout, LIFO reuse. A connection is only pooled when the
 // HTTP lane says the exchange ended cleanly (`release(_:reusable: true)`) and the stream is still fully open
 // with nothing unread; while idle one receive stays outstanding, so a server close evicts it right away.
 //
-// The relay port is read per dial (LibmihomoMitmRelayPort() starts the relay lazily and returns 0 when the engine
+// The relay port is read per dial (MitmRelayPort() starts the relay lazily and returns 0 when the engine
 // is not running); `closeIdle()` should be called on engine reload / network change / tunnel stop.
 
 import Foundation

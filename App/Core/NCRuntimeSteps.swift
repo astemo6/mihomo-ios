@@ -3,11 +3,11 @@ import Foundation
 
 /// E-B1 stage 3: the buildRuntimeWith satellite steps, ported file by
 /// file from the bridge. Each step mutates the config tree in place
-/// and returns the warnings the Go side logged (the builder surfaces
+/// and returns the warnings the old side logged (the builder surfaces
 /// them through NSLog at prepare time, like the core log).
-/// This file: bridge/profileruleoverrides.go (the profile's own rule
+/// This file: the retired bridge (the profile's own rule
 /// and Final overrides) plus the mitm helpers it uses
-/// (ProfileNames / ResolvePolicy, bridge/mitm/rules.go).
+///.
 
 enum NCRuntimeSteps {
 
@@ -500,7 +500,7 @@ enum NCRuntimeSteps {
     // MARK: - Manual nodes + node subscriptions (diag.go / nodesubs.go)
 
     static let manualGroupName = "手动节点"
-    static let probeGroup = "MIHOMO-PROBE"
+    static let probeGroup = "TERN-PROBE"
 
     /// bridge mergeManualNodes.
     static func mergeManualNodes(_ raw: inout [String: NCJSONValue], manualPath: String) {
@@ -1097,7 +1097,7 @@ enum NCRuntimeSteps {
             }
             m["state-dir"] = .string(dir)
             if m.str("hostname").trimmingCharacters(in: .whitespaces).isEmpty {
-                m["hostname"] = .string("mihomo-ios")
+                m["hostname"] = .string("tern")
             }
             proxies[i] = .object(m)
         }

@@ -1,10 +1,10 @@
 import Foundation
 
 /// nc-integrate: the small file-level bridge calls the app still made, in Swift.
-/// - SaveConfSource (bridge/confsource.go)
-/// - ValidateHostEntry (bridge/localdns.go; NCRuntimeSteps.validHostName / hostValue are the #112 ports)
-/// - ResetRuleHits (bridge/rulehits.go)
-/// Writes are atomic (Data.write .atomic = Go writeFileAtomic: temp file + rename).
+/// - SaveConfSource
+/// - ValidateHostEntry
+/// - ResetRuleHits
+/// Writes are atomic (Data.write .atomic = the old core writeFileAtomic: temp file + rename).
 enum NCAppFilePorts {
 
     /// bridge SaveConfSource: keeps the original .conf of an imported profile at <profile>.source.conf.
@@ -30,7 +30,7 @@ enum NCAppFilePorts {
 
     /// bridge ResetRuleHits: key "" deletes <home>/rule-hits.json, else drops that rule identity
     /// ("TYPE,payload,policy") from its `rules` map. Returns "" or an error.
-    /// Go also cleared the running core's in-process hit cache; the app process runs no core, so there is none.
+    /// the old core also cleared the running core's in-process hit cache; the app process runs no core, so there is none.
     static func resetRuleHits(home: String, key: String) -> String {
         ruleHitsLock.lock()
         defer { ruleHitsLock.unlock() }
@@ -42,7 +42,7 @@ enum NCAppFilePorts {
             }
             return ""
         }
-        // Go readRuleHits: a missing or broken file is an empty {since: 0, rules: {}}.
+        // the old core readRuleHits: a missing or broken file is an empty {since: 0, rules: {}}.
         var d: [String: Any] = ["since": 0, "rules": [String: Any]()]
         if let b = fm.contents(atPath: url.path),
            let o = try? JSONSerialization.jsonObject(with: b) as? [String: Any] {

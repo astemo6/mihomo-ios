@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Relay groups and dialer-proxy expansion in the group engine.
 final class NativeCoreChainTests: XCTestCase {

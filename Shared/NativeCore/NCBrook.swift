@@ -504,7 +504,7 @@ struct NCBrookOptions {
         return out
     }
 
-    /// TLS knobs shared by wss (NWConnection) and quic: SNI, skip-cert-verify, a `ca` anchor (Go RootCAs: only
+    /// TLS knobs shared by wss (NWConnection) and quic: SNI, skip-cert-verify, a `ca` anchor (the old core RootCAs: only
     /// the given roots are trusted, hostname still checked).
     func applyTLS(_ sec: sec_protocol_options_t, queue: DispatchQueue) {
         if !hostName.isEmpty, IPv4Address(hostName) == nil, IPv6Address(hostName) == nil {
@@ -901,11 +901,11 @@ extension NCConnector {
 // MARK: - brook:// links
 
 /// brook link (brook link.go / brooklink.go): `brook://KIND?KIND=<server>&password=…&name=…[&…]` with the
-/// query in Go url.Values form (sorted keys, QueryEscape, `+` for space). KIND = server | wsserver | wssserver |
+/// query in the old core url.Values form (sorted keys, QueryEscape, `+` for space). KIND = server | wsserver | wssserver |
 /// quicserver | socks5; the server is `host:port`, `ws://host:port/path`, `wss://host:port/path`,
 /// `quic://host:port`, `socks5://host:port`.
 enum NCBrookLink {
-    /// Go url.QueryUnescape semantics (`+` → space).
+    /// the old core url.QueryUnescape semantics (`+` → space).
     static func queryUnescape(_ s: Substring) -> String {
         let plus = s.replacingOccurrences(of: "+", with: " ")
         return plus.removingPercentEncoding ?? plus
@@ -993,7 +993,7 @@ enum NCBrookLink {
         return NCProxy(name: name, type: "brook", fields: f)
     }
 
-    /// Go url.QueryEscape.
+    /// the old core url.QueryEscape.
     static func queryEscape(_ s: String) -> String {
         var out = ""
         for b in s.utf8 {

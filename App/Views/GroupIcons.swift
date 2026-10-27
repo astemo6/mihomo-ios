@@ -2,7 +2,7 @@ import SwiftUI
 import CryptoKit
 
 // Policy group icons (v0.7). Sources, in order: the user's choice (group-icons.json in our override store,
-// never written into the profile), the profile's own `icon:` (mihomo proxy-groups; QX img-url / Surge
+// never written into the profile), the profile's own `icon:` (Clash.Meta proxy-groups; QX img-url / Surge
 // icon-url are mapped to it on import), then an SF Symbol for the group type. Images are cached on disk in
 // the App Group (icon-cache/), downscaled, and fetched through the jsDelivr mirror like the geo databases.
 

@@ -304,7 +304,7 @@ struct RunScriptIntent: AppIntent {
     }
 }
 
-struct MihomoShortcuts: AppShortcutsProvider {
+struct TernShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: ConnectIntent(), phrases: ["连接 \(.applicationName)", "Connect \(.applicationName)"])
         AppShortcut(intent: DisconnectIntent(), phrases: ["断开 \(.applicationName)", "Disconnect \(.applicationName)"])

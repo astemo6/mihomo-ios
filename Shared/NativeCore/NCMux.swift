@@ -1,6 +1,6 @@
 import Foundation
 
-/// sing-mux (the mux mihomo ships) — h2mux protocol only, which is the
+/// sing-mux (the mux Clash.Meta ships) — h2mux protocol only, which is the
 /// library default. Session setup: the client dials the proxy to the
 /// magic destination `sp.mux.sing-box.arpa:444`, writes a 2-byte request
 /// [version][protocol=2] (version 1 adds a padding flag + optional
@@ -14,7 +14,7 @@ enum NCMux {
 
     /// Version 0 (no padding). The padding variant wraps the whole
     /// session in an extra framing layer; configs asking for it are
-    /// honored only with padding off (mihomo's default) — see the
+    /// honored only with padding off (Clash.Meta's default) — see the
     /// connector note.
     static func preamble() -> Data { Data([0x00, 0x02]) }
 

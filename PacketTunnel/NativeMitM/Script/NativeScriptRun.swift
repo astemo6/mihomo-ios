@@ -1,18 +1,18 @@
 // Native MitM stage 3, lane s3-script — one script run driven by Swift.
 //
-// The Go path's runCtx + execute (bridge/mitm/script.go) ported to Swift for runs the native dispatcher makes:
+// the old path's runCtx + execute ported to Swift for runs the native dispatcher makes:
 // the prelude's host side (blobs, timers, $done, the "nblob" hand-over of large results), the event loop (timers,
 // $httpClient / $httpAPI answers delivered through __tern_fire / __tern_deliver), the run's timeout, cancellation
 // and memory guard (JavaScriptCore's execution time limit asks shouldStop every 100 ms), and $done → result. The
-// JavaScript itself runs in the same JSCScriptEngine context Go would use (Go's program cache index loads it:
+// JavaScript itself runs in the same JSCScriptEngine context the old core would use (the old core's program cache index loads it:
 // ScriptHostAPI.prepare), so the script sees the identical prelude and API.
 //
 // What still goes through the host (ScriptHostAPI): $persistentStore, notifications, $httpAPI, geo, btoa / atob, console lines
-// (the Go log ring), $httpClient (egress through mihomo routing), ungzip / compress, error / finish log lines.
+// (the old core log ring), $httpClient (egress through Clash.Meta routing), ungzip / compress, error / finish log lines.
 // Bodies never do: the response body is a NativeBodyStore handle (blob id NativeBlobBase + handle) that
 // JSCScriptEngine reads directly, large results stay in the store.
 //
-// Threading: begin / every job runs on the caller's thread (the session's flow queue, which the Go flow API blocks
+// Threading: begin / every job runs on the caller's thread (the session's flow queue, which the old flow API blocks
 // the same way); timers and fetches only post jobs. Host calls come in on that thread too (inside JavaScriptCore).
 
 import Foundation
@@ -26,7 +26,7 @@ protocol NativeJSEngine: AnyObject {
 
 extension JSCScriptEngine: NativeJSEngine {}
 
-/// What `$done` asked for in the response phase (Go's ScriptResult; parseDone).
+/// What `$done` asked for in the response phase (the old core's ScriptResult; parseDone).
 struct NativeScriptResult {
     var status = 0
     var headers: CanonicalHeader?
@@ -44,7 +44,7 @@ struct NativeScriptResult {
 }
 
 final class NativeScriptRun: JSCRun {
-    /// Native run ids are negative (Go's runCtx ids are positive; both share JSCScriptEngine's table).
+    /// Native run ids are negative (the old core's runCtx ids are positive; both share JSCScriptEngine's table).
     private static let idLock = NSLock()
     private static var idSeq: Int64 = 0
     private static func nextID() -> Int64 {
@@ -63,7 +63,7 @@ final class NativeScriptRun: JSCRun {
     let runID: Int64
     let gen: Int64
     let rule: Int
-    private let go: ScriptHostAPI
+    private let hostAPI: ScriptHostAPI
     private let js: NativeJSEngine
     private let lane: JSCNativeBlobProvider?
     private let nativeBase: Int64
@@ -94,11 +94,11 @@ final class NativeScriptRun: JSCRun {
     private var token: Int64 = 0
     private let timerQueue = DispatchQueue(label: "tern.native-script.timers", qos: .userInitiated)
 
-    init(gen: Int64, rule: Int, go: ScriptHostAPI, js: NativeJSEngine, lane: JSCNativeBlobProvider?, nativeBase: Int64, laneOK: Bool) {
+    init(gen: Int64, rule: Int, hostAPI: ScriptHostAPI, js: NativeJSEngine, lane: JSCNativeBlobProvider?, nativeBase: Int64, laneOK: Bool) {
         runID = Self.nextID()
         self.gen = gen
         self.rule = rule
-        self.go = go
+        self.hostAPI = hostAPI
         self.js = js
         self.lane = lane
         self.nativeBase = nativeBase
@@ -113,7 +113,7 @@ final class NativeScriptRun: JSCRun {
         return blobSeq
     }
 
-    /// Go's useBlob: a temp Go blob goes away when read.
+    /// the old core's useBlob: a temp the old core blob goes away when read.
     private func useBlob(_ id: Int64) -> Data? {
         guard let b = blobs[id] else { return nil }
         switch b {
@@ -211,7 +211,7 @@ final class NativeScriptRun: JSCRun {
             startFetch(arg)
             return ""
         case "api":
-            let out = go.api(gen: gen, rule: rule, arg: arg)
+            let out = hostAPI.api(gen: gen, rule: rule, arg: arg)
             if !out.isEmpty {
                 pending += 1
                 post { [weak self] in
@@ -222,15 +222,15 @@ final class NativeScriptRun: JSCRun {
             }
             return ""
         case "ungzip":
-            guard let id = Int64(arg), let input = useBlob(id), let out = go.bytes(op: "ungzip", arg: "", input: input) else { return "-1" }
+            guard let id = Int64(arg), let input = useBlob(id), let out = hostAPI.bytes(op: "ungzip", arg: "", input: input) else { return "-1" }
             return String(addBlob(out, temp: true))
         case "compress":
             let parts = arg.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
             guard parts.count == 2, let id = Int64(parts[1]), let input = useBlob(id),
-                  let out = go.bytes(op: "compress", arg: String(parts[0]), input: input) else { return "-1" }
+                  let out = hostAPI.bytes(op: "compress", arg: String(parts[0]), input: input) else { return "-1" }
             return String(addBlob(out, temp: true))
         case "log", "sread", "swrite", "sclear", "notify", "geo", "btoa", "atob", "apisync":
-            return go.host(gen: gen, rule: rule, op: op, arg: arg)
+            return hostAPI.host(gen: gen, rule: rule, op: op, arg: arg)
         default:
             return ""
         }
@@ -245,7 +245,7 @@ final class NativeScriptRun: JSCRun {
         cond.unlock()
     }
 
-    /// Go's addTimer (hmu held): one pending count per timer; a repeating timer is re-armed when its job runs
+    /// the old core's addTimer (hmu held): one pending count per timer; a repeating timer is re-armed when its job runs
     /// (time.AfterFunc again), so at most one firing of a timer is queued at a time.
     private func addTimer(_ id: Int64, ms: Int64, repeating: Bool) {
         pending += 1
@@ -278,7 +278,7 @@ final class NativeScriptRun: JSCRun {
 
     private struct FetchArg: Decodable { var id: Int64; var body: Int64? }
 
-    /// Go's startFetch: the download runs in Go (mihomo routing, the script's policy) off this thread; its answer
+    /// the old core's startFetch: the download runs in the old core (Clash.Meta routing, the script's policy) off this thread; its answer
     /// is delivered to __tern_deliver with the body as a blob (hmu held).
     private func startFetch(_ arg: String) {
         guard let j = try? JSONDecoder().decode(FetchArg.self, from: Data(arg.utf8)) else { return }
@@ -294,9 +294,9 @@ final class NativeScriptRun: JSCRun {
         }
         pending += 1
         let tok = token
-        let (g, r, go, reqBody) = (gen, rule, self.go, body)
+        let (g, r, hostAPI, reqBody) = (gen, rule, self.hostAPI, body)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let res = go.fetch(gen: g, rule: r, token: tok, arg: arg, body: reqBody)
+            let res = hostAPI.fetch(gen: g, rule: r, token: tok, arg: arg, body: reqBody)
             guard let self else { res.done(); return }
             self.hmu.lock()
             if self.dead { self.hmu.unlock(); res.done(); return }
@@ -327,7 +327,7 @@ final class NativeScriptRun: JSCRun {
 
     // MARK: running
 
-    /// The outcome of run(): the result, or the request-log note of a failure (already logged by Go).
+    /// The outcome of run(): the result, or the request-log note of a failure (already logged by the old core).
     enum Outcome {
         case ok(NativeScriptResult)
         case failed(note: String)
@@ -337,17 +337,17 @@ final class NativeScriptRun: JSCRun {
     /// context; timeoutMs the run's timeout. Blocks until $done, nothing pending, the timeout or a stop.
     func run(key: String, setup: String, timeoutMs: Int64, reload: () -> String?) -> Outcome {
         currentTimeout = timeoutMs
-        token = go.token()
+        token = hostAPI.token()
         let start = DispatchTime.now().uptimeNanoseconds
         let deadline = DispatchTime.now() + .milliseconds(Int(timeoutMs))
         // the timeout and the memory guard set the stop reason while JavaScript runs on this thread
         let guardTimer = DispatchSource.makeTimerSource(queue: timerQueue)
         guardTimer.schedule(deadline: .now() + .milliseconds(50), repeating: .milliseconds(50))
-        let go = self.go
+        let hostAPI = self.hostAPI
         guardTimer.setEventHandler { [weak self] in
             guard let self else { return }
             if DispatchTime.now() >= deadline { self.requestStop(.timeout); return }
-            if go.memLow() { self.requestStop(.memory) }
+            if hostAPI.memLow() { self.requestStop(.memory) }
         }
         guardTimer.resume()
         defer {
@@ -388,7 +388,7 @@ final class NativeScriptRun: JSCRun {
             res = parseDone(d)
         }
         let ms = (DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000
-        _ = go.host(gen: gen, rule: rule, op: "x-finished", arg: String(ms))
+        _ = hostAPI.host(gen: gen, rule: rule, op: "x-finished", arg: String(ms))
         return .ok(res)
     }
 
@@ -399,9 +399,9 @@ final class NativeScriptRun: JSCRun {
 
     private var lastFailNote = ""
 
-    /// Go's jsFail / the loop's errors, logged by Go; returns the note.
+    /// the old core's jsFail / the loop's errors, logged by the old core; returns the note.
     private func fail(_ mode: String, _ detail: String) -> String {
-        let f = go.fail(gen: gen, rule: rule, mode: mode, detail: detail, stop: stop.rawValue, timeoutMs: currentTimeout, afterDone: false)
+        let f = hostAPI.fail(gen: gen, rule: rule, mode: mode, detail: detail, stop: stop.rawValue, timeoutMs: currentTimeout, afterDone: false)
         lastFailNote = f.note ?? ""
         return lastFailNote
     }
@@ -411,7 +411,7 @@ final class NativeScriptRun: JSCRun {
     /// afterDone: an exception after $done is only logged (the answer stands); interruptions still fail.
     private func afterDone(_ err: String) -> Bool {
         guard isDone else { return false }
-        let f = go.fail(gen: gen, rule: rule, mode: "js", detail: err, stop: stop.rawValue, timeoutMs: currentTimeout, afterDone: true)
+        let f = hostAPI.fail(gen: gen, rule: rule, mode: "js", detail: err, stop: stop.rawValue, timeoutMs: currentTimeout, afterDone: true)
         return f.ignored == true
     }
 
@@ -425,7 +425,7 @@ final class NativeScriptRun: JSCRun {
         hmu.unlock()
         for t in ts.values { t.cancel() }
         js.end(runID)
-        go.cancel(token)
+        hostAPI.cancel(token)
         for f in fs { f.done() }
         cond.lock()
         let leftover = queue
@@ -477,7 +477,7 @@ final class NativeScriptRun: JSCRun {
         }
     }
 
-    /// Go's parseStatus.
+    /// the old core's parseStatus.
     static func parseStatus(_ v: StatusValue?) -> Int {
         switch v {
         case .number(let d)?:
@@ -512,11 +512,11 @@ final class NativeScriptRun: JSCRun {
             lastFailNote = fail("done", "invalid descriptor")
             return nil
         }
-        if let e = d.err, !e.isEmpty { _ = go.host(gen: gen, rule: rule, op: "x-doneerr", arg: e) }
+        if let e = d.err, !e.isEmpty { _ = hostAPI.host(gen: gen, rule: rule, op: "x-doneerr", arg: e) }
         return d
     }
 
-    /// Go's parseDone for the response phase.
+    /// the old core's parseDone for the response phase.
     private func parseDone(_ d: DoneDesc) -> NativeScriptResult {
         var res = NativeScriptResult()
         guard d.kind == "obj" else { return res }
@@ -603,7 +603,7 @@ final class NativeScriptRun: JSCRun {
         if parts.count > 1 { h.setValues("Set-Cookie", parts) }
     }
 
-    /// splitSetCookie (byte-wise, like Go).
+    /// splitSetCookie (byte-wise, like the old core).
     static func splitSetCookie(_ v: String) -> [String] {
         let b = Array(v.utf8)
         var out: [String] = []

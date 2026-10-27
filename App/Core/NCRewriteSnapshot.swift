@@ -2,22 +2,22 @@
 // E-B1b stage 2: Port of rewritesnap.go + bodysnap.go + exportsnap.go + config.go (:280, :436) + resources.go to Swift.
 //
 // Sources:
-//   - bridge/mitm/rewritesnap.go (RewriteSnapshot, SnapRule, SnapLocal, SnapFile, SnapHeaderOp, SnapHost, snapRule, snapMapLocal, snapFile)
-//   - bridge/mitm/bodysnap.go (SnapBodyOp, SnapReplPart, SnapJSONOp, SnapJQStep, SnapJQCond, snapBody, snapBodyOp, icuFromRE2, snapJQ)
-//   - bridge/mitm/exportsnap.go (ExportRewriteSnapshot)
-//   - bridge/mitm/config.go (NewHostMatcher, splitHostPort, payloadFor, appendPayload)
-//   - bridge/mitm/resources.go (NCResources: Get, cachePath, localPath, isRemote)
-//   - bridge/mitm/ipglob.go (isIPv4Glob, ipv4GlobPrefixes, appendRangePrefixes)
+//   - the retired bridge (RewriteSnapshot, SnapRule, SnapLocal, SnapFile, SnapHeaderOp, SnapHost, snapRule, snapMapLocal, snapFile)
+//   - the retired bridge (SnapBodyOp, SnapReplPart, SnapJSONOp, SnapJQStep, SnapJQCond, snapBody, snapBodyOp, icuFromRE2, snapJQ)
+//   - the retired bridge (ExportRewriteSnapshot)
+//   - the retired bridge (NewHostMatcher, splitHostPort, payloadFor, appendPayload)
+//   - the retired bridge (NCResources: Get, cachePath, localPath, isRemote)
+//   - the retired bridge (isIPv4Glob, ipv4GlobPrefixes, appendRangePrefixes)
 //
 // Snapshot Runtime Cache Note:
-//   In Go (bridge/mitm/rewritesnap.go), the Engine maintains a runtime snapshot cache (snapCache, snapCaches,
+//   In the old core, the Engine maintains a runtime snapshot cache (snapCache, snapCaches,
 //   RewriteSnapshotGen, snapState) to poll generations on live request flows and retain previous states across reloads.
-//   In the native Go-free architecture, NativeRuntimePrep builds and exports the snapshot ahead of tunnel
+//   In the native native-only architecture, NativeRuntimePrep builds and exports the snapshot ahead of tunnel
 //   start/reload in a single stateless pass with gen = 1. Consequently, runtime snapshot caching is omitted here.
 //
 // DIVERGENCES:
 //   1. Pre-compiled Regexp Objects vs Pure Text Derivation:
-//      - Go behavior: Go stores pre-compiled regexp2.Regexp (r.re, r.hre, op.re) and regexp.Regexp (r.fre, op.fast)
+//      - the old core behavior: the old core stores pre-compiled regexp2.Regexp (r.re, r.hre, op.re) and regexp.Regexp (r.fre, op.fast)
 //        on Rule structs. snapRule passes these compiled objects to snapRegexOf and snapTemplate.
 //      - Swift behavior: NCEngineRule carries only pattern strings. All patterns are compiled and translated on the
 //        fly via NCRewriteICU.snapRegex and NCRewriteICU.snapTemplate. The re2 flag is auto-detected via isCompileURLRe
@@ -26,15 +26,15 @@
 //      - Impact: Produces identical regex portability verdicts and ICU translations without holding native regexp handles.
 //
 //   2. Engine Snapshot Cache Omission:
-//      - Go behavior: Engine manages generation counters (snapGen atomic.Int64) and snapCache maps for live reloading.
+//      - the old core behavior: Engine manages generation counters (snapGen atomic.Int64) and snapCache maps for live reloading.
 //      - Swift behavior: NCRewriteSnapshotBuilder.export is stateless and exports snapshot with gen = 1 per invocation.
 //      - Impact: No runtime cache overhead in the App process; generation is fixed to 1 as required by native runtime prep.
 //
 //   3. RE2 AST & ICU Translation for Body Rewrites:
-//      - Go behavior: icuFromRE2 uses Go standard library regexp/syntax.Parse(p, syntax.Perl) to produce an AST,
+//      - the old core behavior: icuFromRE2 uses the old core standard library regexp/syntax.Parse(p, syntax.Perl) to produce an AST,
 //        which is re-emitted into an explicit ICU pattern with explicit \x{...} runes, sorted character classes,
 //        simple-fold orbit classes, and anchored lookarounds.
-//      - Swift behavior: Swift implements a dedicated RE2/Perl syntax parser and AST generator matching Go's syntax.Parse
+//      - Swift behavior: Swift implements a dedicated RE2/Perl syntax parser and AST generator matching the old core's syntax.Parse
 //        semantics, unicode.SimpleFold orbit expansion (foldOrbit), and reNullable / reHasRepeatOrAlt rejections.
 //      - Impact: Produces bit-for-bit identical ICU strings, capture counts, and bodyWhy rejection reasons on all rules.
 //
@@ -45,11 +45,11 @@
 //        pass through. The legacy step-list parser below (snapJQ) is kept only for old snapshots / fixtures.
 //
 //   5. Remote Map Local & Script Resource Management (NCResources):
-//      - Go behavior: Resources downloads remote scripts/resources using Go net/http through the core client,
+//      - the old core behavior: Resources downloads remote scripts/resources using the old core net/http through the core client,
 //        caching files in <home>/engine/cache/<sha1>.
 //      - Swift behavior: NCResources performs synchronous downloads using URLSession during the detached background
 //        preparation pass, writing atomically to <home>/engine/cache/<sha1>. If download fails and no cached copy
-//        exists, it throws or returns nil, degrading as Go does when resources are unavailable.
+//        exists, it throws or returns nil, degrading as the old core does when resources are unavailable.
 //      - Impact: Static and remote resources are pre-cached on disk so the native tunnel can read them locally.
 
 import Foundation
@@ -57,7 +57,7 @@ import CommonCrypto
 
 // MARK: - Snapshot Models (PacketTunnel/NativeMitM/Rewrite/RewriteSnapshot.swift alignment)
 
-/// NCSnapHeaderOp is one header operation. JSON keys align with Go SnapHeaderOp and PacketTunnel RWSnapHeaderOp.
+/// NCSnapHeaderOp is one header operation. JSON keys align with the old core SnapHeaderOp and PacketTunnel RWSnapHeaderOp.
 struct NCSnapHeaderOp: Codable, Equatable {
     var op: String
     var name: String?
@@ -88,7 +88,7 @@ struct NCSnapHeaderOp: Codable, Equatable {
 }
 
 /// NCSnapFile is a Map Local answer read from disk at request time.
-/// JSON keys align with Go SnapFile and PacketTunnel RWSnapFile.
+/// JSON keys align with the old core SnapFile and PacketTunnel RWSnapFile.
 struct NCSnapFile: Codable, Equatable {
     var path: String
     var remote: Bool?
@@ -115,7 +115,7 @@ struct NCSnapFile: Codable, Equatable {
     }
 }
 
-/// NCSnapLocal is a Map Local answer. JSON keys align with Go SnapLocal and PacketTunnel RWSnapLocal.
+/// NCSnapLocal is a Map Local answer. JSON keys align with the old core SnapLocal and PacketTunnel RWSnapLocal.
 struct NCSnapLocal: Codable, Equatable {
     var status: Int
     var headers: [[String]] = []
@@ -154,7 +154,7 @@ struct NCSnapLocal: Codable, Equatable {
     }
 }
 
-/// NCSnapScript names a script rule. JSON keys align with Go SnapScript and PacketTunnel RWSnapScript.
+/// NCSnapScript names a script rule. JSON keys align with the old core SnapScript and PacketTunnel RWSnapScript.
 struct NCSnapScript: Codable, Equatable {
     var name: String
     var type: String
@@ -171,7 +171,7 @@ struct NCSnapScript: Codable, Equatable {
     }
 }
 
-/// NCSnapHost is one MitM hostname pattern. JSON keys align with Go SnapHost and PacketTunnel RWSnapHost.
+/// NCSnapHost is one MitM hostname pattern. JSON keys align with the old core SnapHost and PacketTunnel RWSnapHost.
 struct NCSnapHost: Codable, Equatable {
     var pat: String
     var port: Int?
@@ -206,8 +206,8 @@ struct NCSnapBodyOp: Codable, Equatable {
     var icu: String?
     var parts: [NCSnapReplPart]?
     var skip: Bool?
-    /// lane regexp2 (Go-zero): the source of an op not spelled as explicit ICU — regexp2's path (p + raw repl) or,
-    /// with re2, Go's RE2 fast path (p + parts). The tunnel translates it with RX2ICU (RWSnapBodyOp).
+    /// lane regexp2 (native-only): the source of an op not spelled as explicit ICU — regexp2's path (p + raw repl) or,
+    /// with re2, the old core's RE2 fast path (p + parts). The tunnel translates it with RX2ICU (RWSnapBodyOp).
     var p: String?
     var repl: String?
     var re2: Bool?
@@ -316,7 +316,7 @@ struct NCSnapJQStep: Codable, Equatable {
     }
 }
 
-/// NCSnapRule is one rule of the Ruleset. JSON keys align with Go SnapRule and PacketTunnel RWSnapRule.
+/// NCSnapRule is one rule of the Ruleset. JSON keys align with the old core SnapRule and PacketTunnel RWSnapRule.
 struct NCSnapRule: Codable, Equatable {
     var i: Int
     var kind: String
@@ -431,7 +431,7 @@ struct NCRewriteSnapshot: Codable, Equatable {
     }
 }
 
-// MARK: - Resources Manager (bridge/mitm/resources.go)
+// MARK: - Resources Manager
 
 final class NCResources {
     let home: String
@@ -624,7 +624,7 @@ final class NCResources {
             throw e
         }
         var req = URLRequest(url: url, timeoutInterval: fetchTimeout)
-        req.setValue("Surge iOS/3000 Mihomo-iOS", forHTTPHeaderField: "User-Agent")
+        req.setValue("Surge iOS/3000 Tern", forHTTPHeaderField: "User-Agent")
         var resultData: Data?
         var resultError: Error?
         let sem = DispatchSemaphore(value: 0)
@@ -664,7 +664,7 @@ final class NCResources {
     }
 }
 
-// MARK: - Host Matcher & SnapHost Payload (bridge/mitm/config.go:280, 436)
+// MARK: - Host Matcher & SnapHost Payload
 
 struct NCHostPat: Equatable {
     var pat: String
@@ -728,7 +728,7 @@ final class NCHostMatcher {
         return ["DOMAIN,\(p.pat)"]
     }
 
-    // MARK: - IPv4 Glob Prefix Expansion (bridge/mitm/ipglob.go)
+    // MARK: - IPv4 Glob Prefix Expansion
 
     static let ipGlobMaxPrefixes = 1024
 
@@ -883,7 +883,7 @@ final class NCHostMatcher {
     }
 }
 
-// MARK: - Map Local & Header Ops Constants & Helpers (bridge/mitm/rewritesnap.go)
+// MARK: - Map Local & Header Ops Constants & Helpers
 
 private let snapLocalMax = 64 << 10
 private let memCacheMax = 512 << 10
@@ -1064,7 +1064,7 @@ private func snapMapLocal(r: NCEngineRule, home: String, res: NCResources) -> NC
     return NCSnapLocal(status: st, headers: headers, body: body, file: file)
 }
 
-// MARK: - Bodysnap RE2/ICU/Repl/JQ (bridge/mitm/bodysnap.go)
+// MARK: - Bodysnap RE2/ICU/Repl/JQ
 
 private func foldOrbit(_ r: UnicodeScalar) -> [UnicodeScalar] {
     let val = r.value
@@ -1784,7 +1784,7 @@ private func countSubexp(_ pattern: String) -> Int {
 
 /// Absolute capture-group number of the named group `name` (review H1):
 /// groups are numbered by the position of their opening '(' among ALL
-/// capturing groups, named or not, exactly as Go regexp / ICU number them
+/// capturing groups, named or not, exactly as the old core regexp / ICU number them
 /// (so `(a)(?P<x>b)` gives x == 2, not 1). Skipped while scanning: escaped
 /// characters (`\(`), `\Q...\E` quoted runs, anything inside a character
 /// class (nesting-aware, leading `]` literal), and every `(?` construct
@@ -1940,8 +1940,8 @@ private func parseRepl(_ rePattern: String, _ repl: String) -> (parts: [NCSnapRe
 }
 
 private func snapBodyOp(regex: String, repl: String) -> (NCSnapBodyOp, String) {
-    // lane regexp2 (Go-zero): an op on regexp2's path (Go: op.fast == nil — \b, $, look-around, back-references, a
-    // pattern that matches empty, a replacement Go's template parser refuses) is exported as its source when RX2ICU
+    // lane regexp2 (native-only): an op on regexp2's path (the old core: op.fast == nil — \b, $, look-around, back-references, a
+    // pattern that matches empty, a replacement the old core's template parser refuses) is exported as its source when RX2ICU
     // translates it and regexp2 accepts the replacement; the tunnel runs regexp2.Replace's semantics on it.
     func regexp2Path() -> (NCSnapBodyOp, String) {
         guard let t = RX2ICU.translate(regex).0 else { return (NCSnapBodyOp(), "regexp2") }
@@ -1961,14 +1961,14 @@ private func snapBodyOp(regex: String, repl: String) -> (NCSnapBodyOp, String) {
     }
     let (icu, why) = icuFromRE2(regex)
     if why == "nullable" {
-        return regexp2Path() // Go's fastBodyRe refuses a pattern that matches "" → regexp2's path
+        return regexp2Path() // the old core's fastBodyRe refuses a pattern that matches "" → regexp2's path
     }
     let (parts, ok) = parseRepl(regex, repl)
     if !ok {
         return regexp2Path() // fastBodyRe refuses the replacement → regexp2's path
     }
     if !why.isEmpty {
-        // still Go's RE2 path (nested repeats, …): RE2 semantics re-stated by RX2ICU's RE2 dialect; leftmost-first
+        // still the old core's RE2 path (nested repeats, …): RE2 semantics re-stated by RX2ICU's RE2 dialect; leftmost-first
         // matches are the same in a backtracking engine (the tunnel's time budget hands a runaway back)
         guard let t = RX2ICU.translate(regex, dialect: .re2).0, (try? NSRegularExpression(pattern: t.icu, options: [])) != nil else {
             return (NCSnapBodyOp(), why)
@@ -2359,14 +2359,14 @@ private func snapBody(_ sr: inout NCSnapRule, _ r: NCEngineRule, res: NCResource
         }
         if src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             why = "jq file"
-            NSLog("[Mihomo] WARN jq rule %@: filter file %@ not available, bodies pass through", r.pattern, r.data)
+            NSLog("[Tern] WARN jq rule %@: filter file %@ not available, bodies pass through", r.pattern, r.data)
             break
         }
         do {
             _ = try NativeJQ.compile(src)
         } catch {
             why = "jq: \(error)"
-            NSLog("[Mihomo] WARN jq rule %@ does not compile (%@), bodies pass through", r.pattern, "\(error)")
+            NSLog("[Tern] WARN jq rule %@ does not compile (%@), bodies pass through", r.pattern, "\(error)")
             break
         }
         sr.jqx = src
@@ -2587,11 +2587,11 @@ private func buildRewriteSnapshot(home: String, cfg: NCEngineConfig, rs: NCEngin
     return s
 }
 
-// MARK: - Snapshot Builder (bridge/mitm/exportsnap.go ExportRewriteSnapshot)
+// MARK: - Snapshot Builder
 
 enum NCRewriteSnapshotBuilder {
     /// Export rewrite snapshot JSON and MitM host count.
-    /// Aligns with bridge/mitm/exportsnap.go: ExportRewriteSnapshot(home, cfg, rs).
+    /// Aligns with the retired bridge: ExportRewriteSnapshot(home, cfg, rs).
     /// When cfg.mitm is false, hostnames are treated as nil and hostCount returns 0; snapshot gen is 1.
     static func export(home: String, cfg: NCEngineConfig, rs: NCEngineRuleset) -> (json: String, hostCount: Int) {
         guard let r = try? exportData(home: home, cfg: cfg, rs: rs),

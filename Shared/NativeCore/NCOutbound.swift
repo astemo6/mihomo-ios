@@ -106,7 +106,7 @@ enum NCHTTPProxy {
 }
 
 /// Resolves a policy name through proxy groups to a concrete outbound, the way
-/// mihomo does: select uses the stored choice, url-test picks the lowest delay,
+/// Clash.Meta does: select uses the stored choice, url-test picks the lowest delay,
 /// fallback picks the first alive member, load-balance rotates. DIRECT and
 /// REJECT are terminal pseudo-policies. Loop-safe via a visited set.
 final class NCGroupEngine {
@@ -123,9 +123,9 @@ final class NCGroupEngine {
     /// 智能选择 pins (group name -> member), maintained by NCSmartSelector.
     /// For url-test / fallback groups a pin wins over the automatic pick
     /// (and over a stored manual selection, which the scorer would
-    /// overwrite on its next pass anyway — bridge/smart.go pins through
+    /// overwrite on its next pass anyway — the retired bridge through
     /// the group's own Set). A pin whose member is known dead is ignored,
-    /// mirroring mihomo dropping a fixed node on health-check failure.
+    /// mirroring Clash.Meta dropping a fixed node on health-check failure.
     var smartPins: [String: String] {
         get { lock.lock(); defer { lock.unlock() }; return _smartPins }
         set { lock.lock(); defer { lock.unlock() }; _smartPins = newValue }

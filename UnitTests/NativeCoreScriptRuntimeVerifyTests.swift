@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// nc-script-runtime-verify: end-to-end verification of the script wiring
 /// that #120 (registration) and #124 (tunnel execution) landed but nothing
@@ -374,7 +374,7 @@ final class NativeCoreScriptRuntimeVerifyTests: XCTestCase {
     }
 
     /// A rewrite driver over the production snapshot for the home's
-    /// ruleset, with the real pass-through inner driver; its scriptGo
+    /// ruleset, with the real pass-through inner driver; its scriptHost
     /// stays the default (NativeScriptHost.shared, loaded by
     /// buildAndLoad) — nothing about the script path is faked.
     private func makeDriver(_ dir: String) throws -> NativeRewriteDriver {

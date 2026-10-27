@@ -1,13 +1,13 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
-// Vectors ported from the Go test suite deleted in 81de91b ("Go-zero").
+// Vectors ported from the old core test suite deleted in 81de91b ("native-only").
 // Sources are the pre-deletion files at 81de91b^:
-//  - bridge/nodes_test.go       (TestParseAllProtocols: share links + the
+//  - the retired bridge       (TestParseAllProtocols: share links + the
 //                                base64 subscription blob)
-//  - bridge/confimport_test.go  (the rule list every dialect import had to
+//  - the retired bridge  (the rule list every dialect import had to
 //                                reproduce, incl. GEOIP / DOMAIN-SET / AND)
-// The Go tests asserted the mihomo core accepted the parsed nodes; here the
+// The the old core tests asserted the Clash.Meta core accepted the parsed nodes; here the
 // same vectors go through the Swift parser (NCSubscriptionParser) and the
 // share-link encoder (NCShareLink) in a full parse → encode → parse loop.
 final class NativeCorePortedRuleVectorTests: XCTestCase {
@@ -63,8 +63,8 @@ final class NativeCorePortedRuleVectorTests: XCTestCase {
 
 final class NativeCorePortedShareLinkTests: XCTestCase {
 
-    // bridge/nodes_test.go TestParseAllProtocols vectors (the four schemes
-    // with a canonical share-link form; the vmess JSON is the Go test's).
+    // the retired bridge vectors (the four schemes
+    // with a canonical share-link form; the vmess JSON is the old core test's).
     private static let ssVector = "ss://YWVzLTEyOC1nY206cGFzcw@1.2.3.4:8388#ss1"
     private static let vmessVector: String = {
         let json = #"{"v":"2","ps":"vm","add":"v.example.com","port":"443","id":"b831381d-6324-4d53-ad4f-8cda48b30811","aid":"0","net":"ws","path":"/ws","host":"v.example.com","tls":"tls"}"#
@@ -122,9 +122,9 @@ final class NativeCorePortedShareLinkTests: XCTestCase {
         XCTAssertEqual(node.fields["sni"]?.string, "t.example.com")
     }
 
-    /// The Go test's base64 subscription blob: ss + trojan + vless +
+    /// The the old core test's base64 subscription blob: ss + trojan + vless +
     /// wireguard links in one blob must yield four nodes. Order follows
-    /// bridge nodes.go parseNodeText: self-parsed schemes (wireguard) come
+    /// the retired bridge parseNodeText: self-parsed schemes (wireguard) come
     /// first in line order, the :// URIs converted afterwards — so wg1 leads.
     func testBase64SubscriptionBlob() {
         let wg = "wireguard://yAnz5TF%2BlXXJte14tji3zlMNq%2BhD2rYUIgJBgB3fBmk%3D@162.159.192.1:2408?publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&address=172.16.0.2%2F32,2606:4700::2%2F128&reserved=1,2,3&mtu=1280#wg1"
@@ -134,7 +134,7 @@ final class NativeCorePortedShareLinkTests: XCTestCase {
         XCTAssertEqual(nodes.map { $0.name }, ["wg1", "ss1", "tj", "vless1"])
     }
 
-    /// More of the Go test's table, parse-only (their share-link forms are
+    /// More of the old core test's table, parse-only (their share-link forms are
     /// not all canonical): each must still yield exactly one node of the
     /// expected type through NCSubscriptionParser.parse.
     func testMoreGoVectorsParse() {

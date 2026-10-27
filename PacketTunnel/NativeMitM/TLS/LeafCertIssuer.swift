@@ -5,7 +5,7 @@ import Security
 /// Builds the TBSCertificate as hand-rolled DER, signs it with
 /// `SecKeyCreateSignature`, and assembles the Certificate structure.
 ///
-/// Semantics mirror Go (`bridge/mitm/ca.go`, `CA.LeafWithNames`):
+/// Semantics mirror the old core:
 ///   - ECDSA P-256; ONE shared leaf keypair signs nothing — it is
 ///     the subject key of every leaf cert; the CA key is the issuer key.
 ///   - Serial: uniform random in [0, 2^120).
@@ -19,7 +19,7 @@ import Security
 ///   - Signature algorithm: ecdsa-with-SHA256 (OID 1.2.840.10045.4.3.2) for an EC P-256 CA; for an RSA CA
 ///     (gap C7, a p12 imported from another app — astemo6/Muse NativeCore) sha256WithRSAEncryption
 ///     (1.2.840.113549.1.1.11, PKCS#1 v1.5). The leaf's own key stays EC P-256 either way (a valid chain; ECDHE-ECDSA
-///     handshakes stay cheap), like Go's shared leaf key.
+///     handshakes stay cheap), like the old core's shared leaf key.
 
 public enum LeafCertError: Error, LocalizedError {
     case invalidCAPrivateKey
@@ -48,7 +48,7 @@ public protocol PKCS12Exporting {
 public struct LeafCertResult {
     public let leafCertificateDER: Data
     public let chainDER: [Data]            // [leaf, CA]
-    public let leafPrivateKey: SecKey       // the shared leaf key (Go: ca.leafKey)
+    public let leafPrivateKey: SecKey       // the shared leaf key (the old core: ca.leafKey)
     public let pkcs12Data: Data?            // exported PKCS#12
     public let hostname: String
     public let notBefore: Date
@@ -72,7 +72,7 @@ public final class LeafCertIssuer {
     /// fix/nc-rsa-ca: the CA's SubjectKeyIdentifier, carried as the leaf's AuthorityKeyIdentifier — RSA CA only
     /// (an EC CA leaf stays byte-identical: no AKI, as before).
     private let authorityKeyID: Data?
-    private let leafPrivateKey: SecKey          // shared across all hosts (Go semantics)
+    private let leafPrivateKey: SecKey          // shared across all hosts (the old core semantics)
     private let leafPublicKeyDER: Data          // SubjectPublicKeyInfo, prebuilt once
     private let config: LeafCertConfig
     private let pkcs12Exporter: PKCS12Exporting?
@@ -96,7 +96,7 @@ public final class LeafCertIssuer {
               SecKeyIsAlgorithmSupported(caPrivateKey, .sign, isRSA ? .rsaSignatureMessagePKCS1v15SHA256 : .ecdsaSignatureMessageX962SHA256) else {
             throw LeafCertError.invalidCAPrivateKey
         }
-        // One shared leaf keypair, generated once (Go: ca.leafKey).
+        // One shared leaf keypair, generated once (the old core: ca.leafKey).
         var err: Unmanaged<CFError>?
         guard let leafKey = SecKeyCreateRandomKey([
             kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom,

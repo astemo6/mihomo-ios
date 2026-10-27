@@ -1,9 +1,9 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-silent-fail: nodes that used to look usable but connected wrongly — Trojan ws/grpc/h2, ws early data,
 /// v2ray-http-upgrade, http-opts (HTTP/1.1 obfs), Snell obfs-opts, smux/yamux, VMess alterId > 0, ECH, and the
-/// Vision / REALITY fingerprint fields. Wire shapes follow mihomo v1.19.33 (transport/vmess/websocket.go, http.go).
+/// Vision / REALITY fingerprint fields. Wire shapes follow Clash.Meta v1.19.33 (transport/vmess/websocket.go, http.go).
 final class NativeCoreSilentFailTests: XCTestCase {
 
     // MARK: - Fake transport (callbacks on the test's serial queue, like a real stream on its connection queue)
@@ -184,7 +184,7 @@ final class NativeCoreSilentFailTests: XCTestCase {
         ])])
         let o = NCWSTransportOptions.parse(p, defaultHost: "srv.example.com")
         XCTAssertEqual(o.path, "/v")
-        XCTAssertEqual(o.maxEarlyData, 2560)                         // ?ed= wins (mihomo)
+        XCTAssertEqual(o.maxEarlyData, 2560)                         // ?ed= wins (Clash.Meta)
         XCTAssertEqual(o.earlyDataHeaderName, "Sec-WebSocket-Protocol")
         XCTAssertEqual(o.hostHeader, "cdn.example.com")              // case-insensitive Host
         XCTAssertEqual(o.headers, ["X-A": "1"])                      // Host not duplicated
@@ -415,7 +415,7 @@ final class NativeCoreSilentFailTests: XCTestCase {
         XCTAssertNil(NCConnector.snellObfsOptions(node("snell", [:])))
         let http = try XCTUnwrap(NCConnector.snellObfsOptions(node("snell", ["obfs-opts": .object(["mode": .string("http")])])))
         XCTAssertEqual(http.mode, "http")
-        XCTAssertEqual(http.host, "bing.com") // mihomo default
+        XCTAssertEqual(http.host, "bing.com") // Clash.Meta default
         let tls = try XCTUnwrap(NCConnector.snellObfsOptions(node("snell", ["obfs-opts": .object([
             "mode": .string("tls"), "host": .string("cdn.example")])])))
         XCTAssertEqual(tls.mode, "tls")

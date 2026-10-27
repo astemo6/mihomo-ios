@@ -9,14 +9,11 @@ struct TunnelMemorySnapshot: Decodable, Equatable {
     var footprint: Int64
     var peak: Int64
     var available: Int64
-    var goHeap: Int64?
-    var goSys: Int64?
-    var goroutines: Int?
     var connections: Int?
     var at: Int64
     var tailscale: TailscaleGuardStatus?
     /// native MitM stage 2 (iOS 17+): whether the native front is live, its open sessions, connections it took
-    /// over / that fell back to Go since the tunnel started. nil from extensions older than this field.
+    /// over / that fell back to pass-through since the tunnel started. nil from extensions older than this field.
     var native: NativeMitmMemoryStatus?
     /// feat/s3-mem: the native memory governor (switch nativeMemGovernor), nil while it is off.
     var governor: NativeGovernorStatus?
@@ -125,8 +122,8 @@ final class TunnelMemoryMonitor: ObservableObject {
 
     /// Simulator UI tests (-UITestSeed -UITestDemoMemory): fixed numbers, Tailscale started.
     static let demo = TunnelMemorySnapshot(
-        footprint: 24_536_678, peak: 34_603_008, available: 27_892_121, goHeap: 9_437_184, goSys: 20_971_520,
-        goroutines: 61, connections: 3, at: Int64(Date().timeIntervalSince1970),
+        footprint: 24_536_678, peak: 34_603_008, available: 27_892_121,
+        connections: 3, at: Int64(Date().timeIntervalSince1970),
         tailscale: TailscaleGuardStatus(nodes: 1, state: "started", node: "UITest Tailscale",
                                         startedAt: Int64(Date().timeIntervalSince1970) - 30,
                                         footprintBefore: 21_495_808, availableBefore: 30_932_992,
@@ -157,9 +154,6 @@ struct TunnelMemorySection: View {
                 row("峰值", TunnelMemoryMonitor.mbText(s.peak), id: "diag.memory.peak", color: color(s.peak, s.limit))
                 row("剩余可用", TunnelMemoryMonitor.mbText(s.available), id: "diag.memory.available", color: nil)
                 row("系统上限", "≈ " + TunnelMemoryMonitor.mbText(s.limit), id: "diag.memory.limit", color: nil)
-                if let h = s.goHeap {
-                    row("Go 堆 / 向系统申请", TunnelMemoryMonitor.mbText(h) + " / " + TunnelMemoryMonitor.mbText(s.goSys), id: "diag.memory.go", color: nil)
-                }
                 if let c = s.connections { row("连接数", "\(c)", id: "diag.memory.conns", color: nil) }
                 if let n = s.native { row("原生解密", n.text, id: "diag.memory.nativeMitm", color: nil) }
                 if let g = s.governor {

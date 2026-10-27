@@ -1,9 +1,9 @@
 import Network
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// Native MitM stage 2, lane `upstream` (B8b): UpstreamConnection / UpstreamPool against a fake CONNECT relay on
-/// loopback that behaves like bridge/mitm/relay.go (CONNECT only, "200 Connection established", 502 +
+/// loopback that behaves like the retired bridge (CONNECT only, "200 Connection established", 502 +
 /// X-Tern-Error on dial failure), then echoes bytes.
 final class NativeMitmUpstreamTests: XCTestCase {
 

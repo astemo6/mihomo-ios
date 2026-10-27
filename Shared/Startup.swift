@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 import os
 
-/// Startup stage log in the App Group container (Swift and Go both append). Shown in 诊断.
+/// Startup stage log in the App Group container (Swift and the old core both append). Shown in 诊断.
 enum StartupLog {
     static var url: URL { AppShared.containerURL.appendingPathComponent("startup-log.txt") }
     static var previousURL: URL { AppShared.containerURL.appendingPathComponent("startup-log.prev.txt") }
@@ -28,9 +28,9 @@ enum StartupLog {
     /// Review 5 P2-7: rotate to .prev once the file passes this size (a tunnel can run for days).
     static let maxBytes: off_t = 512 * 1024
     /// Review 5 P1-2: unified-log copy is private (redacted in Console / sysdiagnose unless a profile unlocks it).
-    private static let logger = Logger(subsystem: "mihomo", category: "startup")
+    private static let logger = Logger(subsystem: "Tern", category: "startup")
 
-    /// NativeCore (gap C4, astemo6/Muse NativeCore): the Go-free tunnel mirrors every line into its in-memory log
+    /// NativeCore (gap C4, astemo6/Muse NativeCore): the native-only tunnel mirrors every line into its in-memory log
     /// ring (NativeLogRing) for the controller's /logs stream and /hark/logs. Called outside the file lock.
     static var tap: ((_ tag: String, _ msg: String) -> Void)?
 
@@ -128,7 +128,7 @@ enum GeoBootstrap {
         var copied = 0
         for name in files {
             let dst = home.appendingPathComponent(name)
-            // mihomo matches these names case-insensitively; a different-case copy counts too.
+            // Clash.Meta matches these names case-insensitively; a different-case copy counts too.
             let existing = (try? fm.contentsOfDirectory(atPath: home.path))?.first { $0.caseInsensitiveCompare(name) == .orderedSame }
             let existingURL = existing.map { home.appendingPathComponent($0) }
             let size = existingURL.flatMap { (try? fm.attributesOfItem(atPath: $0.path)[.size] as? NSNumber)?.intValue } ?? 0
@@ -150,7 +150,7 @@ enum GeoBootstrap {
                     log?("geo: 复制 \(name) 大小不符（\(tmpSize)/\(srcSize)）")
                     continue
                 }
-                // A truncated different-case leftover (mihomo matches case-insensitively) must not survive next to
+                // A truncated different-case leftover (Clash.Meta matches case-insensitively) must not survive next to
                 // the new file; on a case-insensitive volume (simulator) it is the same file as dst anyway.
                 if let e = existingURL, e.lastPathComponent != name { try? fm.removeItem(at: e) }
                 guard rename(tmp.path, dst.path) == 0 else {
@@ -170,7 +170,7 @@ enum GeoBootstrap {
     }
 }
 
-/// v0.18 隧道内存: the extension's last memory snapshot (MemorySnapshot JSON from Go, with footprint / peak /
+/// v0.18 隧道内存: the extension's last memory snapshot (MemorySnapshot JSON from the old core, with footprint / peak /
 /// available measured in Swift), written to the App Group on every MemoryGuard tick and on each
 /// memoryStats request, so 更多 → 诊断 still shows the last values (and the peak) after the tunnel stopped
 /// or was killed.

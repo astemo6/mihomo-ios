@@ -9,7 +9,7 @@ import Darwin
 // (group edits, node subscriptions, chains, DNS …, which the core applies afterwards). Several scripts per
 // profile run in order, each one getting the previous one's result. The output is validated by the core
 // exactly as a connect would parse it and only then stored (<home>/scripted/<id>.yaml); see
-// bridge/overridescript.go for how the core picks it up and ignores it once the profile changed.
+// the retired bridge how the core picks it up and ignores it once the profile changed.
 //
 // Bettbox UI declaration: a script with `const Compatible_With_Bettbox = { ruleOptionsEnable: true,
 // policyGroupOptions: [...] }` and a `ruleOptionsEnable` object gets one switch per key. The user's values are
@@ -136,7 +136,7 @@ enum JSOverrideEngine {
     private static let consolePrelude = """
     var console = (function () {
       function fmt(x) { if (typeof x === 'string') return x; try { var s = JSON.stringify(x); return s === undefined ? String(x) : s; } catch (e) { return String(x); } }
-      function f(l) { return function () { var a = []; for (var i = 0; i < arguments.length; i++) a.push(fmt(arguments[i])); __mihomoLog(l, a.join(' ')); }; }
+      function f(l) { return function () { var a = []; for (var i = 0; i < arguments.length; i++) a.push(fmt(arguments[i])); __ternLog(l, a.join(' ')); }; }
       return { log: f('log'), info: f('info'), warn: f('warn'), error: f('error'), debug: f('debug') };
     })();
     """
@@ -156,7 +156,7 @@ enum JSOverrideEngine {
     private static let runTail = """
 
     ;if (__custom && typeof ruleOptionsEnable !== 'undefined' && ruleOptionsEnable && typeof ruleOptionsEnable === 'object') { Object.assign(ruleOptionsEnable, __custom); }
-    if (typeof main !== 'function') { throw new Error('__MIHOMO_NO_MAIN__'); }
+    if (typeof main !== 'function') { throw new Error('__TERN_NO_MAIN__'); }
     return main(__config, __profileName);
     """
 
@@ -192,7 +192,7 @@ enum JSOverrideEngine {
         let log: @convention(block) (String, String) -> Void = { level, text in
             box.log(level == "log" ? text : "[\(level)] \(text)")
         }
-        ctx.setObject(log, forKeyedSubscript: "__mihomoLog" as NSString)
+        ctx.setObject(log, forKeyedSubscript: "__ternLog" as NSString)
         ctx.evaluateScript(consolePrelude)
         return ctx
     }
@@ -213,7 +213,7 @@ enum JSOverrideEngine {
         if Date().timeIntervalSince(started) >= timeout - 0.05 { return ScriptError(kind: .timeout, message: "") }
         let (msg, line) = box.exception ?? ("error", nil)
         box.exception = nil
-        if msg.contains("__MIHOMO_NO_MAIN__") { return ScriptError(kind: .noMain, message: msg) }
+        if msg.contains("__TERN_NO_MAIN__") { return ScriptError(kind: .noMain, message: msg) }
         if msg.hasPrefix("SyntaxError") { return ScriptError(kind: .syntax, message: msg, line: line) }
         return ScriptError(kind: kind, message: msg, line: line)
     }
@@ -284,12 +284,12 @@ enum JSOverrideEngine {
                 result = b.objectForKeyedSubscript("value") ?? result
             }
             guard arm(ctx, until: deadline) else { return fail(.runtime) }
-            guard let ser = ctx.evaluateScript("(function(v){ if (v === undefined || v === null || typeof v !== 'object' || Array.isArray(v)) return '__MIHOMO_NOT_OBJECT__'; return JSON.stringify(v); })"),
+            guard let ser = ctx.evaluateScript("(function(v){ if (v === undefined || v === null || typeof v !== 'object' || Array.isArray(v)) return '__TERN_NOT_OBJECT__'; return JSON.stringify(v); })"),
                   let text = ser.call(withArguments: [result]), box.exception == nil, text.isString else { return fail(.runtime) }
             let s = text.toString() ?? ""
             box.lock.lock(); defer { box.lock.unlock() }
             if box.result != nil { return }
-            box.result = s == "__MIHOMO_NOT_OBJECT__" ? .failure(ScriptError(kind: .notObject, message: "")) : .success(s)
+            box.result = s == "__TERN_NOT_OBJECT__" ? .failure(ScriptError(kind: .notObject, message: "")) : .success(s)
         }
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         res.lock.lock(); let logs = res.logs; let r = res.result; res.lock.unlock()
@@ -450,7 +450,7 @@ final class OverrideScriptStore: ObservableObject {
     nonisolated static func download(_ urlString: String) async throws -> String {
         guard let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme?.hasPrefix("http") == true else { throw DownloadError.badURL }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        req.setValue("mihomo-ios", forHTTPHeaderField: "User-Agent")
+        req.setValue("Tern", forHTTPHeaderField: "User-Agent")
         let (data, resp) = try await URLSession.shared.data(for: req)
         if let code = (resp as? HTTPURLResponse)?.statusCode, !(200..<300).contains(code) { throw DownloadError.http(code) }
         guard let text = String(data: data, encoding: .utf8), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw DownloadError.empty }
@@ -585,7 +585,7 @@ final class OverrideScriptStore: ObservableObject {
     nonisolated static func runChain(home: String, path: String, profileName: String, scripts: [(OverrideScript, String)])
         -> (OverrideChainResult, [String: (Int?, String?, Int?, [String])]) {
         // v0.19.1: the profile can change while the chain runs (a subscription download or copy regeneration
-        // landing mid-run); Go then refuses the output. Run once more on the new content before reporting it,
+        // landing mid-run); the old core then refuses the output. Run once more on the new content before reporting it,
         // instead of failing the connect / reload with 「请重新运行」.
         var out = runChainCore(home: home, path: path, profileName: profileName, scripts: scripts)
         if out.2 {

@@ -4,7 +4,7 @@ import Combine
 
 extension Notification.Name {
     /// Posted when the egress may have changed (connect/disconnect, node switch, mode change).
-    static let egressMayHaveChanged = Notification.Name("MihomoEgressMayHaveChanged")
+    static let egressMayHaveChanged = Notification.Name("TernEgressMayHaveChanged")
 }
 
 @MainActor
@@ -164,7 +164,7 @@ final class VPNManager: ObservableObject {
         canOfferSafeMode = AppShared.containerOK && AppShared.activeProfileURL != nil && !safeModeActive
         await pauseKeepAliveAfterFailure()
         lastError = String(localized: "连接失败：") + (msg ?? String(localized: "网络扩展启动后立即退出（未返回原因）。请到 更多 → 诊断 导出诊断包查看。"))
-        NSLog("[Mihomo] tunnel start failed: %@", lastError ?? "")
+        NSLog("[Tern] tunnel start failed: %@", lastError ?? "")
     }
 
     /// fix/vpn-stays-on: a tunnel that is up without the keep-alive rule (connected by an older build, from iOS
@@ -200,16 +200,16 @@ final class VPNManager: ObservableObject {
             } else { status = .invalid }
         } catch {
             lastError = String(localized: "读取 VPN 配置失败：") + Self.describe(error)
-            NSLog("[Mihomo] loadAllFromPreferences: %@", error.localizedDescription)
+            NSLog("[Tern] loadAllFromPreferences: %@", error.localizedDescription)
         }
     }
 
     /// The VPN configuration's server address / name. r7 (user 2026-10-21 「不用刻意保留」): renamed from
-    /// "Mihomo"; existing configurations are matched by the tunnel bundle id (never by this name) and renamed in
+    /// the pre-rename name (LegacyImport.vpnNames); existing configurations are matched by the tunnel bundle id (never by this name) and renamed in
     /// place by fixStaleManager, so no second VPN profile appears and the widget / Control Center / intents
     /// (which match the bundle id too) keep finding it.
     static let serverAddress = "Tern"
-    static let legacyServerAddresses: Set<String> = ["Mihomo", "Tern"]
+    static let legacyServerAddresses: Set<String> = LegacyImport.vpnNames.union(["Tern"])
 
     /// This app's configuration: our tunnel bundle id first; then one carrying our (old or new) name, saved by a
     /// build with another tunnel bundle id (re-signing); then — NE only lists this app's own configurations —
@@ -223,7 +223,7 @@ final class VPNManager: ObservableObject {
 
     /// A manager saved by a build with another tunnel bundle id (e.g. before re-signing) would start a
     /// non-existent extension. Point it at the current one and save again. r7: also renames a configuration
-    /// still called "Mihomo" to "Tern" in place.
+    /// still carrying the pre-rename name to "Tern" in place.
     private func fixStaleManager(_ m: NETunnelProviderManager) async throws {
         guard let proto = m.protocolConfiguration as? NETunnelProviderProtocol else { return }
         let staleID = proto.providerBundleIdentifier != AppShared.tunnelBundleID
@@ -265,7 +265,7 @@ final class VPNManager: ObservableObject {
             try await m.saveToPreferences()
             try await m.loadFromPreferences()
         } catch {
-            NSLog("[Mihomo] saveToPreferences (create) failed: %@", error.localizedDescription)
+            NSLog("[Tern] saveToPreferences (create) failed: %@", error.localizedDescription)
             throw error
         }
         manager = m
@@ -395,7 +395,7 @@ final class VPNManager: ObservableObject {
                     try await m.saveToPreferences()
                     try await m.loadFromPreferences()
                 } catch {
-                    NSLog("[Mihomo] saveToPreferences (enable) failed: %@", error.localizedDescription)
+                    NSLog("[Tern] saveToPreferences (enable) failed: %@", error.localizedDescription)
                     throw error
                 }
             }
@@ -431,7 +431,7 @@ final class VPNManager: ObservableObject {
         } catch {
             Self.trace("failed: \(Self.describe(error))")
             lastError = String(localized: "启动失败：") + Self.describe(error)
-            NSLog("[Mihomo] start failed: %@", error.localizedDescription)
+            NSLog("[Tern] start failed: %@", error.localizedDescription)
         }
     }
 
@@ -612,7 +612,7 @@ final class VPNManager: ObservableObject {
             m.isOnDemandEnabled = false
             OnDemandSettings.setPaused(true)
             Task {
-                do { try await m.saveToPreferences() } catch { NSLog("[Mihomo] pause on-demand failed: %@", error.localizedDescription) }
+                do { try await m.saveToPreferences() } catch { NSLog("[Tern] pause on-demand failed: %@", error.localizedDescription) }
                 m.connection.stopVPNTunnel()
             }
         } else {
@@ -713,7 +713,7 @@ final class VPNManager: ObservableObject {
 
     /// Asks the tunnel to re-read the active profile and overrides. Returns an error message or nil.
     /// `hot` (v0.19.22 开关类设置热应用): a switch the user flipped — the core applies rule / rule-set / mode / log-level /
-    /// engine changes in place and does the full reload for anything else (bridge hotapply.go). File refreshes (geo,
+    /// engine changes in place and does the full reload for anything else. File refreshes (geo,
     /// providers, resources) and edits keep the full reload.
     /// Requests made while one is running share one trailing reload (full when any of them asked for full), so a burst
     /// of toggles costs at most two.

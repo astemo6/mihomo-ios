@@ -1,8 +1,8 @@
 import XCTest
 
-/// v0.19.8 paths (offline, simulator). Same helpers as MihomoUITests; identifiers rather than labels where the
+/// v0.19.8 paths (offline, simulator). Same helpers as TernUITests; identifiers rather than labels where the
 /// app provides them.
-extension MihomoUITests {
+extension TernUITests {
 
     // MARK: 40. 筛选节点: rename + icon
 

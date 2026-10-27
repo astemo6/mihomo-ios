@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import Network
 
-// feat/nc-wg (based on astemo6/Muse NativeCore): WireGuard outbound for the Go-free tunnel.
+// feat/nc-wg (based on astemo6/Muse NativeCore): WireGuard outbound for the native-only tunnel.
 //
 // docs/nc-proto-wireguard-tuic-udp.md §2, option (a): each WireGuard node is an extra lwIP netif (lwip/nc_wg.c)
 // in the same lwIP instance as the TUN. NativeCore opens TCP / UDP client PCBs bound to that netif; the netif's
@@ -773,7 +773,7 @@ final class NCWGPeer {
         lastSentAny = Date()
     }
 
-    /// WARP-style `reserved`: bytes 1–3 of every message we send (after the MACs, as mihomo / sing-box do).
+    /// WARP-style `reserved`: bytes 1–3 of every message we send (after the MACs, as Clash.Meta / sing-box do).
     private func applyReserved(_ msg: inout [UInt8]) {
         guard amnezia == nil, let r = cfg.reserved, msg.count >= 4 else { return }
         msg[1] = r[0]; msg[2] = r[1]; msg[3] = r[2]

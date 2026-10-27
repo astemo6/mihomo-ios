@@ -4,7 +4,7 @@ import NetworkExtension
 
 /// 按网络切换策略 (v0.9): per select group of the active profile, which member to use on Wi-Fi, on cellular
 /// and on named Wi-Fi networks. Stored in <home>/netpolicy.json ({"<profile id>": [rules]}, our override
-/// store, never the profile); the extension applies it on every network change (bridge/netpolicy.go).
+/// store, never the profile); the extension applies it on every network change.
 struct NetworkPolicyRule: Codable, Hashable, Identifiable {
     var id: String { group }
     var group: String
@@ -31,7 +31,7 @@ struct NetworkPolicyState: Decodable {
 
 /// 运行模式按网络切换 (v0.12, QX running_mode_trigger): rule / global / direct per cellular, Wi-Fi and named
 /// Wi-Fi network. App-wide, stored in <home>/modetrigger.json and applied by the extension together with
-/// 按网络切换策略 (bridge/netpolicy.go). nil / "" = keep the current mode.
+/// 按网络切换策略. nil / "" = keep the current mode.
 struct ModeTrigger: Codable, Hashable {
     var enabled: Bool = false
     var cellular: String? = nil

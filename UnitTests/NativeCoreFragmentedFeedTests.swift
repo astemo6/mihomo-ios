@@ -1,6 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import Mihomo
+@testable import Tern
 
 // Coverage for PR #118 (fix/nc-perf): the frame parsers in NCVision,
 // NCSSRProtocols and NCShadowsocks stopped consuming their input buffers

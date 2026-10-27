@@ -5,11 +5,11 @@ import Foundation
 // build433 device diag: one burst of 18 SERVFAIL right after a core reload — every nameserver "failed" for the
 // queries in flight. The group was tried strictly sequentially with a 2.5 s per-server timeout and the first
 // server (13.78.100.57, far away) was slow, so one slow server cost every query 2.5 s before the second server
-// was even asked. mihomo (dns/util.go batchExchange) asks every nameserver of a group at once and takes the first
+// was even asked. Clash.Meta (dns/util.go batchExchange) asks every nameserver of a group at once and takes the first
 // usable answer; Surge sends to several servers and uses the fastest. Here: at most two exchanges in flight, the
 // second one staggered by 300 ms (most answers arrive well inside that, so the common case still costs one
 // upstream packet), a failed / timed-out exchange immediately starts the next server, and the first answer whose
-// rcode is not SERVFAIL / REFUSED wins (such an answer is kept as a last resort, like mihomo).
+// rcode is not SERVFAIL / REFUSED wins (such an answer is kept as a last resort, like Clash.Meta).
 //
 // Pure scheduling logic in Shared (the exchange is injected) so the unit tests drive it with fake servers.
 

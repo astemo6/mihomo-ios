@@ -3,7 +3,7 @@ import XCTest
 /// feat/nc-e2e: 设置 → 诊断与反馈 → 一键自检 opens, runs in the simulator, every step that needs the VPN shows
 /// 「需要真机」 (not a failure), and the run ends with a summary + 诊断包 share button. selfcheck-2: 16 steps, every
 /// one listed and every one 「需要真机」 in the simulator.
-extension MihomoUITests {
+extension TernUITests {
 
     func test71_SelfCheckSmoke() {
         launch()

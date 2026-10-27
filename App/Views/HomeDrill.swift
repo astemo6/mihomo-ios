@@ -407,7 +407,7 @@ struct PolicyTrafficView: View {
 
 /// Speed samples for the 网络 page, kept as the last 10 minutes of seconds plus per-minute (3 h) and per-hour (48 h)
 /// averages of the recorded seconds (both scopes). P0-2: the tunnel records them every second, also while the app is in
-/// the background or killed (bridge/statsrecorder.go, saved across reconnects); merge(_:) takes its history and the
+/// the background or killed; merge(_:) takes its history and the
 /// 1 s /app/traffic answers DashboardModel takes fill in after the tunnel's newest point. Nothing is filled in for
 /// time nobody recorded.
 @MainActor

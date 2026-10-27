@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// AnyTLS (mihomo's transport/anytls): a TLS connection carrying
+/// AnyTLS (Clash.Meta's transport/anytls): a TLS connection carrying
 /// [sha256(password)][paddingLen u16][padding] as its first bytes, then
 /// a small multiplexed session of frames
 /// [cmd u8][streamID u32 BE][len u16 BE][data]:

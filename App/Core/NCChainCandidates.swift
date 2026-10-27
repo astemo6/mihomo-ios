@@ -1,8 +1,8 @@
 import Foundation
 
 /// B5 (nc-dego-rest): 前置代理 / 代理链 candidates and the group 前置代理 store in Swift — ports of
-/// bridge/chain.go ChainCandidates + SetGroupChain and bridge/proxychains.go ProxyChainCandidates, plus
-/// bridge/inspect.go SaveSelection. The runtime config is built with NCRuntimeBuilder (#112) and the loop check
+/// the retired bridge + SetGroupChain and the retired bridge, plus
+/// the retired bridge. The runtime config is built with NCRuntimeBuilder (#112) and the loop check
 /// walks NCChainGraph (#112, the chain.go graph), so the candidate lists match what a connect would build.
 enum NCChainCandidates {
 
@@ -27,7 +27,7 @@ enum NCChainCandidates {
     }
 
     /// The runtime tree buildRuntime(readRuntimeProfile(…), o, 0) yields; an empty tree when the build fails
-    /// (Go ignores the error and unmarshals nothing).
+    /// (the old core ignores the error and unmarshals nothing).
     private static func runtimeTree(home: String, profilePath: String, req: NCRuntimeBuilder.Request) -> [String: NCJSONValue] {
         let profile = NCRuntimeFiles.readRuntimeProfile(home: home, path: profilePath, safe: false) ?? Data()
         guard let r = try? NCRuntimeBuilder.build(profile: profile, req: req, fd: 0) else { return [:] }
@@ -38,7 +38,7 @@ enum NCChainCandidates {
     /// "group") without forming a loop, and the current one.
     static func candidates(home: String, profilePath: String, kind: String, name: String) -> (current: String, candidates: [Candidate]) {
         var req = NCRuntimeBuilder.Request.load(home: home, profilePath: profilePath)
-        req.settings.home = "" // Go: o.home = "" — no custom rules (and the other home-gated steps, as in Go)
+        req.settings.home = "" // the old core: o.home = "" — no custom rules (and the other home-gated steps, as in the old core)
         var cur = ""
         if kind == "group" {
             cur = req.chains[name] ?? ""
@@ -79,7 +79,7 @@ enum NCChainCandidates {
         }
         let path = URL(fileURLWithPath: home).appendingPathComponent("groups.json").path
         return NCPathLock.shared.withLock(for: path) { () -> String in
-            // Unknown keys of groups.json and of each profile entry are kept (Go's struct dropped them).
+            // Unknown keys of groups.json and of each profile entry are kept (the old core's struct dropped them).
             var all: [String: Any] = [:]
             if let d = FileManager.default.contents(atPath: path),
                let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
@@ -127,7 +127,7 @@ enum NCChainCandidates {
     }
 }
 
-/// bridge/inspect.go selections: <profile>.selected.json next to the profile (group → node chosen in the app
+/// the retired bridge: <profile>.selected.json next to the profile (group → node chosen in the app
 /// while disconnected; applied by the core on the next connect).
 enum NCProfileSelections {
     /// bridge selectionsPath: the profile path without its extension + ".selected.json".

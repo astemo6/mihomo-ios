@@ -3,7 +3,7 @@ import CryptoKit
 import Security
 
 /// TLS 1.2 pieces for NCTLSClientStream's fallback path (feat/nc-proto, A8; based on astemo6/Muse NativeCore).
-/// Scope: ECDHE (X25519 / P-256 / P-384) with AES-128/256-GCM and ChaCha20-Poly1305 — what Go's crypto/tls
+/// Scope: ECDHE (X25519 / P-256 / P-384) with AES-128/256-GCM and ChaCha20-Poly1305 — what the old core's crypto/tls
 /// client offers by default for TLS 1.2 — extended master secret when the server echoes it, no renegotiation,
 /// no resumption, no client certificates (an empty Certificate answers a CertificateRequest).
 /// Direct TLS sockets keep using Network.framework (NCStream tls:) which negotiates 1.2 by itself; this path is

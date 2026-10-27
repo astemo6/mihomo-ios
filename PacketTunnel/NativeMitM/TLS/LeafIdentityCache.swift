@@ -1,5 +1,5 @@
-// Go-zero (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
-// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The Go-backed variant is gone with bridge/.
+// native-only (nc-integrate): one build of this file — the NativeCore tunnel; the app target compiles the same code
+// for its unit tests (tunnel-engine calls behind TERN_TUNNEL). The old-core variant is gone with the retired bridge
 // feat/s2-tls (native MitM stage 2, B7): per-host TLS server identities for the native front.
 //
 // In pure native mode, leaf certificates are issued locally in Swift via NCCAManager / LeafCertIssuer,
@@ -17,7 +17,7 @@ enum NativeTLSError: Error, Equatable {
     case importFailed(OSStatus)
     /// The loopback listener could not start (or the per-host listener budget is used up).
     case listenerFailed
-    /// The client's handshake failed; kind is what Go's pinning memory expects ("cert", "closed", "timeout", "cancelled").
+    /// The client's handshake failed; kind is what the old core's pinning memory expects ("cert", "closed", "timeout", "cancelled").
     case handshakeFailed(String)
 }
 

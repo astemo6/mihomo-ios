@@ -1,12 +1,12 @@
 import Foundation
 import CryptoKit
 
-/// VMess AEAD (alterId 0), ported from mihomo's sing-vmess client:
+/// VMess AEAD (alterId 0), ported from Clash.Meta's sing-vmess client:
 /// - cmdKey = MD5(uuid || "c48619fe-8f02-49e0-b9e9-edf763e17e21")
 /// - header sealed with AuthID + AES-GCM under nested-HMAC KDF keys
 /// - body: AEAD records of at most 15000 plaintext bytes, framed by a
 ///   SHAKE128-masked length, nonce = counter || nonce[2..<12]
-/// Randomness is injectable so unit tests can pin the Go library's vectors.
+/// Randomness is injectable so unit tests can pin the old core library's vectors.
 enum NCVMess {
     static let securityAESGCM: UInt8 = 3
     static let securityChaCha: UInt8 = 4
@@ -92,7 +92,7 @@ enum NCVMess {
         return out
     }
 
-    /// AES-128-GCM seal returning ciphertext||tag (Go's Seal layout).
+    /// AES-128-GCM seal returning ciphertext||tag (the old core's Seal layout).
     static func gcmSeal(key: Data, nonce: Data, plain: Data, aad: Data? = nil) -> Data? {
         guard let n = try? AES.GCM.Nonce(data: nonce) else { return nil }
         let box: AES.GCM.SealedBox

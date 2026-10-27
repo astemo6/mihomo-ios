@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-@testable import Mihomo
+@testable import Tern
 
 // v0.19.14: renders the Live Activity views (Shared/LiveActivityViews.swift) with ImageRenderer in every
 // shipped language, light and dark, with long node names, large Dynamic Type and the stale / disconnected
@@ -31,9 +31,9 @@ final class LiveActivityLayoutTests: XCTestCase {
     }
 
     private func state(node: String, connected: Bool = true, up: Int64 = 34_714, down: Int64 = 145_408, proxyOnly: Bool = false,
-                       totals: Bool = true, elapsed: TimeInterval = 166) -> MihomoActivityAttributes.ContentState {
+                       totals: Bool = true, elapsed: TimeInterval = 166) -> TernActivityAttributes.ContentState {
         let now = Date()
-        var s = MihomoActivityAttributes.ContentState(connected: connected, node: node, up: up, down: down, since: now.addingTimeInterval(-elapsed), updated: now.addingTimeInterval(-240))
+        var s = TernActivityAttributes.ContentState(connected: connected, node: node, up: up, down: down, since: now.addingTimeInterval(-elapsed), updated: now.addingTimeInterval(-240))
         s.proxyOnly = proxyOnly ? true : nil
         if totals { s.totalUp = 12_345_678; s.totalDown = 987_654_321 }
         return s
@@ -60,7 +60,7 @@ final class LiveActivityLayoutTests: XCTestCase {
     }
 
     /// The Lock Screen card on a wallpaper, like the device screenshot.
-    private func lockScene(_ s: MihomoActivityAttributes.ContentState, stale: Bool = false) -> some View {
+    private func lockScene(_ s: TernActivityAttributes.ContentState, stale: Bool = false) -> some View {
         LiveActivityLockContent(state: s, profile: "Tern", stale: stale)
             .frame(width: Self.cardWidth)
             .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(WidgetTheme.bg.opacity(0.85)))
@@ -69,7 +69,7 @@ final class LiveActivityLayoutTests: XCTestCase {
     }
 
     /// Expanded Dynamic Island mock (always dark, black).
-    private func islandScene(_ s: MihomoActivityAttributes.ContentState, stale: Bool = false) -> some View {
+    private func islandScene(_ s: TernActivityAttributes.ContentState, stale: Bool = false) -> some View {
         VStack(spacing: 10) {
             HStack(alignment: .center) {
                 LiveIslandLeading(state: s)
@@ -86,7 +86,7 @@ final class LiveActivityLayoutTests: XCTestCase {
     }
 
     /// Compact pill mock: ↑ left of the camera cut-out, ↓ right.
-    private func compactScene(_ s: MihomoActivityAttributes.ContentState) -> some View {
+    private func compactScene(_ s: TernActivityAttributes.ContentState) -> some View {
         HStack(spacing: 0) {
             LiveCompactSpeed(up: true, state: s).frame(width: 52, alignment: .leading)
             Spacer().frame(width: 126)

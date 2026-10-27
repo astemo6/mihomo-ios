@@ -3,7 +3,7 @@ import CryptoKit
 import Security
 
 /// TLS 1.3 (RFC 8446) key schedule and primitives, plus the REALITY client
-/// authentication math (aligned with mihomo component/tls/reality.go, which
+/// authentication math (aligned with Clash.Meta component/tls/reality.go, which
 /// itself follows XTLS/REALITY). Pure value logic — the record/handshake
 /// state machine lives in NCTLSClient.swift.
 enum NCTLS13 {
@@ -182,7 +182,7 @@ enum NCTLS13 {
         return sid
     }
 
-    /// Seal the session ID exactly as the Go client does: AES-256-GCM with
+    /// Seal the session ID exactly as the old core client does: AES-256-GCM with
     /// authKey, nonce = clientRandom[20..<32], AAD = the whole ClientHello
     /// handshake message with the session-ID field still zeroed.
     static func realitySealSessionID(authKey: Data, plain: Data, clientRandom: Data, aad: Data) -> Data? {
@@ -544,7 +544,7 @@ extension NCTLS13 {
             protocols.append(contentsOf: name)
         }
         // An empty ALPN list is illegal on the wire (RFC 7301 §3.1): no protocols → no extension
-        // (nc-tls-parity: vmess/vless over plain tcp offer none, like mihomo / the system TLS path).
+        // (nc-tls-parity: vmess/vless over plain tcp offer none, like Clash.Meta / the system TLS path).
         if !protocols.isEmpty {
             alpnData.appendBE16(UInt16(protocols.count))
             alpnData.append(protocols)
@@ -560,7 +560,7 @@ extension NCTLS13 {
         if tls13Only {
             ext(43, Data([0x02, 0x03, 0x04]))
         } else {
-            // supported_versions: u8 list length 4 = TLS 1.3, TLS 1.2. Was 0x03 (odd length) since 6bcf716: Go
+            // supported_versions: u8 list length 4 = TLS 1.3, TLS 1.2. Was 0x03 (odd length) since 6bcf716: the old core
             // crypto/tls answers decode_error (alert 50) — every non-ECH native-TLS hello was malformed. Fixed twice
             // independently (feat/nc-naive-h2h3 15a5f62, fix/nc-ech-rest b805b96); this is the single implementation.
             ext(43, Data([0x04, 0x03, 0x04, 0x03, 0x03]))

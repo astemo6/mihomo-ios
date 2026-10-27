@@ -3,7 +3,7 @@ import XCTest
 /// feat/home-analysis (Egern 分析 on 首页): 全部连接 / 活跃连接 → 网络 → 策略 → 规则 → 主机名 on Home, a floating +
 /// quick-add menu, and the empty state while the VPN is off. Demo data (-UITestDemoAnalytics) is a private synthetic
 /// ConnectionAnalytics (example.* hosts), never the live session.
-extension MihomoUITests {
+extension TernUITests {
 
     /// feat/egern-style (user 20:02): 策略 / 规则 / 主机名 are opt-in panels. Opens 添加首页卡片 and adds them.
     func addAnalysisPanels(_ cards: [String] = ["policies", "rules", "hosts"], shot: String? = nil) {

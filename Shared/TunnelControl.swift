@@ -66,7 +66,7 @@ enum VPNControl {
     /// process (launching it in the background), where ActivityKit may end the activity.
     @available(iOS 16.2, *)
     static func endLiveActivities() async {
-        for a in Activity<MihomoActivityAttributes>.activities {
+        for a in Activity<TernActivityAttributes>.activities {
             var s = a.content.state
             s.connected = false; s.up = 0; s.down = 0; s.updated = Date()
             await a.end(ActivityContent(state: s, staleDate: nil), dismissalPolicy: .immediate)
