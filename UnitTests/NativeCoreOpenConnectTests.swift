@@ -691,4 +691,50 @@ final class NativeCoreOpenConnectTests: XCTestCase {
         off["split-routes"] = .bool(false)
         XCTAssertEqual(NCOpenConnect.Config.parse(NCProxy(name: "b", type: "openconnect", fields: off)).0?.splitRoutes, false)
     }
+
+    // fix/nc-oc-dtls: DTLS 1.2 PSK client pieces.
+    func testTLS12PRFSHA256Vector() {
+        // Known-answer test for the TLS 1.2 PRF (HMAC-SHA256), published with RFC 5246 test vectors.
+        let secret = Data([0x9b, 0xbe, 0x43, 0x6b, 0xa9, 0x40, 0xf0, 0x17, 0xb1, 0x76, 0x52, 0x84, 0x9a, 0x71, 0xdb, 0x35])
+        let seed = Data([0xa0, 0xba, 0x9f, 0x93, 0x6c, 0xda, 0x31, 0x18, 0x27, 0xa6, 0xf7, 0x96, 0xff, 0xd5, 0x19, 0x8c])
+        let out = NCDTLS12PSK.prf256(secret, "test label", seed, 100)
+        XCTAssertEqual(out.count, 100)
+        XCTAssertEqual(out.prefix(16).map { String(format: "%02x", $0) }.joined(), "e3f229ba727be17b8d122620557cd453")
+    }
+
+    func testDTLSClientHelloCarriesAppID() {
+        let app = NCDTLS12PSK.hexBytes("0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9")!
+        XCTAssertEqual(app.count, 32)
+        XCTAssertNil(NCDTLS12PSK.hexBytes("zz"))
+        let c = NCDTLS12PSK(psk: Data(repeating: 7, count: 32), sessionID: app)
+        let flight = c.start()
+        XCTAssertEqual(flight.count, 1)
+        let r = [UInt8](flight[0])
+        XCTAssertEqual(r[0], 22)                  // handshake record
+        XCTAssertEqual(Array(r[1...2]), [0xFE, 0xFD]) // DTLS 1.2
+        XCTAssertEqual(r[13], 1)                  // ClientHello
+        // record(13) + handshake header(12) + version(2) + random(32) → session id length then the App-ID
+        XCTAssertEqual(Int(r[13 + 12 + 34]), 32)
+        XCTAssertEqual(Data(r[(13 + 12 + 35)..<(13 + 12 + 35 + 32)]), app)
+        XCTAssertEqual(c.retransmit(), flight)
+        XCTAssertNil(c.seal(Data([0])), "no application data before the handshake")
+        // A fatal alert fails the handshake.
+        var alert = Data([21, 0xFE, 0xFD, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2])
+        alert.append(contentsOf: [2, 40])
+        _ = c.receive(alert)
+        XCTAssertEqual(c.state, .failed("DTLS alert 40"))
+    }
+
+    func testDTLSParamsAndOptions() {
+        let p = NCOpenConnect.TunnelParameters.parse(headerList: [
+            ("X-DTLS-Port", "443"), ("X-DTLS-CipherSuite", "PSK-NEGOTIATE"), ("X-DTLS-App-ID", "abcd"),
+            ("X-DTLS-MTU", "1350"), ("X-DTLS-DPD", "20"),
+        ])
+        XCTAssertEqual(p.dtlsPort, 443)
+        XCTAssertEqual(p.dtlsMTU, 1350)
+        XCTAssertEqual(p.dtlsDPD, 20)
+        let base: [String: NCJSONValue] = ["server": .string("vpn.example.com"), "username": .string("u"),
+                                           "password": .string("p"), "dtls-port": .number(4443)]
+        XCTAssertEqual(NCOpenConnect.Config.parse(NCProxy(name: "d", type: "openconnect", fields: base)).0?.dtlsPort, 4443)
+    }
 }

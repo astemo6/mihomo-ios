@@ -17,11 +17,13 @@ final class NCOpenConnectLoopbackTests: XCTestCase {
     private let echoIP = "10.77.0.1"
     private let q = DispatchQueue(label: "oc.loopback.test")
 
-    private func node(password: String = "tern-pass", name: String = "oc-loop") -> NCProxy {
+    /// DTLS on by default: UDP 443 of the VM is forwarded to the same host port as TCP, so `dtls-port` points there.
+    private func node(password: String = "tern-pass", name: String = "oc-loop", dtls: Bool = true) -> NCProxy {
         NCProxy(name: name, type: "openconnect", fields: [
             "server": .string("127.0.0.1"), "port": .number(Double(port)),
             "username": .string("tern"), "password": .string(password),
             "skip-cert-verify": .bool(true), "sni": .string("ocserv.test"),
+            "dtls": .bool(dtls), "dtls-port": .number(Double(port)),
         ])
     }
 
@@ -33,7 +35,10 @@ final class NCOpenConnectLoopbackTests: XCTestCase {
     }
 
     override func tearDown() {
-        NCLwIP.queue.sync { NCOCStack.shared.teardownAll() }
+        NCLwIP.queue.sync {
+            NCOCStack.shared.teardownAll()
+            NCOCDevice.debugDTLSPortOverride = nil
+        }
         super.tearDown()
     }
 
@@ -126,10 +131,82 @@ final class NCOpenConnectLoopbackTests: XCTestCase {
         NSLog("[oc-loopback] 1 MiB echo in %.2f s; frames out %d in %d, tx dropped %d, max in flight %d",
               secs, NCLwIP.queue.sync { dev.framesOut }, NCLwIP.queue.sync { dev.framesIn },
               NCLwIP.queue.sync { dev.txDropped }, NCLwIP.queue.sync { dev.maxInFlightSeen })
-        // fix/nc-oc-dtls: several frames in flight (each its own TLS record — ocserv rejects coalesced frames, so a
-        // byte-exact echo also proves no record carried two frames). 1da28ca (one frame per write) took ≈2–3 s here.
+        NSLog("[oc-loopback] DTLS %@ out %d in %d", NCLwIP.queue.sync { dev.dtlsState },
+              NCLwIP.queue.sync { dev.dtlsPacketsOut }, NCLwIP.queue.sync { dev.dtlsPacketsIn })
+        XCTAssertLessThan(secs, 30)
+    }
+
+    /// fix/nc-oc-dtls: CSTP-only throughput with several frames in flight (each its own TLS record — ocserv rejects
+    /// coalesced frames, so a byte-exact echo also proves no record carried two frames). 1da28ca (one frame per
+    /// write) took 2.68 s for this echo (mirror run 40454139517).
+    func testCSTPPipelinedThroughput() throws {
+        let p = node(name: "oc-cstp", dtls: false)
+        let (s, err) = dial(p, echoIP, 9000)
+        let stream = try XCTUnwrap(s, "dial failed: \(String(describing: err))")
+        defer { stream.cancel() }
+        let dev = try XCTUnwrap(device(p))
+        let big = pattern(1 << 20, seed: 11)
+        let t0 = Date()
+        let back = echo(stream, big)
+        let secs = Date().timeIntervalSince(t0)
+        XCTAssertTrue(back == big, "1 MiB echo differs")
+        NSLog("[oc-loopback] CSTP-only 1 MiB echo in %.2f s; max in flight %d, frames out %d, tx dropped %d",
+              secs, NCLwIP.queue.sync { dev.maxInFlightSeen }, NCLwIP.queue.sync { dev.framesOut },
+              NCLwIP.queue.sync { dev.txDropped })
+        XCTAssertEqual(NCLwIP.queue.sync { dev.dtlsPacketsOut }, 0)
         XCTAssertGreaterThan(NCLwIP.queue.sync { dev.maxInFlightSeen }, 1, "uplink never pipelined")
         XCTAssertLessThan(secs, 30)
+    }
+
+    /// fix/nc-oc-dtls: the DTLS data channel (ocserv PSK-NEGOTIATE): handshake with the exporter PSK and the App-ID
+    /// session id, then IP packets both ways over DTLS, DTLS DPD answered.
+    func testDTLSDataChannel() throws {
+        let p = node(name: "oc-dtls")
+        let (s, err) = dial(p, echoIP, 9000)
+        let stream = try XCTUnwrap(s, "dial failed: \(String(describing: err))")
+        defer { stream.cancel() }
+        let dev = try XCTUnwrap(device(p))
+        NCLwIP.queue.sync {
+            NSLog("[oc-loopback] DTLS params port %@ suite %@ app-id %@ mtu %@", "\(dev.params?.dtlsPort ?? -1)",
+                  dev.params?.dtlsCipherSuite ?? "-", dev.params?.dtlsAppID ?? "-", "\(dev.params?.dtlsMTU ?? -1)")
+        }
+        waitUntil("DTLS up", timeout: 20) { dev.dtlsState == "up" }
+        NSLog("[oc-loopback] DTLS state %@", NCLwIP.queue.sync { dev.dtlsState })
+        let big = pattern(1 << 20, seed: 5)
+        let t0 = Date()
+        let back = echo(stream, big)
+        XCTAssertTrue(back == big, "1 MiB echo over DTLS differs")
+        NSLog("[oc-loopback] DTLS 1 MiB echo in %.2f s; dtls out %d in %d, cstp frames out %d",
+              Date().timeIntervalSince(t0), NCLwIP.queue.sync { dev.dtlsPacketsOut },
+              NCLwIP.queue.sync { dev.dtlsPacketsIn }, NCLwIP.queue.sync { dev.framesOut })
+        XCTAssertGreaterThan(NCLwIP.queue.sync { dev.dtlsPacketsOut }, 100)
+        XCTAssertGreaterThan(NCLwIP.queue.sync { dev.dtlsPacketsIn }, 100)
+        let before = NCLwIP.queue.sync { dev.debugDTLSDPDResponses }
+        NCLwIP.queue.sync { dev.debugDTLSDPD() }
+        waitUntil("DTLS DPD-RESP", timeout: 10) { dev.debugDTLSDPDResponses > before }
+        // DTLS dies mid-flow → the same lwIP flow continues over CSTP.
+        NCLwIP.queue.sync { dev.debugKillDTLS() }
+        XCTAssertTrue(NCLwIP.queue.sync { dev.dtlsState.hasPrefix("fallback") })
+        let after = pattern(100_000, seed: 6)
+        XCTAssertEqual(echo(stream, after), after, "flow did not continue over CSTP after DTLS died")
+    }
+
+    /// fix/nc-oc-dtls: UDP blocked (DTLS sent to a closed port) → handshake fails, CSTP carries everything.
+    func testDTLSBlockedFallsBackToCSTP() throws {
+        NCLwIP.queue.sync { NCOCDevice.debugDTLSPortOverride = 9 } // discard port, nothing listens
+        let p = node(name: "oc-dtls-blocked")
+        let (s, err) = dial(p, echoIP, 9000)
+        let stream = try XCTUnwrap(s, "dial failed: \(String(describing: err))")
+        defer { stream.cancel() }
+        let dev = try XCTUnwrap(device(p))
+        let first = pattern(50_000, seed: 2)
+        XCTAssertEqual(echo(stream, first), first, "CSTP must carry traffic while DTLS is attempted")
+        waitUntil("DTLS fallback", timeout: 20) { dev.dtlsState.hasPrefix("fallback") }
+        NSLog("[oc-loopback] blocked DTLS → %@", NCLwIP.queue.sync { dev.dtlsState })
+        XCTAssertEqual(NCLwIP.queue.sync { dev.dtlsUps }, 0)
+        let second = pattern(200_000, seed: 4)
+        XCTAssertEqual(echo(stream, second), second)
+        XCTAssertEqual(NCLwIP.queue.sync { dev.dtlsPacketsOut }, 0)
     }
 
     /// A domain target resolves through X-CSTP-DNS (dnsmasq behind ocserv), not the system resolver.

@@ -464,13 +464,10 @@ final class NCOpenConnectSession {
             return
         }
 
+        // fix/nc-oc-dtls: Network.framework cannot put X-DTLS-App-ID into the ClientHello session id, so the data
+        // plane (NCOCDevice, PacketTunnel) runs its own DTLS 1.2 PSK client (NCDTLS12PSK) next to CSTP and falls back
+        // to CSTP on its own when the handshake or the channel fails. The control session stays on CSTP.
         updateState(.attemptingDTLS(port: port))
-
-        // On Darwin / Network.framework, DTLS 1.2 PSK cannot bind arbitrary ClientHello.legacy_session_id
-        // (X-DTLS-App-ID) via public sec_protocol_options API. ocserv rejects UDP handshakes without matching
-        // App-ID in session ID. Therefore, Network.framework DTLS cannot fulfill the server's session correlation.
-        // As designed in S1 and ordered by dispatcher, fall back cleanly and explicitly to CSTP.
-        triggerDTLSFallback(reason: .platformUnsupported)
     }
 
     func triggerDTLSFallback(reason: NCOpenConnectFallbackReason) {

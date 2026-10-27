@@ -22,8 +22,8 @@ import Network
 // Liveness: DPD-REQ after X-CSTP-DPD seconds without inbound traffic, the channel is declared dead after 2×DPD;
 // KEEPALIVE after X-CSTP-Keepalive seconds without outbound traffic. A dead / closed channel reconnects with the
 // session cookie (same address → the netif and its lwIP flows survive), re-authenticating when the cookie expired;
-// backoff 0.5 s … 30 s, 6 attempts. DTLS is not used (Network.framework cannot put X-DTLS-App-ID into the DTLS
-// ClientHello session id; NCOpenConnectSession falls back to CSTP explicitly).
+// backoff 0.5 s … 30 s, 6 attempts. fix/nc-oc-dtls: DTLS (ocserv PSK-NEGOTIATE, pure-Swift NCDTLS12PSK) is attempted
+// next to CSTP after every CONNECT; uplink uses it once up, CSTP stays the fallback (NCOpenConnectDTLS.swift).
 //
 // Threading: NCLwIP.queue only (the session, its NCStreams and every nc_wg_* call). Auth / framing basis: astemo6's
 // PR #159 (feat/nc-openconnect).
@@ -108,6 +108,16 @@ final class NCOCDevice: NCLwIPDevice {
     private(set) var splitDirect = 0
     /// Most frames ever in flight at once (diagnostics + the throughput test).
     private(set) var maxInFlightSeen = 0
+    // DTLS (fix/nc-oc-dtls)
+    private(set) var dtls: NCOCDTLSChannel?
+    /// "off" / "handshaking" / "up" / "fallback: <why>" — diagnostics and the loopback test.
+    private(set) var dtlsState = "off"
+    private(set) var dtlsUps = 0
+    private(set) var dtlsFallbacks = 0
+    private(set) var dtlsPacketsOut = 0
+    private(set) var dtlsPacketsIn = 0
+    /// Test hook: DTLS goes to this UDP port instead (a closed / filtered port simulates blocked UDP).
+    static var debugDTLSPortOverride: Int?
 
     private var stream: NCStream?
     private var rx = Data()
@@ -227,6 +237,7 @@ final class NCOCDevice: NCLwIPDevice {
             + (reconnects > 0 ? ", reconnect #\(reconnects)" : ""))
         if !rx.isEmpty { consume(Data()) }
         if let s = stream { pump(s) }
+        startDTLS(t.stream, p)
         let w = waiters
         waiters = []
         w.forEach { $0(nil) }
@@ -235,6 +246,7 @@ final class NCOCDevice: NCLwIPDevice {
     /// The channel died (EOF, error, DPD timeout): drop it, keep the netif, reconnect while the device is in use.
     private func transportLost(_ why: String) {
         guard let s = stream else { return }
+        stopDTLS(nil)
         stream = nil
         ready = false
         s.cancel()
@@ -282,6 +294,7 @@ final class NCOCDevice: NCLwIPDevice {
             NCLwIP.queue.asyncAfter(deadline: .now() + 1) { s.cancel() }
         }
         stream = nil
+        stopDTLS(nil)
         session.cancel()
         clearTx()
         rx = Data()
@@ -406,6 +419,11 @@ final class NCOCDevice: NCLwIPDevice {
             txDropped += 1
             return
         }
+        if let c = dtls, c.phase == .up, pkt.count <= dtlsMTU, c.sendPacket(pkt) {
+            dtlsPacketsOut += 1
+            lastUse = Date()
+            return
+        }
         if txQueuedBytes + pkt.count > Self.txCap {
             txDropped += 1
             return
@@ -484,6 +502,7 @@ final class NCOCDevice: NCLwIPDevice {
         guard alive else { return }
         nc_wg_poll()
         let now = Date()
+        dtls?.tick(now)
         if let since = connectingSince, now.timeIntervalSince(since) > 30 {
             connectingSince = nil
             attempt += 1 // the hung attempt's late result is ignored
@@ -560,6 +579,69 @@ final class NCOCDevice: NCLwIPDevice {
     }
 
     fileprivate func noteSplitDirect() { splitDirect += 1 }
+
+    // MARK: DTLS
+
+    private var dtlsMTU = 0
+
+    private func startDTLS(_ tls: NCStream, _ p: NCOpenConnect.TunnelParameters) {
+        stopDTLS(nil)
+        guard cfg.dtls else { dtlsState = "off (dtls: false)"; return }
+        guard let port0 = p.dtlsPort, port0 > 0, p.dtlsCipherSuite?.contains("PSK-NEGOTIATE") == true,
+              let appHex = p.dtlsAppID, let app = NCDTLS12PSK.hexBytes(appHex) else {
+            dtlsState = "off (server did not offer PSK-NEGOTIATE)"
+            return
+        }
+        guard let psk = NCOCDTLSChannel.exportPSK(tls.conn) else {
+            dtlsState = "fallback: no TLS exporter"
+            dtlsFallbacks += 1
+            return
+        }
+        let port = Self.debugDTLSPortOverride ?? cfg.dtlsPort ?? port0
+        dtlsMTU = max(576, min(p.dtlsMTU ?? p.mtu, 4000))
+        let c = NCOCDTLSChannel(host: cfg.server, port: port, psk: psk, sessionID: app,
+                                dpd: p.dtlsDPD ?? p.dpd, keepalive: p.dtlsKeepalive ?? p.keepalive)
+        c.onData = { [weak self] pkt in
+            guard let self, self.devID != 0, !pkt.isEmpty else { return }
+            self.dtlsPacketsIn += 1
+            self.lastRx = Date()
+            pkt.withUnsafeBytes { raw in
+                if let b = raw.bindMemory(to: UInt8.self).baseAddress { nc_wg_input(self.devID, b, UInt32(raw.count)) }
+            }
+        }
+        c.onUp = { [weak self, weak c] in
+            guard let self, let c, self.dtls === c else { return }
+            self.dtlsUps += 1
+            self.dtlsState = "up"
+            StartupLog.write("openconnect: \(self.cfg.name) DTLS up (udp \(port), mtu \(self.dtlsMTU))")
+        }
+        c.onClosed = { [weak self, weak c] why in
+            guard let self, let c, self.dtls === c else { return }
+            self.dtls = nil
+            self.dtlsFallbacks += 1
+            self.dtlsState = "fallback: \(why)"
+            StartupLog.write("openconnect: \(self.cfg.name) DTLS closed (\(why)) — CSTP only")
+        }
+        dtls = c
+        dtlsState = "handshaking"
+        c.start()
+    }
+
+    /// Closes the DTLS channel without counting a fallback (CSTP lost / teardown).
+    private func stopDTLS(_ why: String?) {
+        guard let c = dtls else { return }
+        dtls = nil
+        c.onClosed = nil
+        c.close(why ?? "channel reset")
+        if dtlsState == "up" || dtlsState == "handshaking" { dtlsState = "off" }
+    }
+
+    /// Test hook: kills DTLS as if UDP stopped working (→ CSTP fallback for the live flows).
+    func debugKillDTLS() { dtls?.close("test: DTLS killed") }
+
+    /// Test hook: one DTLS DPD request.
+    func debugDTLSDPD() { dtls?.debugSendDPD() }
+    var debugDTLSDPDResponses: Int { dtls?.dpdResponses ?? 0 }
 
     // MARK: Test hooks (NCOpenConnectLoopbackTests)
 

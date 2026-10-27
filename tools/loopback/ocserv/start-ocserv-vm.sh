@@ -37,7 +37,7 @@ start)
   FW=$(firmware)
   nohup qemu-system-aarch64 -M virt -cpu max -smp "${OC_VM_CPUS:-2}" -m 1024 -accel tcg,thread=multi \
     -bios "$FW" -drive if=virtio,file="$W/run.qcow2" \
-    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${OC_PORT}-:443 -device virtio-net-pci,netdev=n0,romfile= \
+    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${OC_PORT}-:443,hostfwd=udp:127.0.0.1:${OC_PORT}-:443 -device virtio-net-pci,netdev=n0,romfile= \
     -smbios "type=1,serial=ds=nocloud;s=http://10.0.2.2:${SEED_PORT}/" \
     -display none -serial file:"$W/console.log" -monitor none > "$W/qemu.log" 2>&1 < /dev/null &
   echo $! > "$W/qemu.pid"

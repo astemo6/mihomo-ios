@@ -169,6 +169,7 @@ enum NCOpenConnect {
         var dtlsCipherSuite: String?
         var dtlsKeepalive: Int?
         var dtlsDPD: Int?
+        var dtlsMTU: Int?
 
         static func parse(headers: [String: String]) -> TunnelParameters {
             parse(headerList: headers.sorted { $0.key < $1.key }.map { ($0.key, $0.value) })
@@ -198,6 +199,7 @@ enum NCOpenConnect {
                 case "x-dtls-ciphersuite": params.dtlsCipherSuite = val
                 case "x-dtls-keepalive": if let n = Int(val) { params.dtlsKeepalive = n }
                 case "x-dtls-dpd": if let n = Int(val) { params.dtlsDPD = n }
+                case "x-dtls-mtu": if let n = Int(val) { params.dtlsMTU = n }
                 default: break
                 }
             }
@@ -471,6 +473,8 @@ enum NCOpenConnect {
         /// fix/nc-oc-dtls: honour the server's X-CSTP-Split-Include / -Exclude (default on; `split-routes: false`
         /// sends every flow of this node through the tunnel).
         var splitRoutes: Bool = true
+        /// fix/nc-oc-dtls: UDP port for DTLS instead of X-DTLS-Port (servers behind a port-mapping NAT).
+        var dtlsPort: Int?
         let mtu: Int
         let userAgent: String
         let localHostname: String?
@@ -517,6 +521,7 @@ enum NCOpenConnect {
             )
             var c = cfg
             c.splitRoutes = f["split-routes"]?.bool ?? true
+            c.dtlsPort = f["dtls-port"]?.int.flatMap { (1...65535).contains($0) ? $0 : nil }
             return (c, nil)
         }
     }
