@@ -2,7 +2,11 @@ import Foundation
 import Network
 import Security
 
-/// OpenConnect connection session and data pump (CSTP over TLS/TCP + DTLS 1.2 over UDP fallback).
+/// OpenConnect control plane: HTTPS auth (XML / form) and the CSTP `CONNECT /CSCOSSLC/tunnel` upgrade. The
+/// upgraded TLS stream carries IP packets, so the data plane is a lwIP netif inside the packet tunnel
+/// (PacketTunnel/NativeCore/NCOpenConnectNetif.swift, fix/nc-openconnect-dp); this file only hands it the stream,
+/// the tunnel parameters (X-CSTP-Address / -MTU / -DNS …) and any bytes read past the response header.
+/// Auth state machine and framing from astemo6's PR #159 (feat/nc-openconnect).
 ///
 /// Design note: docs/nc-proto-openconnect.md.
 /// References:
@@ -72,15 +76,24 @@ enum NCOpenConnectError: LocalizedError, Equatable {
 
 // MARK: - Session
 
+/// An established CSTP channel: the TLS stream (CSTP frames from here on), the server's tunnel parameters and the
+/// bytes that arrived right behind the CONNECT response header (already CSTP frames).
+struct NCOpenConnectTunnel {
+    let stream: NCStream
+    let params: NCOpenConnect.TunnelParameters
+    let leftover: Data
+}
+
 final class NCOpenConnectSession {
     let config: NCOpenConnect.Config
-    let target: NCTarget
     let queue: DispatchQueue
 
     private(set) var channelState: NCOpenConnectChannelState = .disconnected
     private(set) var activeMode: NCOpenConnectMode = .cstp
     private(set) var dtlsFallbackReason: NCOpenConnectFallbackReason?
     var tunnelParams: NCOpenConnect.TunnelParameters?
+    /// The session cookie (webvpn). Kept for reconnects: ocserv / ASA accept a fresh CONNECT with it until the
+    /// server's cookie timeout, and hand back the same address, so lwIP flows survive a dropped TCP channel.
     private(set) var webvpnCookie: String?
 
     var onStateChange: ((NCOpenConnectChannelState) -> Void)?
@@ -88,32 +101,77 @@ final class NCOpenConnectSession {
     private var accumulatedCookies: [String: String] = [:]
     private var authStream: NCStream?
     private var cstpStream: NCStream?
-    private var relayStream: NCOpenConnectRelayStream?
     private var isClosed = false
+    /// Bumped by cancel() and every start/reconnect: a late callback of an abandoned attempt is dropped.
+    private var generation = 0
 
-    init(config: NCOpenConnect.Config, target: NCTarget, queue: DispatchQueue) {
+    init(config: NCOpenConnect.Config, target: NCTarget? = nil, queue: DispatchQueue) {
         self.config = config
-        self.target = target
         self.queue = queue
     }
 
-    /// Starts connection: authenticates if necessary, upgrades to CSTP, initiates DTLS evaluation.
-    func start(completion: @escaping (NCRelayStream?, Error?) -> Void) {
+    /// Authenticates (unless a cookie is configured) and upgrades to CSTP. Completion on `queue`, exactly once.
+    func start(completion: @escaping (Result<NCOpenConnectTunnel, Error>) -> Void) {
         queue.async {
+            self.isClosed = false
+            self.generation += 1
+            let gen = self.generation
+            let done = self.once(gen, completion)
             if let preCookie = self.config.cookie, !preCookie.isEmpty {
-                // If user provided a raw cookie or webvpn token, skip auth state machine
-                let val = preCookie.contains("=") ? preCookie.components(separatedBy: "=").dropFirst().joined(separator: "=") : preCookie
-                self.webvpnCookie = val.trimmingCharacters(in: .whitespaces)
-                self.startCSTPTunnel(completion: completion)
+                self.webvpnCookie = NCOpenConnect.cookieValue(preCookie)
+                self.startCSTPTunnel(gen: gen, completion: done)
             } else {
-                self.startAuth(completion: completion)
+                self.startAuth(gen: gen, completion: done)
             }
+        }
+    }
+
+    /// A new CSTP channel for the same session (dead TCP / DPD timeout). Tries the kept cookie first; when the
+    /// server refuses it (expired) and credentials exist, authenticates again. Completion on `queue`, exactly once.
+    func reconnect(completion: @escaping (Result<NCOpenConnectTunnel, Error>) -> Void) {
+        queue.async {
+            self.isClosed = false
+            self.generation += 1
+            let gen = self.generation
+            let done = self.once(gen, completion)
+            self.cstpStream?.cancel()
+            self.cstpStream = nil
+            guard self.webvpnCookie != nil else { self.startAuth(gen: gen, completion: done); return }
+            self.startCSTPTunnel(gen: gen) { [weak self] r in
+                guard let self else { return }
+                if case .failure(let e) = r, case NCOpenConnectError.tunnelUpgradeFailed(let why) = e,
+                   why.contains("401") || why.contains("403"),
+                   self.config.cookie == nil || self.config.cookie?.isEmpty == true,
+                   let u = self.config.username, !u.isEmpty, self.config.password != nil {
+                    self.webvpnCookie = nil
+                    self.accumulatedCookies.removeAll()
+                    self.startAuth(gen: gen, completion: done)
+                    return
+                }
+                done(r)
+            }
+        }
+    }
+
+    /// Exactly-once, generation-checked completion (an attempt abandoned by cancel / a newer attempt never reports).
+    private func once(_ gen: Int, _ completion: @escaping (Result<NCOpenConnectTunnel, Error>) -> Void)
+        -> (Result<NCOpenConnectTunnel, Error>) -> Void {
+        var fired = false
+        return { [weak self] r in
+            guard !fired else { return }
+            fired = true
+            guard let self, !self.isClosed, self.generation == gen else {
+                if case .success(let t) = r { t.stream.cancel() }
+                completion(.failure(NCOpenConnectError.cancelled))
+                return
+            }
+            completion(r)
         }
     }
 
     // MARK: - HTTPS Authentication State Machine
 
-    private func startAuth(completion: @escaping (NCRelayStream?, Error?) -> Void) {
+    private func startAuth(gen: Int, completion: @escaping (Result<NCOpenConnectTunnel, Error>) -> Void) {
         updateState(.authenticating)
         let stream = NCStream(to: config.server, port: config.port,
                               tlsServerName: config.sni,
@@ -122,47 +180,56 @@ final class NCOpenConnectSession {
         self.authStream = stream
 
         stream.start { [weak self] err in
-            guard let self = self else { return }
+            guard let self = self, self.generation == gen else { stream.cancel(); return }
             if let err = err {
-                completion(nil, NCOpenConnectError.connectionFailed(err.localizedDescription))
+                completion(.failure(NCOpenConnectError.connectionFailed(err.localizedDescription)))
                 return
             }
             // Send initial XML request
             let initXML = NCOpenConnect.buildInitXML()
             let req = [
                 "POST / HTTP/1.1",
-                "Host: \(self.config.server):\(self.config.port)",
+                "Host: \(self.hostHeader)",
                 "User-Agent: \(self.config.userAgent)",
                 "Accept: */*",
                 "Accept-Encoding: identity",
                 "X-Transcend-Version: 1",
+                "X-Aggregate-Auth: 1",
                 "Content-Type: text/xml; charset=utf-8",
                 "Content-Length: \(initXML.utf8.count)",
                 "",
                 initXML
             ].joined(separator: "\r\n")
 
-            stream.send(Data(req.utf8)) {
-                self.readAuthStep(stream: stream, rxBuffer: Data(), round: 1, completion: completion)
-            }
+            stream.send(Data(req.utf8))
+            self.readAuthStep(stream: stream, rxBuffer: Data(), round: 1, gen: gen, completion: completion)
         }
     }
 
-    private func readAuthStep(stream: NCStream, rxBuffer: Data = Data(), round: Int,
-                              completion: @escaping (NCRelayStream?, Error?) -> Void) {
+    private var hostHeader: String {
+        let h = config.server.contains(":") && !config.server.hasPrefix("[") ? "[\(config.server)]" : config.server
+        return config.port == 443 ? h : "\(h):\(config.port)"
+    }
+
+    private func readAuthStep(stream: NCStream, rxBuffer: Data = Data(), round: Int, gen: Int,
+                              completion: @escaping (Result<NCOpenConnectTunnel, Error>) -> Void) {
         guard round <= 6 else {
-            completion(nil, NCOpenConnectError.authenticationFailed("认证交互轮数超过上限 (6)"))
+            completion(.failure(NCOpenConnectError.authenticationFailed("认证交互轮数超过上限 (6)")))
+            return
+        }
+        guard rxBuffer.count < 256 * 1024 else {
+            completion(.failure(NCOpenConnectError.authenticationFailed("认证响应过大")))
             return
         }
 
         stream.receive { [weak self] chunk, err in
-            guard let self = self else { return }
+            guard let self = self, self.generation == gen else { return }
             if let err = err {
-                completion(nil, NCOpenConnectError.authenticationFailed("网络中断: \(err.localizedDescription)"))
+                completion(.failure(NCOpenConnectError.authenticationFailed("网络中断: \(err.localizedDescription)")))
                 return
             }
             guard let chunk = chunk, !chunk.isEmpty else {
-                completion(nil, NCOpenConnectError.authenticationFailed("服务端过早关闭连接"))
+                completion(.failure(NCOpenConnectError.authenticationFailed("服务端过早关闭连接")))
                 return
             }
 
@@ -171,16 +238,17 @@ final class NCOpenConnectSession {
 
             if let (msg, consumed) = NCOpenConnect.HTTPMessage.parse(data: localBuffer) {
                 let rest = Data(localBuffer.dropFirst(consumed))
-                self.handleAuthResponse(msg: msg, stream: stream, remainingData: rest, round: round, completion: completion)
+                self.handleAuthResponse(msg: msg, stream: stream, remainingData: rest, round: round, gen: gen,
+                                        completion: completion)
             } else {
                 // Wait for more HTTP data
-                self.readAuthStep(stream: stream, rxBuffer: localBuffer, round: round, completion: completion)
+                self.readAuthStep(stream: stream, rxBuffer: localBuffer, round: round, gen: gen, completion: completion)
             }
         }
     }
 
     private func handleAuthResponse(msg: NCOpenConnect.HTTPMessage, stream: NCStream, remainingData: Data, round: Int,
-                                    completion: @escaping (NCRelayStream?, Error?) -> Void) {
+                                    gen: Int, completion: @escaping (Result<NCOpenConnectTunnel, Error>) -> Void) {
         // Collect cookies
         for (k, v) in msg.cookies {
             accumulatedCookies[k] = v
@@ -196,17 +264,23 @@ final class NCOpenConnectSession {
             // Authentication successful!
             stream.cancel()
             self.authStream = nil
-            self.startCSTPTunnel(completion: completion)
+            self.startCSTPTunnel(gen: gen, completion: completion)
             return
         }
 
         if msg.statusCode == 401 || authResp?.type == .error {
             let desc = authResp?.message ?? authResp?.error ?? "HTTP \(msg.statusCode) 凭据错误"
-            completion(nil, NCOpenConnectError.authenticationFailed(desc))
+            completion(.failure(NCOpenConnectError.authenticationFailed(desc)))
             return
         }
 
         if let authResp = authResp, authResp.type == .authRequest {
+            // A second form after the password (OTP, new-password, …) cannot be answered from a static node.
+            if round > 1, authResp.inputs["password"] != nil || authResp.inputs.isEmpty {
+                let desc = authResp.error ?? authResp.message ?? "服务端再次要求输入凭据"
+                completion(.failure(NCOpenConnectError.authenticationFailed(desc)))
+                return
+            }
             // Build reply
             let action = authResp.formAction ?? "/auth"
             let targetPath = action.hasPrefix("/") ? action : "/\(action)"
@@ -224,14 +298,16 @@ final class NCOpenConnectSession {
 
             let formBody = NCOpenConnect.buildFormURLEncoded(fields: postFields)
             var cookieList: [String] = []
-            for (ck, cv) in accumulatedCookies { cookieList.append("\(ck)=\(cv)") }
+            for (ck, cv) in accumulatedCookies.sorted(by: { $0.key < $1.key }) { cookieList.append("\(ck)=\(cv)") }
             let cookieHeader = cookieList.joined(separator: "; ")
 
             var reqLines = [
                 "POST \(targetPath) HTTP/1.1",
-                "Host: \(config.server):\(config.port)",
+                "Host: \(hostHeader)",
                 "User-Agent: \(config.userAgent)",
                 "Accept: */*",
+                "X-Transcend-Version: 1",
+                "X-Aggregate-Auth: 1",
                 "Content-Type: application/x-www-form-urlencoded",
                 "Content-Length: \(formBody.utf8.count)"
             ]
@@ -242,21 +318,20 @@ final class NCOpenConnectSession {
             reqLines.append(formBody)
 
             let wireReq = reqLines.joined(separator: "\r\n")
-            stream.send(Data(wireReq.utf8)) {
-                self.readAuthStep(stream: stream, rxBuffer: remainingData, round: round + 1, completion: completion)
-            }
+            stream.send(Data(wireReq.utf8))
+            self.readAuthStep(stream: stream, rxBuffer: remainingData, round: round + 1, gen: gen, completion: completion)
             return
         }
 
         // Unknown or empty response
-        completion(nil, NCOpenConnectError.authenticationFailed("无法识别的认证响应: \(bodyStr.prefix(200))"))
+        completion(.failure(NCOpenConnectError.authenticationFailed("无法识别的认证响应: \(bodyStr.prefix(200))")))
     }
 
     // MARK: - CSTP Tunnel Upgrade
 
-    private func startCSTPTunnel(completion: @escaping (NCRelayStream?, Error?) -> Void) {
+    private func startCSTPTunnel(gen: Int, completion: @escaping (Result<NCOpenConnectTunnel, Error>) -> Void) {
         guard let cookie = self.webvpnCookie, !cookie.isEmpty else {
-            completion(nil, NCOpenConnectError.authenticationFailed("缺少 webvpn 会话令牌"))
+            completion(.failure(NCOpenConnectError.authenticationFailed("缺少 webvpn 会话令牌")))
             return
         }
 
@@ -268,93 +343,98 @@ final class NCOpenConnectSession {
         self.cstpStream = stream
 
         stream.start { [weak self] err in
-            guard let self = self else { return }
+            guard let self = self, self.generation == gen else { stream.cancel(); return }
             if let err = err {
-                completion(nil, NCOpenConnectError.tunnelUpgradeFailed(err.localizedDescription))
+                completion(.failure(NCOpenConnectError.tunnelUpgradeFailed(err.localizedDescription)))
                 return
             }
 
-            let connectReq = [
+            var lines = [
                 "CONNECT /CSCOSSLC/tunnel HTTP/1.1",
-                "Host: \(self.config.server):\(self.config.port)",
+                "Host: \(self.hostHeader)",
                 "User-Agent: \(self.config.userAgent)",
                 "Cookie: webvpn=\(cookie)",
                 "X-CSTP-Version: 1",
                 "X-CSTP-Hostname: \(self.config.localHostname ?? "localhost")",
                 "X-CSTP-Base-MTU: \(NCOpenConnect.defaultBaseMTU)",
                 "X-CSTP-MTU: \(self.config.mtu)",
-                "X-CSTP-Address-Type: IPv4,IPv6",
-                "X-DTLS-CipherSuite: PSK-NEGOTIATE",
-                "",
-                ""
-            ].joined(separator: "\r\n")
-
-            stream.send(Data(connectReq.utf8)) {
-                self.readTunnelResponse(stream: stream, completion: completion)
-            }
+                "X-CSTP-Address-Type: IPv6,IPv4",
+                "X-CSTP-Full-IPv6-Capability: true",
+            ]
+            // Only offer DTLS when the node allows it; the data plane runs over CSTP either way (fallback below).
+            if self.config.dtls { lines.append("X-DTLS-CipherSuite: PSK-NEGOTIATE") }
+            lines += ["", ""]
+            stream.send(Data(lines.joined(separator: "\r\n").utf8))
+            self.readTunnelResponse(stream: stream, gen: gen, completion: completion)
         }
     }
 
-    private func readTunnelResponse(stream: NCStream, rxBuffer: Data = Data(), completion: @escaping (NCRelayStream?, Error?) -> Void) {
+    private func readTunnelResponse(stream: NCStream, rxBuffer: Data = Data(), gen: Int,
+                                    completion: @escaping (Result<NCOpenConnectTunnel, Error>) -> Void) {
         stream.receive { [weak self] chunk, err in
-            guard let self = self else { return }
+            guard let self = self, self.generation == gen else { return }
             if let err = err {
-                completion(nil, NCOpenConnectError.tunnelUpgradeFailed(err.localizedDescription))
+                completion(.failure(NCOpenConnectError.tunnelUpgradeFailed(err.localizedDescription)))
                 return
             }
             guard let chunk = chunk, !chunk.isEmpty else {
-                completion(nil, NCOpenConnectError.tunnelUpgradeFailed("服务端未响应 CONNECT 请求"))
+                completion(.failure(NCOpenConnectError.tunnelUpgradeFailed("服务端未响应 CONNECT 请求")))
                 return
             }
 
             var current = rxBuffer
             current.append(chunk)
+            guard current.count < 64 * 1024 else {
+                completion(.failure(NCOpenConnectError.tunnelUpgradeFailed("CONNECT 响应头过大")))
+                return
+            }
 
             let crlf2 = Data([0x0d, 0x0a, 0x0d, 0x0a])
-            if let r = current.range(of: crlf2) {
-                let headerBytes = current.subdata(in: current.startIndex..<r.lowerBound)
-                let rest = Data(current.subdata(in: r.upperBound..<current.endIndex))
-
-                guard let headerStr = String(data: headerBytes, encoding: .utf8) ?? String(data: headerBytes, encoding: .isoLatin1) else {
-                    completion(nil, NCOpenConnectError.tunnelUpgradeFailed("无法解析响应头"))
-                    return
-                }
-
-                let lines = headerStr.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                guard let statusLine = lines.first else {
-                    completion(nil, NCOpenConnectError.tunnelUpgradeFailed("缺少状态行"))
-                    return
-                }
-
-                let is200 = statusLine.contains("200")
-                guard is200 else {
-                    completion(nil, NCOpenConnectError.tunnelUpgradeFailed("HTTP 协商被拒: \(statusLine)"))
-                    return
-                }
-
-                var headers: [String: String] = [:]
-                for line in lines.dropFirst() {
-                    guard let idx = line.firstIndex(of: ":") else { continue }
-                    let k = line[..<idx].trimmingCharacters(in: .whitespaces)
-                    let v = line[line.index(after: idx)...].trimmingCharacters(in: .whitespaces)
-                    headers[k] = v
-                }
-
-                self.tunnelParams = NCOpenConnect.TunnelParameters.parse(headers: headers)
-                self.updateState(.cstpActive)
-                self.activeMode = .cstp
-
-                // Construct relay stream
-                let relay = NCOpenConnectRelayStream(session: self, cstpStream: stream, initialData: rest, queue: self.queue)
-                self.relayStream = relay
-
-                // Evaluate DTLS 1.2 Channel & Fallback
-                self.evaluateDTLSChannel()
-
-                completion(relay, nil)
-            } else {
-                self.readTunnelResponse(stream: stream, rxBuffer: current, completion: completion)
+            guard let r = current.range(of: crlf2) else {
+                self.readTunnelResponse(stream: stream, rxBuffer: current, gen: gen, completion: completion)
+                return
             }
+            let headerBytes = current.subdata(in: current.startIndex..<r.lowerBound)
+            let rest = Data(current.subdata(in: r.upperBound..<current.endIndex))
+
+            guard let headerStr = String(data: headerBytes, encoding: .utf8) ?? String(data: headerBytes, encoding: .isoLatin1) else {
+                completion(.failure(NCOpenConnectError.tunnelUpgradeFailed("无法解析响应头")))
+                return
+            }
+
+            let lines = headerStr.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            guard let statusLine = lines.first else {
+                completion(.failure(NCOpenConnectError.tunnelUpgradeFailed("缺少状态行")))
+                return
+            }
+            let parts = statusLine.split(separator: " ", maxSplits: 2)
+            guard parts.count >= 2, parts[1] == "200" else {
+                completion(.failure(NCOpenConnectError.tunnelUpgradeFailed("HTTP 协商被拒: \(statusLine)")))
+                return
+            }
+
+            // Repeated headers (X-CSTP-DNS, X-CSTP-Split-Include, …) are kept in order.
+            var headers: [(String, String)] = []
+            for line in lines.dropFirst() {
+                guard let idx = line.firstIndex(of: ":") else { continue }
+                let k = line[..<idx].trimmingCharacters(in: .whitespaces)
+                let v = line[line.index(after: idx)...].trimmingCharacters(in: .whitespaces)
+                headers.append((k, v))
+            }
+
+            let params = NCOpenConnect.TunnelParameters.parse(headerList: headers)
+            guard params.assignedIPv4 != nil || params.assignedIPv6 != nil else {
+                completion(.failure(NCOpenConnectError.tunnelUpgradeFailed("服务端未分配隧道地址 (X-CSTP-Address)")))
+                return
+            }
+            self.tunnelParams = params
+            self.updateState(.cstpActive)
+            self.activeMode = .cstp
+
+            // DTLS 1.2 channel evaluation (falls back to CSTP explicitly; see evaluateDTLSChannel).
+            self.evaluateDTLSChannel()
+
+            completion(.success(NCOpenConnectTunnel(stream: stream, params: params, leftover: rest)))
         }
     }
 
@@ -386,12 +466,6 @@ final class NCOpenConnectSession {
 
         updateState(.attemptingDTLS(port: port))
 
-        // Check TLS exporter (RFC 5705)
-        guard exportDTLSPSK() != nil else {
-            triggerDTLSFallback(reason: .keyExporterUnavailable)
-            return
-        }
-
         // On Darwin / Network.framework, DTLS 1.2 PSK cannot bind arbitrary ClientHello.legacy_session_id
         // (X-DTLS-App-ID) via public sec_protocol_options API. ocserv rejects UDP handshakes without matching
         // App-ID in session ID. Therefore, Network.framework DTLS cannot fulfill the server's session correlation.
@@ -399,36 +473,10 @@ final class NCOpenConnectSession {
         triggerDTLSFallback(reason: .platformUnsupported)
     }
 
-    private func exportDTLSPSK() -> Data? {
-        guard let stream = cstpStream else { return nil }
-        guard let md = stream.conn.metadata(definition: NWProtocolTLS.definition) as? NWProtocolTLS.Metadata else {
-            return nil
-        }
-        let sec = md.securityProtocolMetadata
-        let label = Array(NCOpenConnect.dtlsExporterLabel.utf8.map { CChar(bitPattern: $0) })
-        let emptyCtx: [UInt8] = []
-        let secret = label.withUnsafeBufferPointer { lp in
-            emptyCtx.withUnsafeBufferPointer { cp in
-                sec_protocol_metadata_create_secret_with_context(
-                    sec,
-                    lp.count,
-                    lp.baseAddress ?? UnsafePointer<CChar>(bitPattern: 1)!,
-                    0,
-                    cp.baseAddress ?? UnsafePointer<UInt8>(bitPattern: 1)!,
-                    32
-                )
-            }
-        }
-        guard let secret else { return nil }
-        let out = Data(referencing: (secret as AnyObject) as! NSData)
-        return out.count == 32 ? out : nil
-    }
-
     func triggerDTLSFallback(reason: NCOpenConnectFallbackReason) {
         self.dtlsFallbackReason = reason
         self.activeMode = .cstp
         updateState(.dtlsFallbackToCSTP(reason: reason))
-        NSLog("[openconnect] DTLS channel unavailable (\(reason.rawValue)), falling back to CSTP TCP")
     }
 
     private func updateState(_ state: NCOpenConnectChannelState) {
@@ -439,132 +487,16 @@ final class NCOpenConnectSession {
     func cancel() {
         guard !isClosed else { return }
         isClosed = true
+        generation += 1
         updateState(.closed)
         authStream?.cancel()
         authStream = nil
         cstpStream?.cancel()
         cstpStream = nil
-        relayStream = nil
-    }
-}
-
-// MARK: - CSTP Relay Stream (NCRelayStream conformer)
-
-final class NCOpenConnectRelayStream: NCRelayStream {
-    weak var session: NCOpenConnectSession?
-    let cstpStream: NCStream
-    let queue: DispatchQueue
-
-    private var rxBuffer: Data
-    private var receiveHandler: ((Data?, Error?) -> Void)?
-    private var isCancelled = false
-    private var isPumping = false
-
-    init(session: NCOpenConnectSession, cstpStream: NCStream, initialData: Data, queue: DispatchQueue) {
-        self.session = session
-        self.cstpStream = cstpStream
-        self.rxBuffer = initialData
-        self.queue = queue
     }
 
-    func send(_ data: Data, completion: @escaping () -> Void) {
-        let once = NCCallOnce(completion)
-        guard !isCancelled else {
-            once.call()
-            return
-        }
-
-        // `data` is one IP packet (the future netif's output); always framed, never passed through raw.
-        let wire = NCOpenConnect.encodeCSTP(type: .data, payload: data)
-
-        cstpStream.send(wire, completion: once.call)
-    }
-
-    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
-        self.receiveHandler = handler
-        drainBufferedFrames()
-        if !isPumping {
-            isPumping = true
-            pumpReceive()
-        }
-    }
-
-    private func pumpReceive() {
-        guard !isCancelled else { return }
-
-        cstpStream.receive { [weak self] chunk, err in
-            guard let self = self else { return }
-            if let err = err {
-                self.receiveHandler?(nil, err)
-                return
-            }
-            guard let chunk = chunk, !chunk.isEmpty else {
-                self.receiveHandler?(nil, nil)
-                return
-            }
-
-            self.rxBuffer.append(chunk)
-            self.drainBufferedFrames()
-
-            if !self.isCancelled {
-                self.pumpReceive()
-            }
-        }
-    }
-
-    private func drainBufferedFrames() {
-        while !rxBuffer.isEmpty {
-            if rxBuffer.count >= NCOpenConnect.cstpHeaderSize {
-                let start = rxBuffer.startIndex
-                if rxBuffer[start] != NCOpenConnect.cstpMagic[0] ||
-                   rxBuffer[start + 1] != NCOpenConnect.cstpMagic[1] ||
-                   rxBuffer[start + 2] != NCOpenConnect.cstpMagic[2] ||
-                   rxBuffer[start + 3] != NCOpenConnect.cstpMagic[3] {
-                    receiveHandler?(nil, NCOpenConnectError.protocolError("CSTP 报文魔数不匹配"))
-                    cancel()
-                    return
-                }
-            }
-            guard let (type, payload, consumed) = NCOpenConnect.decodeCSTP(rxBuffer) else {
-                // A complete frame of a type we do not handle (e.g. 0x08 compressed): skip it, do not stall.
-                if let skip = NCOpenConnect.completeFrameLength(rxBuffer) {
-                    rxBuffer.removeSubrange(rxBuffer.startIndex..<(rxBuffer.startIndex + skip))
-                    continue
-                }
-                break
-            }
-            rxBuffer = Data(rxBuffer.dropFirst(consumed))
-
-            switch type {
-            case .data:
-                receiveHandler?(payload, nil)
-            case .dpdResp:
-                break
-            case .dpdReq:
-                // Server sent DPD probe: reply with DPD-RESP
-                let resp = NCOpenConnect.encodeCSTP(type: .dpdResp, payload: payload)
-                cstpStream.send(resp, completion: {})
-            case .keepalive:
-                // Reply with Keepalive
-                let resp = NCOpenConnect.encodeCSTP(type: .keepalive)
-                cstpStream.send(resp, completion: {})
-            case .disconnect, .terminate:
-                receiveHandler?(nil, NCOpenConnectError.protocolError("服务端终止了 CSTP 会话"))
-                cancel()
-                return
-            default:
-                break
-            }
-        }
-    }
-
-    func cancel() {
-        guard !isCancelled else { return }
-        isCancelled = true
-        let disc = NCOpenConnect.encodeCSTP(type: .disconnect, payload: Data([0xb0]))
-        cstpStream.send(disc) { [weak self] in
-            self?.cstpStream.cancel()
-            self?.session?.cancel()
-        }
+    /// The CSTP stream now belongs to the data plane (it cancels it); the session forgets it.
+    func releaseTunnelStream() {
+        cstpStream = nil
     }
 }

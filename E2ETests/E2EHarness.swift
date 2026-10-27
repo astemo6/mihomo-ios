@@ -25,6 +25,7 @@ enum E2EHarness {
         NCOutboundBinding.start(includeAllNetworks: false)
         NCConnector.installWireGuardDialer()
         NCConnector.installTailscaleDialer()
+        NCConnector.installOpenConnectDialer()
     }
 
     static func freePort() -> Int {

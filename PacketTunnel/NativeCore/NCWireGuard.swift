@@ -22,6 +22,86 @@ enum NCLwIP {
     static let queue = DispatchQueue(label: "nc.dataplane", qos: .userInitiated)
 }
 
+/// fix/nc-openconnect-dp: one extra lwIP netif (nc_wg.c) whatever carries its IP packets — WireGuard peers
+/// (NCWGDevice) or an OpenConnect CSTP channel (NCOCDevice, NCOpenConnectNetif.swift). NCWGTCPStream and
+/// NCUDPWireGuardSession only need this much, so both protocols share them (and the C bridge). NCLwIP.queue only.
+protocol NCLwIPDevice: AnyObject {
+    var devID: Int32 { get }
+    var alive: Bool { get }
+    var has4: Bool { get }
+    var has6: Bool { get }
+    var lastUse: Date { get set }
+    func retain()
+    func release()
+    /// Name -> addresses for flows from this netif; `done` on NCLwIP.queue.
+    func resolve(_ host: String, _ done: @escaping ([NCIP]) -> Void)
+    /// An IP packet lwIP emits on this netif (valid only during the call).
+    func lwipOutput(_ pkt: UnsafeBufferPointer<UInt8>)
+}
+
+extension NCLwIPDevice {
+    /// The address family to dial for this device: v4 when the interface has one.
+    func pick(_ ips: [NCIP]) -> NCIP? {
+        if has4, let v4 = ips.first(where: { $0.isV4 }) { return v4 }
+        if has6, let v6 = ips.first(where: { !$0.isV4 }) { return v6 }
+        return nil
+    }
+
+    /// A/AAAA over UDP through this netif (plain / udp:// server IPs; others are skipped). NCLwIP.queue.
+    func dnsOverTunnel(_ host: String, servers: [String], _ done: @escaping ([NCIP]) -> Void) {
+        let ips: [NCIP] = servers.compactMap { s in
+            var t = s.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("udp://") { t = String(t.dropFirst(6)) }
+            if t.contains("://") { return nil }
+            if let ip = NCIP(t) { return ip }
+            if t.hasPrefix("["), let close = t.firstIndex(of: "]") { return NCIP(String(t[t.index(after: t.startIndex)..<close])) }
+            if let colon = t.lastIndex(of: ":"), t.filter({ $0 == ":" }).count == 1 { return NCIP(String(t[..<colon])) }
+            return nil
+        }.filter { $0.isV4 ? has4 : has6 }
+        let qtype: UInt16 = has4 ? 1 : 28
+        retain()
+        func attempt(_ i: Int) {
+            guard alive, i < ips.count else { release(); done([]); return }
+            let server = ips[i]
+            let sock = nc_wg_udp_open(devID, server.isV4 ? 0 : 1)
+            guard sock != 0 else { attempt(i + 1); return }
+            let qid = UInt16.random(in: 0...UInt16.max)
+            var q: [UInt8] = [UInt8(qid >> 8), UInt8(qid & 0xff), 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]
+            for label in host.split(separator: ".") {
+                let b = Array(label.utf8).prefix(63)
+                q.append(UInt8(b.count))
+                q += b
+            }
+            q += [0, UInt8(qtype >> 8), UInt8(qtype & 0xff), 0, 1]
+            var finished = false
+            let finishOnce: ([NCIP]?) -> Void = { [weak self] result in
+                guard !finished else { return }
+                finished = true
+                NCWGStack.shared.udp.removeValue(forKey: sock)
+                nc_wg_udp_close(sock)
+                if let result, !result.isEmpty {
+                    self?.release()
+                    done(result)
+                } else {
+                    attempt(i + 1)
+                }
+            }
+            NCWGStack.shared.udp[sock] = { _, _, data in
+                guard let r = NCWGDevice.parseDNS(data, id: qid, qtype: qtype) else { return }
+                finishOnce(r)
+            }
+            let b = server.bytes + [UInt8](repeating: 0, count: 16 - server.bytes.count)
+            _ = b.withUnsafeBufferPointer { bp in
+                q.withUnsafeBufferPointer { qp in
+                    nc_wg_udp_send(sock, bp.baseAddress, server.isV4 ? 0 : 1, 53, qp.baseAddress, UInt32(qp.count))
+                }
+            }
+            NCLwIP.queue.asyncAfter(deadline: .now() + 2.5) { finishOnce(nil) }
+        }
+        attempt(0)
+    }
+}
+
 // MARK: - Config
 
 struct NCWGConfig {
@@ -208,8 +288,10 @@ final class NCWGStack {
     private var installed = false
     private var devices: [String: NCWGDevice] = [:]
     fileprivate var byDev: [Int32: NCWGDevice] = [:]
+    /// fix/nc-openconnect-dp: non-WireGuard netifs (OpenConnect) by device id.
+    fileprivate var others: [Int32: NCLwIPDevice] = [:]
     fileprivate var tcp: [UInt32: NCWGTCPStream] = [:]
-    fileprivate var udp: [UInt32: (NCIP, Int, [UInt8]) -> Void] = [:]
+    var udp: [UInt32: (NCIP, Int, [UInt8]) -> Void] = [:]
 
     func install() {
         guard !installed else { return }
@@ -267,12 +349,27 @@ final class NCWGStack {
     func unregisterDevice(_ d: NCWGDevice) {
         byDev.removeValue(forKey: d.devID)
     }
+
+    /// fix/nc-openconnect-dp: an OpenConnect netif (its packets go to lwipOutput). NCLwIP.queue.
+    func registerOther(_ d: NCLwIPDevice) {
+        install()
+        others[d.devID] = d
+    }
+
+    func unregisterOther(_ d: NCLwIPDevice) {
+        if others[d.devID] === d { others.removeValue(forKey: d.devID) }
+    }
 }
 
 @_cdecl("ncwgOnOutput")
 func ncwgOnOutput(_ ctx: UnsafeMutableRawPointer?, _ dev: Int32, _ pkt: UnsafePointer<UInt8>?, _ len: UInt32) {
-    guard let pkt, let d = NCWGStack.shared.byDev[dev] else { return }
-    d.output([UInt8](UnsafeBufferPointer(start: pkt, count: Int(len))))
+    guard let pkt else { return }
+    if let d = NCWGStack.shared.byDev[dev] {
+        d.output([UInt8](UnsafeBufferPointer(start: pkt, count: Int(len))))
+    } else if let o = NCWGStack.shared.others[dev] {
+        // fix/nc-openconnect-dp: framed straight from lwIP's buffer (no intermediate copy).
+        o.lwipOutput(UnsafeBufferPointer(start: pkt, count: Int(len)))
+    }
 }
 
 @_cdecl("ncwgOnConnected")
@@ -309,7 +406,7 @@ func ncwgOnUDP(_ ctx: UnsafeMutableRawPointer?, _ sock: UInt32, _ src: UnsafePoi
 // MARK: - Device
 
 /// One WireGuard interface (node): lwIP netif + peers + timers. NCLwIP.queue only.
-final class NCWGDevice {
+final class NCWGDevice: NCLwIPDevice {
     let key: String
     let name: String
     let cfg: NCWGConfig
@@ -321,7 +418,7 @@ final class NCWGDevice {
     private var timer: DispatchSourceTimer?
     private(set) var alive = true
     private var users = 0
-    fileprivate var lastUse = Date()
+    var lastUse = Date()
     private var dnsCache: [String: ([NCIP], Date)] = [:]
 
     var has4: Bool { cfg.ip4 != nil }
@@ -484,12 +581,8 @@ final class NCWGDevice {
         StartupLog.write("wireguard: \(name) idle, interface removed")
     }
 
-    /// The address family to dial for this device: v4 when the interface has one.
-    func pick(_ ips: [NCIP]) -> NCIP? {
-        if has4, let v4 = ips.first(where: { $0.isV4 }) { return v4 }
-        if has6, let v6 = ips.first(where: { !$0.isV4 }) { return v6 }
-        return nil
-    }
+    /// NCLwIPDevice: WireGuard routes by cryptokey (output(_:) copies once for the peer's encryption).
+    func lwipOutput(_ pkt: UnsafeBufferPointer<UInt8>) { output([UInt8](pkt)) }
 
     // MARK: Name resolution
 
@@ -527,7 +620,7 @@ final class NCWGDevice {
         }
     }
 
-    private static func systemResolve(_ host: String) -> [NCIP] {
+    static func systemResolve(_ host: String) -> [NCIP] {
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = SOCK_STREAM
@@ -552,60 +645,6 @@ final class NCWGDevice {
             p = ai.pointee.ai_next
         }
         return out
-    }
-
-    /// A/AAAA over UDP through this WireGuard interface (plain / udp:// server IPs; others are skipped).
-    private func dnsOverTunnel(_ host: String, servers: [String], _ done: @escaping ([NCIP]) -> Void) {
-        let ips: [NCIP] = servers.compactMap { s in
-            var t = s.trimmingCharacters(in: .whitespaces)
-            if t.hasPrefix("udp://") { t = String(t.dropFirst(6)) }
-            if t.contains("://") { return nil }
-            if let ip = NCIP(t) { return ip }
-            if t.hasPrefix("["), let close = t.firstIndex(of: "]") { return NCIP(String(t[t.index(after: t.startIndex)..<close])) }
-            if let colon = t.lastIndex(of: ":"), t.filter({ $0 == ":" }).count == 1 { return NCIP(String(t[..<colon])) }
-            return nil
-        }.filter { $0.isV4 ? has4 : has6 }
-        let qtype: UInt16 = has4 ? 1 : 28
-        retain()
-        func attempt(_ i: Int) {
-            guard alive, i < ips.count else { release(); done([]); return }
-            let server = ips[i]
-            let sock = nc_wg_udp_open(devID, server.isV4 ? 0 : 1)
-            guard sock != 0 else { attempt(i + 1); return }
-            let qid = UInt16.random(in: 0...UInt16.max)
-            var q: [UInt8] = [UInt8(qid >> 8), UInt8(qid & 0xff), 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]
-            for label in host.split(separator: ".") {
-                let b = Array(label.utf8).prefix(63)
-                q.append(UInt8(b.count))
-                q += b
-            }
-            q += [0, UInt8(qtype >> 8), UInt8(qtype & 0xff), 0, 1]
-            var finished = false
-            let finishOnce: ([NCIP]?) -> Void = { [weak self] result in
-                guard !finished else { return }
-                finished = true
-                NCWGStack.shared.udp.removeValue(forKey: sock)
-                nc_wg_udp_close(sock)
-                if let result, !result.isEmpty {
-                    self?.release()
-                    done(result)
-                } else {
-                    attempt(i + 1)
-                }
-            }
-            NCWGStack.shared.udp[sock] = { _, _, data in
-                guard let r = NCWGDevice.parseDNS(data, id: qid, qtype: qtype) else { return }
-                finishOnce(r)
-            }
-            let b = server.bytes + [UInt8](repeating: 0, count: 16 - server.bytes.count)
-            _ = b.withUnsafeBufferPointer { bp in
-                q.withUnsafeBufferPointer { qp in
-                    nc_wg_udp_send(sock, bp.baseAddress, server.isV4 ? 0 : 1, 53, qp.baseAddress, UInt32(qp.count))
-                }
-            }
-            NCLwIP.queue.asyncAfter(deadline: .now() + 2.5) { finishOnce(nil) }
-        }
-        attempt(0)
     }
 
     static func parseDNS(_ d: [UInt8], id: UInt16, qtype: UInt16) -> [NCIP]? {
@@ -1014,7 +1053,7 @@ final class NCWGPeer {
 /// on NCLwIP.queue; completions go to `callerQueue`. Receive-side backpressure: the lwIP window is reopened only
 /// for bytes handed to a receive handler.
 final class NCWGTCPStream: NCRelayStream {
-    private let device: NCWGDevice
+    private let device: NCLwIPDevice
     private let callerQueue: DispatchQueue
     private var connID: UInt32 = 0
     private var connected = false
@@ -1035,7 +1074,7 @@ final class NCWGTCPStream: NCRelayStream {
     private var handler: ((Data?, Error?) -> Void)?
     private var onConnect: ((Error?) -> Void)?
 
-    init(device: NCWGDevice, callerQueue: DispatchQueue) {
+    init(device: NCLwIPDevice, callerQueue: DispatchQueue) {
         self.device = device
         self.callerQueue = callerQueue
     }
@@ -1235,18 +1274,31 @@ final class NCWGTCPStream: NCRelayStream {
 final class NCUDPWireGuardSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let queue: DispatchQueue
-    private var device: NCWGDevice?
+    private var device: NCLwIPDevice?
     private var sock4: UInt32 = 0
     private var sock6: UInt32 = 0
     private var cancelled = false
 
-    init(proxy: NCProxy, queue: DispatchQueue) {
+    /// `acquire` (NCLwIP.queue) yields the node's netif device: WireGuard by default; fix/nc-openconnect-dp passes
+    /// NCOCStack's for OpenConnect, whose device may still be connecting (its resolve waits for the tunnel).
+    init(proxy: NCProxy, queue: DispatchQueue,
+         acquire: ((NCProxy) -> (NCLwIPDevice?, String?))? = nil) {
         self.queue = queue
         NCLwIP.queue.async { [self] in
             guard !cancelled else { return }
-            let (d, why) = NCWGStack.shared.device(for: proxy)
+            let d: NCLwIPDevice?
+            let why: String?
+            if let acquire {
+                let r = acquire(proxy)
+                d = r.0
+                why = r.1
+            } else {
+                let r = NCWGStack.shared.device(for: proxy)
+                d = r.0
+                why = r.1
+            }
             if let d { d.retain(); device = d }
-            else { StartupLog.write("wireguard: \(proxy.name) UDP unavailable: \(why ?? "-")") }
+            else { StartupLog.write("\(proxy.type): \(proxy.name) UDP unavailable: \(why ?? "-")") }
         }
     }
 

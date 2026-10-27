@@ -363,6 +363,11 @@ enum NCConnector {
     /// Set once before the first dial, read-only afterwards.
     static var wireguardDialer: ((NCProxy, NCTarget, DispatchQueue, @escaping (NCRelayStream?, Error?) -> Void) -> Void)?
 
+    /// fix/nc-openconnect-dp: OpenConnect (CSTP carries IP packets) dials through a lwIP netif over the CSTP channel
+    /// (PacketTunnel/NativeCore/NCOpenConnectNetif.swift), installed by the tunnel (installOpenConnectDialer()).
+    /// Without it (the App's 延迟测试) the node reports NCOpenConnect.tunnelOnly. Set once before the first dial.
+    static var openconnectDialer: ((NCProxy, NCTarget, DispatchQueue, @escaping (NCRelayStream?, Error?) -> Void) -> Void)?
+
     /// Tailscale dials through the tunnel's userspace lwIP stack and DERP relays.
     /// Set once before the first dial via NCConnector.installTailscaleDialer().
     static var tailscaleDialer: ((NCProxy, NCTarget, DispatchQueue, @escaping (NCRelayStream?, Error?) -> Void) -> Void)?
@@ -392,6 +397,23 @@ enum NCConnector {
             }
             guard let dial = wireguardDialer else {
                 queue.async { completion(nil, Failure.unsupported("wireguard: only inside the tunnel (userspace lwIP stack)")) }
+                return
+            }
+            dial(proxy, target, queue, completion)
+            return
+        }
+        // fix/nc-openconnect-dp: OpenConnect / AnyConnect (L3 VPN over CSTP, userspace lwIP netif).
+        if proxy.type == "openconnect" || proxy.type == "anyconnect" {
+            if let why = NCOpenConnect.unsupportedReason(proxy) {
+                queue.async { completion(nil, Failure.unsupported("openconnect: \(why)")) }
+                return
+            }
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("openconnect over a chain transport")) }
+                return
+            }
+            guard let dial = openconnectDialer else {
+                queue.async { completion(nil, Failure.unsupported(NCOpenConnect.tunnelOnly)) }
                 return
             }
             dial(proxy, target, queue, completion)
@@ -846,16 +868,6 @@ enum NCConnector {
                 return
             }
             juicityStream(proxy: proxy, target: target, queue: queue, completion: completion)
-        case "openconnect", "anyconnect":
-            if let why = NCOpenConnect.unsupportedReason(proxy) {
-                queue.async { completion(nil, Failure.unsupported("openconnect: \(why)")) }
-                return
-            }
-            // fix/nc-proto-openconnect-int: OpenConnect is an L3 VPN — CSTP DATA frames carry IP packets, so a
-            // per-flow TCP stream needs a userspace TCP/IP stack on the CSTP channel (an nc_wg-style lwIP netif,
-            // PacketTunnel only). Until that exists the node is unavailable instead of writing flow bytes as
-            // "IP packets" (review of #159).
-            queue.async { completion(nil, Failure.unsupported(NCOpenConnect.dataPlaneUnavailable)) }
         case "trusttunnel", "trust-tunnel":
             // feat/nc-trusttunnel S2: HTTP/2 (Track A) & HTTP/3 (Track B) session dispatcher.
             if transport != nil {

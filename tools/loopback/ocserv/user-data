@@ -1,0 +1,64 @@
+#!/bin/sh
+# fix/nc-openconnect-dp: cloud-init user-data for the ocserv loopback VM (start-ocserv-vm.sh).
+# Real ocserv (Alpine edge/testing package) + the services the OpenConnect loopback test reaches *through* the tunnel:
+#   10.77.0.1:9000 TCP echo, 10.77.0.1:9001 UDP echo, 10.77.0.1:53 DNS (echo.oc.test / web.oc.test -> 10.77.0.1),
+#   10.77.0.1:8080 HTTP (busybox httpd: /hello.txt = "tern-openconnect-ok\n", /big.txt = "tern-oc-0123456789\n" x N, 304000 bytes).
+# Constants mirrored in E2ETests/NCOpenConnectLoopbackTests.swift and tools/loopback/ocserv/README.md.
+exec > /dev/console 2>&1
+set -x
+modprobe tun || true
+E=https://dl-cdn.alpinelinux.org/alpine/edge
+ok=0
+for i in 1 2 3; do
+  apk add --no-cache -X $E/testing -X $E/main -X $E/community ocserv socat dnsmasq openssl busybox-extras && { ok=1; break; }
+  sleep 5
+done
+[ $ok = 1 ] || { echo OCSETUP-FAIL apk; exit 1; }
+mkdir -p /etc/ocserv && cd /etc/ocserv
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj /CN=ocserv.test -keyout key.pem -out cert.pem
+printf 'tern-pass\ntern-pass\n' | ocpasswd -c /etc/ocserv/ocpasswd tern
+cat > ocserv.conf <<'C'
+auth = "plain[passwd=/etc/ocserv/ocpasswd]"
+tcp-port = 443
+udp-port = 443
+run-as-user = nobody
+run-as-group = nobody
+socket-file = /var/run/ocserv-socket
+server-cert = /etc/ocserv/cert.pem
+server-key = /etc/ocserv/key.pem
+isolate-workers = false
+max-clients = 16
+max-same-clients = 8
+keepalive = 20
+dpd = 15
+mobile-dpd = 15
+try-mtu-discovery = false
+tls-priorities = "NORMAL:%SERVER_PRECEDENCE"
+auth-timeout = 240
+cookie-timeout = 300
+deny-roaming = false
+rekey-time = 172800
+rekey-method = ssl
+use-occtl = true
+pid-file = /var/run/ocserv.pid
+device = vpns
+predictable-ips = true
+default-domain = oc.test
+ipv4-network = 10.77.0.0
+ipv4-netmask = 255.255.255.0
+dns = 10.77.0.1
+ping-leases = false
+mtu = 1400
+cisco-client-compat = true
+dtls-legacy = true
+C
+mkdir -p /srv/www
+printf 'tern-openconnect-ok\n' > /srv/www/hello.txt
+yes tern-oc-0123456789 | head -c 304000 > /srv/www/big.txt
+busybox-extras httpd -p 8080 -h /srv/www || busybox httpd -p 8080 -h /srv/www || { echo OCSETUP-FAIL httpd; exit 1; }
+socat TCP-LISTEN:9000,fork,reuseaddr EXEC:cat &
+socat UDP-RECVFROM:9001,fork EXEC:cat &
+dnsmasq --no-resolv --no-hosts --bind-dynamic --interface='vpns*' --address=/oc.test/10.77.0.1 --log-queries --log-facility=/dev/console
+ocserv -c /etc/ocserv/ocserv.conf -f -d 1 &
+sleep 2
+echo OCSETUP-READY

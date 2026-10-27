@@ -9,6 +9,10 @@
 #
 # Not covered, by design (see tools/loopback/README.md): WireGuard client (its NativeCore dialer exists only
 # inside the packet tunnel) and Mieru (sing-box has no mieru inbound to test against).
+#
+# Job `openconnect` (fix/nc-openconnect-dp): the OpenConnect data plane against a REAL ocserv — Alpine + ocserv
+# under QEMU (TCG; macOS runners have no Docker / nested virtualisation), tools/loopback/ocserv. The netif is
+# PacketTunnel code, so the test class lives in TernE2ETunnelTests (scheme TernE2E).
 name: Proto loopback
 
 on:
@@ -19,6 +23,9 @@ on:
       - "UnitTests/NativeCoreLoopbackTests.swift"
       - "tools/loopback/**"
       - ".github/workflows/proto-loopback.yml"
+      - "PacketTunnel/NativeCore/NCOpenConnectNetif.swift"
+      - "PacketTunnel/NativeCore/NCWireGuard.swift"
+      - "E2ETests/NCOpenConnectLoopbackTests.swift"
 
 permissions:
   contents: read
@@ -118,3 +125,93 @@ jobs:
           path: results/loopback.xcresult
           if-no-files-found: ignore
           retention-days: 7
+
+  openconnect:
+    if: github.repository == 'astemo6/mihomo-ios'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      OC_PORT: "18443"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Cache Alpine cloud image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/nc-ocserv/alpine.qcow2
+          key: ocserv-alpine-3.22.4-aarch64-cloudinit
+      - name: Boot ocserv VM (background; overlaps the Xcode build)
+        run: |
+          brew install qemu
+          tools/loopback/ocserv/start-ocserv-vm.sh start
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+      - name: Generate project (with test targets)
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project-uitests.yml
+      - name: Pick simulator
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
+          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
+              m=[(r,x) for r,x in devs if x['name']==want]
+              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
+          ")
+          test -n "$DEV"
+          echo "DEV=$DEV" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEV" || true
+      - name: Build for testing (TernE2E — compiles the PacketTunnel sources)
+        run: |
+          set -o pipefail
+          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/oc \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            build-for-testing 2>&1 | tee build-oc.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
+          grep -q "TEST BUILD SUCCEEDED" build-oc.log || { tail -n 150 build-oc.log; exit 1; }
+      - name: Wait for ocserv
+        run: tools/loopback/ocserv/start-ocserv-vm.sh wait 1200
+      - name: Run OpenConnect loopback tests
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          # NC_OC_LOOPBACK=1: the tests fail loudly (never skip) when ocserv is unreachable.
+          TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_OC_LOOPBACK=1 TEST_RUNNER_NC_OC_PORT=$OC_PORT \
+          xcodebuild -project Tern.xcodeproj -scheme TernE2E -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/oc -resultBundlePath results/openconnect.xcresult \
+            -only-testing:TernE2ETunnelTests/NCOpenConnectLoopbackTests test-without-building 2>&1 | tee results/openconnect.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|oc-loopback|openconnect:"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/openconnect.log
+          # A run where every test skipped is a failure here.
+          if grep -q "skipped" results/openconnect.log && ! grep -q "passed" results/openconnect.log; then RC=1; echo "::error::all OpenConnect loopback tests skipped"; fi
+          {
+            echo "### OpenConnect loopback (real ocserv)"
+            grep -E "Executed [0-9]+ tests?" results/openconnect.log | tail -n 1 | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - name: Stop ocserv VM
+        if: always()
+        run: |
+          tools/loopback/ocserv/start-ocserv-vm.sh stop || true
+          mkdir -p results
+          cp /tmp/nc-ocserv/console.log results/ocserv-console.log 2>/dev/null || true
+          echo "--- ocserv console (ocserv / dnsmasq lines, last 120) ---"
+          grep -a -E "ocserv|dnsmasq|OCSETUP" /tmp/nc-ocserv/console.log | tail -n 120 || true
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: openconnect-loopback-results
+          path: |
+            results/openconnect.log
+            results/ocserv-console.log
+            build-oc.log
+          if-no-files-found: warn
+          retention-days: 14

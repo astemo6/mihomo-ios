@@ -317,6 +317,7 @@ final class NCDataPlane {
             // connections into the lwIP stack — tear them down (this queue
             // IS NCLwIP.queue) before the stack itself stops, or they keep
             // believing `alive` with device ids the next stack never had.
+            NCOCStack.shared.teardownAll()
             NCWGStack.shared.teardownAll()
             stack.stop()
             if let flow { flushOutput(flow) } // the RSTs the aborts above emitted still reach the apps
@@ -1428,6 +1429,13 @@ final class NCDataPlane {
         case .proxy(let proxy) where proxy.type == "wireguard":
             // feat/nc-wg: UDP from the node's lwIP netif (NCUDPWireGuardSession).
             session = NCUDPWireGuardSession(proxy: proxy, queue: queue)
+        case .proxy(let proxy) where proxy.type == "openconnect" || proxy.type == "anyconnect":
+            // fix/nc-openconnect-dp: UDP from the node's CSTP-backed lwIP netif.
+            guard NCOpenConnect.unsupportedReason(proxy) == nil else {
+                udpDropped += 1
+                return
+            }
+            session = NCUDPWireGuardSession(proxy: proxy, queue: queue, acquire: { NCOCStack.shared.acquire($0) })
         case .proxy(let proxy) where proxy.type == "snell":
             guard let sn = NCUDPSnellSession(proxy: proxy, queue: queue) else {
                 udpDropped += 1
