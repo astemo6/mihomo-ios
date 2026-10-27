@@ -278,17 +278,14 @@ final class ControllerClient {
 
     /// 测速 settings (更多 → 测速). Group testUrl from /proxies is NOT used: the core reports "" for
     /// groups on the default URL, and an empty url makes every node fail (the v0.6.0 device bug).
+    /// fix/nc-ui-smooth: read through TestSettingsCache (stat of overrides.json) — every delay cell asks for it.
     static var testSettings: (url: String, timeoutMs: Int) {
-        let o = CoreOverrides.load()
-        let url = CoreOverrides.isValidTestURL(o.testURL) ? o.testURL.trimmingCharacters(in: .whitespaces) : CoreOverrides.defaultTestURL
-        return (url, min(max(o.testTimeoutMs, 1000), 30000))
+        let v = TestSettingsCache.current
+        return (v.url, v.timeoutMs)
     }
 
     /// 测速设置 → 直连测试地址: the URL a test of DIRECT uses; nil = 测速地址.
-    static var directTestURL: String? {
-        let u = CoreOverrides.load().directTestURL.trimmingCharacters(in: .whitespaces)
-        return !u.isEmpty && CoreOverrides.isValidTestURL(u) ? u : nil
-    }
+    static var directTestURL: String? { TestSettingsCache.current.directURL }
 
     /// fix/nc-delay-2: longest one probe can take in the core with unified-delay (always on in Tern): the cold phase
     /// gets max(timeout, 5000) and the timed warm request `timeout` (NCTunnelDelayTester.probeWindowMs) — the
@@ -298,7 +295,7 @@ final class ControllerClient {
     }
 
     /// 测速设置 → TCP 握手延迟: TCP nodes report the TCP connect time to their server.
-    static var tcpHandshake: Bool { CoreOverrides.load().tcpHandshakeDelay }
+    static var tcpHandshake: Bool { TestSettingsCache.current.tcpHandshake }
 
     /// v0.15.2: tests the given members with at most `limit` running at once (GET /proxies/{name}/delay
     /// each) instead of GET /group/{name}/delay, which starts every member at the same moment inside the

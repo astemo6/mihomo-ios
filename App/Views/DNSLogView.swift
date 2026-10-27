@@ -54,6 +54,11 @@ final class DNSLogStore: ObservableObject {
     static let limit = 2000
     private var task: Task<Void, Never>?
     private var bgObserver: NSObjectProtocol?
+    /// fix/nc-ui-smooth: live /logs lines are parsed and published at most 10 times a second (each line used to
+    /// insert into the 2000-row list and re-render the page on its own).
+    private lazy var batcher = UIBatcher<(String, Date)>(cap: Self.limit) { [weak self] batch in
+        for (line, at) in batch { self?.ingest(line, at: at) }
+    }
 
     var blockedSorted: [BlockedDomain] { Self.sorted(blocked) }
     var quicSorted: [BlockedDomain] { Self.sorted(quicBlocked) }
@@ -108,7 +113,7 @@ final class DNSLogStore: ObservableObject {
                 for await l in c.stream("/logs", query: [URLQueryItem(name: "level", value: "debug")], as: LogPayload.self) {
                     guard let self else { return }
                     if Task.isCancelled { break }
-                    if !self.paused && !join.isDuplicate(l.payload) { self.ingest(l.payload) }
+                    if !self.paused && !join.isDuplicate(l.payload) { self.batcher.add((l.payload, Date())) }
                 }
                 if Task.isCancelled || !VPNManager.shared.isConnected { break }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -123,9 +128,11 @@ final class DNSLogStore: ObservableObject {
         task?.cancel()
         task = nil
         running = false
+        batcher.drain()
     }
 
     func clear() {
+        batcher.reset()
         queries = []
         blocked = [:]
         quicBlocked = [:]

@@ -379,15 +379,26 @@ final class LogsModel: ObservableObject {
     @Published var paused = false
     private var task: Task<Void, Never>?
     static let limit = 1000
+    /// fix/nc-ui-smooth: streamed lines reach `lines` at most 10 times a second (one append per line re-rendered
+    /// the 1000-row list per line; a debug stream sends hundreds a second).
+    private lazy var batcher = UIBatcher<LogLine>(cap: Self.limit) { [weak self] batch in self?.append(batch) }
 
     init() {
         if UITestSeed.enabled { seedDemo() }
+    }
+
+    private func append(_ batch: [LogLine]) {
+        var l = lines
+        l.append(contentsOf: batch)
+        if l.count > Self.limit { l.removeFirst(l.count - Self.limit) }
+        lines = l
     }
 
     /// v0.19.8: the history the extension kept since the tunnel started (GET /hark/logs) first, then the live
     /// stream; before this the page was empty until something new was logged while it was open.
     func start(level: String) {
         task?.cancel()
+        batcher.drain()
         task = Task { [weak self] in
             var join = LogJoin(history: [])
             if let h = try? await ControllerClient.shared.harkLogs(kind: "general", level: level), let self, !Task.isCancelled {
@@ -401,18 +412,18 @@ final class LogsModel: ObservableObject {
                 for await l in ControllerClient.shared.stream("/logs", query: [URLQueryItem(name: "level", value: level)], as: LogPayload.self) {
                     guard let self else { return }
                     if self.paused || join.isDuplicate(l.payload) { continue }
-                    self.lines.append(LogLine(level: l.type, message: l.payload, time: Date()))
-                    if self.lines.count > Self.limit { self.lines.removeFirst(self.lines.count - Self.limit) }
+                    self.batcher.add(LogLine(level: l.type, message: l.payload, time: Date()))
                 }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
     }
 
-    func stop() { task?.cancel(); task = nil }
+    func stop() { task?.cancel(); task = nil; batcher.drain() }
 
     /// 清空: the page and the extension's history (otherwise the next open brings the lines back).
     func clear() {
+        batcher.reset()
         lines.removeAll()
         Task { try? await ControllerClient.shared.harkClearLogs(kind: "general") }
     }

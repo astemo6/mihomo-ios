@@ -117,8 +117,15 @@ final class ProfileInspector: ObservableObject {
 
     @Published private(set) var result = InspectResult() {
         // r7: derived values (members per group, node index, graph) are built once per result, not per render.
-        didSet { membersCache = [:]; nodeIndexCache = nil; graphCache = nil }
+        // fix/nc-ui-smooth: a selection-only change (select(group:node:)) keeps the member lists and the node index
+        // (neither depends on what is selected); only the graph, which follows the selections, is rebuilt. On the
+        // 3000-node profile every node tap used to rebuild all three on the main thread in the tap's re-render.
+        didSet {
+            graphCache = nil
+            if selectionOnlyChange { selectionOnlyChange = false } else { membersCache = [:]; nodeIndexCache = nil }
+        }
     }
+    private var selectionOnlyChange = false
     private struct MembersKey: Equatable { var proxies: [String]; var use: [String]; var filter: String? }
     private var membersCache: [String: (key: MembersKey, members: [String])] = [:]
     private var nodeIndexCache: [String: InspectProxy]?
@@ -227,8 +234,11 @@ final class ProfileInspector: ObservableObject {
         guard let path = profilePath ?? AppShared.activeProfileURL?.path else { return }
         let err = NCProfileSelections.save(path, group: group, node: node)
         guard err.isEmpty else { return }
-        if let i = result.groups.firstIndex(where: { $0.name == group }) { result.groups[i].selected = node }
-        result.selected[group] = node // v0.19.8: also the synthesized GLOBAL
+        var r = result
+        if let i = r.groups.firstIndex(where: { $0.name == group }) { r.groups[i].selected = node }
+        r.selected[group] = node // v0.19.8: also the synthesized GLOBAL
+        selectionOnlyChange = true
+        result = r // one publish (was two)
     }
 
     /// hotfix/group-test-offline: the groups (GLOBAL included) as a graph, for expanding groups of groups to nodes.
@@ -297,7 +307,8 @@ final class ProfileInspector: ObservableObject {
     }
 
     /// Saves the live selection too, so the offline view and the next connect agree with it.
-    static func rememberLiveSelection(group: String, node: String) {
+    /// fix/nc-ui-smooth: nonisolated — callers write it on UIBackgroundIO's serial queue, off the main thread.
+    nonisolated static func rememberLiveSelection(group: String, node: String) {
         guard let path = AppShared.activeProfileURL?.path else { return }
         NCProfileSelections.save(path, group: group, node: node)
     }

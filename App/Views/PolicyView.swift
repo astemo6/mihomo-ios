@@ -38,16 +38,18 @@ final class PolicyModel: ObservableObject {
     }
 
     private func apply(_ p: [String: ProxyItem]) {
-        all = p
+        // fix/nc-ui-smooth: publish only what changed. Coming back to 策略 (tab switch, sheet closed) re-reads
+        // /proxies; an identical answer used to invalidate the whole page twice right in the transition.
+        if p != all { all = p }
         // v0.19.8: the runtime's own group order (GLOBAL lists only its members once it is user-defined).
         var gs = LiveGroupOrder.names(p).compactMap { p[$0] }.filter { $0.isGroup && $0.hidden != true && $0.name != "GLOBAL" }
         if let g = p["GLOBAL"] { gs.append(g) }
         if let pending = pendingOrder, Date() < pending.until {
-            groups = gs
+            if gs != groups { groups = gs }
             applyOrder(pending.names) // a reload still applying: keep the saved order on screen
         } else {
             pendingOrder = nil
-            groups = gs
+            if gs != groups { groups = gs }
         }
     }
 
@@ -75,7 +77,8 @@ final class PolicyModel: ObservableObject {
         let rank = Dictionary(names.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
         let listed = groups.filter { rank[$0.name] != nil }.sorted { rank[$0.name]! < rank[$1.name]! }
         var it = listed.makeIterator()
-        groups = groups.map { rank[$0.name] != nil ? (it.next() ?? $0) : $0 }
+        let next = groups.map { rank[$0.name] != nil ? (it.next() ?? $0) : $0 }
+        if next != groups { groups = next }
     }
 
     /// Results of this session's live 测速 (0 = timeout), newest wins over the core's history.
@@ -119,7 +122,8 @@ final class PolicyModel: ObservableObject {
             try await ControllerClient.shared.select(group: group.name, node: node)
             await ControllerClient.shared.afterUserSwitch() // v0.19
             UISelectionFeedbackGenerator().selectionChanged()
-            if group.name != "GLOBAL" { ProfileInspector.rememberLiveSelection(group: group.name, node: node) }
+            // fix/nc-ui-smooth: the selection file is written off the main thread (serial, in tap order).
+            if group.name != "GLOBAL" { let g = group.name; UIBackgroundIO.run { ProfileInspector.rememberLiveSelection(group: g, node: node) } }
             await load()
             NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         } catch {
@@ -602,7 +606,10 @@ struct PolicyView: View {
             }
         }
         // Review 5: mirror only the outbound mode (fires with the current value on appear, then on every change).
-        .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in if mode != m { mode = m } }
+        // fix/nc-ui-smooth: 全局 hides the rule groups / 规则 brings them back — animated, not a jump.
+        .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in
+            if mode != m { withAnimation(.easeInOut(duration: 0.2)) { mode = m } }
+        }
         .onChange(of: sortMode) { _ in snapshotDelays() }
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
         // The order changed underneath (another save, a reload, a subscription update): no drag override survives it.
