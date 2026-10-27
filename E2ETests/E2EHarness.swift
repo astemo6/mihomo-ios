@@ -469,8 +469,13 @@ final class E2EStackWatch {
             stallDumpedFor = b
             stallsLogged += 1
             let st = backtrace(mainPort)
+            // main asleep in its run loop (no observer callbacks while it waits) is not a stall
+            if st.contains("__CFRunLoopServiceMachPort") { return }
             NSLog("[nc-mem] scene=e2e:main-stall ms=%d footprint=%.1fMB peak=%.1fMB main: %@", stalledMs,
-                  Double(fp) / 1_048_576, Double(ProcessMemory.peakBytes()) / 1_048_576, st)
+                  Double(fp) / 1_048_576, Double(ProcessMemory.peakBytes()) / 1_048_576, String(st.prefix(700)))
+            // NSLog cuts a message at ~1 KB: the outer frames (who called) on their own line
+            let outer = st.components(separatedBy: " < ").suffix(10).joined(separator: " < ")
+            NSLog("[nc-mem] scene=e2e:main-stall-outer %@", String(outer.suffix(900)))
         }
         if fp > lastDumpFootprint &+ (8 << 20), jumpsLogged < 4 {
             jumpsLogged += 1
@@ -490,8 +495,11 @@ final class E2EStackWatch {
         for i in 0..<Int(n) {
             let t = list[i]
             if t == me { continue }
-            let s = backtrace(t, max: 14)
-            if !s.isEmpty { out.append("T\(i)\(t == mainPort ? "(main)" : ""): \(s)") }
+            let s = backtrace(t, max: t == mainPort ? 60 : 14)
+            if !s.isEmpty { out.append("T\(i)\(t == mainPort ? "(main)" : ""): \(s.prefix(800))") }
+            if t == mainPort, !s.isEmpty {
+                out.append("T\(i)(main, outer): " + s.components(separatedBy: " < ").suffix(10).joined(separator: " < ").suffix(900))
+            }
         }
         for i in 0..<Int(n) { mach_port_deallocate(mach_task_self_, list[i]) }
         mach_port_deallocate(mach_task_self_, me)
@@ -501,7 +509,7 @@ final class E2EStackWatch {
     }
 
     /// Frame-pointer walk of a suspended thread; symbolized after resume.
-    private func backtrace(_ t: thread_act_t, max limit: Int = 28) -> String {
+    private func backtrace(_ t: thread_act_t, max limit: Int = 60) -> String {
         guard t != 0 else { return "" }
         var lo: UInt = 0, hi: UInt = 0
         if let pt = pthread_from_mach_thread_np(t) {
