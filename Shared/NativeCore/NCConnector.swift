@@ -839,6 +839,16 @@ enum NCConnector {
                 return
             }
             juicityStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "openconnect", "anyconnect":
+            if let why = NCOpenConnect.unsupportedReason(proxy) {
+                queue.async { completion(nil, Failure.unsupported("openconnect: \(why)")) }
+                return
+            }
+            // fix/nc-proto-openconnect-int: OpenConnect is an L3 VPN — CSTP DATA frames carry IP packets, so a
+            // per-flow TCP stream needs a userspace TCP/IP stack on the CSTP channel (an nc_wg-style lwIP netif,
+            // PacketTunnel only). Until that exists the node is unavailable instead of writing flow bytes as
+            // "IP packets" (review of #159).
+            queue.async { completion(nil, Failure.unsupported(NCOpenConnect.dataPlaneUnavailable)) }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }

@@ -20,6 +20,7 @@ enum NCSupport {
         // feat/nc-naive-h2h3 (NCNaive / NCH2ProxySession / NCH3ProxySession): NaïveProxy (h2, or h3 with
         // quic: true) and Shadowrocket-style HTTP/2 / HTTP/3 CONNECT proxies.
         "naive", "http2", "h2", "http3", "h3",
+        "openconnect", "anyconnect",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -93,6 +94,9 @@ enum NCSupport {
             if let why = NCGostRelay.options(p).1 { return why }
         case "naive", "http2", "h2", "http3", "h3":
             if NCH2H3ProxyOptions(proxy: p) == nil { return "\(t) 缺少 server / port" }
+        case "openconnect", "anyconnect":
+            if let why = NCOpenConnect.unsupportedReason(p) { return why }
+            return NCOpenConnect.dataPlaneUnavailable
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }

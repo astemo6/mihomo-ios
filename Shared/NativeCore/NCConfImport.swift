@@ -326,6 +326,7 @@ enum NCConfImport {
         // feat/nc-gost-relay: Shadowrocket `Name = relay, host, port, user, pass, …` (GOST relay; a [Proxy] node
         // line, unrelated to the `relay` chain group) and the Clash.Meta spelling.
         case "relay", "gost-relay", "gostrelay": type = "gost-relay"
+        case "openconnect", "anyconnect": type = "openconnect"
         case "direct": type = "direct"
         case "reject", "reject-tinygif": type = "reject"
         default:
@@ -406,6 +407,28 @@ enum NCConfImport {
             if positional.count >= 5, !positional[4].isEmpty, kv["password"] == nil { fields["password"] = .string(positional[4]) }
             if fields["udp"] == nil { fields["udp"] = .bool(true) }
             consumed.formUnion(NCGostRelay.applyParams(kv, into: &fields))
+        case "openconnect":
+            if let u = take("username") { fields["username"] = .string(u) }
+            else if positional.count >= 4 { fields["username"] = .string(positional[3]) }
+            if let p = take("password") { fields["password"] = .string(p) }
+            else if positional.count >= 5 { fields["password"] = .string(positional[4]) }
+            if let g = take("auth-group") ?? take("group") { fields["auth-group"] = .string(g) }
+            if let c = take("cookie") { fields["cookie"] = .string(c) }
+            if let s = take("sni") ?? take("tls-name") ?? take("servername") ?? take("peer") {
+                fields["sni"] = .string(s)
+            }
+            if let d = take("dtls"), let b = boolValue(d) { fields["dtls"] = .bool(b) }
+            if let m = take("mtu"), let n = Int(m) { fields["mtu"] = .number(Double(n)) }
+            if let ua = take("user-agent") { fields["user-agent"] = .string(ua) }
+            if let lh = take("local-hostname") { fields["local-hostname"] = .string(lh) }
+            if let fp = take("fingerprint") ?? take("server-cert-pin") ?? take("cert-sha256") {
+                fields["server-cert-pin"] = .string(fp)
+            }
+            // Unsupported fields (explicitly tracked):
+            if let csd = take("csd-wrapper") ?? take("csd") { fields["csd-wrapper"] = .string(csd) }
+            if let hip = take("hip") ?? take("hip-report") { fields["hip"] = .string(hip) }
+            if let tncc = take("tncc") { fields["tncc"] = .string(tncc) }
+            if let tok = take("token-secret") ?? take("token") { fields["token-secret"] = .string(tok) }
         case "http", "https", "socks5":
             // Surge spells credentials positionally after the port for these
             // types; the k=v form is accepted too.
