@@ -1,5 +1,22 @@
 # NativeCore: MASQUE (RFC 9298 / RFC 9484) — design note (feat/nc-masque, based on 6fd4bab)
 
+> **Status (feat/nc-masque-warp, 2026-10-28):** Cloudflare WARP MASQUE (**cf-connect-ip**) is implemented
+> and wired to the L3 CONNECT-IP data plane:
+> - Client mTLS identity: `NCMASQUEWarp` (Shared/NativeCore/NCMASQUEWarp.swift) parses client ECDSA P-256 private
+>   keys (PKCS#8, SEC 1, or PEM; standard or URL-safe base64), generates an ephemeral self-signed client certificate
+>   (minimal template: version 3, serial 0, validity 24h, empty issuer/subject, no extensions), and builds `SecIdentity`
+>   via PKCS#12 export/import, cached per connection object (`NCMASQUEConnection`).
+> - Server pinning: configured `public-key` (SPKI DER base64, bare 65B point, or PEM) is normalized to a 65-byte
+>   uncompressed EC point (`04||X||Y`). In `makeQUICOptions()`, the TLS verify block directly compares the server
+>   leaf certificate's public point against the pinned point, overriding `skipCertVerify` and bypassing system trust evaluation.
+> - Request protocol: Extended CONNECT uses `:protocol = cf-connect-ip`, default `:authority = cloudflareaccess.com`,
+>   `:path = /`, and `capsule-protocol: ?1`.
+> - Address binding: Cloudflare does not send `ADDRESS_ASSIGN` capsules; a 2xx response immediately binds the node's
+>   configured `ip` / `ipv6` via immediate fallback.
+> - Default SNI: when not explicitly provided, defaults to `consumer-masque.cloudflareclient.com`.
+> - Unwired / out of scope: in-app WARP account registration (credentials provided via config/share link); real
+>   upstream Cloudflare live endpoint interop and CI runs are deferred to maintainer follow-up.
+
 > **Status (fix/nc-masque-ip, 2026-10-27):** RFC 9484 **CONNECT-IP** over HTTP/3 is implemented as an L3 data plane:
 > `NCMASQUEIPTunnel` (Shared/NativeCore/NCMASQUEIP.swift — Extended CONNECT `:protocol = connect-ip`, ADDRESS_ASSIGN /
 > ROUTE_ADVERTISEMENT / DATAGRAM capsules, IP packets as HTTP Datagrams with context id 0) feeding a per-node lwIP netif
@@ -12,8 +29,7 @@
 > (tools/loopback/connectip): 1 MiB TCP echo byte-exact, UDP echo, UDP DNS, tunnel DNS by name, HTTP 304000 B, routes,
 > redial, 404 refusal (8/8, mirror runs 40464266033 and 40468656765). Netif MTU ≤ 1193 (QUIC DATAGRAM room); nc_wg clamps
 > each connected PCB's MSS to its device MTU.
-> Still not wired: **Cloudflare WARP** profiles (key pair → Cloudflare's `cf-connect-ip` protocol + an mTLS client identity
-> built from the WARP private key + server-key pinning; shown as `NCMASQUE.warpUnavailable`), CONNECT-IP over HTTP/2,
+> Cloudflare WARP MASQUE profiles are wired in `feat/nc-masque-warp`. Still not wired: CONNECT-IP over HTTP/2,
 > CONNECT-TCP / `h3-l4proxy`, IP flow forwarding (scoped `{target}` templates), reconnect keeping flows (a lost tunnel tears
 > the netif down; the next flow redials).
 >
