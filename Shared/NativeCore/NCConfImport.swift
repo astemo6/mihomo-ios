@@ -400,7 +400,7 @@ enum NCConfImport {
                 fields["alpn"] = .array(parts.map { .string($0) })
             }
         case "sudoku":
-            NCSudoku.importParams(into: &fields, take: take) // canonical (mihomo) field names
+            NCSudoku.importParams(into: &fields, take: take) // canonical (Clash) field names
         case "hysteria2":
             if let p = take("password") ?? take("auth") { fields["password"] = .string(p) }
             if let s = take("sni") { fields["sni"] = .string(s) }

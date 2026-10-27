@@ -2,30 +2,30 @@ import Foundation
 
 // fix/nc-sudoku-interop: the Sudoku obfuscation layer, wire-compatible with the official server
 // (SUDOKU-ASCII/sudoku v0.5.2). Pure Swift, no CryptoKit (callers pass SHA-256 derived seeds), so the
-// table / codec / key math is checked byte-for-byte against vectors produced by the official Go code.
-// Re-implemented from the documented algorithms (Go math/rand v1, 4x4 grid enumeration, hint layouts,
-// Ed25519 scalar-base multiplication); the official Go source was read as reference only.
+// table / codec / key math is checked byte-for-byte against vectors produced by the reference server's own
+// code. Re-implemented from the documented algorithms (the legacy lagged-Fibonacci PRNG, 4x4 grid enumeration,
+// hint layouts, Ed25519 scalar-base multiplication); the reference source was read as reference only.
 
-// MARK: - Go math/rand v1 (rngSource + Rand.Shuffle)
+// MARK: - Legacy PRNG (additive lagged Fibonacci, seeded table) + shuffle
 
-/// Go `math/rand` v1 `rngSource` (additive lagged Fibonacci, len 607 / tap 273) seeded exactly like
-/// `rand.NewSource(seed)`, with the `Rand.Uint32` / `Rand.int31n` / `Rand.Shuffle` paths the Sudoku table
-/// shuffle uses. Only lives while a table is built.
-struct NCGoRandV1 {
+/// The reference server's legacy PRNG (additive lagged Fibonacci, len 607 / tap 273, seeded table), seeded the
+/// way the reference seeds it, with the uint32 / bounded-int31 / shuffle paths the Sudoku table shuffle uses.
+/// Only lives while a table is built.
+struct NCLaggedFibRand {
     private static let len = 607
     private static let tapLen = 273
     private static let int32max: Int64 = 2147483647
     private var vec: [Int64]
     private var tap = 0
-    private var feed = NCGoRandV1.len - NCGoRandV1.tapLen
+    private var feed = NCLaggedFibRand.len - NCLaggedFibRand.tapLen
 
     init(seed: Int64) {
-        var s = seed % Self.int32max // truncated remainder, like Go
+        var s = seed % Self.int32max // truncated remainder, like the reference
         if s < 0 { s += Self.int32max }
         if s == 0 { s = 89482311 }
         var x = Int32(truncatingIfNeeded: s)
         var v = [Int64](repeating: 0, count: Self.len)
-        let cooked = NCGoRandCooked.values
+        let cooked = NCLaggedFibSeedTable.values
         for i in -20..<Self.len {
             x = Self.seedrand(x)
             if i >= 0 {
@@ -41,7 +41,7 @@ struct NCGoRandV1 {
         vec = v
     }
 
-    /// x[n+1] = 48271 * x[n] mod (2**31 - 1), Schrage's method (Go `seedrand`).
+    /// x[n+1] = 48271 * x[n] mod (2**31 - 1), Schrage's method (the seed LCG).
     private static func seedrand(_ x: Int32) -> Int32 {
         let hi = x / 44488
         let lo = x % 44488
@@ -64,7 +64,7 @@ struct NCGoRandV1 {
 
     mutating func uint32() -> UInt32 { UInt32(truncatingIfNeeded: int63() >> 31) }
 
-    /// Go's unexported `Rand.int31n` (Lemire's multiply-shift with rejection), used by `Shuffle`.
+    /// Bounded int31 draw (Lemire's multiply-shift with rejection), used by `shuffle`.
     mutating func int31n(_ n: Int32) -> Int32 {
         let un = UInt32(n)
         var prod = UInt64(uint32()) &* UInt64(un)
@@ -79,7 +79,7 @@ struct NCGoRandV1 {
         return Int32(truncatingIfNeeded: prod >> 32)
     }
 
-    /// `Rand.Shuffle` for n < 2^31 (Fisher-Yates from the top).
+    /// Shuffle for n < 2^31 (Fisher-Yates from the top).
     mutating func shuffle(_ n: Int, swap: (Int, Int) -> Void) {
         var i = n - 1
         while i > 0 {
@@ -365,7 +365,7 @@ final class NCSudokuTableCore {
     init(seed: Int64) {
         let base = NCSudokuGrids.all()
         var order = Array(0..<base.count)
-        var rng = NCGoRandV1(seed: seed)
+        var rng = NCLaggedFibRand(seed: seed)
         rng.shuffle(order.count) { i, j in order.swapAt(i, j) }
         var s = [UInt64](repeating: 0, count: 128 * 5)
         var g = [UInt8](repeating: 0, count: 256 * 16)

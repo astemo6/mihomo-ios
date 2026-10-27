@@ -2,8 +2,8 @@ import XCTest
 import CryptoKit
 @testable import Tern
 
-/// fix/nc-sudoku-interop: byte-exact vectors for the Sudoku data plane. Table / codec / math/rand / Ed25519
-/// vectors were produced by the official Go code (SUDOKU-ASCII/sudoku v0.5.2, its own pkg/obfs/sudoku
+/// fix/nc-sudoku-interop: byte-exact vectors for the Sudoku data plane. Table / codec / legacy PRNG / Ed25519
+/// vectors were produced by the reference server's code (SUDOKU-ASCII/sudoku v0.5.2, its own pkg/obfs/sudoku
 /// functions); key-schedule and record vectors by an independent reference client that completed echo
 /// round trips against the official v0.5.2.0 server binary.
 final class NativeCoreSudokuWireTests: XCTestCase {
@@ -16,9 +16,9 @@ final class NativeCoreSudokuWireTests: XCTestCase {
         d.map { String(format: "%02x", $0) }.joined()
     }
 
-    // MARK: Go math/rand v1
+    // MARK: Legacy PRNG (additive lagged Fibonacci)
 
-    func testGoMathRandV1MatchesGo() {
+    func testLaggedFibRandMatchesReference() {
         let vectors: [(Int64, [Int64], UInt32)] = [
             (1, [5577006791947779410, 8674665223082153551, 6129484611666145821], 1879968118),
             (0, [8717895732742165505, 2259404117704393152, 6050128673802995827], 233405013),
@@ -26,16 +26,16 @@ final class NativeCoreSudokuWireTests: XCTestCase {
             (0x0123456789abcdef, [4303309306080173548, 738694355209974960, 1239204929968885730], 757257611),
         ]
         for (seed, int63s, u32) in vectors {
-            var r = NCGoRandV1(seed: seed)
+            var r = NCLaggedFibRand(seed: seed)
             XCTAssertEqual([r.int63(), r.int63(), r.int63()], int63s, "seed \(seed)")
             XCTAssertEqual(r.uint32(), u32, "seed \(seed)")
         }
-        XCTAssertEqual(NCGoRandCooked.values.count, 607)
+        XCTAssertEqual(NCLaggedFibSeedTable.values.count, 607)
     }
 
     // MARK: Tables
 
-    func testGridEnumerationAndShuffleMatchGo() {
+    func testGridEnumerationAndShuffleMatchReference() {
         let grids = NCSudokuGrids.all()
         XCTAssertEqual(grids.count, 288)
         XCTAssertEqual(grids[0], [1, 2, 3, 4, 3, 4, 1, 2, 2, 1, 4, 3, 4, 3, 2, 1])
@@ -53,8 +53,8 @@ final class NativeCoreSudokuWireTests: XCTestCase {
         XCTAssertEqual(core.puzzleStart[256], 22676)
     }
 
-    /// Every puzzle of every byte, as wire bytes in Go's order, hashes to the Go table's digest.
-    func testPuzzleTablesMatchGoForEveryLayout() {
+    /// Every puzzle of every byte, as wire bytes in the reference order, hashes to the reference table's digest.
+    func testPuzzleTablesMatchReferenceForEveryLayout() {
         let core = NCSudokuTableCore(seed: NCSudokuKeys.tableSeed("sudoku"))
         let cases: [(NCSudokuLayout, String, String)] = [
             (.entropy(), "92f32cd16d8ae772d2d56ab35ef1395475822dd33601bd198234f7a0a2e95e63", "80108111821283138414851586168717"),
@@ -81,16 +81,16 @@ final class NativeCoreSudokuWireTests: XCTestCase {
         }
     }
 
-    func testTableHintMatchesGo() {
+    func testTableHintMatchesReference() {
         XCTAssertEqual(NCSudokuKeys.tableHint(psk: "sudoku", mode: "prefer_entropy", uplinkPattern: "", downlinkPattern: ""), 0xc7a4871c)
         XCTAssertEqual(NCSudokuKeys.tableHint(psk: "sudoku", mode: "prefer_entropy", uplinkPattern: "xpxvvpvv",
                                               downlinkPattern: "xpxvvpvv"), 0x3f9bdece)
         XCTAssertEqual(NCSudokuKeys.tableHint(psk: "sudoku", mode: "prefer_ascii", uplinkPattern: "", downlinkPattern: ""), 0x37be4ec4)
     }
 
-    // MARK: Decoding Go-encoded wire bytes (with the server's padding)
+    // MARK: Decoding reference-encoded wire bytes (with the server's padding)
 
-    /// `msg` encoded by Go's sudoku.Conn / PackedConn with padding 30–60 %, key "sudoku".
+    /// `msg` encoded by the reference sudoku.Conn / PackedConn with padding 30–60 %, key "sudoku".
     private static let goWire: [(kind: String, layout: NCSudokuLayout, msg: String, wire: String)] = [
         ("classic", .entropy(), "68656c6c6f207375646f6b75200001feff",
          "142e0546692d85054b8563832c04426a1586266085480e6081064d4b0c1363112a4514228668824b01810a144010292e85054c266f256e01142312624429160f17680723401113482a63016205282f84498024226f816f1027416925476a110b"),
@@ -106,7 +106,7 @@ final class NativeCoreSudokuWireTests: XCTestCase {
          "305a2146556c385b3a3946237c37603d2c5c77262f55643c5b30763b6d753d33482a402b363e4041260a216f7c3f3458562f33483f3a"),
     ]
 
-    func testDecodesGoEncodedWireAcrossArbitraryReadBoundaries() throws {
+    func testDecodesReferenceEncodedWireAcrossArbitraryReadBoundaries() throws {
         let core = NCSudokuTableCore(seed: NCSudokuKeys.tableSeed("sudoku"))
         for v in Self.goWire {
             let table = NCSudokuTable(core: core, layout: v.layout)
@@ -128,7 +128,7 @@ final class NativeCoreSudokuWireTests: XCTestCase {
 
     func testClassicDecoderWithForeignTable() throws {
         // Puzzle validity does not depend on the key, the byte <-> grid assignment does: another key's table turns
-        // the Go vector into different bytes, and a longer stream soon hits one of the 32 grids that carry no byte.
+        // the reference vector into different bytes, and a longer stream soon hits one of the 32 grids that carry no byte.
         let other = NCSudokuTable(core: NCSudokuTableCore(seed: NCSudokuKeys.tableSeed("not-sudoku")), layout: .entropy())
         let wire = Self.hex(Self.goWire[0].wire)
         if let out = try? NCSudokuClassicDecoder(table: other).feed(wire) {
@@ -169,7 +169,7 @@ final class NativeCoreSudokuWireTests: XCTestCase {
 
     // MARK: Keys
 
-    func testEd25519KeyNormalisationMatchesGo() {
+    func testEd25519KeyNormalisationMatchesReference() {
         // Pairs from `sudoku -keygen` (official v0.5.2) and the loopback key pair.
         XCTAssertEqual(NCSudokuEd25519.recoverPublicKeyHex(Self.splitKey), Self.masterPub)
         XCTAssertEqual(NCSudokuEd25519.recoverPublicKeyHex(
@@ -311,9 +311,9 @@ final class NativeCoreSudokuWireTests: XCTestCase {
         XCTAssertTrue(head.hasSuffix("\r\n\r\n"))
     }
 
-    // MARK: Options (mihomo field semantics)
+    // MARK: Options (Clash field semantics)
 
-    func testOptionsResolveMihomoFieldsAndDefaults() {
+    func testOptionsResolveClashFieldsAndDefaults() {
         let base: [String: NCJSONValue] = ["server": .string("1.2.3.4"), "port": .number(443), "key": .string("k")]
         var o = NCSudoku.Options(proxy: NCProxy(name: "a", type: "sudoku", fields: base))
         XCTAssertEqual(o.aead, .chacha20Poly1305)
@@ -327,7 +327,7 @@ final class NativeCoreSudokuWireTests: XCTestCase {
 
         var f = base
         f["aead-method"] = .string("none")
-        f["padding-max"] = .number(5) // lone bound drags the other (mihomo ResolvePadding)
+        f["padding-max"] = .number(5) // lone bound drags the other (Clash padding resolution)
         f["http-mask"] = .bool(false)
         f["table-type"] = .string("up_entropy_down_ascii")
         o = NCSudoku.Options(proxy: NCProxy(name: "b", type: "sudoku", fields: f))

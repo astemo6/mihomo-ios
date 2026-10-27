@@ -3,13 +3,16 @@ import Foundation
 /// Sudoku protocol configuration, validation, and import helpers.
 ///
 /// - Official repository: SUDOKU-ASCII/sudoku (GPL-3.0), server/client v0.5.2 — the interop peer.
-/// - Clash.Meta (mihomo ≥ 1.19.21) `type: sudoku` field names are the canonical node fields here; importers
+/// - Clash.Meta (≥ 1.19.21) `type: sudoku` field names are the canonical node fields here; importers
 ///   (sudoku:// short links / URIs, Surge-style and Quantumult X lines) normalise into them, and the
-///   official nested `httpmask:` block is still honoured (it overrides the flat keys, as in mihomo).
+///   official nested `httpmask:` block is still honoured (it overrides the flat keys, as in Clash.Meta).
 /// - First draft (parsing, KIP / AEAD framing, interop analysis) by astemo6 (#162); data plane made
 ///   wire-compatible in fix/nc-sudoku-interop (NCSudokuWire / NCSudokuSession).
 /// - Design note: docs/nc-proto-sudoku.md
 enum NCSudoku {
+
+    /// Shown while the data plane is not yet verified against the official server (loopback pending).
+    static let interopUnavailable = "Sudoku 数据面与官方服务端的互通验证尚未完成，节点暂不可用"
 
     /// Supported AEAD encryption methods (raw values are the wire names mixed into the record keys).
     enum AEADMethod: String, CaseIterable, Equatable {
@@ -49,7 +52,7 @@ enum NCSudoku {
 
     static let httpMaskModes: Set<String> = ["legacy", "stream", "poll", "auto", "ws"]
 
-    /// A node's settings as the data plane uses them (mihomo semantics and defaults).
+    /// A node's settings as the data plane uses them (Clash semantics and defaults).
     struct Options: Equatable {
         var server: String
         var port: Int
@@ -63,7 +66,7 @@ enum NCSudoku {
         var paddingMin: Int
         var paddingMax: Int
         var pureDownlink: Bool
-        /// HTTP mask on (mihomo `http-mask`, default true) — legacy mode sends one fake HTTP request head.
+        /// HTTP mask on (Clash `http-mask`, default true) — legacy mode sends one fake HTTP request head.
         var httpMaskEnabled: Bool
         var httpMaskMode: String
         var httpMaskTLS: Bool
@@ -98,7 +101,7 @@ enum NCSudoku {
             customTable = str("custom-table", "custom_table")
             customTables = (f["custom-tables"]?.array ?? f["custom_tables"]?.array ?? [])
                 .compactMap { $0.string?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            // mihomo ResolvePadding: defaults 10 / 30; a lone bound drags the other along.
+            // Clash padding resolution: defaults 10 / 30; a lone bound drags the other along.
             let pmin = int("padding-min", "padding_min")
             let pmax = int("padding-max", "padding_max")
             var lo = pmin ?? 10, hi = pmax ?? 30
@@ -188,7 +191,7 @@ enum NCSudoku {
     // MARK: - Import normalisation
 
     /// Maps a Surge / Loon / Quantumult X style `key=value` line's Sudoku parameters (taken through `take`,
-    /// which removes them) onto the canonical (mihomo) fields.
+    /// which removes them) onto the canonical (Clash) fields.
     static func importParams(into fields: inout [String: NCJSONValue], take: (String) -> String?) {
         if let k = take("key") ?? take("password") { fields["key"] = .string(k) }
         if let a = take("aead-method") ?? take("aead") { fields["aead-method"] = .string(a) }

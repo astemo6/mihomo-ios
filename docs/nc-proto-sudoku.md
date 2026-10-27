@@ -1,9 +1,13 @@
 # NativeCore: Sudoku — design note (feat/nc-sudoku, baseline 6fd4bab)
 
-> **Status (fix/nc-proto-sudoku-int, 2026-10-27):** import / canonical fields / codecs are in; the node is shown
-> **unavailable** because the data plane does not interoperate with the official server — §2.6 lists the gaps
-> (directional HKDF handshake keys, X25519 rekey, Go math/rand v1 table seeding, key normalisation, padding-aware
-> streaming decode, aead none passthrough). The loopback against the official binary returns when they are fixed.
+> **Status (fix/nc-sudoku-interop, 2026-10-27):** the data plane is wire-compatible with the official server v0.5.2.0
+> (`NCSudokuWire.swift` + `NCSudokuSession.swift`): per-direction HKDF handshake keys, X25519 rekey, the reference
+> server's legacy PRNG table seed (additive lagged Fibonacci, seeded table — `NCLaggedFibRand` / `NCLaggedFibSeedTable`),
+> client key normalisation (private key → master public key), padding-aware streaming decode (classic + packed
+> downlink), aead none passthrough, custom-table rotation hint. Verified by `NativeCoreLoopbackTests` against the
+> official binary built from source in proto-loopback.yml (:18090–:18094, HTTP origin :18095). The node stays
+> unavailable (`NCSudoku.interopUnavailable`) until that loopback is green. Not implemented (explicit markers, never a
+> timeout): HTTP tunnel modes stream / poll / auto / ws, `multiplex: on`.
 
 Status 2026-10-26 (S2 complete): parsing layer (S1) plus pure-Swift data plane,
 connector wiring, unit vectors/boundary tests, and the loopback harness wired to

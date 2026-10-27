@@ -7,7 +7,7 @@ import CryptoKit
 ///   TCP ← [legacy HTTP mask head] ← Sudoku obfuscation (NCSudokuWire) ← AEAD records ← KIP control + payload
 /// Handshake: ClientHello sealed with the directional PSK bases → ServerHello (nonce echo + X25519 pub) →
 /// both sides rekey to HKDF session bases mixed with the X25519 secret → OpenTCP → raw payload.
-/// Re-implemented from the documented protocol; the official Go code was used as reference only.
+/// Re-implemented from the documented protocol; the reference server's code was used as reference only.
 enum NCSudokuSession {
 
     /// Starts a Sudoku outbound session over `raw`, completing with an `NCRelayStream` ready for traffic.
@@ -67,7 +67,7 @@ enum NCSudokuKeys {
         return (key, Data(SHA256.hash(data: Data(trimmed.utf8)).prefix(8)))
     }
 
-    /// Go `math/rand` seed of the byte table: int64(BE(SHA-256(psk)[0..8])).
+    /// Legacy-PRNG seed of the byte table: int64(BE(SHA-256(psk)[0..8])).
     static func tableSeed(_ psk: String) -> Int64 {
         let d = Array(SHA256.hash(data: Data(psk.utf8)))
         var v: UInt64 = 0

@@ -844,8 +844,9 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported(why)) }
                 return
             }
-            // fix/nc-sudoku-interop: wire-compatible with the official server (NCSudokuWire / NCSudokuSession).
-            sudokuStream(proxy: proxy, target: target, transport: transport, queue: queue, completion: completion)
+            // fix/nc-sudoku-interop: the data plane (NCSudokuWire / NCSudokuSession) stays off until the loopback
+            // against the official server is green; the loopback dials NCSudokuSession directly meanwhile.
+            queue.async { completion(nil, Failure.unsupported(NCSudoku.interopUnavailable)) }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }

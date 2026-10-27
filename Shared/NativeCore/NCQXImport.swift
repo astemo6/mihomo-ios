@@ -273,7 +273,7 @@ enum NCQXImport {
             if let s = take("sni") ?? take("tls-host") ?? take("tls-name") { fields["sni"] = .string(s) }
         case "sudoku":
             type = "sudoku"
-            NCSudoku.importParams(into: &fields, take: take) // canonical (mihomo) field names
+            NCSudoku.importParams(into: &fields, take: take) // canonical (Clash) field names
         default:
             // wireguard / anytls / …: generic credential
             // mapping; everything else rides along verbatim below.

@@ -1,10 +1,10 @@
 import Foundation
 
-/// Go `math/rand` v1 seeding table (`rngCooked`, 607 values): the state of Go's additive lagged-Fibonacci
-/// generator after 780e10 steps, mixed into every seeded state. The Sudoku byte table is a Go
-/// `rand.New(rand.NewSource(seed)).Shuffle` of the 288 grids, so the table is part of the wire contract
+/// Seed table of the reference server's legacy PRNG (additive lagged Fibonacci, seeded table; 607 values):
+/// the generator's state after 780e10 steps, mixed into every seeded state. The Sudoku byte table is a
+/// Fisher-Yates shuffle of the 288 grids driven by that PRNG, so this table is part of the wire contract
 /// (fix/nc-sudoku-interop). Numeric constants of the algorithm, not code.
-enum NCGoRandCooked {
+enum NCLaggedFibSeedTable {
     static let values: [Int64] = [
         -4181792142133755926, -4576982950128230565, 1395769623340756751, 5333664234075297259,
         -6347679516498800754, 9033628115061424579, 7143218595135194537, 4812947590706362721,

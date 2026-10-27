@@ -15,6 +15,8 @@
 # Environment:
 #   SING_BOX_VERSION   pinned sing-box version (default 1.12.24)
 #   SING_BOX_BIN       path to an existing sing-box binary (skips the download)
+#   SUDOKU_VERSION     official Sudoku server release (default 0.5.2.0)
+#   SUDOKU_BIN         path to an existing official sudoku binary (CI builds it from source; skips the download)
 #   NC_LOOPBACK_DIR    runtime dir for binary/config/cert/logs/pids (default /tmp/nc-loopback)
 #
 # Works on macOS and Linux; the same script is what proto-loopback.yml runs
@@ -59,8 +61,10 @@ find_sing_box() {
     printf '%s' "$bin"
 }
 
-# fix/nc-sudoku-interop: the official Sudoku server (SUDOKU-ASCII/sudoku, pinned release) as the black-box
+# fix/nc-sudoku-interop: the official Sudoku server (SUDOKU-ASCII/sudoku, pinned v0.5.2.0) as the black-box
 # peer — sing-box has no sudoku inbound. One process per config in tools/loopback/sudoku/ (:18090–:18094).
+# CI (proto-loopback.yml) builds the binary from the pinned tag's source and passes SUDOKU_BIN; locally the
+# release tarball is downloaded. Plus a plain HTTP origin on :18095 for the fetch-through-Sudoku test.
 SUDOKU_VERSION="${SUDOKU_VERSION:-0.5.2.0}"
 find_sudoku() {
     if [ -n "${SUDOKU_BIN:-}" ]; then
@@ -94,9 +98,18 @@ start_sudoku() {
         nohup "$sk" -c "$cfg" >"$RUN/$name.log" 2>&1 &
         echo $! > "$RUN/$name.pid"
     done
+    # HTTP origin for testSudokuHTTPFetch: a fixed 48 KiB page (marker line + deterministic body).
+    mkdir -p "$RUN/www"
+    python3 - "$RUN/www/sudoku-fetch.txt" <<'PY'
+import sys
+body = "tern-sudoku-loopback-ok\n" + "".join(chr(0x21 + (i * 7) % 94) for i in range(48 * 1024 - 24))
+open(sys.argv[1], "w").write(body)
+PY
+    nohup python3 -m http.server 18095 --bind 127.0.0.1 --directory "$RUN/www" >"$RUN/sudoku-http.log" 2>&1 &
+    echo $! > "$RUN/sudoku-http.pid"
     local p
-    for p in 18090 18091 18092 18093 18094; do wait_tcp "$p" || true; done
-    log "sudoku v${SUDOKU_VERSION}: entropy :18090 ascii-packed :18091 directional-none :18092 rotation :18093 closed-fallback :18094"
+    for p in 18090 18091 18092 18093 18094 18095; do wait_tcp "$p" || true; done
+    log "sudoku v${SUDOKU_VERSION} ($sk): entropy :18090 ascii-packed :18091 directional-none :18092 rotation :18093 closed-fallback :18094, http origin :18095"
 }
 
 stop_sudoku() {
@@ -234,7 +247,7 @@ do_start() {
     kill -0 "$(cat "$RUN/echo.pid")"
     start_hy2_ref_client "$sb"
     start_sudoku
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 echo :18080/:18081 blackhole :18082"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 echo :18080/:18081 blackhole :18082 sudoku :18090-:18094 http :18095"
 }
 
 # hy2-frag: sing-box's own hysteria2 client as a reference (socks :19080 -> hy2-in), probed by
@@ -301,7 +314,7 @@ do_stop() {
 
 do_status() {
     local rc=0
-    for name in sing-box echo; do
+    for name in sing-box echo sudoku-entropy sudoku-ascii-packed sudoku-directional-none sudoku-rotation sudoku-closed-fallback sudoku-http; do
         if alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
         else

@@ -4,8 +4,10 @@
 # server fleet up before xcodebuild, and it only runs the loopback test class.
 #
 # Servers: tools/loopback/start-servers.sh (sing-box 1.12.24 pinned, one inbound per protocol on 127.0.0.1,
-# the official SUDOKU-ASCII/sudoku server v0.5.2.0 on :18090–:18094, plus a python echo/blackhole backend). Constants are mirrored in tools/loopback/sing-box-config.json,
+# plus a python echo/blackhole backend). Constants are mirrored in tools/loopback/sing-box-config.json,
 # tools/loopback/README.md and UnitTests/NativeCoreLoopbackTests.swift.
+# fix/nc-sudoku-interop: the official SUDOKU-ASCII/sudoku server, built here from the pinned v0.5.2.0 source, on
+# :18090–:18094 (configs in tools/loopback/sudoku/) and a plain HTTP origin on :18095.
 #
 # Not covered, by design (see tools/loopback/README.md): WireGuard client (its NativeCore dialer exists only
 # inside the packet tunnel) and Mieru (sing-box has no mieru inbound to test against).
@@ -39,6 +41,22 @@ jobs:
           XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Build official Sudoku server (SUDOKU-ASCII/sudoku v0.5.2.0, from source)
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --branch v0.5.2.0 https://github.com/SUDOKU-ASCII/sudoku /tmp/sudoku-src
+          REV=$(git -C /tmp/sudoku-src rev-parse HEAD)
+          echo "sudoku v0.5.2.0 @ $REV"
+          test "$REV" = 56ce6f1aeea18aa69b9bc1d57557ed312b59e5f5
+          mkdir -p /tmp/nc-loopback/bin
+          # go.mod may pin a newer toolchain than setup-go's stable; GOTOOLCHAIN=auto fetches exactly that one.
+          (cd /tmp/sudoku-src && GOTOOLCHAIN=auto go build -trimpath -ldflags "-s -w" -o /tmp/nc-loopback/bin/sudoku ./cmd/sudoku-tunnel)
+          /tmp/nc-loopback/bin/sudoku -h 2>&1 | head -n 3 || true
+          echo "SUDOKU_BIN=/tmp/nc-loopback/bin/sudoku" >> "$GITHUB_ENV"
       - name: Start loopback servers
         run: |
           tools/loopback/start-servers.sh start

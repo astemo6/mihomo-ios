@@ -1124,8 +1124,16 @@ extension NativeCoreLoopbackTests {
     /// 3388f6b5…451d, so this also exercises the client's key normalisation (Ed25519 r·B + k·B).
     private static let sudokuKey = "e2eac3d4c0036ceb028048417bf2bf7c213681e145603c38ec8bffadb2e40c014130de746760b7dc9b515545f47e29df255687fe3ee972c2c517264f6a37b60b"
     private static var sudokuEcho: NCTarget { NCTarget(host: "127.0.0.1", port: 18080) }
+    /// Plain HTTP origin (python http.server) started next to the Sudoku servers.
+    private static var sudokuHTTPOrigin: NCTarget { NCTarget(host: "127.0.0.1", port: 18095) }
     /// Large enough to span many records and TCP reads (server-side padding lands between clue bytes).
     private static let sudokuPayload = Data((0..<96_000).map { UInt8(($0 * 31 + 7) & 0xff) })
+    /// tools/loopback/start-servers.sh writes the same 48 KiB page.
+    private static let sudokuPage: Data = {
+        var d = Data("tern-sudoku-loopback-ok\n".utf8)
+        d.append(contentsOf: (0..<(48 * 1024 - 24)).map { UInt8(0x21 + ($0 * 7) % 94) })
+        return d
+    }()
 
     private static func sudokuProxy(_ name: String, _ port: Int, _ extra: [String: NCJSONValue]) -> NCProxy {
         var f: [String: NCJSONValue] = ["server": .string("127.0.0.1"), "port": .number(Double(port)),
@@ -1134,20 +1142,81 @@ extension NativeCoreLoopbackTests {
         return NCProxy(name: name, type: "sudoku", fields: f)
     }
 
+    /// TCP to the server + NCSudokuSession, the same path NCConnector's sudoku case takes once the node is
+    /// available (the node stays gated by NCSupport / NCConnector until this loopback is green).
+    private func sudokuDial(_ proxy: NCProxy, target: NCTarget, timeout: TimeInterval = 30) throws -> NCRelayStream {
+        XCTAssertNil(NCSupport.sudokuUnsupported(proxy), "\(proxy.name): valid node")
+        let exp = self.expectation(description: "sudoku dial \(proxy.name)")
+        let box = LockedBox<(NCRelayStream?, Error?)>((nil, nil))
+        let queue = DispatchQueue(label: "nc.loopback.\(proxy.name)")
+        let raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)
+        raw.start { err in
+            if let err {
+                box.set((nil, err))
+                exp.fulfill()
+                return
+            }
+            NCSudokuSession.connect(raw: raw, proxy: proxy, target: target, queue: queue) { stream, err in
+                box.set((stream, err))
+                exp.fulfill()
+            }
+        }
+        self.wait(for: [exp], timeout: timeout)
+        let (stream, err) = box.get()
+        if let err { throw err }
+        return try XCTUnwrap(stream, "\(proxy.name): dial returned neither stream nor error")
+    }
+
+    /// Receives until EOF, or until the HTTP body reaches its Content-Length.
+    private func readHTTPResponse(_ stream: NCRelayStream, timeout: TimeInterval = 20) throws -> (head: String, body: Data) {
+        let exp = self.expectation(description: "http response")
+        let acc = LockedBox(Data())
+        let failure = LockedBox<Error?>(nil)
+        let once = NCCallOnce { exp.fulfill() }
+        let sep = Data("\r\n\r\n".utf8)
+        func complete(_ d: Data) -> Bool {
+            guard let r = d.range(of: sep) else { return false }
+            let head = String(decoding: d[..<r.lowerBound], as: UTF8.self).lowercased()
+            guard let line = head.split(separator: "\r\n").first(where: { $0.hasPrefix("content-length:") }),
+                  let n = Int(line.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) else {
+                return false
+            }
+            return d.count - r.upperBound >= n
+        }
+        func pump() {
+            stream.receive { chunk, err in
+                if let err { failure.set(err); once.call(); return }
+                guard let chunk else { once.call(); return }
+                var d = acc.get()
+                d.append(chunk)
+                acc.set(d)
+                if complete(d) { once.call() } else { pump() }
+            }
+        }
+        pump()
+        self.wait(for: [exp], timeout: timeout)
+        if let err = failure.get() { throw err }
+        let d = acc.get()
+        guard let r = d.range(of: sep) else {
+            throw NSError(domain: "NativeCoreLoopback", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "no HTTP head in \(d.count) bytes"])
+        }
+        return (String(decoding: d[..<r.lowerBound], as: UTF8.self), Data(d[r.upperBound...]))
+    }
+
     func testSudokuServerPortsReachable() {
-        for port in 18090...18094 {
+        for port in 18090...18095 {
             let ok = LockedBox(false)
             let exp = self.expectation(description: "sudoku port \(port)")
             let once = NCCallOnce { exp.fulfill() }
-            let fired = LockedBox(false)
             let conn = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: UInt16(port))!, using: .tcp)
             conn.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
                     ok.set(true)
-                    if !fired.get() { fired.set(true); once.call() }
+                    once.call()
                 case .failed, .cancelled:
-                    if !fired.get() { fired.set(true); once.call() }
+                    once.call()
                 default: break
                 }
             }
@@ -1155,7 +1224,7 @@ extension NativeCoreLoopbackTests {
             self.wait(for: [exp], timeout: 5)
             conn.stateUpdateHandler = nil
             conn.cancel()
-            XCTAssertTrue(ok.get(), "official sudoku server 127.0.0.1:\(port) not accepting")
+            XCTAssertTrue(ok.get(), "official sudoku server / http origin 127.0.0.1:\(port) not accepting")
         }
     }
 
@@ -1163,11 +1232,22 @@ extension NativeCoreLoopbackTests {
     func testSudokuTCPEcho() throws {
         let p = Self.sudokuProxy("loop-sudoku", 18090, ["aead-method": .string("chacha20-poly1305"),
                                                         "table-type": .string("prefer_entropy")])
-        XCTAssertNil(NCSupport.unsupportedReason(p))
-        let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.sudokuPayload)
         try self.assertEcho(stream, payload: Data("second round".utf8))
+    }
+
+    /// A real HTTP/1 fetch through the official server: GET a 48 KiB page from the :18095 origin.
+    func testSudokuHTTPFetch() throws {
+        let p = Self.sudokuProxy("loop-sudoku-http", 18090, [:])
+        let stream = try self.sudokuDial(p, target: Self.sudokuHTTPOrigin)
+        defer { stream.cancel() }
+        stream.send(Data("GET /sudoku-fetch.txt HTTP/1.1\r\nHost: 127.0.0.1:18095\r\nUser-Agent: tern-loopback\r\nAccept: */*\r\nConnection: close\r\n\r\n".utf8))
+        let (head, body) = try self.readHTTPResponse(stream)
+        XCTAssertTrue(head.hasPrefix("HTTP/1.0 200") || head.hasPrefix("HTTP/1.1 200"), head)
+        XCTAssertEqual(body.count, Self.sudokuPage.count)
+        XCTAssertEqual(body, Self.sudokuPage, "page bytes differ")
     }
 
     /// prefer_ascii, aes-128-gcm, no HTTP mask, packed (bandwidth-optimised) downlink.
@@ -1176,7 +1256,7 @@ extension NativeCoreLoopbackTests {
             "aead-method": .string("aes-128-gcm"), "table-type": .string("prefer_ascii"),
             "enable-pure-downlink": .bool(false), "http-mask": .bool(false),
         ])
-        let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.sudokuPayload)
     }
@@ -1187,7 +1267,7 @@ extension NativeCoreLoopbackTests {
             "aead-method": .string("none"), "table-type": .string("up_ascii_down_entropy"),
             "custom-table": .string("xpxvvpvv"), "httpmask": .object(["disable": .bool(true)]),
         ])
-        let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.sudokuPayload)
     }
@@ -1198,14 +1278,14 @@ extension NativeCoreLoopbackTests {
             "custom-tables": .array([.string("xpxvvpvv"), .string("vxpvxvvp")]), "enable-pure-downlink": .bool(false),
         ])
         for _ in 0..<4 {
-            let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+            let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
             try self.assertEcho(stream, payload: Data(Self.sudokuPayload.prefix(8192)))
             stream.cancel()
         }
     }
 
-    /// A key the server does not hold is rejected by the server itself: it cannot open the ClientHello, treats
-    /// the connection as suspicious after its 5 s handshake window and hands it to the fallback — the echo
+    /// A key the server does not hold is rejected by the server itself: it cannot open the ClientHello, logs
+    /// "Suspicious connection" after its 5 s handshake window and hands the socket to the fallback — the echo
     /// backend reflects our own records (they fail authentication), the closed fallback drops the socket.
     /// Either way the client reports that verdict well inside its own 10 s deadline, never a timeout.
     func testSudokuWrongKeyRejected() throws {
@@ -1215,10 +1295,10 @@ extension NativeCoreLoopbackTests {
         for (port, expected) in [(18090, "无法认证"), (18094, "关闭了连接")] {
             let p = Self.sudokuProxy("loop-sudoku-badkey-\(port)", port, ["key": .string(bad)])
             let t0 = Date()
-            XCTAssertThrowsError(try self.connect(proxy: p, target: Self.sudokuEcho, timeout: 15)) { err in
+            XCTAssertThrowsError(try self.sudokuDial(p, target: Self.sudokuEcho, timeout: 15)) { err in
                 let msg = err.localizedDescription
                 XCTAssertTrue(msg.contains(expected), "port \(port): \(msg)")
-                XCTAssertFalse(msg.contains("timeout"), "port \(port): \(msg)")
+                XCTAssertFalse(msg.lowercased().contains("timeout") || msg.contains("超时"), "port \(port): \(msg)")
             }
             XCTAssertLessThan(Date().timeIntervalSince(t0), 9.5, "port \(port): rejection should come from the server")
         }
@@ -1229,7 +1309,7 @@ extension NativeCoreLoopbackTests {
         let p = Self.sudokuProxy("loop-sudoku-pub", 18090, [
             "key": .string("3388f6b59b225f4e41cd14f445b73b6568711ce536832217b15649253612451d"),
         ])
-        let stream = try self.connect(proxy: p, target: Self.sudokuEcho)
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Data(Self.sudokuPayload.prefix(4096)))
     }
