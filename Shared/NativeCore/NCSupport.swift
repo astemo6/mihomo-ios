@@ -97,6 +97,7 @@ enum NCSupport {
         case "openconnect", "anyconnect":
             // fix/nc-openconnect-dp: real data plane (lwIP netif over CSTP, NCOpenConnectNetif.swift).
             if let why = NCOpenConnect.unsupportedReason(p) { return why }
+            if !NCOpenConnect.dataPlaneVerified { return NCOpenConnect.dataPlaneUnavailable }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }

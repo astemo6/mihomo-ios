@@ -1,7 +1,8 @@
 #!/bin/sh
 # fix/nc-openconnect-dp: cloud-init user-data for the ocserv loopback VM (start-ocserv-vm.sh).
 # Real ocserv (Alpine edge/testing package) + the services the OpenConnect loopback test reaches *through* the tunnel:
-#   10.77.0.1:9000 TCP echo, 10.77.0.1:9001 UDP echo, 10.77.0.1:53 DNS (echo.oc.test -> 10.77.0.1).
+#   10.77.0.1:9000 TCP echo, 10.77.0.1:9001 UDP echo, 10.77.0.1:53 DNS (echo.oc.test / web.oc.test -> 10.77.0.1),
+#   10.77.0.1:8080 HTTP (busybox httpd: /hello.txt = "tern-openconnect-ok\n", /big.txt = "tern-oc-0123456789\n" x N, 304000 bytes).
 # Constants mirrored in E2ETests/NCOpenConnectLoopbackTests.swift and tools/loopback/ocserv/README.md.
 exec > /dev/console 2>&1
 set -x
@@ -9,7 +10,7 @@ modprobe tun || true
 E=https://dl-cdn.alpinelinux.org/alpine/edge
 ok=0
 for i in 1 2 3; do
-  apk add --no-cache -X $E/testing -X $E/main -X $E/community ocserv socat dnsmasq openssl && { ok=1; break; }
+  apk add --no-cache -X $E/testing -X $E/main -X $E/community ocserv socat dnsmasq openssl busybox-extras && { ok=1; break; }
   sleep 5
 done
 [ $ok = 1 ] || { echo OCSETUP-FAIL apk; exit 1; }
@@ -51,6 +52,10 @@ mtu = 1400
 cisco-client-compat = true
 dtls-legacy = true
 C
+mkdir -p /srv/www
+printf 'tern-openconnect-ok\n' > /srv/www/hello.txt
+yes tern-oc-0123456789 | head -c 304000 > /srv/www/big.txt
+busybox-extras httpd -p 8080 -h /srv/www || busybox httpd -p 8080 -h /srv/www || { echo OCSETUP-FAIL httpd; exit 1; }
 socat TCP-LISTEN:9000,fork,reuseaddr EXEC:cat &
 socat UDP-RECVFROM:9001,fork EXEC:cat &
 dnsmasq --no-resolv --no-hosts --bind-dynamic --interface='vpns*' --address=/oc.test/10.77.0.1 --log-queries --log-facility=/dev/console

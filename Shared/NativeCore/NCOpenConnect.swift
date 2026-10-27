@@ -34,6 +34,13 @@ enum NCOpenConnect {
 
     /// fix/nc-openconnect-dp: the data plane is a lwIP netif over the CSTP channel (PacketTunnel only,
     /// NCOpenConnectNetif.swift). Outside the tunnel (the App's 延迟测试) there is no such stack, like WireGuard.
+    /// Flipped to true only once the real-ocserv loopback (proto-loopback.yml job `openconnect`) is green; until then
+    /// NCSupport keeps a valid node unavailable (the connector still dials, so the loopback can run).
+    static let dataPlaneVerified = false
+
+    /// Shown by NCSupport for a valid node while `dataPlaneVerified` is false.
+    static let dataPlaneUnavailable = "OpenConnect 数据面验证中（真实 ocserv 回环测试通过前暂不可用）"
+
     static let tunnelOnly = "OpenConnect 仅在 VPN 隧道内可用（CSTP 承载 IP 包，由隧道内的用户态 TCP/IP 栈收发）"
 
     /// The webvpn cookie value from a configured `cookie` (a bare token, `webvpn=<token>`, or a Cookie header line).

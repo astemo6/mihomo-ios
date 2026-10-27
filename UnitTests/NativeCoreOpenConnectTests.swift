@@ -590,7 +590,7 @@ final class NativeCoreOpenConnectTests: XCTestCase {
 
     // MARK: - fix/nc-openconnect-dp: real data plane (lwIP netif over CSTP, PacketTunnel only)
 
-    /// A complete, valid node is available (NCSupport); outside the packet tunnel (this App-hosted test, the App's
+    /// A complete, valid node is available (NCSupport) once the ocserv loopback verified the data plane; outside the packet tunnel (this App-hosted test, the App's
     /// 延迟测试) no lwIP netif exists, so the connector refuses with the tunnel-only reason instead of dialling.
     func testValidNodeIsAvailableAndTunnelOnlyOutsideTheTunnel() {
         let p = NCProxy(name: "oc", type: "openconnect", fields: [
@@ -598,7 +598,8 @@ final class NativeCoreOpenConnectTests: XCTestCase {
             "username": .string("u"), "password": .string("p"),
         ])
         XCTAssertNil(NCOpenConnect.unsupportedReason(p))
-        XCTAssertNil(NCSupport.unsupportedReason(p))
+        XCTAssertEqual(NCSupport.unsupportedReason(p),
+                       NCOpenConnect.dataPlaneVerified ? nil : NCOpenConnect.dataPlaneUnavailable)
         XCTAssertNil(NCConnector.openconnectDialer, "only the packet tunnel installs the OpenConnect dialer")
         let exp = expectation(description: "connector")
         var failure: Error?

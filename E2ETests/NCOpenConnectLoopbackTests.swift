@@ -10,7 +10,8 @@ import XCTest
 /// when the server is unreachable; elsewhere (e2e-replay only runs its own class) it skips.
 ///
 /// Server-side constants (tools/loopback/ocserv/user-data): user tern / tern-pass, pool 10.77.0.0/24, server end
-/// 10.77.0.1 with TCP echo :9000, UDP echo :9001, DNS :53 answering *.oc.test → 10.77.0.1.
+/// 10.77.0.1 with TCP echo :9000, UDP echo :9001, DNS :53 answering *.oc.test → 10.77.0.1, HTTP :8080 (busybox
+/// httpd: /hello.txt, /big.txt = "tern-oc-0123456789\n" repeated to 304000 bytes).
 final class NCOpenConnectLoopbackTests: XCTestCase {
     private let port = Int(ProcessInfo.processInfo.environment["NC_OC_PORT"] ?? "") ?? 18443
     private let echoIP = "10.77.0.1"
@@ -155,6 +156,82 @@ final class NCOpenConnectLoopbackTests: XCTestCase {
         wait(for: [got], timeout: 60)
         timer.cancel()
         XCTAssertEqual(q.sync { reply }, msg)
+    }
+
+    /// Reads an HTTP/1.0 response to EOF (the server closes) and returns (status line, body).
+    private func httpGet(_ s: NCRelayStream, host: String, path: String, timeout: TimeInterval = 90) -> (String, Data) {
+        let done = expectation(description: "GET \(path)")
+        var raw = Data()
+        var finished = false
+        func finish() { if !finished { finished = true; done.fulfill() } }
+        func read() {
+            s.receive { d, _ in
+                guard let d, !d.isEmpty else { finish(); return }
+                raw.append(d)
+                read()
+            }
+        }
+        q.async {
+            s.send(Data("GET \(path) HTTP/1.0\r\nHost: \(host)\r\nUser-Agent: tern-oc-loopback\r\n\r\n".utf8)) {}
+            read()
+        }
+        wait(for: [done], timeout: timeout)
+        let all = q.sync { raw }
+        guard let r = all.range(of: Data([13, 10, 13, 10])) else { return (String(decoding: all.prefix(200), as: UTF8.self), Data()) }
+        let head = String(decoding: all[all.startIndex..<r.lowerBound], as: UTF8.self)
+        return (head.components(separatedBy: "\r\n").first ?? "", Data(all[r.upperBound...]))
+    }
+
+    /// A real HTTP fetch through the tunnel by name: X-CSTP-DNS resolves web.oc.test, lwIP TCP over CSTP carries the
+    /// request and a 304000-byte body that must arrive byte-exact.
+    func testHTTPFetchThroughTunnel() throws {
+        let p = node()
+        let (s1, e1) = dial(p, "web.oc.test", 8080)
+        let small = try XCTUnwrap(s1, "dial failed: \(String(describing: e1))")
+        let (status, body) = httpGet(small, host: "web.oc.test:8080", path: "/hello.txt")
+        small.cancel()
+        XCTAssertTrue(status.contains(" 200"), status)
+        XCTAssertEqual(String(decoding: body, as: UTF8.self), "tern-openconnect-ok\n")
+
+        let (s2, e2) = dial(p, "web.oc.test", 8080)
+        let big = try XCTUnwrap(s2, "dial failed: \(String(describing: e2))")
+        defer { big.cancel() }
+        let t0 = Date()
+        let (status2, body2) = httpGet(big, host: "web.oc.test:8080", path: "/big.txt")
+        XCTAssertTrue(status2.contains(" 200"), status2)
+        var want = Data()
+        let line = Data("tern-oc-0123456789\n".utf8)
+        while want.count < 304_000 { want.append(line) }
+        want = want.prefix(304_000)
+        XCTAssertEqual(body2.count, want.count)
+        XCTAssertTrue(body2 == want, "HTTP body differs")
+        NSLog("[oc-loopback] HTTP 304000 B in %.2f s", Date().timeIntervalSince(t0))
+    }
+
+    /// A DNS query as plain UDP through the netif to the VPN's resolver (X-CSTP-DNS), answer parsed.
+    func testUDPDNSThroughTunnel() throws {
+        let p = node()
+        let session = NCUDPWireGuardSession(proxy: p, queue: q, acquire: { NCOCStack.shared.acquire($0) })
+        defer { session.cancel() }
+        let qid: UInt16 = 0x7a31
+        var query: [UInt8] = [UInt8(qid >> 8), UInt8(qid & 0xff), 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]
+        for label in ["echo", "oc", "test"] { query.append(UInt8(label.utf8.count)); query += Array(label.utf8) }
+        query += [0, 0, 1, 0, 1]
+        let got = expectation(description: "dns answer")
+        var answer: [NCIP]?
+        session.onReply = { d in
+            guard answer == nil, let r = NCWGDevice.parseDNS([UInt8](d), id: qid, qtype: 1) else { return }
+            answer = r
+            got.fulfill()
+        }
+        let dns = echoIP // = the X-CSTP-DNS ocserv announces (asserted in testTCPEchoThroughTunnel)
+        let timer = DispatchSource.makeTimerSource(queue: q)
+        timer.schedule(deadline: .now(), repeating: 2)
+        timer.setEventHandler { session.send(Data(query), to: NCTarget(host: dns, port: 53)) }
+        timer.resume()
+        wait(for: [got], timeout: 60)
+        timer.cancel()
+        XCTAssertEqual(q.sync { answer?.map { $0.string } }, ["10.77.0.1"])
     }
 
     /// DPD request → DPD response from ocserv.
