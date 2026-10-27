@@ -10,7 +10,7 @@ import XCTest
 ///   and the same probe around each tap.
 /// Nothing here asserts a frame budget (simulator timing varies per runner); the tests fail only when a step is
 /// missing or the app died, so before / after numbers can be compared run by run.
-final class UISmoothPerfUITests: MihomoUITestCase {
+final class UISmoothPerfUITests: TernUITestCase {
 
     private func probeLabel() -> String {
         let e = app.element(id: "uiperf.probe")

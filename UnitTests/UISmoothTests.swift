@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-ui-smooth: main-thread costs behind the 策略 / 首页 / 节点 rows. Every member cell asks for its node's test
 /// URL to read the right delay out of the core's per-URL history, on every render (a delay test re-renders the page
