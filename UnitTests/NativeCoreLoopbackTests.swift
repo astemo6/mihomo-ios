@@ -1645,4 +1645,123 @@ extension NativeCoreLoopbackTests {
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Data(Self.sudokuPayload.prefix(4096)))
     }
+
+    // MARK: Sudoku UDP (feat/nc-sudoku-udp): UoT inside the tunnel, KIP StartUoT, against the official server
+
+    /// tools/loopback/echo_server.py's DNS responder: answers every A query with 192.0.2.53.
+    private static let loopDNSPort = 18084
+
+    /// The data plane's Sudoku UDP session (NCSudokuUDPSession, created by NCDataPlane.openUDP) against the official
+    /// server; datagrams are sent in order and the replies collected with the peer the server reported.
+    /// `afterFirstReply` datagrams are sent once the first reply arrived (the tunnel is up).
+    private func sudokuUDP(_ proxy: NCProxy, _ datagrams: [(NCTarget, Data)], afterFirstReply: [(NCTarget, Data)] = [],
+                           expect: Int, timeout: TimeInterval = 20) throws -> [(peer: NCTarget?, payload: Data)] {
+        XCTAssertNil(NCSupport.unsupportedReason(proxy), "\(proxy.name): node must be available")
+        let queue = DispatchQueue(label: "nc.loopback.sudoku-udp.\(proxy.name)")
+        let replies = LockedBox<[(peer: NCTarget?, payload: Data)]>([])
+        let closed = LockedBox<String?>(nil)
+        let exp = self.expectation(description: "sudoku udp \(proxy.name)")
+        exp.expectedFulfillmentCount = max(1, expect)
+        exp.assertForOverFulfill = false
+        let session: NCSudokuUDPSession = queue.sync {
+            let s = NCSudokuUDPSession(proxy: proxy, queue: queue)
+            s.onDatagram = { [weak s] peer, payload in
+                var r = replies.get(); r.append((peer, payload)); replies.set(r)
+                if r.count == 1, let s { for (t, d) in afterFirstReply { s.send(d, to: t) } }
+                exp.fulfill()
+            }
+            s.onClose = { err in
+                closed.set(err?.localizedDescription ?? "EOF")
+                for _ in 0..<max(1, expect) { exp.fulfill() }
+            }
+            return s
+        }
+        defer { queue.sync { session.cancel() } }
+        // Sent while the tunnel is still opening: exercises the bounded pre-open queue too.
+        queue.async { for (t, d) in datagrams { session.send(d, to: t) } }
+        // XCTWaiter: a short count is reported by the callers' assertions, not as a bare timeout.
+        _ = XCTWaiter().wait(for: [exp], timeout: timeout)
+        if let why = closed.get(), replies.get().count < expect {
+            XCTFail("\(proxy.name): UoT tunnel closed early: \(why)")
+        }
+        return replies.get()
+    }
+
+    /// DNS-sized + 1400-byte datagrams to the UDP echo backend by IP, and one to a domain (resolved by the server).
+    func testSudokuUDPEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-udp", 18090, ["aead-method": .string("chacha20-poly1305")])
+        let big = Data((0..<1400).map { UInt8(($0 * 13 + 5) & 0xff) })
+        let echo = NCTarget(host: "127.0.0.1", port: Self.udpEchoPort)
+        let r = try self.sudokuUDP(p, [(echo, Self.dnsQuery), (echo, big),
+                                       (NCTarget(host: "localhost", port: Self.udpEchoPort), Data("by-domain".utf8))],
+                                   expect: 3)
+        XCTAssertEqual(r.count, 3, "replies: \(r.map { $0.payload.count })")
+        let payloads = r.map { $0.payload }
+        XCTAssertTrue(payloads.contains(Self.dnsQuery), "DNS-sized datagram not echoed")
+        XCTAssertTrue(payloads.contains(big), "1400-byte datagram not echoed byte-exact")
+        XCTAssertTrue(payloads.contains(Data("by-domain".utf8)), "domain-addressed datagram not echoed")
+        for x in r {
+            XCTAssertEqual(x.peer?.host, "127.0.0.1")
+            XCTAssertEqual(x.peer?.port, Self.udpEchoPort)
+        }
+    }
+
+    /// DNS over UDP through the tunnel: a real query answered by a real (loopback) DNS server.
+    func testSudokuUDPDNSQuery() throws {
+        let p = Self.sudokuProxy("loop-sudoku-dns", 18090, [:])
+        var q = Data([0x5a, 0x17, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+        for label in ["tern-sudoku", "test"] {
+            q.append(UInt8(label.utf8.count))
+            q.append(contentsOf: label.utf8)
+        }
+        q.append(contentsOf: [0x00, 0x00, 0x01, 0x00, 0x01])
+        let r = try self.sudokuUDP(p, [(NCTarget(host: "127.0.0.1", port: Self.loopDNSPort), q)], expect: 1)
+        let answer = try XCTUnwrap(r.first?.payload, "no DNS answer through the Sudoku UoT tunnel")
+        XCTAssertGreaterThanOrEqual(answer.count, q.count + 16)
+        let a = [UInt8](answer)
+        XCTAssertEqual(Array(a[0..<2]), [0x5a, 0x17], "transaction id")
+        XCTAssertEqual(a[2] & 0x80, 0x80, "QR bit")
+        XCTAssertEqual(Int(a[6]) << 8 | Int(a[7]), 1, "ANCOUNT")
+        XCTAssertEqual(Array(a.suffix(4)), [192, 0, 2, 53], "A record")
+    }
+
+    /// The other wire variants carry UoT too: prefer_ascii + aes-128-gcm + packed downlink, and
+    /// up_ascii_down_entropy + custom table + aead none.
+    func testSudokuUDPEchoAcrossWireVariants() throws {
+        let echo = NCTarget(host: "127.0.0.1", port: Self.udpEchoPort)
+        let big = Data((0..<1400).map { UInt8(($0 * 31 + 1) & 0xff) })
+        let variants: [NCProxy] = [
+            Self.sudokuProxy("loop-sudoku-udp-ascii", 18091, [
+                "aead-method": .string("aes-128-gcm"), "table-type": .string("prefer_ascii"),
+                "enable-pure-downlink": .bool(false), "http-mask": .bool(false),
+            ]),
+            Self.sudokuProxy("loop-sudoku-udp-dir", 18092, [
+                "aead-method": .string("none"), "table-type": .string("up_ascii_down_entropy"),
+                "custom-table": .string("xpxvvpvv"), "httpmask": .object(["disable": .bool(true)]),
+            ]),
+        ]
+        for p in variants {
+            let r = try self.sudokuUDP(p, [(echo, Self.dnsQuery), (echo, big)], expect: 2)
+            XCTAssertEqual(Set(r.map { $0.payload }), Set([Self.dnsQuery, big]), p.name)
+        }
+    }
+
+    /// A burst of 64 × 1400 B datagrams on one open association (frames coalesce into records / TCP reads both
+    /// ways), after 16 queued while the tunnel was opening (the pre-open cap).
+    func testSudokuUDPBurst() throws {
+        let p = Self.sudokuProxy("loop-sudoku-udp-burst", 18090, [:])
+        let echo = NCTarget(host: "127.0.0.1", port: Self.udpEchoPort)
+        func gram(_ i: Int) -> (NCTarget, Data) {
+            var d = Data(repeating: UInt8(i & 0xff), count: 1400)
+            d[0] = 0xb5
+            return (echo, d)
+        }
+        let r = try self.sudokuUDP(p, (0..<16).map(gram), afterFirstReply: (16..<80).map(gram), expect: 80,
+                                   timeout: 30)
+        // Loopback UDP between the official server and the echo backend may still drop a datagram under a burst.
+        XCTAssertGreaterThanOrEqual(r.count, 76, "burst: \(r.count)/80 echoed")
+        XCTAssertTrue(r.allSatisfy { $0.payload.count == 1400 && $0.payload.first == 0xb5 }, "a burst datagram was corrupted")
+        let firstSixteen = Set(r.map { Int($0.payload[1]) }).intersection(Set(0..<16))
+        XCTAssertGreaterThanOrEqual(firstSixteen.count, 15, "pre-open queue: \(firstSixteen.count)/16 echoed")
+    }
 }
