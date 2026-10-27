@@ -804,6 +804,169 @@ final class NativeCoreLoopbackTests: XCTestCase {
             XCTAssertEqual(from.port, Self.udpEchoPort)
         }
     }
+
+    // MARK: - Lua custom backend (feat/nc-lua S2)
+
+    private static let luaPort = 18016
+
+    /// The peer (tools/loopback/lua-mock-server.py) answers the script's
+    /// "HE" greeting with "HO" and echoes every chunk XORed with 0x5A; the
+    /// script's on_read applies the same XOR, so assertEcho verifies the
+    /// whole flags -> handshake -> write/read transform path over real TCP.
+    private static let luaXORScript = """
+    local KEY = 0x5A
+    local function xorBytes(s)
+      return (s:gsub(".", function(c) return string.char(string.byte(c) ~ KEY) end))
+    end
+    function wa_lua_on_flags_cb(ctx)
+      backend.write(ctx, "HE")
+      return 0
+    end
+    function wa_lua_on_handshake_cb(ctx) return _G.hs_done == true end
+    function wa_lua_on_read_cb(ctx, buf)
+      if _G.hs_done ~= true then
+        if buf == "HO" then
+          _G.hs_done = true
+          return backend.RESULT.HANDSHAKE, nil
+        end
+        return backend.RESULT.ERROR, nil
+      end
+      return backend.RESULT.SUCCESS, xorBytes(buf)
+    end
+    function wa_lua_on_write_cb(ctx, buf) return backend.RESULT.SUCCESS, xorBytes(buf) end
+    function wa_lua_on_close_cb(ctx) return 0 end
+    """
+
+    private static var luaProxy: NCProxy {
+        Self.proxy(name: "loop-lua", type: "lua", port: Self.luaPort, extra: [
+            "script": .string(Self.luaXORScript),
+        ])
+    }
+
+    func testLuaCustomBackendEcho() throws {
+        // Diagnostic probes (added after run 40422207536 hung in connect with
+        // no completion at all): prove the mock is reachable from this
+        // process and speaks HE/HO before involving NCConnector.
+        let probe = NWConnection(host: NWEndpoint.Host(Self.host),
+                                 port: NWEndpoint.Port(rawValue: UInt16(Self.luaPort))!,
+                                 using: .tcp)
+        let readyExp = expectation(description: "lua mock ready")
+        let readyBox = LockedBox(false)
+        probe.stateUpdateHandler = { state in
+            if case .ready = state { readyBox.set(true); readyExp.fulfill() }
+            if case .failed = state { readyExp.fulfill() }
+        }
+        probe.start(queue: DispatchQueue(label: "nc.loopback.lua.probe"))
+        wait(for: [readyExp], timeout: 5)
+        XCTAssertTrue(readyBox.get(), "lua mock :\(Self.luaPort) not reachable from the test process")
+        let hoExp = expectation(description: "lua mock HO")
+        let hoBox = LockedBox<Data?>(nil)
+        probe.send(content: Data("HE".utf8), completion: .idempotent)
+        probe.receive(minimumIncompleteLength: 1, maximumLength: 64) { data, _, _, _ in
+            hoBox.set(data)
+            hoExp.fulfill()
+        }
+        wait(for: [hoExp], timeout: 5)
+        XCTAssertEqual(hoBox.get(), Data("HO".utf8), "lua mock did not answer HE with HO")
+        probe.cancel()
+
+        let stream = try self.connect(proxy: Self.luaProxy, target: Self.echoTarget, timeout: 20)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// Shadowrocket/lua-backend http-backend.lua (MIT, github.com/Shadowrocket/lua-backend), verbatim — the
+    /// shape every real Shadowrocket Lua backend has (`require 'backend'`, on_flags = DIRECT_WRITE,
+    /// RESULT.DIRECT, handshake keyed by ctx uuid) — against sing-box's plain HTTP CONNECT inbound on 18018.
+    private static let shadowrocketHTTPBackend = #"""
+    -- file: lua/backend-http.lua
+
+    local http = require 'http'
+    local backend = require 'backend'
+
+    local char = string.char
+    local byte = string.byte
+    local find = string.find
+    local sub = string.sub
+
+    local ADDRESS = backend.ADDRESS
+    local PROXY = backend.PROXY
+    local DIRECT_WRITE = backend.SUPPORT.DIRECT_WRITE
+
+    local SUCCESS = backend.RESULT.SUCCESS
+    local HANDSHAKE = backend.RESULT.HANDSHAKE
+    local DIRECT = backend.RESULT.DIRECT
+
+    local ctx_uuid = backend.get_uuid
+    local ctx_proxy_type = backend.get_proxy_type
+    local ctx_address_type = backend.get_address_type
+    local ctx_address_host = backend.get_address_host
+    local ctx_address_bytes = backend.get_address_bytes
+    local ctx_address_port = backend.get_address_port
+    local ctx_write = backend.write
+    local ctx_free = backend.free
+    local ctx_debug = backend.debug
+
+    local flags = {}
+    local kHttpHeaderSent = 1
+    local kHttpHeaderRecived = 2
+
+    function wa_lua_on_flags_cb(ctx)
+        return DIRECT_WRITE
+    end
+
+    function wa_lua_on_handshake_cb(ctx)
+        local uuid = ctx_uuid(ctx)
+
+        if flags[uuid] == kHttpHeaderRecived then
+            return true
+        end
+
+        if flags[uuid] ~= kHttpHeaderSent then
+            local host = ctx_address_host(ctx)
+            local port = ctx_address_port(ctx)
+            local res = 'CONNECT ' .. host .. ':' .. port .. ' HTTP/1.1\r\n' ..
+                        'Host: ' .. host .. ':' .. port .. '\r\n' ..
+                        'Proxy-Connection: Keep-Alive\r\n\r\n'
+            ctx_write(ctx, res)
+            flags[uuid] = kHttpHeaderSent
+        end
+
+        return false
+    end
+
+    function wa_lua_on_read_cb(ctx, buf)
+        ctx_debug('wa_lua_on_read_cb')
+        local uuid = ctx_uuid(ctx)
+        if flags[uuid] == kHttpHeaderSent then
+            flags[uuid] = kHttpHeaderRecived
+            return HANDSHAKE, nil
+        end
+        return DIRECT, buf
+    end
+
+    function wa_lua_on_write_cb(ctx, buf)
+        ctx_debug('wa_lua_on_write_cb')
+        return DIRECT, buf
+    end
+
+    function wa_lua_on_close_cb(ctx)
+        ctx_debug('wa_lua_on_close_cb')
+        local uuid = ctx_uuid(ctx)
+        flags[uuid] = nil
+        ctx_free(ctx)
+        return SUCCESS
+    end
+    """#
+
+    func testLuaShadowrocketHTTPBackendEcho() throws {
+        let proxy = Self.proxy(name: "loop-lua-http", type: "lua", port: 18018, extra: [
+            "script": .string(Self.shadowrocketHTTPBackend),
+        ])
+        let stream = try self.connect(proxy: proxy, target: Self.echoTarget, timeout: 20)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
 }
 
 /// hy2-frag ladder rungs over one registered hysteria2 UDP session (see testHysteria2UDPEcho).

@@ -20,6 +20,7 @@ enum NCSupport {
         // feat/nc-naive-h2h3 (NCNaive / NCH2ProxySession / NCH3ProxySession): NaïveProxy (h2, or h3 with
         // quic: true) and Shadowrocket-style HTTP/2 / HTTP/3 CONNECT proxies.
         "naive", "http2", "h2", "http3", "h3",
+        "lua",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -69,6 +70,12 @@ enum NCSupport {
             if let aid = p.fields["alterId"]?.int, aid > 0 {
                 return "VMess alterId \(aid)（旧版 MD5 认证）尚未接入，请改为 alterId: 0"
             }
+        case "lua":
+            // feat/nc-lua S2: the connector runs the backend in NCLuaSession; a node without any
+            // script source can never dial, so say so at import/display time already.
+            let hasScript = !(p.fields["script"]?.string ?? "").isEmpty
+            let hasFile = !(p.fields["file"]?.string ?? "").isEmpty
+            if !hasScript && !hasFile { return "Lua 后端缺少脚本 (file/script)" }
         case "ss":
             // One gate for every SS plugin (ssPluginUnsupported): simple-obfs / v2ray-plugin use #101's
             // NCSSPluginOptions parse (same as the connector), gost-plugin / shadow-tls / restls the nc-proto rules.

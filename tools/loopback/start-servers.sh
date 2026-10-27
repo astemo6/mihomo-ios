@@ -164,6 +164,10 @@ do_start() {
     nohup python3 "$DIR/echo_server.py" >"$RUN/echo.log" 2>&1 &
     echo $! > "$RUN/echo.pid"
 
+    log "starting lua-mock-server.py (feat/nc-lua)"
+    nohup python3 "$DIR/lua-mock-server.py" >"$RUN/lua.log" 2>&1 &
+    echo $! > "$RUN/lua.pid"
+
     log "starting sing-box $("$sb" version | head -n1)"
     # NC_LOOPBACK_QUIC_DEBUG=1 (off by default): quic-go per-packet debug log into sing-box.log, summarised by
     # `stop` (hy2-frag: which received QUIC packets / DATAGRAM frames the server drops, and why).
@@ -178,13 +182,14 @@ do_start() {
     # (hysteria2 / tuic / wireguard) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
-    for p in 18001 18002 18003 18004 18005 18014 18015 18040 18060 18061 18062 18063 18080 18082; do
+    for p in 18001 18002 18003 18004 18005 18014 18015 18040 18060 18061 18062 18063 18080 18082 18016 18018; do
         wait_tcp "$p"
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
+    kill -0 "$(cat "$RUN/lua.pid")"
     start_hy2_ref_client "$sb"
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 echo :18080/:18081 blackhole :18082"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 echo :18080/:18081 blackhole :18082 lua :18016 http-connect :18018"
 }
 
 # hy2-frag: sing-box's own hysteria2 client as a reference (socks :19080 -> hy2-in), probed by
@@ -239,7 +244,7 @@ do_stop() {
     stop_hy2_ref_client
     stop_wire_capture
     quic_debug_summary
-    for f in "$RUN/sing-box.pid" "$RUN/echo.pid"; do
+    for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/lua.pid"; do
         if alive "$f"; then
             kill "$(cat "$f")" 2>/dev/null || true
         fi
@@ -250,7 +255,7 @@ do_stop() {
 
 do_status() {
     local rc=0
-    for name in sing-box echo; do
+    for name in sing-box echo lua; do
         if alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
         else

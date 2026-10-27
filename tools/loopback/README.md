@@ -47,6 +47,8 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
 | 18014 | sing-box VLESS inbound with ECH — same uuid, TLS + ECH (`outer.localhost` / `localhost`) |
 | 18015 | sing-box Trojan inbound with ECH — `nc-loop-trojan-pw`, TLS + ECH (`outer.localhost` / `localhost`) |
+| 18016 | `lua-mock-server.py` — Lua backend peer: `HE`→`HO` greeting, then XOR-0x5A relay to 18080 (fix/nc-proto-lua-int) |
+| 18018 | sing-box plain HTTP CONNECT inbound (no auth) — peer for the verbatim Shadowrocket `http-backend.lua` (fix/nc-proto-lua-int) |
 | 18040 | sing-box naive inbound, TCP (HTTP/2 CONNECT + naive padding) — `nc-loop` / `nc-loop-naive-pw`, self-signed TLS |
 | 18041 | sing-box naive inbound, UDP (HTTP/3 over QUIC, ALPN h3) — same user |
 | 18060 | sing-box Trojan inbound over WebSocket `/tj` — same password, self-signed TLS (fix/nc-silent-fail) |
