@@ -28,3 +28,5 @@ Bundled data:
     https://github.com/MetaCubeX/meta-rules-dat
   GeoLite2-ASN contains data created by MaxMind, available from https://www.maxmind.com
   lwIP (BSD-3-Clause), vendored in PacketTunnel/NativeCore/lwip.
+  Lua 5.4.6 (MIT), trimmed and vendored in PacketTunnel/NativeCore/Lua/.
+    https://www.lua.org/
