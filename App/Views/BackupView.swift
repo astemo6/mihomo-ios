@@ -106,7 +106,7 @@ enum BackupManager {
     static func purgeTempExports() {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
-        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where (["Tern-备份-"] + LegacyImport.tempExportPrefixes).contains(where: { n.hasPrefix($0) }) && n.hasSuffix(".json") {
+        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where n.hasPrefix("Tern-备份-") && n.hasSuffix(".json") {
             try? fm.removeItem(at: tmp.appendingPathComponent(n))
         }
     }

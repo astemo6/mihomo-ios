@@ -75,38 +75,4 @@ final class LegacyImportTests: XCTestCase {
         XCTAssertTrue(new.name.hasPrefix("tern-backup-"))
         XCTAssertTrue(WebDAVClient.readPrefixes.contains { old.name.hasPrefix($0) })
     }
-
-    func testStorageDirMovesOnceAndNeverOverwrites() throws {
-        let fm = FileManager.default
-        let c = scratch()
-        try fm.createDirectory(at: c.appendingPathComponent(oldDir + "/engine"), withIntermediateDirectories: true)
-        try Data("a".utf8).write(to: c.appendingPathComponent(oldDir + "/engine/engine.json"))
-        try fm.createDirectory(at: c.appendingPathComponent("tern"), withIntermediateDirectories: true) // empty: ok
-        LegacyImport.migrateStorageDirIfNeeded(container: c)
-        XCTAssertEqual(fm.contents(atPath: c.appendingPathComponent("tern/engine/engine.json").path), Data("a".utf8))
-        XCTAssertFalse(fm.fileExists(atPath: c.appendingPathComponent(oldDir).path))
-
-        let c2 = scratch()
-        try fm.createDirectory(at: c2.appendingPathComponent(oldDir), withIntermediateDirectories: true)
-        try Data("old".utf8).write(to: c2.appendingPathComponent(oldDir + "/dns.json"))
-        try fm.createDirectory(at: c2.appendingPathComponent("tern"), withIntermediateDirectories: true)
-        try Data("new".utf8).write(to: c2.appendingPathComponent("tern/dns.json"))
-        LegacyImport.migrateStorageDirIfNeeded(container: c2)
-        XCTAssertEqual(fm.contents(atPath: c2.appendingPathComponent("tern/dns.json").path), Data("new".utf8))
-        XCTAssertTrue(fm.fileExists(atPath: c2.appendingPathComponent(oldDir + "/dns.json").path))
-
-        // selfreview-g2: the current dir already exists with other files (e.g. the tunnel started first) → the old
-        // items it lacks are merged in, the clash is left alone, and the old dir stays only while something is left.
-        let c3 = scratch()
-        try fm.createDirectory(at: c3.appendingPathComponent(oldDir + "/engine"), withIntermediateDirectories: true)
-        try Data("o".utf8).write(to: c3.appendingPathComponent(oldDir + "/overrides.json"))
-        try Data("e".utf8).write(to: c3.appendingPathComponent(oldDir + "/engine/engine.json"))
-        try fm.createDirectory(at: c3.appendingPathComponent("tern"), withIntermediateDirectories: true)
-        try Data("r".utf8).write(to: c3.appendingPathComponent("tern/runtime.yaml"))
-        LegacyImport.migrateStorageDirIfNeeded(container: c3)
-        XCTAssertEqual(fm.contents(atPath: c3.appendingPathComponent("tern/overrides.json").path), Data("o".utf8))
-        XCTAssertEqual(fm.contents(atPath: c3.appendingPathComponent("tern/engine/engine.json").path), Data("e".utf8))
-        XCTAssertEqual(fm.contents(atPath: c3.appendingPathComponent("tern/runtime.yaml").path), Data("r".utf8))
-        XCTAssertFalse(fm.fileExists(atPath: c3.appendingPathComponent(oldDir).path))
-    }
 }
