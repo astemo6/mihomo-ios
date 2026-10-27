@@ -666,7 +666,7 @@ struct ScriptLogsView: View {
     @State private var timer: Task<Void, Never>?
     /// v0.19.21 (quieter, like Quantumult X): routine DEBUG lines (「执行完成，用时 N ms」, 排队 …) are hidden
     /// unless 显示调试 is on; WARN / ERROR / console lines always show. Repeats are folded by the core (×N).
-    @AppStorage("scriptLogShowDebug") private var showDebug = false
+    @AppStorage("scriptLogShowDebug", store: AppShared.defaults) private var showDebug = false
 
     var shown: [ScriptLogLine] {
         let base = showDebug ? lines : lines.filter { $0.level != "debug" }

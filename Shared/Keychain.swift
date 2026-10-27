@@ -10,7 +10,8 @@ import Security
 /// app group as a keychain access group — so one item is shared by all three processes
 /// without touching provisioning profiles.
 enum Keychain {
-    private static let service = "com.astemo6.tern"
+    /// feat/fresh-reinstall: DataReset deletes every item of this service.
+    static let service = "com.astemo6.tern"
 
     /// kSecAttrAccount names used through this wrapper.
     static let controllerSecretAccount = "controller-secret"

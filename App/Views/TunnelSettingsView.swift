@@ -3,7 +3,8 @@ import SwiftUI
 /// 更多 → 高级设置 → 隧道 (feat/tunnel-include-options): the NETunnelProviderProtocol scope switches, one section
 /// each with its own explanation, modeled on the reference app's 高级设置 → 隧道. The 包含… switches are the inverse of
 /// the stored exclude* values (same keys as the old 连接方式 → 隧道范围 switches, so saved choices carry over). The
-/// switches keep each other consistent through CoreOverrides.set… (AppShared.swift); FaceTime 走代理 lives here too.
+/// switches keep each other consistent through CoreOverrides.set… (AppShared.swift). FaceTime 走代理 has its own page
+/// (高级设置 → 网络 → FaceTime, FaceTimeSettingsView; feat/fresh-reinstall) and is honoured here (switches disabled).
 /// Every change is written 0.5 s after the last edit, then into the iOS VPN configuration (VPNManager.applyScope);
 /// it takes effect on the next connection.
 struct TunnelSettingsView: View {
@@ -31,7 +32,6 @@ struct TunnelSettingsView: View {
             if #available(iOS 16.4, *) { cellularSection }
             if #available(iOS 17.4, *) { deviceSection }
             enforceRoutesSection
-            faceTimeSection
             statusSection
         }
         .scrollContentBackground(.hidden)
@@ -126,16 +126,6 @@ struct TunnelSettingsView: View {
         .listRowBackground(Theme.card)
     }
 
-    var faceTimeSection: some View {
-        Section {
-            Toggle("FaceTime 走代理", isOn: Binding(get: { o.faceTimeProxy }, set: { o.setFaceTimeProxy($0) }))
-                .accessibilityIdentifier("tunnel.facetime")
-        } header: { Text(verbatim: "FaceTime") } footer: {
-            Text("开启后自动包含所有网络，并把 FaceTime 的音视频（UDP 3478–3497 / 16384–16402）交给主代理组，节点需要支持 UDP。来电响铃走 Apple 推送：「包含 APNs」关闭时这部分直连，开启则也走代理。开启时会关闭「兼容性增强模式」。")
-        }
-        .listRowBackground(Theme.card)
-    }
-
     @ViewBuilder var statusSection: some View {
         if status != nil || (needsReconnect && vpn.isConnected) {
             Section {
@@ -159,7 +149,17 @@ struct TunnelSettingsView: View {
     }
 
     func apply() {
-        // Only this page's fields; everything else stays as the other pages saved it.
+        Task { @MainActor in
+            let r = await Self.save(o, vpn: vpn)
+            status = r.status
+            if r.reconnect { needsReconnect = true }
+        }
+    }
+
+    /// Writes the tunnel-scope fields of `o` (only those; everything else stays as the other pages saved it) and the
+    /// iOS VPN configuration. Shared by 隧道 and FaceTime. Returns the status line and whether a reconnect is needed.
+    @MainActor
+    static func save(_ o: CoreOverrides, vpn: VPNManager) async -> (status: String?, reconnect: Bool) {
         var cur = CoreOverrides.load()
         let old = cur
         cur.includeAllNetworks = o.includeAllNetworks
@@ -171,25 +171,78 @@ struct TunnelSettingsView: View {
         cur.faceTimeProxy = o.faceTimeProxy
         // r7 R7A-2: nothing changed, but the VPN configuration may still carry another scope — re-apply it then.
         guard cur != old else {
-            Task {
-                if await vpn.syncTunnelScope() {
-                    status = vpn.isConnected ? String(localized: "隧道范围已同步，重新连接后生效") : String(localized: "隧道范围已同步")
-                }
+            if await vpn.syncTunnelScope() {
+                return (vpn.isConnected ? String(localized: "隧道范围已同步，重新连接后生效") : String(localized: "隧道范围已同步"), false)
             }
-            return
+            return (nil, false)
         }
         cur.save()
-        Task {
-            if let e = await vpn.applyTunnelScope() {
-                status = String(localized: "隧道范围保存失败：\(e)")
-                return
+        if let e = await vpn.applyTunnelScope() {
+            return (String(localized: "隧道范围保存失败：\(e)"), false)
+        }
+        if vpn.isConnected {
+            return (String(localized: "已保存。隧道设置在重新连接后生效。"), true)
+        }
+        return (String(localized: "已保存"), false)
+    }
+}
+
+/// 更多 → 高级设置 → 网络 → FaceTime (feat/fresh-reinstall, user: moved out of 隧道). Same stored key
+/// (CoreOverrides.faceTimeProxy) and coupling (setFaceTimeProxy: includes every network, turns 兼容性增强模式 off); saved
+/// through TunnelSettingsView.save like the 隧道 switches.
+struct FaceTimeSettingsView: View {
+    @EnvironmentObject var vpn: VPNManager
+    @State private var o = CoreOverrides.load()
+    @StateObject private var debounce = Debouncer()
+    @State private var status: String?
+    @State private var needsReconnect = false
+
+    var body: some View {
+        Form {
+            if o.isProxyOnly {
+                Section {
+                    Text("当前为「仅代理」模式：以下选项在 TUN 或 VPN 混合模式下生效。")
+                        .font(.footnote).foregroundStyle(Theme.warn)
+                }
+                .listRowBackground(Theme.card)
             }
-            if vpn.isConnected {
-                needsReconnect = true
-                status = String(localized: "已保存。隧道设置在重新连接后生效。")
-            } else {
-                status = String(localized: "已保存")
+            Section {
+                Toggle("FaceTime 走代理", isOn: Binding(get: { o.faceTimeProxy }, set: { o.setFaceTimeProxy($0) }))
+                    .accessibilityIdentifier("tunnel.facetime")
+            } footer: {
+                Text("开启后自动包含所有网络，并把 FaceTime 的音视频（UDP 3478–3497 / 16384–16402）交给主代理组，节点需要支持 UDP。来电响铃走 Apple 推送：「包含 APNs」关闭时这部分直连，开启则也走代理。开启时会关闭「兼容性增强模式」。")
+            }
+            .listRowBackground(Theme.card)
+            if status != nil || (needsReconnect && vpn.isConnected) {
+                Section {
+                    AutoApplyFooter(status: status)
+                    if needsReconnect && vpn.isConnected {
+                        Button {
+                            needsReconnect = false
+                            Task { await vpn.restart(safeMode: false); status = String(localized: "已重新连接") }
+                        } label: { Label("立即重新连接", systemImage: "arrow.clockwise") }
+                    }
+                }
+                .listRowBackground(Theme.card)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle(Text(verbatim: "FaceTime"))
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear {
+            debounce.flush()
+            o = CoreOverrides.load()
+        }
+        .onChange(of: o) { _ in
+            debounce.schedule {
+                Task { @MainActor in
+                    let r = await TunnelSettingsView.save(o, vpn: vpn)
+                    status = r.status
+                    if r.reconnect { needsReconnect = true }
+                }
+            }
+        }
+        .onDisappear { debounce.flush() }
     }
 }

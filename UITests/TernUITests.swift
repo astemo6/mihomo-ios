@@ -103,7 +103,7 @@ final class TernUITests: TernUITestCase {
         "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）", "解锁检测", "内网 IP 与路由器",
     ]
     static let advancedRows = [
-        "连接方式", "隧道", "Tailscale", "地理与规则库", "内核设置", "测速", "出口信息查询",
+        "连接方式", "隧道", "FaceTime", "Tailscale", "地理与规则库", "内核设置", "测速", "出口信息查询",
     ]
     /// 工具 → 重写 (QX-style merge of 模块 / 重写 / 脚本) keeps the browse pages (ids unchanged); the profile's rule
     /// sets (规则集（配置）) moved to 分流规则.

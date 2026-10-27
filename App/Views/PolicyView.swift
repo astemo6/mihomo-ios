@@ -249,10 +249,10 @@ struct PolicyView: View {
     @State private var share: ShareTarget?
     @State private var shareError: String?
     /// 排序 (v0.7): default = profile order; latency uses a snapshot so nodes don't jump while a test runs.
-    @AppStorage("policy.sort") private var sortMode = "default"
-    @AppStorage("policy.autoSort") private var autoSort = true
+    @AppStorage("policy.sort", store: AppShared.defaults) private var sortMode = "default"
+    @AppStorage("policy.autoSort", store: AppShared.defaults) private var autoSort = true
     /// v0.15: hide automatic groups (url-test / fallback / load-balance); select groups always stay. Persisted.
-    @AppStorage("policy.collapseAuto") private var collapseAuto = false
+    @AppStorage("policy.collapseAuto", store: AppShared.defaults) private var collapseAuto = false
     @State private var editHome = false
     @State private var sortDelays: [String: Int] = [:]
     /// r7: bumped whenever sortDelays is retaken, so the sort memo knows the latency snapshot changed.

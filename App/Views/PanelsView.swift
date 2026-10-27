@@ -13,7 +13,7 @@ final class PanelsModel: ObservableObject {
     /// Lane D: why the panel list itself could not be read (the list on screen is the last one that loaded).
     @Published private(set) var loadError: String?
     /// v0.15: panel ids pinned to Home (ids are stable hashes of module + panel name), in pin order.
-    @Published var pinned: [String] = UserDefaults.standard.stringArray(forKey: "panels.pinned") ?? []
+    @Published var pinned: [String] = AppShared.defaults.stringArray(forKey: "panels.pinned") ?? []
     /// v0.17 UI tests (-UITestSeed -UITestDemoPanels): one script panel + one static Stash tile, no engine.
     let demo = UITestSeed.enabled && UITestSeed.args.contains("-UITestDemoPanels")
     /// UI tests: demo panels, but 刷新 sends the real request (no engine runs, so it fails with the real reason).
@@ -44,7 +44,7 @@ final class PanelsModel: ObservableObject {
 
     func togglePin(_ p: PanelItem) {
         if let i = pinned.firstIndex(of: p.id) { pinned.remove(at: i) } else { pinned.append(p.id) }
-        UserDefaults.standard.set(pinned, forKey: "panels.pinned")
+        AppShared.defaults.set(pinned, forKey: "panels.pinned")
         HomePanelStore.shared.sync() // feat/panels: hidden / pinned scripts / engine config
     }
 

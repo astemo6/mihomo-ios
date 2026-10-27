@@ -96,7 +96,7 @@ struct WebDAVSettings: Equatable {
 
     static func load() -> WebDAVSettings {
         var s = WebDAVSettings()
-        guard let d = UserDefaults.standard.dictionary(forKey: key) else { return s }
+        guard let d = AppShared.defaults.dictionary(forKey: key) else { return s }
         s.url = d["url"] as? String ?? ""
         s.username = d["username"] as? String ?? ""
         s.keep = min(max(d["keep"] as? Int ?? 10, 1), 100)
@@ -108,7 +108,7 @@ struct WebDAVSettings: Equatable {
     }
 
     func save() {
-        UserDefaults.standard.set(["url": url, "username": username, "keep": keep, "encrypt": encrypt, "includeCA": includeCA, "allowInsecure": allowInsecure], forKey: Self.key)
+        AppShared.defaults.set(["url": url, "username": username, "keep": keep, "encrypt": encrypt, "includeCA": includeCA, "allowInsecure": allowInsecure], forKey: Self.key)
     }
 
     /// http:// (not https://): Basic auth and the backup would be readable on the network.

@@ -14,7 +14,7 @@ enum SearchDestination: String, CaseIterable, Hashable {
     // 更多
     case profiles, sampleProfile, stats, snapshots, backup, webdav, syncFolder, storage, notifications
     case appearance, liveActivity, appIcon, launchTab, trafficScope
-    case advanced, connection, tunnel, tailscale, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
+    case advanced, connection, tunnel, faceTime, tailscale, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
     case onboarding, diagnostics, about, systemLanguage
     // 工具
     case nodes, proxyChains, rules, modules, moduleGallery, allRewrites, scriptList, rewrites, scripts, scriptWorkbench, scriptLogs, scriptNotices, scriptStore
@@ -87,6 +87,9 @@ enum SettingsSearchIndex {
           ["备份", "恢复", "导出", "导入", "加密的备份", "iCloud", "backup", "restore", "export"]),
         e("webdav", "WebDAV 备份", [more, "备份与恢复"], "server.rack", .blue, .webdav, ["webdav", "云备份", "坚果云", "nextcloud", "cloud"]),
         e("syncFolder", "同步文件夹", [more, "备份与恢复"], "folder", .blue, .syncFolder, ["同步", "iCloud Drive", "文件", "sync", "folder"]),
+        // feat/fresh-reinstall: 清除全部数据 sits at the bottom of 备份与恢复.
+        e("resetAll", "清除全部数据", [more, "备份与恢复"], "trash", .red, .backup,
+          ["清除", "清空", "删除全部", "抹掉", "重置", "恢复出厂", "全新安装", "重新安装", "从新开始", "reset", "erase", "wipe", "factory reset", "clear all data", "delete all"]),
         e("storage", "存储空间", [more], "internaldrive", .neutral, .storage, ["缓存", "清理", "空间", "storage", "cache", "clean"]),
         e("notifications", "通知", [more], "bell.badge.fill", .red, .notifications,
           ["通知", "提醒", "推送", "网络变化", "策略组异常", "节点异常", "内存警告", "脚本通知", "notification", "notifications", "alert", "push"]),
@@ -123,7 +126,8 @@ enum SettingsSearchIndex {
           ["设备通信", "设备间通信", "USB", "AirDrop", "CarPlay", "excludeDeviceCommunication", "device communication"]),
         e("enforceRoutes", "兼容性增强模式", tun, "house.and.flag", .blue, .tunnel,
           ["兼容性", "拆分路由", "HomeKit", "家庭", "摄像头", "实时视频", "enforceRoutes", "enforce routes", "split routes", "compatibility"]),
-        e("faceTimeProxy", "FaceTime 走代理", tun, "video", .blue, .tunnel,
+        // feat/fresh-reinstall: its own page, 高级设置 → 网络 → FaceTime (was on 隧道).
+        e("faceTimeProxy", "FaceTime 走代理", adv, "video", .blue, .faceTime,
           ["FaceTime", "视频通话", "通话", "facetime proxy", "call"]),
         e("routes", "路由", conn, "arrow.triangle.turn.up.right.diamond", .blue, .connection, ["路由表", "不作为默认路由", "默认路由", "DNS 劫持", "dns-hijack", "隐藏 VPN 图标", "route", "routes", "CIDR", "default route", "hijack"]),
         e("ipv6", "IPv6", conn, "6.circle", .blue, .connection, ["ipv6", "v6"]),

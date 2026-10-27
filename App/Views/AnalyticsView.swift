@@ -226,7 +226,7 @@ struct AnalyticsView: View {
     @ObservedObject private var a = ConnectionAnalytics.shared
     @ObservedObject private var history = AnalyticsHistory.shared
     /// 0 = 本次连接 (session), otherwise the last N days from the saved history (v0.8).
-    @AppStorage("analytics.range") private var range = 0
+    @AppStorage("analytics.range", store: AppShared.defaults) private var range = 0
     @State private var netDays: [TrafficDay] = []
     @State private var confirmClear = false
 

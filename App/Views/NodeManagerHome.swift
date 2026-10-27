@@ -15,7 +15,7 @@ struct NodeManagerView: View {
     @ObservedObject private var updater = ProviderUpdater.shared
     @ObservedObject private var providerOV = ProviderOverrideStore.shared
     @ObservedObject private var proxyChains = ProxyChainStore.shared
-    @AppStorage("nodes.subSort") private var subSort = "config"
+    @AppStorage("nodes.subSort", store: AppShared.defaults) private var subSort = "config"
     /// r7 OPT-3: read in onAppear only. A State initial value is evaluated on every init (CoreOverrides.load = a file
     /// and two Keychain reads), and LazyDestination re-creates this view whenever 工具 redraws.
     @State private var mergeManual = false

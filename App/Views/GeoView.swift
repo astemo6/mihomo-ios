@@ -308,19 +308,19 @@ enum GeoAutoUpdate {
     }
 
     /// When the last check finished (nil = never).
-    static var lastRun: Date? { UserDefaults.standard.object(forKey: lastRunKey) as? Date }
+    static var lastRun: Date? { AppShared.defaults.object(forKey: lastRunKey) as? Date }
     /// What failed in the last check ("" = nothing).
-    static var lastError: String { UserDefaults.standard.string(forKey: lastErrorKey) ?? "" }
+    static var lastError: String { AppShared.defaults.string(forKey: lastErrorKey) ?? "" }
 
     /// When the next check is due (nil = off). Never checked, or the interval just changed = now.
     static func nextDue() -> Date? {
         guard CoreOverrides.load().geoAutoUpdateDays > 0 else { return nil }
-        return (UserDefaults.standard.object(forKey: nextDueKey) as? Date) ?? Date()
+        return (AppShared.defaults.object(forKey: nextDueKey) as? Date) ?? Date()
     }
 
     static func intervalChanged() {
-        UserDefaults.standard.removeObject(forKey: nextDueKey)
-        UserDefaults.standard.removeObject(forKey: lastErrorKey)
+        AppShared.defaults.removeObject(forKey: nextDueKey)
+        AppShared.defaults.removeObject(forKey: lastErrorKey)
         ScheduledUpdates.scheduleBackground()
     }
 
@@ -330,7 +330,7 @@ enum GeoAutoUpdate {
         let o = CoreOverrides.load()
         guard !running, o.geoAutoUpdateDays > 0 else { return }
         let now = Date()
-        if let n = UserDefaults.standard.object(forKey: nextDueKey) as? Date, n > now { return }
+        if let n = AppShared.defaults.object(forKey: nextDueKey) as? Date, n > now { return }
         running = true
         defer { running = false }
         let interval = TimeInterval(o.geoAutoUpdateDays) * 86400
@@ -361,7 +361,7 @@ enum GeoAutoUpdate {
             if let m = f.modified { next = min(next, Date(timeIntervalSince1970: m).addingTimeInterval(interval)) }
         }
         if !failures.isEmpty { next = min(next, now.addingTimeInterval(retryDelay)) }
-        let d = UserDefaults.standard
+        let d = AppShared.defaults
         d.set(max(next, now.addingTimeInterval(600)), forKey: nextDueKey)
         d.set(Date(), forKey: lastRunKey)
         d.set(failures.joined(separator: "\n"), forKey: lastErrorKey)

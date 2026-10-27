@@ -67,14 +67,14 @@ final class ModuleGallery: ObservableObject {
     private let key = "moduleGallery.sources"
 
     init() {
-        if let d = UserDefaults.standard.data(forKey: key), let s = try? JSONDecoder().decode([GallerySource].self, from: d) {
+        if let d = AppShared.defaults.data(forKey: key), let s = try? JSONDecoder().decode([GallerySource].self, from: d) {
             sources = s
         } else {
             sources = Self.defaultSources
         }
         // feat/kelee-hub: 可莉插件中心 joins the saved sources once; removing it afterwards is respected.
-        if !UserDefaults.standard.bool(forKey: KeleeHub.offeredKey) {
-            UserDefaults.standard.set(true, forKey: KeleeHub.offeredKey)
+        if !AppShared.defaults.bool(forKey: KeleeHub.offeredKey) {
+            AppShared.defaults.set(true, forKey: KeleeHub.offeredKey)
             if !sources.contains(where: { $0.id == KeleeHub.sourceID || $0.url == KeleeHub.indexURL }) {
                 sources.append(KeleeHub.source)
                 saveSources()
@@ -85,7 +85,7 @@ final class ModuleGallery: ObservableObject {
     }
 
     func saveSources() {
-        if let d = try? JSONEncoder().encode(sources) { UserDefaults.standard.set(d, forKey: key) }
+        if let d = try? JSONEncoder().encode(sources) { AppShared.defaults.set(d, forKey: key) }
     }
 
     func addSource(url raw: String, name: String) -> String? {

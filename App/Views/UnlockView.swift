@@ -165,8 +165,8 @@ struct UnlockView: View {
     @State private var probePort = CoreOverrides.load().probePort
     @State private var all: [String: ProxyItem] = [:]
     @State private var groups: [String] = []
-    @AppStorage("unlock.group") private var group = ""
-    @AppStorage("unlock.member") private var member = ""
+    @AppStorage("unlock.group", store: AppShared.defaults) private var group = ""
+    @AppStorage("unlock.member", store: AppShared.defaults) private var member = ""
     @State private var error: String?
     @State private var running = false
     @State private var batch: Task<Void, Never>?
@@ -175,7 +175,7 @@ struct UnlockView: View {
 
     private static let skipMembers: Set<String> = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
 
-    @AppStorage(ProbeStore.autoKey) private var autoRetest = false
+    @AppStorage(ProbeStore.autoKey, store: AppShared.defaults) private var autoRetest = false
     @State private var selectedCount = UnlockService.selected.count
 
     var members: [String] { (all[group]?.all ?? []).filter { !Self.skipMembers.contains($0) } }
