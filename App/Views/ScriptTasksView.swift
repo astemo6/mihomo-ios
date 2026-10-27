@@ -982,9 +982,9 @@ struct TaskFormSheet: View {
     /// 5- or 6-field cron (or an @macro) that the task parser accepts.
     nonisolated static func cronOK(_ s: String) -> Bool {
         let c = normCron(s)
-        if c.hasPrefix("@") { return NCEngineParser.cronMacros[c.lowercased()] != nil }
+        if c.hasPrefix("@") { return NCEngineRuleset.cronMacros[c.lowercased()] != nil }
         let n = c.split(separator: " ").count
-        return (n == 5 || n == 6) && NCEngineParser.cronValid(c)
+        return (n == 5 || n == 6) && NCEngineRuleset.cronValid(c)
     }
 
     var scriptPath: String {

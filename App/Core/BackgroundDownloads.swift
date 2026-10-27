@@ -31,7 +31,8 @@ final class BackgroundDownloads: ObservableObject {
     private static let clientsKey = "bgdl.moduleClients.v1"
     private static let profilesKey = "bgdl.pendingProfiles.v1"
 
-    /// Called once at launch (RootView): restores the retry list and watches connect / foreground / module changes.
+    /// Called at launch: restores the retry list and watches connect / foreground / module changes. Idempotent — it
+    /// may be called from more than one .onAppear (TernApp / DataResetGate); only the first call does anything.
     func start() {
         guard !started else { return }
         started = true
