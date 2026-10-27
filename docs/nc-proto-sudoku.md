@@ -112,7 +112,13 @@ All control messages are wrapped in KIP frames:
 - **ClientHello (0x01)** (`internal/tunnel/kip.go:173`): `timestamp` (uint64 BE unix seconds) + `user_hash` (8 bytes = `SHA256(private-key-bytes)[:8]`, `kip.go:157`) + `nonce` (16 random bytes) + `client_pub` (32 X25519 ephemeral) + `features` (uint32 BE) — 68 bytes, plus an *optional* trailing 4-byte table hint (decoded when present, `kip.go:192-219`). The server tolerates ±60 s clock skew and rejects nonce replay (`kip_hello.go:24`, `acceptClientHello`).
 - **ServerHello (0x02)** (`kip.go:246`): `nonce` (16, exact echo) + `server_pub` (32 X25519 ephemeral) + `selected_features` (uint32 BE) — exactly 52 bytes.
 - **OpenTCP (0x10)**: SOCKS5-style address: `atyp` (0x01 IPv4 / 0x03 domain / 0x04 IPv6) + address bytes + port (uint16 BE).
-- **UoT (0x12)**: UDP-over-TCP datagram framing. *Not implemented in the current clean-room client.*
+- **UoT (0x12)**: UDP-over-TCP inside the tunnel (feat/nc-sudoku-udp, `NCSudokuUoT.swift`). The client sends
+  StartUoT with an empty payload right after the rekey (instead of OpenTCP); afterwards both directions carry
+  datagram frames `addrLen u16 BE ‖ payloadLen u16 BE ‖ address ‖ payload`, where `address` is the SOCKS5-style
+  encoding (uplink: destination, domains resolved by the server; downlink: the peer IP). `addrLen = 0` ends the
+  session; an undecodable address skips that datagram. One tunnel per UDP association (as the official client and
+  Clash.Meta do); each frame is written as one record. Verified against the official server v0.5.2.0 in
+  NativeCoreLoopbackTests (`testSudokuUDP*`).
 
 ### 2.6 Interoperability Status vs Upstream v0.5.2 (实现现状对照)
 
@@ -174,7 +180,7 @@ actually does with each field.
 | HTTP mask TLS | `httpmask.tls` | `ht` | `httpmask-tls=` | `httpmask-tls=` | Bool | `false` | parsed; no TLS wrapping in data plane |
 | HTTP mask Host | `httpmask.host` | `hh` | `httpmask-host=` | `httpmask-host=` | String | `""` | used for the legacy fake head |
 | HTTP mask Path | `httpmask.path-root` | `hy` | `httpmask-path=` | `httpmask-path=` | String | `""` | used for the legacy fake head |
-| UDP forwarding | `udp` | — | `udp=` / `udp-relay=` | `udp-relay=` | Bool | `false` | **not implemented** — UoT (0x12) sessions are absent from the S2 data plane (S3) |
+| UDP forwarding | `udp` | — | `udp=` / `udp-relay=` | `udp-relay=` | Bool | `false` | UoT (0x12) inside the tunnel, always available like Clash.Meta's Sudoku outbound (the protocol has no UDP switch; the flag is not consulted) — NCDataPlane `sudoku` case → NCSudokuUDPSession |
 
 ## 4. Unsupported Fields & Explicit Markers
 

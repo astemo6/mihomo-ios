@@ -11,7 +11,9 @@ import CryptoKit
 enum NCSudokuSession {
 
     /// Starts a Sudoku outbound session over `raw`, completing with an `NCRelayStream` ready for traffic.
-    static func connect(raw: NCRelayStream, proxy: NCProxy, target: NCTarget,
+    /// `uot`: open the tunnel with KIP StartUoT (0x12) instead of OpenTCP — the stream then carries
+    /// NCSudokuUoT datagram frames (feat/nc-sudoku-udp); `target` is ignored.
+    static func connect(raw: NCRelayStream, proxy: NCProxy, target: NCTarget, uot: Bool = false,
                         queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let opts = NCSudoku.Options(proxy: proxy)
         if let why = opts.dataPlaneUnsupported {
@@ -21,7 +23,7 @@ enum NCSudokuSession {
         }
         let relay: NCSudokuRelay
         do {
-            relay = try NCSudokuRelay(raw: raw, options: opts, target: target, queue: queue)
+            relay = try NCSudokuRelay(raw: raw, options: opts, target: target, uot: uot, queue: queue)
         } catch {
             raw.cancel()
             queue.async { completion(nil, error) }
@@ -372,6 +374,11 @@ enum NCSudokuKIP {
         buildMessage(type: .openTCP, payload: target.atypEncoded)
     }
 
+    /// StartUoT: empty payload; afterwards the tunnel carries UoT datagram frames (NCSudokuUoT).
+    static func startUoT() -> Data {
+        buildMessage(type: .startUoT, payload: Data())
+    }
+
     /// (type, payload, consumed) of the first whole message in `buffer`; nil when incomplete.
     static func unwrapMessage(from buffer: Data) throws -> (type: UInt8, payload: Data, consumed: Int)? {
         let b = Data(buffer)
@@ -418,7 +425,8 @@ final class NCSudokuRelay: NCRelayStream {
 
     private let raw: NCRelayStream
     private let options: NCSudoku.Options
-    private let target: NCTarget
+    /// The first KIP message after the rekey: OpenTCP(target) or StartUoT.
+    private let openMessage: Data
     private let queue: DispatchQueue
     private let psk: String
     private let userHash: Data
@@ -434,10 +442,11 @@ final class NCSudokuRelay: NCRelayStream {
     private var early = Data()
     private var isCancelled = false
 
-    init(raw: NCRelayStream, options: NCSudoku.Options, target: NCTarget, queue: DispatchQueue) throws {
+    init(raw: NCRelayStream, options: NCSudoku.Options, target: NCTarget, uot: Bool = false,
+         queue: DispatchQueue) throws {
         self.raw = raw
         self.options = options
-        self.target = target
+        openMessage = uot ? NCSudokuKIP.startUoT() : NCSudokuKIP.openTCP(target: target)
         self.queue = queue
         let norm = NCSudokuKeys.normalize(options.key)
         psk = norm.psk
@@ -473,7 +482,7 @@ final class NCSudokuRelay: NCRelayStream {
         nonce = Data(n)
     }
 
-    /// Legacy mask → ClientHello → ServerHello → rekey → OpenTCP.
+    /// Legacy mask → ClientHello → ServerHello → rekey → OpenTCP (or StartUoT).
     func handshake(completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let deadline = NCHandshakeDeadline(queue: queue, seconds: 10, raw: raw, what: "sudoku") { stream, err in
             completion(stream, err)
@@ -522,7 +531,7 @@ final class NCSudokuRelay: NCRelayStream {
                 self.records.rekey(send: session.c2s, recv: session.s2c)
                 // Records after the ServerHello are sealed with the session keys.
                 self.early.append(try self.records.drain())
-                let open = try self.records.seal(NCSudokuKIP.openTCP(target: self.target))
+                let open = try self.records.seal(self.openMessage)
                 self.raw.send(self.encoder.encode(open))
                 deadline.finish(self, nil)
             } catch let e as NCSudokuError {

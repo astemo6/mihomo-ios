@@ -918,7 +918,7 @@ enum NCConnector {
         }
     }
 
-    private static func sudokuStream(proxy: NCProxy, target: NCTarget, transport: NCRelayStream?,
+    private static func sudokuStream(proxy: NCProxy, target: NCTarget, uot: Bool = false, transport: NCRelayStream?,
                                      queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
         guard let server = proxy.server, let port = proxy.port else {
             queue.async { completion(nil, Failure.handshake("sudoku missing server or port")) }
@@ -926,8 +926,22 @@ enum NCConnector {
         }
         obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
             guard let raw else { completion(nil, err); return }
-            NCSudokuSession.connect(raw: raw, proxy: proxy, target: target, queue: queue, completion: completion)
+            NCSudokuSession.connect(raw: raw, proxy: proxy, target: target, uot: uot, queue: queue,
+                                    completion: completion)
         }
+    }
+
+    /// feat/nc-sudoku-udp: a Sudoku tunnel opened with KIP StartUoT — the official UDP path (UoT inside the
+    /// tunnel, one tunnel per UDP association like the official client and Clash.Meta). The
+    /// stream carries NCSudokuUoT frames; NCSudokuUDPSession drives it. Completion fires on `queue`.
+    static func sudokuUoTStream(proxy: NCProxy, queue: DispatchQueue, transport: NCRelayStream? = nil,
+                                completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        if let why = NCSupport.sudokuUnsupported(proxy) {
+            queue.async { completion(nil, Failure.unsupported(why)) }
+            return
+        }
+        sudokuStream(proxy: proxy, target: NCTarget(host: "0.0.0.0", port: 0), uot: true, transport: transport,
+                     queue: queue, completion: completion)
     }
 
     /// VLESS encryption handshake over `base`, then XTLS Vision on top of the encryption conn (feat/nc-proto3).

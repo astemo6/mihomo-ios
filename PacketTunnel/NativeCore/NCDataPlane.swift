@@ -1486,6 +1486,14 @@ final class NCDataPlane {
                 return
             }
             session = sn
+        case .proxy(let proxy) where proxy.type == "sudoku":
+            // feat/nc-sudoku-udp: UoT inside the Sudoku tunnel (KIP StartUoT), one tunnel per flow like the
+            // official client / Clash.Meta. The protocol has no UDP switch (Clash.Meta's Sudoku always offers UDP).
+            guard NCSupport.sudokuUnsupported(proxy) == nil else {
+                udpDropped += 1
+                return
+            }
+            session = NCSudokuUDPSession(proxy: proxy, queue: queue)
         case .proxy(let proxy) where proxy.type == "brook":
             // feat/nc-brook: packets / udp-over-tcp / ws(s) stream / quic datagram or stream (NCBrookUDP.swift).
             guard let br = NCUDPBrook.make(proxy: proxy, target: target, queue: queue) else {
