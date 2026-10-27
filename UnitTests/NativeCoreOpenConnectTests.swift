@@ -588,17 +588,18 @@ final class NativeCoreOpenConnectTests: XCTestCase {
         XCTAssertTrue(session.channelState.description.contains("Network.framework does not support custom SessionID"))
     }
 
-    // MARK: - fix/nc-proto-openconnect-int: honest availability
+    // MARK: - fix/nc-openconnect-dp: real data plane (lwIP netif over CSTP, PacketTunnel only)
 
-    /// A complete, valid node is still shown unavailable (the CSTP channel carries IP packets; no netif yet),
-    /// and the connector refuses instead of dialling.
-    func testValidNodeIsUnavailableUntilDataPlaneExists() {
+    /// A complete, valid node is available (NCSupport); outside the packet tunnel (this App-hosted test, the App's
+    /// 延迟测试) no lwIP netif exists, so the connector refuses with the tunnel-only reason instead of dialling.
+    func testValidNodeIsAvailableAndTunnelOnlyOutsideTheTunnel() {
         let p = NCProxy(name: "oc", type: "openconnect", fields: [
             "server": .string("vpn.example.com"), "port": .number(443),
             "username": .string("u"), "password": .string("p"),
         ])
         XCTAssertNil(NCOpenConnect.unsupportedReason(p))
-        XCTAssertEqual(NCSupport.unsupportedReason(p), NCOpenConnect.dataPlaneUnavailable)
+        XCTAssertNil(NCSupport.unsupportedReason(p))
+        XCTAssertNil(NCConnector.openconnectDialer, "only the packet tunnel installs the OpenConnect dialer")
         let exp = expectation(description: "connector")
         var failure: Error?
         NCConnector.connect(target: NCTarget(host: "example.com", port: 443), proxy: p,
@@ -608,7 +609,39 @@ final class NativeCoreOpenConnectTests: XCTestCase {
             exp.fulfill()
         }
         wait(for: [exp], timeout: 5)
-        XCTAssertTrue("\(failure.map { "\($0)" } ?? "")".contains("数据面"), "\(String(describing: failure))")
+        XCTAssertTrue("\(failure.map { "\($0)" } ?? "")".contains("隧道"), "\(String(describing: failure))")
+    }
+
+    /// Repeated CONNECT response headers are all kept (ocserv sends one X-CSTP-DNS per server); the IPv6 address
+    /// drops its prefix length (the netif is point-to-point).
+    func testTunnelParametersFromHeaderList() {
+        let p = NCOpenConnect.TunnelParameters.parse(headerList: [
+            ("X-CSTP-Address", "10.77.0.33"),
+            ("X-CSTP-Netmask", "255.255.255.0"),
+            ("X-CSTP-Address-IP6", "fda9:4efe:7e3b:3ea::5/64"),
+            ("X-CSTP-DNS", "10.77.0.1"),
+            ("X-CSTP-DNS", "10.77.0.2"),
+            ("X-CSTP-DNS", "10.77.0.1"),
+            ("X-CSTP-Split-Include", "10.0.0.0/255.0.0.0"),
+            ("X-CSTP-Split-Include", "172.16.0.0/255.240.0.0"),
+            ("X-CSTP-MTU", "1334"),
+            ("X-CSTP-DPD", "15"),
+            ("X-CSTP-Keepalive", "20"),
+        ])
+        XCTAssertEqual(p.assignedIPv4, "10.77.0.33")
+        XCTAssertEqual(p.assignedIPv6, "fda9:4efe:7e3b:3ea::5")
+        XCTAssertEqual(p.dnsServers, ["10.77.0.1", "10.77.0.2"])
+        XCTAssertEqual(p.splitIncludes, ["10.0.0.0/255.0.0.0", "172.16.0.0/255.240.0.0"])
+        XCTAssertEqual(p.mtu, 1334)
+        XCTAssertEqual(p.dpd, 15)
+        XCTAssertEqual(p.keepalive, 20)
+    }
+
+    func testCookieValueForms() {
+        XCTAssertEqual(NCOpenConnect.cookieValue("ABC=="), "ABC==")
+        XCTAssertEqual(NCOpenConnect.cookieValue("webvpn=ABC=="), "ABC==")
+        XCTAssertEqual(NCOpenConnect.cookieValue("Cookie: webvpn=ABC==; webvpnc=x"), "ABC==")
+        XCTAssertEqual(NCOpenConnect.cookieValue("  tok  "), "tok")
     }
 
     func testUnknownCSTPFrameLengthIsSkippable() {

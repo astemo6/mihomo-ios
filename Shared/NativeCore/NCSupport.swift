@@ -95,8 +95,8 @@ enum NCSupport {
         case "naive", "http2", "h2", "http3", "h3":
             if NCH2H3ProxyOptions(proxy: p) == nil { return "\(t) 缺少 server / port" }
         case "openconnect", "anyconnect":
+            // fix/nc-openconnect-dp: real data plane (lwIP netif over CSTP, NCOpenConnectNetif.swift).
             if let why = NCOpenConnect.unsupportedReason(p) { return why }
-            return NCOpenConnect.dataPlaneUnavailable
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }

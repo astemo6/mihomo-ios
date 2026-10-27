@@ -32,8 +32,19 @@ enum NCOpenConnect {
     /// Default client User-Agent string (draft §2.2.5.1).
     static let defaultUserAgent = "Open AnyConnect VPN Agent v5.01"
 
-    /// Shown for every otherwise valid node (NCSupport + connector) until the CSTP channel feeds a lwIP netif.
-    static let dataPlaneUnavailable = "OpenConnect 数据面尚未接入（CSTP 承载的是 IP 包，需隧道内用户态 TCP/IP 栈）"
+    /// fix/nc-openconnect-dp: the data plane is a lwIP netif over the CSTP channel (PacketTunnel only,
+    /// NCOpenConnectNetif.swift). Outside the tunnel (the App's 延迟测试) there is no such stack, like WireGuard.
+    static let tunnelOnly = "OpenConnect 仅在 VPN 隧道内可用（CSTP 承载 IP 包，由隧道内的用户态 TCP/IP 栈收发）"
+
+    /// The webvpn cookie value from a configured `cookie` (a bare token, `webvpn=<token>`, or a Cookie header line).
+    static func cookieValue(_ raw: String) -> String {
+        var v = raw.trimmingCharacters(in: .whitespaces)
+        if let r = v.range(of: "webvpn=", options: .caseInsensitive) {
+            v = String(v[r.upperBound...])
+            if let semi = v.firstIndex(of: ";") { v = String(v[..<semi]) }
+        }
+        return v.trimmingCharacters(in: .whitespaces)
+    }
 
     /// Total length of a complete CSTP frame at the head of `data` (any payload type), nil while incomplete or
     /// when the magic is wrong. Lets the pump skip frames whose type it does not know instead of stalling.
@@ -153,14 +164,22 @@ enum NCOpenConnect {
         var dtlsDPD: Int?
 
         static func parse(headers: [String: String]) -> TunnelParameters {
+            parse(headerList: headers.sorted { $0.key < $1.key }.map { ($0.key, $0.value) })
+        }
+
+        /// The CONNECT response headers in wire order (repeated X-CSTP-DNS / -Split-Include are all kept).
+        static func parse(headerList: [(String, String)]) -> TunnelParameters {
             var params = TunnelParameters()
-            for (rawKey, val) in headers {
+            for (rawKey, val) in headerList {
                 let k = rawKey.lowercased()
                 switch k {
                 case "x-cstp-address": params.assignedIPv4 = val
                 case "x-cstp-netmask": params.netmaskIPv4 = val
-                case "x-cstp-address-ip6": params.assignedIPv6 = val
-                case "x-cstp-dns": params.dnsServers.append(val)
+                case "x-cstp-address-ip6":
+                    // "fd00::2/64" -> the interface address; the prefix length is not needed for a point-to-point netif.
+                    params.assignedIPv6 = val.split(separator: "/").first.map(String.init) ?? val
+                case "x-cstp-dns", "x-cstp-dns-ip6":
+                    if !val.isEmpty, !params.dnsServers.contains(val) { params.dnsServers.append(val) }
                 case "x-cstp-split-include": params.splitIncludes.append(val)
                 case "x-cstp-split-exclude": params.splitExcludes.append(val)
                 case "x-cstp-base-mtu": if let n = Int(val) { params.baseMTU = n }

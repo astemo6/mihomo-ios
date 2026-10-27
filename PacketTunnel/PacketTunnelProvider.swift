@@ -175,6 +175,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         NCOutboundBinding.start(includeAllNetworks: includeAll && !proxyOnly)
         NCConnector.installWireGuardDialer()
         NCConnector.installTailscaleDialer()
+        NCConnector.installOpenConnectDialer()
         StartupLog.write("tunnel scope: includeAllNetworks \(includeAll ? "on" : "off") (setting \(overrides.includeAllNetworks ? "on" : "off")), enforceRoutes \(protocolConfiguration.enforceRoutes), excludeLocalNetworks \(protocolConfiguration.excludeLocalNetworks)")
         StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count)\(overrides.notDefaultRoute ? " (not default route)" : "")\(overrides.hideVPNIcon ? " (hide icon)" : ""), mtu \(overrides.tunMTU), kernel NativeCore\(overrides.safeMode ? ", SAFE MODE" : "")")
         if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
