@@ -440,10 +440,11 @@ final class NCTLSClientStream: NCRelayStream {
                     return
                 }
                 readSeq += 1
-                guard let (innerType, content) = NCTLS13.innerPlaintext(plain) else {
+                guard let inner = NCTLS13.innerPlaintext(plain) else {
                     fail(TLSError.handshake("encrypted record without a content type (all padding)"))
                     return
                 }
+                let innerType = inner.type, content = inner.content
                 switch innerType {
                 case 22: handleHandshakeBytes(content)
                 case 23:
@@ -1656,7 +1657,8 @@ extension NCTLSClientStream {
                   let plain = NCTLS13.openRecord(suite: suite, key: readKey, iv: readIV, seq: readSeq,
                                                  header: header, sealed: payload) else { return false }
             readSeq += 1
-            guard let (innerType, content) = NCTLS13.innerPlaintext(plain) else { return true }
+            guard let inner = NCTLS13.innerPlaintext(plain) else { return true }
+            let innerType = inner.type, content = inner.content
             switch innerType {
             case 22: handleHandshakeBytes(content) // NewSessionTicket / KeyUpdate
             case 21: closed = true; deliverEOFOrError(nil)
