@@ -75,6 +75,10 @@ enum NCMASQUE {
         let skipCertVerify: Bool
         let rawFields: [String: NCJSONValue]
 
+        var isWarp: Bool {
+            mode == .connectIP && !(privateKey ?? "").isEmpty && !(publicKey ?? "").isEmpty
+        }
+
         init?(proxy: NCProxy) {
             guard let srv = proxy.server, !srv.isEmpty, let p = proxy.port, p > 0 else {
                 return nil
@@ -114,7 +118,14 @@ enum NCMASQUE {
                 uri = mode == .connectUDP ? NCMASQUE.defaultConnectUDPPath : NCMASQUE.defaultWarpURI
             }
 
-            sni = f["sni"]?.string
+            let rawSNI = f["sni"]?.string
+            if let rawSNI, !rawSNI.isEmpty {
+                sni = rawSNI
+            } else if mode == .connectIP && privateKey != nil && publicKey != nil {
+                sni = NCMASQUE.defaultWarpSNI
+            } else {
+                sni = nil
+            }
             if let alpnArr = f["alpn"]?.array?.compactMap({ $0.string }), !alpnArr.isEmpty {
                 alpn = alpnArr
             } else if let alpnStr = f["alpn"]?.string, !alpnStr.isEmpty {

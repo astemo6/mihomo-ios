@@ -1,5 +1,31 @@
 # NativeCore: MASQUE (RFC 9298 / RFC 9484) — design note (feat/nc-masque, based on 6fd4bab)
 
+> **Status (feat/nc-masque-warp, 2026-10-27):** Cloudflare WARP MASQUE (**cf-connect-ip**) is wired to the L3
+> CONNECT-IP data plane and **available** (`NCMASQUE.warpVerified = true`) after the real Cloudflare interop went green.
+> - Node format (Clash-style): `type: masque`, `server` (endpoint v4, e.g. 162.159.198.x) / `port` 443, `private-key`
+>   (client P-256 key: SEC 1 or PKCS#8 DER base64, or PEM), `public-key` (endpoint P-256 key: SPKI DER base64, PEM or a
+>   bare 65-byte point), `ip` / optional `ipv6` (the device's WARP addresses), optional `sni` (default
+>   `consumer-masque.cloudflareclient.com`), `uri` (default `https://cloudflareaccess.com` → `:authority
+>   cloudflareaccess.com`, `:path /`), `mtu`, `dns`. A key pair implies CONNECT-IP (Shadowrocket `masque://` links too).
+> - Client mTLS identity (`NCMASQUEWarp`, Shared/NativeCore/NCMASQUEWarp.swift): self-signed X.509 (v3, serial 0, empty
+>   names, no extensions, ECDSA-SHA256, valid now − 1 h … now + 24 h) → PKCS#12 → `SecIdentity` →
+>   `sec_protocol_options_set_local_identity`. Cached per private key process-wide (lock-protected, rebuilt after 12 h,
+>   ≤ 4 entries) — no rebuild per dial.
+> - Server pinning: the TLS verify block compares the leaf certificate's public key with `public-key`; no system trust,
+>   and `skip-cert-verify` cannot turn it off. A mismatch fails the dial at once with its own error.
+> - Request: Extended CONNECT `:protocol = cf-connect-ip`, `capsule-protocol: ?1`; SETTINGS include H3_DATAGRAM_00
+>   (0x276); datagrams = quarter stream id + context id 0 + IP packet (same as RFC 9484). The node's `ip` / `ipv6` are bound
+>   as soon as the 2xx arrives (the real endpoint sent no ADDRESS_ASSIGN / ROUTE_ADVERTISEMENT before traffic).
+> - Errors (Chinese, distinct): bad private key / bad public key (NCSupport, before dialing), identity build failure,
+>   pin mismatch, server refusal (unenrolled key: Cloudflare checks the client certificate after the client's handshake
+>   completes, so it shows as the request stream dying before HEADERS), HTTP refusal (`被拒绝 (HTTP n)`).
+> - Verified (proto-loopback.yml job `masque-warp`, opt-in `jobs: masque-warp`): tools/loopback/warp/register.py registers a
+>   throwaway free WARP device on the runner (POST /reg, PATCH /reg/{id} with `key_type secp256r1`, `tunnel_type masque`),
+>   E2ETests/NCMASQUEWarpInteropTests runs HTTPS GET `/cdn-cgi/trace` (`warp=on`), UDP DNS to 1.1.1.1, 1 MiB HTTPS download,
+>   reconnect, unenrolled key refused, wrong `public-key` refused; the device is deleted afterwards. No key in the repo.
+> - Not done: in-app WARP registration / key enrollment (profiles come from external tools or share links), WARP over
+>   HTTP/2, Zero Trust (`zt-masque`) accounts, CONNECT-TCP / h3-l4proxy, keeping flows across a reconnect (redial only).
+
 > **Status (fix/nc-masque-ip, 2026-10-27):** RFC 9484 **CONNECT-IP** over HTTP/3 is implemented as an L3 data plane:
 > `NCMASQUEIPTunnel` (Shared/NativeCore/NCMASQUEIP.swift — Extended CONNECT `:protocol = connect-ip`, ADDRESS_ASSIGN /
 > ROUTE_ADVERTISEMENT / DATAGRAM capsules, IP packets as HTTP Datagrams with context id 0) feeding a per-node lwIP netif
@@ -12,8 +38,7 @@
 > (tools/loopback/connectip): 1 MiB TCP echo byte-exact, UDP echo, UDP DNS, tunnel DNS by name, HTTP 304000 B, routes,
 > redial, 404 refusal (8/8, mirror runs 40464266033 and 40468656765). Netif MTU ≤ 1193 (QUIC DATAGRAM room); nc_wg clamps
 > each connected PCB's MSS to its device MTU.
-> Still not wired: **Cloudflare WARP** profiles (key pair → Cloudflare's `cf-connect-ip` protocol + an mTLS client identity
-> built from the WARP private key + server-key pinning; shown as `NCMASQUE.warpUnavailable`), CONNECT-IP over HTTP/2,
+> Cloudflare WARP MASQUE profiles are wired in `feat/nc-masque-warp`. Still not wired: CONNECT-IP over HTTP/2,
 > CONNECT-TCP / `h3-l4proxy`, IP flow forwarding (scoped `{target}` templates), reconnect keeping flows (a lost tunnel tears
 > the netif down; the next flow redials).
 >

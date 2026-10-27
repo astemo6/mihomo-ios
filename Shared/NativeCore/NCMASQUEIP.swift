@@ -29,6 +29,15 @@ extension NCMASQUE {
     /// WARP key and server-key pinning — not wired.
     static let warpUnavailable = "MASQUE WARP（Cloudflare 私有 cf-connect-ip + mTLS 客户端证书）尚未接入；通用 RFC 9484 CONNECT-IP 请用 mode: connect-ip + uri"
 
+    /// feat/nc-masque-warp: WARP profiles (cf-connect-ip + mTLS identity + server-key pinning, NCMASQUEWarp.swift).
+    /// True only after the real Cloudflare interop (proto-loopback.yml job `masque-warp`, a throwaway WARP device
+    /// registered on the runner) is green: mirror run 40489907072 (320d77f) 6/6 — HTTPS GET warp=on, UDP DNS, 1 MiB,
+    /// reconnect, unenrolled key refused, wrong public-key refused. Set back to false to hide WARP nodes again.
+    static let warpVerified = true
+
+    /// Shown by NCSupport for a valid WARP node while `warpVerified` is false.
+    static let warpUnverified = "MASQUE WARP（Cloudflare cf-connect-ip）验证中：真实 Cloudflare 端点互通通过前暂不可用"
+
     /// `:authority` and `:path` for the CONNECT-IP request: taken from the URI template (RFC 9484 §3), whose
     /// variables {target} / {ipproto} expand to `*` (full tunnel). A path-only template uses server:port.
     static func connectIPRequestTarget(_ cfg: Config) -> (authority: String, path: String) {
@@ -144,7 +153,11 @@ final class NCMASQUEIPTunnel {
         channel = ch
         ch.start(queue: connection.queue) { [weak self] err in
             guard let self else { return }
-            if let err { self.finishStart(.failure(err)); return }
+            if let err {
+                let why = (err as? LocalizedError)?.errorDescription ?? "\(err)"
+                self.finishStart(.failure(self.warpRefusal(why).map { NCConnector.Failure.handshake($0) } ?? err))
+                return
+            }
             guard let sid = ch.quicStreamID else {
                 self.finishStart(.failure(NCConnector.Failure.handshake("MASQUE CONNECT-IP 请求流无 stream id")))
                 return
@@ -162,7 +175,8 @@ final class NCMASQUEIPTunnel {
             if let u = self.config.username, let p = self.config.password {
                 extra.append(("authorization", "Basic " + Data("\(u):\(p)".utf8).base64EncodedString()))
             }
-            let fields = NCMASQUE.qpackEncodeExtendedConnect(protocolValue: "connect-ip", authority: authority,
+            let proto = self.config.isWarp ? "cf-connect-ip" : "connect-ip"
+            let fields = NCMASQUE.qpackEncodeExtendedConnect(protocolValue: proto, authority: authority,
                                                              path: path, extraHeaders: extra)
             var frame = NCMASQUE.varintEncode(0x01)
             frame.append(NCMASQUE.varintEncode(UInt64(fields.count)))
@@ -210,7 +224,13 @@ final class NCMASQUEIPTunnel {
                     return "HTTP \(status)"
                 }
                 gotHeaders = true
-                if config.ip != nil || config.ipv6 != nil {
+                if config.isWarp {
+                    fallbackAddress()
+                    if !gotAddress {
+                        finishStart(.failure(NCConnector.Failure.handshake("MASQUE WARP 缺少本地 IP 地址")))
+                        return "MASQUE WARP 缺少本地 IP 地址"
+                    }
+                } else if config.ip != nil || config.ipv6 != nil {
                     connection.queue.asyncAfter(deadline: .now() + 3) { [weak self] in self?.fallbackAddress() }
                 }
                 continue
@@ -263,8 +283,16 @@ final class NCMASQUEIPTunnel {
         }
     }
 
+    /// WARP: Cloudflare checks the client certificate after our side of the TLS handshake is done, so an unenrolled
+    /// key shows up as the request stream dying before any response HEADERS (real interop: NWError 57). Reported as
+    /// the server refusing the key, with the transport reason kept. Nil for non-WARP nodes or after HEADERS.
+    private func warpRefusal(_ why: String) -> String? {
+        guard config.isWarp, !gotHeaders, !why.hasPrefix("HTTP ") else { return nil }
+        return "\(NCMASQUEWarp.warpRejected)：\(why)"
+    }
+
     /// The proxy assigned nothing: use the node's configured address (WARP-style profiles carry it).
-    private func fallbackAddress() {
+    func fallbackAddress() {
         guard !gotAddress, !isClosed else { return }
         var p = params
         if let v4 = config.ip, let ip = NCIP(stripPrefix(v4)) { p.ipv4 = ip.string }
@@ -287,7 +315,7 @@ final class NCMASQUEIPTunnel {
 
     private func streamEnded(_ why: String) {
         guard !isClosed else { return }
-        finishStart(.failure(NCConnector.Failure.handshake("MASQUE CONNECT-IP: \(why)")))
+        finishStart(.failure(NCConnector.Failure.handshake(warpRefusal(why) ?? "MASQUE CONNECT-IP: \(why)")))
         close()
         callbackQueue.async { self.onClosed(why) }
     }

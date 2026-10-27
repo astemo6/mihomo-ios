@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 import os
 
 /// MASQUE (RFC 9298 CONNECT-UDP / RFC 9484 CONNECT-IP) session and data plane connector.
@@ -267,6 +268,11 @@ final class NCMASQUEConnection {
     private var waiters: [(Error?) -> Void] = []
     private var startCompletion: ((Error?) -> Void)?
     private var handshakeOpened = false
+    /// WARP: set by the TLS verify block when the server key did not match `public-key` (read under `lock`).
+    private var pinMismatch = false
+    /// WARP: the server key matched; a QUIC failure before `.ready` after this is the server refusing our client
+    /// certificate (key not enrolled) — reported as NCMASQUEWarp.warpRejected.
+    private var pinMatched = false
     private let lock = NSLock()
 
     var isAlive: Bool {
@@ -312,6 +318,12 @@ final class NCMASQUEConnection {
         startCompletion = completion
         lock.unlock()
 
+        // WARP: build (or reuse) the mTLS identity before dialing, so a bad key fails here with its own message.
+        if config.isWarp, NCMASQUEWarp.cachedIdentity(config: config) == nil {
+            finishStart(NCMASQUEWarp.WarpError.warpIdentityFailed(NCMASQUEWarp.warpIdentityFailed))
+            return
+        }
+
         ncOnSessionQueue(queue) { self.startOnQueue() }
     }
 
@@ -320,10 +332,46 @@ final class NCMASQUEConnection {
         let quicOptions = NWProtocolQUIC.Options(alpn: alpn)
         let tlsOptions = quicOptions.securityProtocolOptions
         sec_protocol_options_set_tls_min_version(tlsOptions, .tlsProtocol13)
-        if let sni = config.sni, !sni.isEmpty {
-            sec_protocol_options_set_tls_server_name(tlsOptions, sni)
+        let effectiveSNI = (config.sni != nil && !config.sni!.isEmpty)
+            ? config.sni
+            : (config.isWarp ? NCMASQUE.defaultWarpSNI : nil)
+        if let effectiveSNI, !effectiveSNI.isEmpty {
+            sec_protocol_options_set_tls_server_name(tlsOptions, effectiveSNI)
         }
-        if config.skipCertVerify {
+        if config.isWarp {
+            if let identity = NCMASQUEWarp.cachedIdentity(config: config) {
+                if let sid = sec_identity_create(identity) {
+                    sec_protocol_options_set_local_identity(tlsOptions, sid)
+                }
+            }
+            // Server SPKI pinning: overrides skipCertVerify (pinning is always enforced for WARP)
+            let configuredPoint = config.publicKey.flatMap { NCMASQUEWarp.publicPoint(fromConfiguredKey: $0) }
+            sec_protocol_options_set_verify_block(tlsOptions, { [weak self] _, trustRef, complete in
+                guard let expectedPoint = configuredPoint else {
+                    complete(false)
+                    return
+                }
+                let secTrust = sec_trust_copy_ref(trustRef).takeRetainedValue()
+                let chain = (SecTrustCopyCertificateChain(secTrust) as? [SecCertificate]) ?? []
+                guard let leaf = chain.first else {
+                    complete(false)
+                    return
+                }
+                let leafDER = SecCertificateCopyData(leaf) as Data
+                let matched = NCMASQUEWarp.peerPointMatches(leafCertDER: leafDER, configuredPoint: expectedPoint)
+                if let self {
+                    self.lock.lock()
+                    if matched { self.pinMatched = true } else { self.pinMismatch = true }
+                    self.lock.unlock()
+                }
+                complete(matched)
+                // A refused server certificate leaves the QUIC group waiting until our 15 s timeout (real interop:
+                // 15.03 s); fail the start right away with the pinning error instead.
+                if !matched, let self {
+                    self.finishStart(NCMASQUEWarp.WarpError.warpPinMismatch(NCMASQUEWarp.warpPinMismatch))
+                }
+            }, queue)
+        } else if config.skipCertVerify {
             sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)
         }
         quicOptions.maxDatagramFrameSize = 1400
@@ -420,8 +468,17 @@ final class NCMASQUEConnection {
         }
     }
 
-    private func finishStart(_ error: Error?) {
+    private func finishStart(_ failure: Error?) {
         lock.lock()
+        // WARP: a handshake that died in the pinning check reports that, not Network.framework's generic TLS error.
+        var error = failure
+        if failure != nil, config.isWarp, state == .connecting {
+            if pinMismatch {
+                error = NCMASQUEWarp.WarpError.warpPinMismatch(NCMASQUEWarp.warpPinMismatch)
+            } else if pinMatched, failure is NWError {
+                error = NCMASQUEWarp.WarpError.warpRejected(NCMASQUEWarp.warpRejected)
+            }
+        }
         if let error {
             state = .failed
         } else {
