@@ -98,7 +98,7 @@ struct InspectProvider: Codable, Hashable, Identifiable {
     var cachedDate: Date? { cachedAt.map { Date(timeIntervalSince1970: $0) } }
 }
 
-struct InspectResult: Codable {
+struct InspectResult: Codable, Equatable { // fix/nc-ui-smooth: Equatable so an identical reload publishes nothing
     var mode: String = "rule"
     var proxies: [InspectProxy] = []
     var groups: [InspectGroup] = []
@@ -216,17 +216,31 @@ final class ProfileInspector: ObservableObject {
             profilePath = nil
             return
         }
-        loading = true
-        defer { if seq == loadSeq { loading = false } }
+        // fix/nc-ui-smooth: 首页 and 策略 reload the profile every time they appear (tab switch). The spinner flag
+        // re-rendered both pages twice per switch; it is now raised only when a load takes longer than 150 ms.
+        let spinner = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled, let self, self.loadSeq == seq else { return }
+            self.loading = true
+        }
+        defer {
+            spinner.cancel()
+            if seq == loadSeq && loading { loading = false }
+        }
         let home = AppShared.homeURL.path
         let path = url.path
-        let r = await Task.detached(priority: .userInitiated) {
-            NCProfileInspectorPort.inspectProfile(home: home, path: path)
+        let old = profilePath == path ? result : nil
+        // The comparison runs with the parse, off the main thread: an identical answer (the usual case on a tab
+        // switch) publishes nothing, so the page in the middle of its transition is not rebuilt and the derived
+        // member lists / node index / graph are kept.
+        let (r, same) = await Task.detached(priority: .userInitiated) { () -> (InspectResult, Bool) in
+            let r = NCProfileInspectorPort.inspectProfile(home: home, path: path)
+            return (r, old.map { $0 == r } ?? false)
         }.value
         guard seq == loadSeq else { return }
-        result = r
+        if !same { result = r }
         if profilePath != path { delays = [:] }
-        profilePath = path
+        if profilePath != path { profilePath = path }
     }
 
     /// Saves group → node for the active profile; applied by the core on the next connect.

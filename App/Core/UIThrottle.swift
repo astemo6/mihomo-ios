@@ -100,8 +100,8 @@ enum TestSettingsCache {
     private static var cached: (stamp: Stamp, values: Values)?
 
     static func stamp(_ url: URL) -> Stamp {
-        var st = Darwin.stat()
-        guard Darwin.stat(url.path, &st) == 0 else {
+        var st = stat()
+        guard lstat(url.path, &st) == 0 else { // overrides.json is a plain file (atomic replace), never a symlink
             return Stamp(path: url.path, exists: false, inode: 0, size: 0, mtimeSec: 0, mtimeNsec: 0)
         }
         return Stamp(path: url.path, exists: true, inode: UInt64(st.st_ino), size: Int64(st.st_size),
