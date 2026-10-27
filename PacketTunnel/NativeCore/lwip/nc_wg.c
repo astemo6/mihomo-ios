@@ -301,10 +301,18 @@ static err_t nc_wg_tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len) {
 }
 
 static err_t nc_wg_tcp_connected_cb(void *arg, struct tcp_pcb *pcb, err_t err) {
-  (void)pcb;
   nc_wg_tcp *c = (nc_wg_tcp *)arg;
   if (!c || !c->used) return ERR_OK;
   c->connected = 1;
+  /* fix/nc-masque-ip: tcp_in.c re-derives the send MSS from ip_route() (the TUN netif), not the netif this PCB is
+   * bound to, so segments could exceed the device MTU (seen: 1280-byte packets on a 1193-MTU MASQUE CONNECT-IP netif,
+   * whose QUIC datagrams Network.framework may drop silently). Clamp to the bound device's MTU. */
+  nc_wg_dev *d = nc_wg_dev_get(c->dev);
+  if (pcb && d) {
+    u16_t hdr = IP_IS_V6(&pcb->remote_ip) ? 60 : 40;
+    u16_t m = d->netif.mtu; /* mtu6 == mtu for these devices (nc_wg_dev_add) */
+    if (m > hdr + 536 && pcb->mss > (u16_t)(m - hdr)) pcb->mss = (u16_t)(m - hdr);
+  }
   if (g_wcbs.tcp_connected) g_wcbs.tcp_connected(g_wctx, c->id, (int32_t)err);
   return ERR_OK;
 }
