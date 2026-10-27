@@ -576,8 +576,8 @@ public enum NCTrustTunnelWire {
         // proxy-authorization: Basic <creds> -> Literal with literal name: 0 0 1 N=0 H=0 nameLen(3) -> 0x20
         out.append(NCHy2.qpackEncodeString("proxy-authorization", prefixBits: 3, flags: 0x20))
         out.append(NCHy2.qpackEncodeString("Basic \(creds)"))
-        // user-agent: <ua> -> Literal with static name ref 94:
-        out.append(NCHy2.qpackEncodeInteger(94, prefixBits: 4, flags: 0x50))
+        // user-agent: <ua> -> Literal with static name ref 95 (RFC 9204 Appendix A; 94 is upgrade-insecure-requests)
+        out.append(NCHy2.qpackEncodeInteger(95, prefixBits: 4, flags: 0x50))
         out.append(NCHy2.qpackEncodeString(ua))
         return out
     }
