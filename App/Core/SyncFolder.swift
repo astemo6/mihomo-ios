@@ -4,15 +4,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // v0.10 同步文件夹: profiles, modules, overrides and the rest of a backup (no MitM CA) kept in one file,
-// Tern-sync.json (read falls back to the pre-rename name, LegacyImport.syncFileName), in a folder the user picks once in the Files picker — typically iCloud Drive. Works
+// Tern-sync.json, in a folder the user picks once in the Files picker — typically iCloud Drive. Works
 // without an iCloud container entitlement (re-signed builds have none): access goes through a
 // security-scoped bookmark. Optional: push automatically when the app goes to the background and the
 // configuration changed since the last push.
 
 private let syncFileName = "Tern-sync.json"
-/// r7: the name builds before the Tern rename wrote. Reads fall back to it so an existing sync folder (or another
-/// device still on an older build) keeps working; writes always go to Tern-sync.json.
-private let legacySyncFileName = LegacyImport.syncFileName
 
 @MainActor
 final class SyncFolder: ObservableObject {
@@ -101,19 +98,10 @@ final class SyncFolder: ObservableObject {
         return try result.get()
     }
 
-    /// The file a read uses: Tern-sync.json, else the legacy pre-rename file; when both exist, the newer one
-    /// (an older build on another device may still be pushing the legacy name). Call inside the folder's scope.
+    /// The file a read uses: Tern-sync.json (only Tern sync files are read). Call inside the folder's scope.
     nonisolated static func readFileName(folder: URL) -> String {
-        let fm = FileManager.default
-        let new = folder.appendingPathComponent(syncFileName)
-        let old = folder.appendingPathComponent(legacySyncFileName)
-        try? fm.startDownloadingUbiquitousItem(at: new)
-        try? fm.startDownloadingUbiquitousItem(at: old)
-        let hasNew = fm.fileExists(atPath: new.path), hasOld = fm.fileExists(atPath: old.path)
-        guard hasOld else { return syncFileName }
-        guard hasNew else { return legacySyncFileName }
-        func mtime(_ u: URL) -> Date { (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast }
-        return mtime(old) > mtime(new) ? legacySyncFileName : syncFileName
+        try? FileManager.default.startDownloadingUbiquitousItem(at: folder.appendingPathComponent(syncFileName))
+        return syncFileName
     }
 
     /// The sync file's bytes and file count. Review 5 P2-1: never the scripts' store (cookies, tokens) — the

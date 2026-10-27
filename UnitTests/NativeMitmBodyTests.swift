@@ -220,7 +220,7 @@ enum NativeBodyDriverChecks {
       "body":[{"icu":"\\x{61}\\x{61}\\x{61}","parts":[{"l":"ccc","g":-1}]}],"bodyOK":true}]}
     """#
 
-    final class GoFake: MitmFlowDriving {
+    final class InnerDriverFake: MitmFlowDriving {
         var calls: [String] = []
         var bodies: [Int: Data] = [0: Data(), 1: Data()]
         var out = Data(), off = 0
@@ -279,7 +279,7 @@ enum NativeBodyDriverChecks {
 
         // 1. response body rewritten natively
         do {
-            let go = GoFake(), d = NativeRewriteDriver(inner: go, provider: NativeRewriteProvider(source: GoRewriteSnapshotSourceStub()), recorder: nil)
+            let inner = InnerDriverFake(), d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: InnerRewriteSnapshotSourceStub()), recorder: nil)
             let h = head("GET", "/b")
             guard let f = d.native(q(h), engine: engine, head: h, conn: conn, bodies: true) else { return ["1: not native"] }
             expect(f.action == .forward && f.id < 0, "1: forward \(f.action)")
@@ -293,12 +293,12 @@ enum NativeBodyDriverChecks {
             expect(readAll(d, f.id, .response) == Data("x AD y AD".utf8), "1: body")
             expect(d.readState(f.id, .response) == .eof, "1: eof")
             d.end(f.id, sent: 9, error: "")
-            expect(go.calls.isEmpty, "1: inner driver was called \(go.calls)")
+            expect(inner.calls.isEmpty, "1: inner driver was called \(inner.calls)")
             expect(d.stats.bodyNative == 1 && d.liveNativeFlows == 0, "1: stats \(d.stats)")
         }
         // 2. chunked response: the old core adopts at the head
         do {
-            let go = GoFake(), d = NativeRewriteDriver(inner: go, provider: NativeRewriteProvider(source: GoRewriteSnapshotSourceStub()), recorder: nil)
+            let inner = InnerDriverFake(), d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: InnerRewriteSnapshotSourceStub()), recorder: nil)
             let h = head("GET", "/b")
             guard let f = d.native(q(h), engine: engine, head: h, conn: conn, bodies: true) else { return fails + ["2: not native"] }
             let ch = HTTPResponseHead(status: 200, reason: "OK", headers: [("Transfer-Encoding", "chunked")])
@@ -310,12 +310,12 @@ enum NativeBodyDriverChecks {
             expect(a.action == .respond && a.id == f.id, "2: respond")
             expect(readAll(d, f.id, .response) == Data("GO:".utf8) + body, "2: inner driver's body")
             d.end(f.id, sent: 0, error: "")
-            expect(go.calls == ["begin /b", "response 200", "write 1 9", "close 1", "await", "end"], "2: calls \(go.calls)")
+            expect(inner.calls == ["begin /b", "response 200", "write 1 9", "close 1", "await", "end"], "2: calls \(inner.calls)")
             expect(d.stats.bodyAdopted == 1 && d.stats.adoptReasons["chunked"] == 1, "2: stats \(d.stats)")
         }
         // 3. body not UTF-8: the old core adopts after Swift read it (the buffered body is pushed to the old core)
         do {
-            let go = GoFake(), d = NativeRewriteDriver(inner: go, provider: NativeRewriteProvider(source: GoRewriteSnapshotSourceStub()), recorder: nil)
+            let inner = InnerDriverFake(), d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: InnerRewriteSnapshotSourceStub()), recorder: nil)
             let h = head("GET", "/b")
             guard let f = d.native(q(h), engine: engine, head: h, conn: conn, bodies: true) else { return fails + ["3: not native"] }
             let bad = Data([0xFF, 0x61, 0x64])
@@ -327,11 +327,11 @@ enum NativeBodyDriverChecks {
             expect(a.action == .respond && a.id == f.id, "3: respond \(a.action)")
             expect(readAll(d, f.id, .response) == Data("GO:".utf8) + bad, "3: inner driver's body")
             d.end(f.id, sent: 0, error: "")
-            expect(go.calls == ["begin /b", "response 200", "write 1 3", "close 1", "await", "end"], "3: calls \(go.calls)")
+            expect(inner.calls == ["begin /b", "response 200", "write 1 3", "close 1", "await", "end"], "3: calls \(inner.calls)")
         }
         // 4. request body rewritten natively
         do {
-            let go = GoFake(), d = NativeRewriteDriver(inner: go, provider: NativeRewriteProvider(source: GoRewriteSnapshotSourceStub()), recorder: nil)
+            let inner = InnerDriverFake(), d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: InnerRewriteSnapshotSourceStub()), recorder: nil)
             let h = head("POST", "/q", [("Content-Length", "5")])
             guard let f = d.native(q(h), engine: engine, head: h, conn: conn, bodies: true) else { return fails + ["4: not native"] }
             expect(f.action == .needBody && f.which == 0, "4: need-body \(f.action)")
@@ -343,11 +343,11 @@ enum NativeBodyDriverChecks {
             let r = d.responsePhase(f.id, head: up, length: Int64(body.count))
             expect(r.action == .respond && r.body == .upstream, "4: header-only response \(r.action)")
             d.end(f.id, sent: 9, error: "")
-            expect(go.calls.isEmpty, "4: inner driver was called \(go.calls)")
+            expect(inner.calls.isEmpty, "4: inner driver was called \(inner.calls)")
         }
         // 5. request body not UTF-8: the old core adopts the request (nothing went upstream yet)
         do {
-            let go = GoFake(), d = NativeRewriteDriver(inner: go, provider: NativeRewriteProvider(source: GoRewriteSnapshotSourceStub()), recorder: nil)
+            let inner = InnerDriverFake(), d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: InnerRewriteSnapshotSourceStub()), recorder: nil)
             let h = head("POST", "/q", [("Content-Length", "4")])
             guard let f = d.native(q(h), engine: engine, head: h, conn: conn, bodies: true) else { return fails + ["5: not native"] }
             _ = d.write(f.id, .request, Data([0xFF, 0x61, 0x61, 0x61]))
@@ -356,14 +356,14 @@ enum NativeBodyDriverChecks {
             expect(a.action == .forward && a.id == f.id && a.body == .read, "5: forward \(a.action)")
             expect(readAll(d, f.id, .request) == Data("GO:".utf8) + Data([0xFF, 0x61, 0x61, 0x61]), "5: inner driver's request body")
             d.end(f.id, sent: 0, error: "")
-            expect(go.calls == ["begin /q", "write 0 4", "close 0", "await", "end"], "5: calls \(go.calls)")
+            expect(inner.calls == ["begin /q", "write 0 4", "close 0", "await", "end"], "5: calls \(inner.calls)")
         }
         return fails
     }
 }
 
 /// A snapshot source nobody asks (the checks call native() with an engine).
-final class GoRewriteSnapshotSourceStub: RewriteSnapshotSource {
+final class InnerRewriteSnapshotSourceStub: RewriteSnapshotSource {
     func generation() -> Int64 { 0 }
     func snapshotJSON() -> String { "" }
 }
@@ -401,7 +401,7 @@ final class NativeMitmBodyTests: XCTestCase {
         XCTAssertLessThanOrEqual(rep.nativeSkipped, 166)
     }
 
-    /// the old core's encoding/json output for the corner cases the corpus may not hold.
+    /// the old core's JSON encoder output for the corner cases the corpus may not hold.
     func testJSONEncodingMatchesGo() {
         let cases: [(String, String)] = [
             (#"{"b":1,"a":[true,false,null],"c":{}}"#, #"{"a":[true,false,null],"b":1,"c":{}}"#),

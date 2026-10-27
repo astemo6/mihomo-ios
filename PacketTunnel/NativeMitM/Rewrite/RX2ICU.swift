@@ -1,6 +1,6 @@
 // Native MitM (native-only) — regexp2 (.NET) and RE2 patterns translated to a Unicode-faithful ICU pattern.
 //
-// Why this exists: the snapshot translation (App/Core/NCRewriteICU.swift, a port of the old core's rewriteicu.go) spells every
+// Why this exists: the snapshot translation (App/Core/NCRewriteICU.swift, a port of the old core's rewriteicu) spells every
 // character class out as an explicit ASCII set — exact on ASCII input only, and it refuses whatever the old core could not
 // prove equal on ASCII (x mode, \p in unions, capture in look-ahead, multi-digit back-references …). Body rules on
 // regexp2's path (look-around, \b, $, back-references) were not exported at all ("regexp2"), so the native-only tunnel

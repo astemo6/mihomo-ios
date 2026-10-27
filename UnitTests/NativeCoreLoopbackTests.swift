@@ -27,6 +27,9 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let trustTunnelPort = 18013
+    private static let trustTunnelUser = "nc-loop-tt-user"
+    private static let trustTunnelPassword = "nc-loop-tt-pw"
     private static let vlessEchPort = 18014
     private static let trojanEchPort = 18015
     private static let tcpEchoPort = 18080
@@ -804,6 +807,290 @@ final class NativeCoreLoopbackTests: XCTestCase {
             XCTAssertEqual(from.port, Self.udpEchoPort)
         }
     }
+
+    // MARK: - Lua custom backend (feat/nc-lua S2)
+
+    private static let luaPort = 18016
+
+    /// The peer (tools/loopback/lua-mock-server.py) answers the script's
+    /// "HE" greeting with "HO" and echoes every chunk XORed with 0x5A; the
+    /// script's on_read applies the same XOR, so assertEcho verifies the
+    /// whole flags -> handshake -> write/read transform path over real TCP.
+    private static let luaXORScript = """
+    local KEY = 0x5A
+    local function xorBytes(s)
+      return (s:gsub(".", function(c) return string.char(string.byte(c) ~ KEY) end))
+    end
+    function wa_lua_on_flags_cb(ctx)
+      backend.write(ctx, "HE")
+      return 0
+    end
+    function wa_lua_on_handshake_cb(ctx) return _G.hs_done == true end
+    function wa_lua_on_read_cb(ctx, buf)
+      if _G.hs_done ~= true then
+        if buf == "HO" then
+          _G.hs_done = true
+          return backend.RESULT.HANDSHAKE, nil
+        end
+        return backend.RESULT.ERROR, nil
+      end
+      return backend.RESULT.SUCCESS, xorBytes(buf)
+    end
+    function wa_lua_on_write_cb(ctx, buf) return backend.RESULT.SUCCESS, xorBytes(buf) end
+    function wa_lua_on_close_cb(ctx) return 0 end
+    """
+
+    private static var luaProxy: NCProxy {
+        Self.proxy(name: "loop-lua", type: "lua", port: Self.luaPort, extra: [
+            "script": .string(Self.luaXORScript),
+        ])
+    }
+
+    func testLuaCustomBackendEcho() throws {
+        // Diagnostic probes (added after run 40422207536 hung in connect with
+        // no completion at all): prove the mock is reachable from this
+        // process and speaks HE/HO before involving NCConnector.
+        let probe = NWConnection(host: NWEndpoint.Host(Self.host),
+                                 port: NWEndpoint.Port(rawValue: UInt16(Self.luaPort))!,
+                                 using: .tcp)
+        let readyExp = expectation(description: "lua mock ready")
+        let readyBox = LockedBox(false)
+        probe.stateUpdateHandler = { state in
+            if case .ready = state { readyBox.set(true); readyExp.fulfill() }
+            if case .failed = state { readyExp.fulfill() }
+        }
+        probe.start(queue: DispatchQueue(label: "nc.loopback.lua.probe"))
+        wait(for: [readyExp], timeout: 5)
+        XCTAssertTrue(readyBox.get(), "lua mock :\(Self.luaPort) not reachable from the test process")
+        let hoExp = expectation(description: "lua mock HO")
+        let hoBox = LockedBox<Data?>(nil)
+        probe.send(content: Data("HE".utf8), completion: .idempotent)
+        probe.receive(minimumIncompleteLength: 1, maximumLength: 64) { data, _, _, _ in
+            hoBox.set(data)
+            hoExp.fulfill()
+        }
+        wait(for: [hoExp], timeout: 5)
+        XCTAssertEqual(hoBox.get(), Data("HO".utf8), "lua mock did not answer HE with HO")
+        probe.cancel()
+
+        let stream = try self.connect(proxy: Self.luaProxy, target: Self.echoTarget, timeout: 20)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// Shadowrocket/lua-backend http-backend.lua (MIT, github.com/Shadowrocket/lua-backend), verbatim — the
+    /// shape every real Shadowrocket Lua backend has (`require 'backend'`, on_flags = DIRECT_WRITE,
+    /// RESULT.DIRECT, handshake keyed by ctx uuid) — against sing-box's plain HTTP CONNECT inbound on 18018.
+    private static let shadowrocketHTTPBackend = #"""
+    -- file: lua/backend-http.lua
+
+    local http = require 'http'
+    local backend = require 'backend'
+
+    local char = string.char
+    local byte = string.byte
+    local find = string.find
+    local sub = string.sub
+
+    local ADDRESS = backend.ADDRESS
+    local PROXY = backend.PROXY
+    local DIRECT_WRITE = backend.SUPPORT.DIRECT_WRITE
+
+    local SUCCESS = backend.RESULT.SUCCESS
+    local HANDSHAKE = backend.RESULT.HANDSHAKE
+    local DIRECT = backend.RESULT.DIRECT
+
+    local ctx_uuid = backend.get_uuid
+    local ctx_proxy_type = backend.get_proxy_type
+    local ctx_address_type = backend.get_address_type
+    local ctx_address_host = backend.get_address_host
+    local ctx_address_bytes = backend.get_address_bytes
+    local ctx_address_port = backend.get_address_port
+    local ctx_write = backend.write
+    local ctx_free = backend.free
+    local ctx_debug = backend.debug
+
+    local flags = {}
+    local kHttpHeaderSent = 1
+    local kHttpHeaderRecived = 2
+
+    function wa_lua_on_flags_cb(ctx)
+        return DIRECT_WRITE
+    end
+
+    function wa_lua_on_handshake_cb(ctx)
+        local uuid = ctx_uuid(ctx)
+
+        if flags[uuid] == kHttpHeaderRecived then
+            return true
+        end
+
+        if flags[uuid] ~= kHttpHeaderSent then
+            local host = ctx_address_host(ctx)
+            local port = ctx_address_port(ctx)
+            local res = 'CONNECT ' .. host .. ':' .. port .. ' HTTP/1.1\r\n' ..
+                        'Host: ' .. host .. ':' .. port .. '\r\n' ..
+                        'Proxy-Connection: Keep-Alive\r\n\r\n'
+            ctx_write(ctx, res)
+            flags[uuid] = kHttpHeaderSent
+        end
+
+        return false
+    end
+
+    function wa_lua_on_read_cb(ctx, buf)
+        ctx_debug('wa_lua_on_read_cb')
+        local uuid = ctx_uuid(ctx)
+        if flags[uuid] == kHttpHeaderSent then
+            flags[uuid] = kHttpHeaderRecived
+            return HANDSHAKE, nil
+        end
+        return DIRECT, buf
+    end
+
+    function wa_lua_on_write_cb(ctx, buf)
+        ctx_debug('wa_lua_on_write_cb')
+        return DIRECT, buf
+    end
+
+    function wa_lua_on_close_cb(ctx)
+        ctx_debug('wa_lua_on_close_cb')
+        local uuid = ctx_uuid(ctx)
+        flags[uuid] = nil
+        ctx_free(ctx)
+        return SUCCESS
+    end
+    """#
+
+    func testLuaShadowrocketHTTPBackendEcho() throws {
+        let proxy = Self.proxy(name: "loop-lua-http", type: "lua", port: 18018, extra: [
+            "script": .string(Self.shadowrocketHTTPBackend),
+        ])
+        let stream = try self.connect(proxy: proxy, target: Self.echoTarget, timeout: 20)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    // MARK: - TrustTunnel (#161, official trusttunnel_endpoint on 18013, HTTP/2 track)
+
+    private static func trustTunnelProxy(name: String, password: String, quic: Bool = false) -> NCProxy {
+        Self.proxy(name: name, type: "trusttunnel", port: Self.trustTunnelPort, extra: [
+            "username": .string(Self.trustTunnelUser), "password": .string(password),
+            "sni": .string("localhost"), "skip-cert-verify": .bool(true), "quic": .bool(quic),
+            // H3 cases must prove HTTP/3 itself: no silent fallback to the H2 listener on the same port.
+            "h2-fallback": .bool(false),
+        ])
+    }
+
+    /// One `_udp2` stream (spec §6) to the UDP echo; DNS-sized and 1200-byte datagrams must come back byte-exact.
+    private func assertTrustTunnelUDPEcho(quic: Bool) throws {
+        let proxy = Self.trustTunnelProxy(name: quic ? "loop-trusttunnel-h3-udp" : "loop-trusttunnel-h2-udp",
+                                          password: Self.trustTunnelPassword, quic: quic)
+        let exp = self.expectation(description: "tt udp open")
+        let box = LockedBox<(NCRelayStream?, Error?)>((nil, nil))
+        NCTrustTunnelSessionManager.udpStream(proxy: proxy, target: NCTarget(host: Self.host, port: Self.udpEchoPort),
+                                              queue: DispatchQueue(label: "nc.loopback.tt.udp.\(quic)")) { s, e in
+            box.set((s, e)); exp.fulfill()
+        }
+        self.wait(for: [exp], timeout: 20)
+        let (s, e) = box.get()
+        if let e { throw e }
+        let stream = try XCTUnwrap(s, "tt udp: neither stream nor error")
+        defer { stream.cancel() }
+        for payload in [Self.dnsQuery, Data((0..<1200).map { UInt8(($0 * 7 + 3) & 0xff) })] {
+            let got = self.expectation(description: "tt udp echo")
+            let reply = LockedBox<Data?>(nil)
+            stream.receive { d, _ in reply.set(d); got.fulfill() }
+            stream.send(payload)
+            self.wait(for: [got], timeout: 10)
+            XCTAssertEqual(reply.get(), payload)
+        }
+    }
+
+    // MARK: - TrustTunnel HTTP/3 (fix/nc-trusttunnel-h3) against the official endpoint's QUIC listener
+
+    /// 8 KiB, then 1 MiB byte-exact through one H3 CONNECT stream, then a second stream on the same QUIC connection.
+    func testTrustTunnelH3TCPEcho() throws {
+        let proxy = Self.trustTunnelProxy(name: "loop-trusttunnel-h3", password: Self.trustTunnelPassword, quic: true)
+        let stream = try self.connect(proxy: proxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        try self.assertEcho(stream, payload: Data((0..<(1 << 20)).map { UInt8(($0 * 31 + 7) & 0xff) }), timeout: 60)
+        let second = try self.connect(proxy: proxy, target: Self.echoTarget)
+        defer { second.cancel() }
+        try self.assertEcho(second, payload: Self.payload)
+    }
+
+    func testTrustTunnelH3WrongPasswordRejected() {
+        let proxy = Self.trustTunnelProxy(name: "loop-trusttunnel-h3-badpw", password: "wrong-password", quic: true)
+        XCTAssertThrowsError(try self.connect(proxy: proxy, target: Self.echoTarget)) { err in
+            XCTAssertTrue("\(err)".contains("407"), "\(err)")
+        }
+    }
+
+    func testTrustTunnelH3UDPEcho() throws { try assertTrustTunnelUDPEcho(quic: true) }
+
+    func testTrustTunnelH2UDPEcho() throws { try assertTrustTunnelUDPEcho(quic: false) }
+
+    /// 8 KiB echo plus a chunked echo: the endpoint announces MAX_CONCURRENT_STREAMS 1000 and a 128 KiB stream
+    /// window — the #161 run stalled at exactly 1000 bytes because the old NCH2MuxCore read SETTINGS id 0x3 as
+    /// INITIAL_WINDOW_SIZE (fixed on integrate by fix/nc-h2-cidr).
+    func testTrustTunnelH2TCPEcho() throws {
+        let stream = try self.connect(proxy: Self.trustTunnelProxy(name: "loop-trusttunnel-h2", password: Self.trustTunnelPassword),
+                                      target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        try self.assertEcho(stream, payload: Data((0..<200_000).map { UInt8(($0 * 13 + 5) & 0xff) }))
+    }
+
+    func testTrustTunnelWrongPasswordRejected() {
+        let proxy = Self.trustTunnelProxy(name: "loop-trusttunnel-badpw", password: "wrong-password")
+        XCTAssertThrowsError(try self.connect(proxy: proxy, target: Self.echoTarget)) { err in
+            XCTAssertTrue("\(err)".contains("407"), "\(err)")
+        }
+    }
+
+    // MARK: - MASQUE CONNECT-UDP (#160, RFC 9298) against masque-go's proxy on 18012
+
+    private static var masqueProxy: NCProxy {
+        Self.proxy(name: "loop-masque", type: "masque", port: 18012, extra: [
+            "mode": .string("connect-udp"),
+            "username": .string("loop"), "password": .string("loop"),
+            "uri": .string("https://\(Self.host):18012/.well-known/masque/udp/{target_host}/{target_port}/"),
+            "sni": .string("localhost"),
+            "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    /// The tunnel's NCUDPMASQUESession is a thin wrapper over exactly this call: Extended CONNECT
+    /// (:protocol connect-udp, the template path with its trailing slash — #160 got a 307 without it), then
+    /// HTTP Datagrams to the UDP echo; two concurrent flows on the shared connection must not cross.
+    func testMASQUEUDPEcho() throws {
+        func open(_ label: String) throws -> NCRelayStream {
+            let exp = self.expectation(description: "masque \(label)")
+            let box = LockedBox<(NCRelayStream?, Error?)>((nil, nil))
+            NCMASQUERegistry.masqueStream(proxy: Self.masqueProxy, target: NCTarget(host: Self.host, port: Self.udpEchoPort),
+                                          queue: DispatchQueue(label: "nc.loopback.masque.\(label)")) { s, e in
+                box.set((s, e)); exp.fulfill()
+            }
+            self.wait(for: [exp], timeout: 20)
+            let (s, e) = box.get()
+            if let e { throw e }
+            return try XCTUnwrap(s, "masque \(label): neither stream nor error")
+        }
+        let a = try open("a")
+        defer { a.cancel() }
+        let b = try open("b")
+        defer { b.cancel() }
+        for (stream, payload) in [(a, Self.dnsQuery), (b, Data((0..<1000).map { UInt8(($0 * 3 + 1) & 0xff) }))] {
+            let exp = self.expectation(description: "masque echo")
+            let box = LockedBox<Data?>(nil)
+            stream.receive { d, _ in box.set(d); exp.fulfill() }
+            stream.send(payload)
+            self.wait(for: [exp], timeout: 10)
+            XCTAssertEqual(box.get(), payload)
+        }
+    }
 }
 
 /// hy2-frag ladder rungs over one registered hysteria2 UDP session (see testHysteria2UDPEcho).
@@ -1114,5 +1401,248 @@ extension NativeCoreLoopbackTests {
         let stream = try self.connect(proxy: p, target: Self.sfEcho)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.sfPayload)
+    }
+}
+
+// MARK: - fix/nc-sudoku-interop: the official Sudoku server (tools/loopback/sudoku/*.json, :18090–:18094)
+
+extension NativeCoreLoopbackTests {
+    /// Split ("available") private key of the loopback master key pair; the servers hold the master public key
+    /// 3388f6b5…451d, so this also exercises the client's key normalisation (Ed25519 r·B + k·B).
+    private static let sudokuKey = "e2eac3d4c0036ceb028048417bf2bf7c213681e145603c38ec8bffadb2e40c014130de746760b7dc9b515545f47e29df255687fe3ee972c2c517264f6a37b60b"
+    private static var sudokuEcho: NCTarget { NCTarget(host: "127.0.0.1", port: 18080) }
+    /// Plain HTTP origin (python http.server) started next to the Sudoku servers.
+    private static var sudokuHTTPOrigin: NCTarget { NCTarget(host: "127.0.0.1", port: 18095) }
+    /// Large enough to span many records and TCP reads (server-side padding lands between clue bytes).
+    private static let sudokuPayload: Data = {
+        var bytes = [UInt8](repeating: 0, count: 96_000)
+        for i in 0..<bytes.count { bytes[i] = UInt8(truncatingIfNeeded: i &* 31 &+ 7) }
+        return Data(bytes)
+    }()
+    /// tools/loopback/start-servers.sh writes the same 48 KiB page.
+    private static let sudokuPage: Data = {
+        var bytes = Array("tern-sudoku-loopback-ok\n".utf8)
+        let marker = bytes.count
+        bytes.reserveCapacity(48 * 1024)
+        for i in 0..<(48 * 1024 - marker) {
+            let v: Int = 0x21 + (i * 7) % 94
+            bytes.append(UInt8(v))
+        }
+        return Data(bytes)
+    }()
+
+    private static func sudokuProxy(_ name: String, _ port: Int, _ extra: [String: NCJSONValue]) -> NCProxy {
+        var f: [String: NCJSONValue] = ["server": .string("127.0.0.1"), "port": .number(Double(port)),
+                                        "key": .string(Self.sudokuKey)]
+        for (k, v) in extra { f[k] = v }
+        return NCProxy(name: name, type: "sudoku", fields: f)
+    }
+
+    /// The public path: the node is available and NCConnector dials it (TCP + NCSudokuSession).
+    private func sudokuDial(_ proxy: NCProxy, target: NCTarget, timeout: TimeInterval = 30) throws -> NCRelayStream {
+        XCTAssertNil(NCSupport.unsupportedReason(proxy), "\(proxy.name): node must be available")
+        return try self.connect(proxy: proxy, target: target, timeout: timeout)
+    }
+
+    /// Receives until EOF, or until the HTTP body reaches its Content-Length.
+    private func readHTTPResponse(_ stream: NCRelayStream, timeout: TimeInterval = 20) throws -> (head: String, body: Data) {
+        let exp = self.expectation(description: "http response")
+        let acc = LockedBox(Data())
+        let failure = LockedBox<Error?>(nil)
+        let once = NCCallOnce { exp.fulfill() }
+        let sep = Data("\r\n\r\n".utf8)
+        func complete(_ d: Data) -> Bool {
+            guard let r = d.range(of: sep) else { return false }
+            let head = String(decoding: d[..<r.lowerBound], as: UTF8.self).lowercased()
+            guard let line = head.split(separator: "\r\n").first(where: { $0.hasPrefix("content-length:") }),
+                  let n = Int(line.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) else {
+                return false
+            }
+            return d.count - r.upperBound >= n
+        }
+        func pump() {
+            stream.receive { chunk, err in
+                if let err { failure.set(err); once.call(); return }
+                guard let chunk else { once.call(); return }
+                var d = acc.get()
+                d.append(chunk)
+                acc.set(d)
+                if complete(d) { once.call() } else { pump() }
+            }
+        }
+        pump()
+        self.wait(for: [exp], timeout: timeout)
+        if let err = failure.get() { throw err }
+        let d = acc.get()
+        guard let r = d.range(of: sep) else {
+            throw NSError(domain: "NativeCoreLoopback", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "no HTTP head in \(d.count) bytes"])
+        }
+        return (String(decoding: d[..<r.lowerBound], as: UTF8.self), Data(d[r.upperBound...]))
+    }
+
+    func testSudokuServerPortsReachable() {
+        for port in 18090...18095 {
+            let ok = LockedBox(false)
+            let exp = self.expectation(description: "sudoku port \(port)")
+            let once = NCCallOnce { exp.fulfill() }
+            let conn = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: UInt16(port))!, using: .tcp)
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    ok.set(true)
+                    once.call()
+                case .failed, .cancelled:
+                    once.call()
+                default: break
+                }
+            }
+            conn.start(queue: DispatchQueue(label: "nc.loopback.sudoku.ports"))
+            self.wait(for: [exp], timeout: 5)
+            conn.stateUpdateHandler = nil
+            conn.cancel()
+            XCTAssertTrue(ok.get(), "official sudoku server / http origin 127.0.0.1:\(port) not accepting")
+        }
+    }
+
+    /// prefer_entropy, chacha20-poly1305, legacy HTTP mask, pure downlink, server pads 10–30 %.
+    func testSudokuTCPEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku", 18090, ["aead-method": .string("chacha20-poly1305"),
+                                                        "table-type": .string("prefer_entropy")])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sudokuPayload)
+        try self.assertEcho(stream, payload: Data("second round".utf8))
+    }
+
+    /// 1 MiB, byte-exact, streamed in 64 KiB chunks with back-pressure (many records, TCP reads, server padding).
+    private func sudokuBigEcho(_ stream: NCRelayStream, bytes: Int, timeout: TimeInterval) throws {
+        var raw = [UInt8](repeating: 0, count: bytes)
+        for i in 0..<bytes { raw[i] = UInt8(truncatingIfNeeded: (i &* 131) ^ (i >> 9)) }
+        let payload = Data(raw)
+        let exp = self.expectation(description: "sudoku big echo")
+        let state = EchoState(want: payload.count) { exp.fulfill() }
+        state.pump(stream)
+        let chunk = 64 * 1024
+        func sendFrom(_ off: Int) {
+            guard off < payload.count else { return }
+            let end = min(off + chunk, payload.count)
+            stream.send(payload.subdata(in: off..<end)) { sendFrom(end) }
+        }
+        sendFrom(0)
+        self.wait(for: [exp], timeout: timeout)
+        let (data, err) = state.result()
+        if let err { throw err }
+        XCTAssertEqual(data.count, payload.count, "echoed length")
+        XCTAssertTrue(data == payload, "big echo bytes differ")
+    }
+
+    func testSudokuTCPEcho1MiB() throws {
+        let p = Self.sudokuProxy("loop-sudoku-1m", 18090, ["aead-method": .string("chacha20-poly1305")])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.sudokuBigEcho(stream, bytes: 1 << 20, timeout: 90)
+    }
+
+    /// Rekey path: the client rotates its send epoch every 128 KiB (official KeyUpdateAfterBytes semantics, lowered
+    /// for the test), so the official server must derive each new epoch key and keep decrypting — 8 key updates.
+    func testSudokuClientEpochRekeyEcho() throws {
+        let saved = NCSudokuRecordLayer.keyUpdateAfterBytes
+        NCSudokuRecordLayer.keyUpdateAfterBytes = 128 * 1024
+        defer { NCSudokuRecordLayer.keyUpdateAfterBytes = saved }
+        let p = Self.sudokuProxy("loop-sudoku-rekey", 18091, [
+            "aead-method": .string("aes-128-gcm"), "table-type": .string("prefer_ascii"),
+            "enable-pure-downlink": .bool(false), "http-mask": .bool(false),
+        ])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.sudokuBigEcho(stream, bytes: 1 << 20, timeout: 90)
+    }
+
+    /// Rekey path with the official constants on both ends: 33 MiB each way crosses KeyUpdateAfterBytes (32 MiB), so
+    /// the client rotates its send epoch and the official server rotates its own — the client must follow the
+    /// server's new epoch key mid-stream, byte-exact.
+    func testSudokuBidirectionalEpochRekey33MiB() throws {
+        XCTAssertEqual(NCSudokuRecordLayer.keyUpdateAfterBytes, 32 << 20, "official KeyUpdateAfterBytes")
+        let p = Self.sudokuProxy("loop-sudoku-rekey33", 18090, ["aead-method": .string("chacha20-poly1305")])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.sudokuBigEcho(stream, bytes: 33 << 20, timeout: 300)
+    }
+
+    /// A real HTTP/1 fetch through the official server: GET a 48 KiB page from the :18095 origin.
+    func testSudokuHTTPFetch() throws {
+        let p = Self.sudokuProxy("loop-sudoku-http", 18090, [:])
+        let stream = try self.sudokuDial(p, target: Self.sudokuHTTPOrigin)
+        defer { stream.cancel() }
+        stream.send(Data("GET /sudoku-fetch.txt HTTP/1.1\r\nHost: 127.0.0.1:18095\r\nUser-Agent: tern-loopback\r\nAccept: */*\r\nConnection: close\r\n\r\n".utf8))
+        let (head, body) = try self.readHTTPResponse(stream)
+        XCTAssertTrue(head.hasPrefix("HTTP/1.0 200") || head.hasPrefix("HTTP/1.1 200"), head)
+        XCTAssertEqual(body.count, Self.sudokuPage.count)
+        XCTAssertEqual(body, Self.sudokuPage, "page bytes differ")
+    }
+
+    /// prefer_ascii, aes-128-gcm, no HTTP mask, packed (bandwidth-optimised) downlink.
+    func testSudokuASCIIPackedDownlinkEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-ascii", 18091, [
+            "aead-method": .string("aes-128-gcm"), "table-type": .string("prefer_ascii"),
+            "enable-pure-downlink": .bool(false), "http-mask": .bool(false),
+        ])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sudokuPayload)
+    }
+
+    /// up_ascii_down_entropy with a custom x/p/v layout, aead none (raw passthrough), official nested httpmask block.
+    func testSudokuDirectionalCustomNoneEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-dir", 18092, [
+            "aead-method": .string("none"), "table-type": .string("up_ascii_down_entropy"),
+            "custom-table": .string("xpxvvpvv"), "httpmask": .object(["disable": .bool(true)]),
+        ])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sudokuPayload)
+    }
+
+    /// custom-tables rotation: each dial picks one table and announces it with the ClientHello table hint.
+    func testSudokuCustomTablesRotationEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-rot", 18093, [
+            "custom-tables": .array([.string("xpxvvpvv"), .string("vxpvxvvp")]), "enable-pure-downlink": .bool(false),
+        ])
+        for _ in 0..<4 {
+            let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+            try self.assertEcho(stream, payload: Data(Self.sudokuPayload.prefix(8192)))
+            stream.cancel()
+        }
+    }
+
+    /// A key the server does not hold is rejected by the server itself: it cannot open the ClientHello, logs
+    /// "Suspicious connection" after its 5 s handshake window and hands the socket to the fallback — the echo
+    /// backend reflects our own records (they fail authentication), the closed fallback drops the socket.
+    /// Either way the client reports that verdict well inside its own 10 s deadline, never a timeout.
+    func testSudokuWrongKeyRejected() throws {
+        var bad = Self.sudokuKey
+        bad.removeLast(2)
+        bad += "0c" // still a canonical split key, different master public key
+        for (port, expected) in [(18090, "无法认证"), (18094, "关闭了连接")] {
+            let p = Self.sudokuProxy("loop-sudoku-badkey-\(port)", port, ["key": .string(bad)])
+            let t0 = Date()
+            XCTAssertThrowsError(try self.sudokuDial(p, target: Self.sudokuEcho, timeout: 15)) { err in
+                let msg = err.localizedDescription
+                XCTAssertTrue(msg.contains(expected), "port \(port): \(msg)")
+                XCTAssertFalse(msg.lowercased().contains("timeout") || msg.contains("超时"), "port \(port): \(msg)")
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(t0), 9.5, "port \(port): rejection should come from the server")
+        }
+    }
+
+    /// The master public key itself as the client key (no private key to normalise) also interoperates.
+    func testSudokuPublicKeyAsClientKeyEcho() throws {
+        let p = Self.sudokuProxy("loop-sudoku-pub", 18090, [
+            "key": .string("3388f6b59b225f4e41cd14f445b73b6568711ce536832217b15649253612451d"),
+        ])
+        let stream = try self.sudokuDial(p, target: Self.sudokuEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Data(Self.sudokuPayload.prefix(4096)))
     }
 }

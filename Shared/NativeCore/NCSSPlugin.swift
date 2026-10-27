@@ -5,17 +5,17 @@ import Foundation
 /// Wire formats ported from Clash.Meta v1.19.33 — the old engine the bridge
 /// exposes, i.e. the behavior a real server interops with — which itself
 /// ports the reference implementations:
-/// - adapter/outbound/shadowsocks.go  plugin-opts semantics and defaults
+/// - adapter/outbound/shadowsocks  plugin-opts semantics and defaults
 ///   (obfs: mode/host, host defaults to "bing.com"; v2ray-plugin:
 ///   mode/host/path/tls/mux/headers/skip-cert-verify, mux defaults to true)
-/// - transport/simple-obfs/http.go    http mode (first packet = fake HTTP
+/// - transport/simple-obfs/http    http mode (first packet = fake HTTP
 ///   GET with WebSocket upgrade headers, first SS bytes as the body)
-/// - transport/simple-obfs/tls.go     tls mode (fake TLS ClientHello, first
+/// - transport/simple-obfs/tls     tls mode (fake TLS ClientHello, first
 ///   SS bytes in the session-ticket extension, later data in TLS
 ///   application-data records)
-/// - transport/v2ray-plugin/websocket.go + mux.go   websocket transport and
+/// - transport/v2ray-plugin/websocket + mux   websocket transport and
 ///   the v2ray mux framing over it
-/// - common/convert/converter.go      SIP002 `plugin=` link parsing
+/// - common/convert/converter      SIP002 `plugin=` link parsing
 /// Reference C sources: shadowsocks/simple-obfs (obfs_http.c / obfs_tls.c)
 /// and shadowsocks/v2ray-plugin.
 ///
@@ -46,7 +46,7 @@ enum NCSSPlugin {
         let skipCertVerify: Bool
         let headers: [String: String]
 
-        /// Clash.Meta adapter/outbound/shadowsocks.go NewShadowSocks: the plugin
+        /// Clash.Meta adapter/outbound/shadowsocks NewShadowSocks: the plugin
         /// name must be exact, and the opts shape decides support. nil =
         /// unsupported shape (the caller turns that into an explicit
         /// unsupported reason — never a silent passthrough).
@@ -101,7 +101,7 @@ enum NCSSPlugin {
     /// First client packet: a fake WebSocket-upgrade GET whose body is the
     /// first SS bytes. Header order mirrors the old core's http.Request.Write as used
     /// by Clash.Meta's HTTPObfs.Write (Host, User-Agent, Content-Length, then the
-    /// remaining headers sorted). The server (Clash.Meta http_server.go / the C
+    /// remaining headers sorted). The server (Clash.Meta http_server / the C
     /// simple-obfs server) parses it as a normal HTTP request and reads
     /// exactly Content-Length bytes as the first payload.
     static func obfsHTTPRequest(host: String, port: String, payload: Data) -> Data {
@@ -148,7 +148,7 @@ enum NCSSPlugin {
     // MARK: simple-obfs tls mode
 
     /// First client packet: a fake TLS 1.2 ClientHello. Layout per Clash.Meta
-    /// transport/simple-obfs/tls.go makeClientHelloMsg (itself a port of
+    /// transport/simple-obfs/tls makeClientHelloMsg (itself a port of
     /// simple-obfs obfs_tls.c): fixed random/session-id/cipher-suite blocks,
     /// the first SS bytes as the session-ticket extension (0x0023) body,
     /// the camouflage host as SNI (0x0000), then the fixed extension set
@@ -286,7 +286,7 @@ enum NCSSPlugin {
     // MARK: v2ray-plugin mux framing
 
     /// v2ray-plugin mux framing over the websocket — Clash.Meta
-    /// transport/v2ray-plugin/mux.go ("an mux-compatible client for
+    /// transport/v2ray-plugin/mux ("an mux-compatible client for
     /// v2ray-plugin"): every frame is [metalen u16][id u16][status][option],
     /// data frames add [len u16][payload]. The session create frame carries
     /// a dummy destination (Clash.Meta uses 127.0.0.1:0) — the real target

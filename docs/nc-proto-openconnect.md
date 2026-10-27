@@ -315,7 +315,7 @@ CSTP (TCP) 与 DTLS (UDP) 的容灾协作策略：
    - 分享链接：`openconnect://[user[:pass]@]host[:port]?group=...&cookie=...#Name` 及 `anyconnect://` 均完整实现。
    - 配置文件：Surge/Shadowrocket `[Proxy]` 中形如 `Name = openconnect, host, port, username=..., password=...` 完整解析。
 2. **Clash.Meta YAML (无官方协议，实现通用社区方言)**：
-   - 经对标 `MetaCubeX/mihomo` 源码 `constant/adapters.go`，官方 mihomo 并无 `openconnect` 或 `anyconnect` outbound 类型。
+   - 经对标 `MetaCubeX/mihomo` 源码 `constant/adapters`，官方 mihomo 并无 `openconnect` 或 `anyconnect` outbound 类型。
    - 解析层按照通用规范支持 `type: openconnect` 及 `type: anyconnect` 的 YAML 节点导入并转换为 canonical 节点，兼容 sing-box 风格导出。
 3. **Quantumult X (无公开格式，显式拒绝并报警)**：
    - 经对标 `crossutility/Quantumult-X/sample.conf`，QuanX 官方从未支持 OpenConnect / AnyConnect。

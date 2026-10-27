@@ -5,8 +5,8 @@ import Security
 
 // feat/nc-brook: Brook outbound (txthinking/brook), pure Swift.
 //
-// Wire format, ported from brook's own sources (streamclient.go, packetclient.go, simplestreamclient.go,
-// simplepacketclient.go, websocket.go, brooklink.go, quic.go — protocol/*.md):
+// Wire format, ported from brook's own sources (streamclient, packetclient, simplestreamclient,
+// simplepacketclient, websocket, brooklink, quic — protocol/*.md):
 //
 //  * KEY = HKDF-SHA256(IKM = password, salt = 12-byte nonce, info = "brook"), 32 bytes, AES-256-GCM.
 //    The two infos can be overridden per link (clientHKDFInfo / serverHKDFInfo).
@@ -900,7 +900,7 @@ extension NCConnector {
 
 // MARK: - brook:// links
 
-/// brook link (brook link.go / brooklink.go): `brook://KIND?KIND=<server>&password=…&name=…[&…]` with the
+/// brook link (brook link / brooklink): `brook://KIND?KIND=<server>&password=…&name=…[&…]` with the
 /// query in the old core url.Values form (sorted keys, QueryEscape, `+` for space). KIND = server | wsserver | wssserver |
 /// quicserver | socks5; the server is `host:port`, `ws://host:port/path`, `wss://host:port/path`,
 /// `quic://host:port`, `socks5://host:port`.

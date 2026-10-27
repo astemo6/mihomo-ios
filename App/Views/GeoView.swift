@@ -286,7 +286,7 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
 
 /// Loon gap (GeoIP / ASN 每 N 天自动更新): the app re-downloads installed databases older than the interval, on
 /// foreground and background refresh (ScheduledUpdates.run), with the same download / install path as 更新. The
-/// tunnel's core keeps geo-auto-update off (bridge.go), so it never spends its memory on downloads.
+/// tunnel's core keeps geo-auto-update off, so it never spends its memory on downloads.
 @MainActor
 enum GeoAutoUpdate {
     static let choices = [0, 1, 3, 7, 30]

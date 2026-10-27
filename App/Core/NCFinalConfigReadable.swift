@@ -1,13 +1,13 @@
 import Foundation
 
 /// B1 (native-only): 「导出最终配置（含覆写）」 — Swift port of the retired bridge (+ the
-/// portable-export clean-up of exportconfig.go portableProviders / stripAuthHeader / inlineFileProvider and
+/// portable-export clean-up of exportconfig portableProviders / stripAuthHeader / inlineFileProvider and
 /// stripAppInternalsNode). The runtime config (NCRuntimeBuilder.build, as a connect builds it) rendered for
 /// people: block YAML in Clash.Meta's conventional order — general keys, cache / GEO data, sniffer, tun, dns, hosts,
 /// proxies, proxy-providers, proxy-groups, rule-providers, rules, then everything else alphabetically — with a
 /// short header and one Chinese comment per section; known objects use Clash.Meta's documented key order.
 ///
-/// DIVERGENCE: the old core walked a yaml.v3 node tree, so keys outside the documented lists kept the runtime order
+/// DIVERGENCE: the old core walked a the reference YAML library node tree, so keys outside the documented lists kept the runtime order
 /// (notably dns.nameserver-policy). NCJSONValue objects are unordered, so those keys are written alphabetically
 /// (the tunnel's nativecore-runtime.json sorts that map too, see NCRuntimeDNS). Quoting follows our own emitter
 /// (strings that would read as another type are double-quoted; YAML 1.1 booleans y/n/yes/no/on/off quoted, as the old core).
@@ -235,7 +235,7 @@ enum NCFinalConfigReadable {
             }
         default:
             if case .string(let s) = v, s.contains("\n") {
-                // literal block for multi-line strings, as yaml.v3 picks
+                // literal block for multi-line strings, as the reference YAML library picks
                 out += " |" + (s.hasSuffix("\n") ? "" : "-") + "\n"
                 for l in s.split(separator: "\n", omittingEmptySubsequences: false).dropLast(s.hasSuffix("\n") ? 1 : 0) {
                     out += (l.isEmpty ? "" : pad + l) + "\n"

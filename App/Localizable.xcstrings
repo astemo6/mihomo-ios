@@ -105966,6 +105966,215 @@
           }
         }
       }
+    },
+    "无法读取策略组": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取策略組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load policy groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシーグループを読み込めません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책 그룹을 불러올 수 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить группы политик"
+          }
+        }
+      }
+    },
+    "本机隧道": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機隧道"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Device Tunnel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルデバイストンネル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 기기 터널"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальный туннель устройства"
+          }
+        }
+      }
+    },
+    "本机隧道（兼容 LocalDevVPN）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機隧道（相容 LocalDevVPN）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Device Tunnel (LocalDevVPN compatible)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルデバイストンネル（LocalDevVPN 互換）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 기기 터널(LocalDevVPN 호환)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальный туннель (совместим с LocalDevVPN)"
+          }
+        }
+      }
+    },
+    "隧道地址": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道位址"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel Address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルアドレス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널 주소"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Адрес туннеля"
+          }
+        }
+      }
+    },
+    "隧道地址无效，修改前不会应用。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道位址無效，修改前不會套用。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel address is invalid; changes are not applied until it is fixed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルアドレスが無効です。修正するまで変更は適用されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널 주소가 올바르지 않습니다. 수정할 때까지 변경 사항이 적용되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный адрес туннеля; изменения не применятся, пока он не исправлен."
+          }
+        }
+      }
+    },
+    "开启后，Tern 的 VPN 同时提供 LocalDevVPN 同款本机隧道：发往隧道地址（默认 10.7.0.1）的连接会回到本机，wloc 标准版、StikDebug、SideStore 等侧载工具无需再开 LocalDevVPN。地址默认与 LocalDevVPN 一致，与其他工具冲突时可修改（工具里也要改成同一地址）。这部分流量不经过规则，也不计入连接和流量统计。修改后重新连接生效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，Tern 的 VPN 同時提供 LocalDevVPN 同款本機隧道：發往隧道位址（預設 10.7.0.1）的連線會回到本機，wloc 標準版、StikDebug、SideStore 等側載工具無需再開 LocalDevVPN。位址預設與 LocalDevVPN 一致，與其他工具衝突時可修改（工具裡也要改成同一位址）。這部分流量不經過規則，也不計入連線和流量統計。修改後重新連線生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, Tern's VPN also provides a LocalDevVPN-style local device tunnel: connections to the tunnel address (default 10.7.0.1) loop back to this device, so sideload tools such as wloc (standard), StikDebug and SideStore work without LocalDevVPN. The address matches LocalDevVPN by default; change it only if it conflicts (and set the same address in the tool). This traffic skips the rules and is not counted in connections or traffic stats. Takes effect after reconnecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、Tern の VPN が LocalDevVPN と同じローカルデバイストンネルも提供します。トンネルアドレス（既定 10.7.0.1）への接続はこのデバイス自身に戻るため、wloc（標準版）、StikDebug、SideStore などのサイドロードツールを LocalDevVPN なしで使えます。アドレスは既定で LocalDevVPN と同じです。競合する場合のみ変更してください（ツール側も同じアドレスに）。この通信はルールを通らず、接続や通信量の統計にも含まれません。再接続後に有効になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 Tern의 VPN이 LocalDevVPN과 같은 로컬 기기 터널도 제공합니다. 터널 주소(기본값 10.7.0.1)로의 연결은 이 기기로 되돌아오므로 wloc(표준판), StikDebug, SideStore 같은 사이드로드 도구를 LocalDevVPN 없이 사용할 수 있습니다. 주소는 기본적으로 LocalDevVPN과 같으며, 충돌할 때만 변경하세요(도구에서도 같은 주소로 설정). 이 트래픽은 규칙을 거치지 않고 연결 및 트래픽 통계에도 포함되지 않습니다. 다시 연결하면 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда включено, VPN Tern также предоставляет локальный туннель в стиле LocalDevVPN: подключения к адресу туннеля (по умолчанию 10.7.0.1) возвращаются на это устройство, поэтому инструменты сайдлоада — wloc (стандартная версия), StikDebug, SideStore — работают без LocalDevVPN. По умолчанию адрес совпадает с LocalDevVPN; меняйте его только при конфликте (и укажите тот же адрес в инструменте). Этот трафик не проходит через правила и не учитывается в статистике подключений и трафика. Вступает в силу после переподключения."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

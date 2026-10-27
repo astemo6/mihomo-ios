@@ -25,8 +25,7 @@ extension TernUITests {
         XCTAssertTrue(scrollTo(preview), "preview row")
         XCTAssertEqual(preview.label, "Example Net · AS64500 · 203.0.113.45", "preview = default line")
 
-        toggleSwitch(isp)
-        usleep(400_000)
+        flip(isp, to: "0")
         XCTAssertEqual(switchValue(isp), "0", "运营商 off")
         XCTAssertEqual(app.element(id: "geo.detail.preview").label, "AS64500 · 203.0.113.45", "preview follows the toggle")
         snap("exit-subtitle-settings")
@@ -42,11 +41,23 @@ extension TernUITests {
         openMore("出口信息查询")
         let isp2 = app.switches.matching(identifier: "geo.detail.isp").firstMatch
         XCTAssertTrue(scrollTo(isp2))
-        toggleSwitch(isp2)
-        usleep(400_000)
+        flip(isp2, to: "1")
         back()
         tab(0)
         XCTAssertTrue(app.element(labelContains: "Example Net · AS64500 · 203.0.113.45").waitForExistence(timeout: 6), "default line again")
         assertAlive("exit subtitle")
+    }
+
+    /// fix/nc-combine-2: the coordinate tap on the switch occasionally lands while the Form is still settling after
+    /// scrollTo and is dropped (gate 3b en, combine-2 zh full; the same sha passed alone and in en). The view code
+    /// is unchanged since 8a590e4, so tap once more only when the value did not change — the assertions after it
+    /// still check the stored value, the preview and Home.
+    private func flip(_ sw: XCUIElement, to value: String) {
+        toggleSwitch(sw)
+        usleep(400_000)
+        if switchValue(sw) != value {
+            usleep(600_000)
+            if switchValue(sw) != value { toggleSwitch(sw); usleep(600_000) }
+        }
     }
 }

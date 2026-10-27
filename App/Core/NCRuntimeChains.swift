@@ -6,7 +6,7 @@ import Foundation
 /// regexp2; group filters compile case-sensitively unless the
 /// pattern carries (?i), as in the core.
 
-// MARK: - Member pool (groupmembers.go)
+// MARK: - Member pool
 
 struct NCMemberPool {
     var proxies: [String] = []                 // profile proxies in YAML order
@@ -141,7 +141,7 @@ struct NCMemberPool {
     }
 }
 
-// MARK: - Chain graph (chain.go)
+// MARK: - Chain graph
 
 /// Internal (not private) since nc-dego-rest: NCChainCandidates (bridge ChainCandidates) walks the same graph.
 final class NCChainGraph {
@@ -369,7 +369,7 @@ extension NCRuntimeSteps {
     }
 }
 
-// MARK: - Proxy chains (proxychains.go)
+// MARK: - Proxy chains
 
 private final class NCChainBuild {
     var proxies: [String: [String: NCJSONValue]] = [:]   // profile's own inline proxies

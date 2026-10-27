@@ -1,5 +1,5 @@
 // App/Core/NCRewriteSnapshot.swift
-// E-B1b stage 2: Port of rewritesnap.go + bodysnap.go + exportsnap.go + config.go (:280, :436) + resources.go to Swift.
+// E-B1b stage 2: Port of rewritesnap + bodysnap + exportsnap + config (:280, :436) + resources to Swift.
 //
 // Sources:
 //   - the retired bridge (RewriteSnapshot, SnapRule, SnapLocal, SnapFile, SnapHeaderOp, SnapHost, snapRule, snapMapLocal, snapFile)
@@ -22,7 +22,7 @@
 //      - Swift behavior: NCEngineRule carries only pattern strings. All patterns are compiled and translated on the
 //        fly via NCRewriteICU.snapRegex and NCRewriteICU.snapTemplate. The re2 flag is auto-detected via isCompileURLRe
 //        for URL patterns, and false for header gate/ops. The replace flag is true for redirects and header ops,
-//        false for header gates and non-redirect URL matchers, exactly matching parse.go compilation paths.
+//        false for header gates and non-redirect URL matchers, exactly matching parse compilation paths.
 //      - Impact: Produces identical regex portability verdicts and ICU translations without holding native regexp handles.
 //
 //   2. Engine Snapshot Cache Omission:
@@ -31,7 +31,7 @@
 //      - Impact: No runtime cache overhead in the App process; generation is fixed to 1 as required by native runtime prep.
 //
 //   3. RE2 AST & ICU Translation for Body Rewrites:
-//      - the old core behavior: icuFromRE2 uses the old core standard library regexp/syntax.Parse(p, syntax.Perl) to produce an AST,
+//      - the old core behavior: icuFromRE2 uses an RE2 syntax parse with Perl flags to produce an AST,
 //        which is re-emitted into an explicit ICU pattern with explicit \x{...} runes, sorted character classes,
 //        simple-fold orbit classes, and anchored lookarounds.
 //      - Swift behavior: Swift implements a dedicated RE2/Perl syntax parser and AST generator matching the old core's syntax.Parse
@@ -45,7 +45,7 @@
 //        pass through. The legacy step-list parser below (snapJQ) is kept only for old snapshots / fixtures.
 //
 //   5. Remote Map Local & Script Resource Management (NCResources):
-//      - the old core behavior: Resources downloads remote scripts/resources using the old core net/http through the core client,
+//      - the old core behavior: Resources downloads remote scripts/resources over HTTP through the core client,
 //        caching files in <home>/engine/cache/<sha1>.
 //      - Swift behavior: NCResources performs synchronous downloads using URLSession during the detached background
 //        preparation pass, writing atomically to <home>/engine/cache/<sha1>. If download fails and no cached copy
@@ -512,8 +512,10 @@ final class NCResources {
 
     /// fix/nc-open-6-10 #8: download every distinct remote resource in `paths` that has no cached copy yet, up to
     /// `maxConcurrent` at once (was: one at a time, inside the sequential manifest / snapshot build). Returns once
-    /// all finished or `deadline` passed (stragglers keep running and land in the cache for the next prepare; the
-    /// build then reads whatever is cached and fetches nothing it already saw fail).
+    /// all finished or `deadline` passed. selfreview-g2 (F15): at the deadline the downloads still running are
+    /// cancelled and no new one starts (they used to keep a worker blocked past it); a cancelled download is not
+    /// recorded as a failure, so the next prepare tries it again. The build then reads whatever is cached and fetches
+    /// nothing it already saw fail.
     func prefetch(_ paths: [String], maxConcurrent: Int = 6, deadline: TimeInterval = 15) {
         var seen = Set<String>()
         var todo: [String] = []
@@ -523,18 +525,30 @@ final class NCResources {
             if !known { todo.append(p) }
         }
         guard !todo.isEmpty else { return }
+        // selfreview-g2: a fixed pool of min(maxConcurrent, todo) workers pulling from a shared index, run at the
+        // caller's QoS. Was one block per URL parked on a semaphore — every waiting block held a GCD thread, and the
+        // workers ran on an unspecified-QoS queue while the (user-initiated) prepare blocked on them: a priority
+        // inversion the Thread Performance Checker reports, and up to N idle threads on a large module set.
+        let end = DispatchTime.now() + deadline
         let group = DispatchGroup()
-        let gate = DispatchSemaphore(value: max(1, maxConcurrent))
-        let q = DispatchQueue(label: "nc.prep.prefetch", attributes: .concurrent)
-        for u in todo {
+        let qos = DispatchQoS.QoSClass(rawValue: qos_class_self()) ?? .utility
+        let q = DispatchQueue.global(qos: qos == .unspecified ? .utility : qos)
+        final class Cursor { let lock = NSLock(); var index = 0 }
+        let cur = Cursor()
+        for _ in 0..<min(max(1, maxConcurrent), todo.count) {
             group.enter()
             q.async {
-                gate.wait()
-                defer { gate.signal(); group.leave() }
-                _ = try? self.fetch(u)
+                defer { group.leave() }
+                while true {
+                    cur.lock.lock()
+                    guard cur.index < todo.count, DispatchTime.now() < end else { cur.lock.unlock(); return }
+                    let u = todo[cur.index]; cur.index += 1
+                    cur.lock.unlock()
+                    _ = try? self.fetch(u, deadline: end)
+                }
             }
         }
-        _ = group.wait(timeout: .now() + deadline)
+        _ = group.wait(timeout: end + .milliseconds(200)) // workers return right after the deadline cancels them
     }
 
     static func isRemote(_ p: String) -> Bool {
@@ -609,7 +623,8 @@ final class NCResources {
         }
     }
 
-    func fetch(_ urlString: String) throws -> Data {
+    /// `deadline`: the download is cancelled when it passes (thrown as a cancellation, not recorded as a failure).
+    func fetch(_ urlString: String, deadline: DispatchTime? = nil) throws -> Data {
         guard let url = URL(string: urlString) else {
             throw NSError(domain: "NCResources", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL: \(urlString)"])
         }
@@ -623,7 +638,13 @@ final class NCResources {
             lock.lock(); failed[urlString] = e; skippedRecentFailure += 1; lock.unlock()
             throw e
         }
-        var req = URLRequest(url: url, timeoutInterval: fetchTimeout)
+        var timeout = fetchTimeout
+        if let deadline {
+            let left = Double(Int64(deadline.uptimeNanoseconds) - Int64(DispatchTime.now().uptimeNanoseconds)) / 1e9
+            guard left > 0 else { throw CancellationError() }
+            timeout = min(timeout, left)
+        }
+        var req = URLRequest(url: url, timeoutInterval: timeout)
         req.setValue("Surge iOS/3000 Tern", forHTTPHeaderField: "User-Agent")
         var resultData: Data?
         var resultError: Error?
@@ -643,7 +664,14 @@ final class NCResources {
             sem.signal()
         }
         task.resume()
-        sem.wait()
+        if let deadline {
+            if sem.wait(timeout: deadline) == .timedOut {
+                task.cancel() // the completion still runs (cancelled); nothing below reads its results
+                throw CancellationError()
+            }
+        } else {
+            sem.wait()
+        }
 
         if let data = resultData {
             let cp = cachePath(urlString)
@@ -1184,7 +1212,7 @@ private func compileFastRe(_ p: String) -> Bool {
     return true
 }
 
-// MARK: - RE2 AST and ICU Generator (bodysnap.go icuFromRE2)
+// MARK: - RE2 AST and ICU Generator (bodysnap icuFromRE2)
 
 private indirect enum RE2AST {
     case noMatch
@@ -2032,7 +2060,7 @@ private func parseJSONValueAndEncode(_ s: String) -> (String?, String?) {
     return (nil, "json value")
 }
 
-// MARK: - JQ Subset Parser (bodysnap.go snapJQ)
+// MARK: - JQ Subset Parser (bodysnap snapJQ)
 
 private func snapJQ(_ expr: String) -> ([NCSnapJQStep], String) {
     let stepsRaw = splitTopLevel(expr, separator: "|")
@@ -2398,7 +2426,7 @@ private func parseLoonJSONLine(_ line: String) -> [(op: String, path: String, va
     return out
 }
 
-// MARK: - Rule & Snapshot Construction (rewritesnap.go)
+// MARK: - Rule & Snapshot Construction
 
 private func isCompileURLRe(_ p: String) -> Bool {
     if p.isEmpty || p.contains("-[") {

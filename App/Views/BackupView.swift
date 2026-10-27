@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 struct BackupFile: Codable {
     var app = BackupFile.appName
-    /// Envelope name; backups of the pre-rename app are read through LegacyImport.
+    /// Envelope name; only Tern backups are accepted.
     static let appName = "tern"
     var version = 1
     var created: Date = Date()
@@ -106,7 +106,7 @@ enum BackupManager {
     static func purgeTempExports() {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
-        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where (["Tern-备份-"] + LegacyImport.tempExportPrefixes).contains(where: { n.hasPrefix($0) }) && n.hasSuffix(".json") {
+        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where n.hasPrefix("Tern-备份-") && n.hasSuffix(".json") {
             try? fm.removeItem(at: tmp.appendingPathComponent(n))
         }
     }
@@ -150,13 +150,13 @@ enum BackupManager {
         do { b = try dec.decode(BackupFile.self, from: data) } catch {
             throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")])
         }
-        guard LegacyImport.isOurBackupApp(b.app, current: BackupFile.appName) else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")]) }
+        guard b.app == BackupFile.appName else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")]) }
         let allowed = items(includeCA: true) + fullBackupOnlyItems
         // v0.19.1: decode every entry first. A damaged entry (bad base64, e.g. a truncated download) stops the
         // restore before anything is written, instead of leaving a half-restored mix of old and new files.
         var decoded: [(String, Data)] = []
         for (stored, b64) in b.files {
-            let rel = LegacyImport.mapPath(stored) // backups of the pre-rename app use the old storage dir
+            let rel = stored
             guard !rel.contains(".."), allowed.contains(where: { rel == $0 || rel.hasPrefix($0 + "/") }) else { continue }
             guard let d = Data(base64Encoded: b64) else {
                 throw NSError(domain: "Backup", code: 2, userInfo: [NSLocalizedDescriptionKey: String(localized: "备份文件已损坏：\(rel)")])

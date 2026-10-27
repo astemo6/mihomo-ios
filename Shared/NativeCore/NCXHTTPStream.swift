@@ -2,7 +2,7 @@ import Foundation
 
 // XHTTP (splithttp) wire side (feat/nc-xhttp): one HTTP/2 connection per dial — the TLS / REALITY / plain
 // stream the connector already opened — carrying the mode's requests as h2 streams, like Clash.Meta's per-dial
-// http.Transport (transport/xhttp/client.go, no reuse-settings): stream-one = one POST whose response is the
+// http.Transport (transport/xhttp/client, no reuse-settings): stream-one = one POST whose response is the
 // download; stream-up = a GET download + one streaming POST upload; packet-up = a GET download + sequential
 // POSTs of at most sc-max-each-post-bytes, spaced by sc-min-posts-interval-ms, each acknowledged before the next.
 

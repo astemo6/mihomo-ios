@@ -207,6 +207,10 @@ final class ProfileInspector: ObservableObject {
     /// load finishing last used to put the previous profile's groups and path back — 策略 then showed the old
     /// profile and offline selections were saved into the wrong profile. Only the newest load publishes.
     private var loadSeq = 0
+    /// selfreview-g2 (F12): bumped by select(). A load of the same profile that started before a select read the
+    /// file before (or while) the selection was saved; it never publishes, so it cannot put the old selection back.
+    /// The in-memory result already carries the new selection, and the next load reads it from disk.
+    private var selectGen = 0
 
     func load() async {
         loadSeq += 1
@@ -230,6 +234,7 @@ final class ProfileInspector: ObservableObject {
         let home = AppShared.homeURL.path
         let path = url.path
         let old = profilePath == path ? result : nil
+        let gen = selectGen
         // The comparison runs with the parse, off the main thread: an identical answer (the usual case on a tab
         // switch) publishes nothing, so the page in the middle of its transition is not rebuilt and the derived
         // member lists / node index / graph are kept.
@@ -238,6 +243,7 @@ final class ProfileInspector: ObservableObject {
             return (r, old.map { $0 == r } ?? false)
         }.value
         guard seq == loadSeq else { return }
+        if gen != selectGen && profilePath == path { return } // a select() ran meanwhile on this profile
         if !same { result = r }
         if profilePath != path { delays = [:] }
         if profilePath != path { profilePath = path }
@@ -252,6 +258,7 @@ final class ProfileInspector: ObservableObject {
         if let i = r.groups.firstIndex(where: { $0.name == group }) { r.groups[i].selected = node }
         r.selected[group] = node // v0.19.8: also the synthesized GLOBAL
         selectionOnlyChange = true
+        selectGen &+= 1
         result = r // one publish (was two)
     }
 

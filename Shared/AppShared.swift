@@ -305,6 +305,11 @@ struct CoreOverrides: Codable, Equatable {
     var directTestURL: String = ""
     /// 测速设置 → TCP 握手延迟: TCP connect time to TCP nodes' servers instead of the HTTP round trip.
     var tcpHandshakeDelay: Bool = false
+    /// 本机隧道 (LocalDevVPN compatible): while the VPN is on, packets to `localDeviceTunnelPeer` are reflected back
+    /// to the device (NCLocalDeviceTunnel) so wloc / StikDebug / SideStore reach its own services. Default off.
+    var localDeviceTunnel: Bool = false
+    /// The peer address those tools dial; empty or invalid = LocalDevVPN's default 10.7.0.1.
+    var localDeviceTunnelPeer: String = NCLocalDeviceTunnel.defaultPeer
 
     /// r7 (backlog B02): what this value looked like when it was loaded, shared by its copies. save() writes only the
     /// fields that differ from it on top of the current file (a 3-way merge under the cross-process lock), so the
@@ -413,6 +418,7 @@ struct CoreOverrides: Codable, Equatable {
         case lanAuth, lanLocalOnly, ipv6Mode, ipPreference
         case flushDNSOnNetworkChange, lanUsers
         case stunDropDirect, blockWebRTC, udpFallback, notDefaultRoute, hideVPNIcon, dnsHijack, directTestURL, tcpHandshakeDelay
+        case localDeviceTunnel, localDeviceTunnelPeer
     }
 
     init(from decoder: Decoder) throws {
@@ -472,6 +478,9 @@ struct CoreOverrides: Codable, Equatable {
         directTestURL = get(.directTestURL, d.directTestURL)
         if !directTestURL.isEmpty && !Self.isValidTestURL(directTestURL) { directTestURL = d.directTestURL }
         tcpHandshakeDelay = get(.tcpHandshakeDelay, d.tcpHandshakeDelay)
+        localDeviceTunnel = get(.localDeviceTunnel, d.localDeviceTunnel)
+        localDeviceTunnelPeer = get(.localDeviceTunnelPeer, d.localDeviceTunnelPeer).trimmingCharacters(in: .whitespaces)
+        if NCLocalDeviceTunnel(peer: localDeviceTunnelPeer) == nil { localDeviceTunnelPeer = d.localDeviceTunnelPeer }
         if !["dual", "ipv4-prefer", "ipv6-prefer", "ipv4", "ipv6"].contains(ipPreference) { ipPreference = d.ipPreference }
         if !["off", "nondirect", "always"].contains(blockQUIC) { blockQUIC = d.blockQUIC }
         if !Self.isValidTestURL(testURL) { testURL = d.testURL }

@@ -3,14 +3,14 @@ import Foundation
 /// E-B1 stage 3f: ports of the retired bridge's build half
 /// (applyCustomRules / convertCustom / addRemoteProvider /
 /// addRemoteModuleRules), the mitm core-rule resolution the module
-/// inject uses (ResolveCoreRules / RemoteCoreRules, config.go), and
+/// inject uses (ResolveCoreRules / RemoteCoreRules, config), and
 /// the retired bridge. The CustomRule model, parseQXRemote,
 /// providerNameFor and prettyProviderName come from the B4 graft
 /// (NCRuleValidator), already verified against the same old code.
 
 extension NCRuntimeSteps {
 
-    // MARK: - mitm policy index / core rules (config.go)
+    // MARK: - mitm policy index / core rules
 
     /// mitm policyIndex (no trimming, unlike the bridge variant).
     static func mitmPolicyIndex(_ parts: [String]) -> Int {
@@ -59,7 +59,7 @@ extension NCRuntimeSteps {
         return out
     }
 
-    // MARK: - Remote providers (customrules.go)
+    // MARK: - Remote providers
 
     /// bridge ruleConvertURL. Legacy: NativeCore has no /rules/convert endpoint, so new runtime configs no longer
     /// emit this (providers keep the source URL); kept for recognising old configs / tests.
@@ -189,7 +189,7 @@ extension NCRuntimeSteps {
         raw["rules"] = .array(pre.map { NCJSONValue.string($0) } + raw.list("rules"))
     }
 
-    // MARK: - FaceTime (facetime.go)
+    // MARK: - FaceTime
 
     static let faceTimeMatchers: [String] = [
         "DOMAIN-SUFFIX,push.apple.com",

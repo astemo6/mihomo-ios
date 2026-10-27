@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Differences from the old core workbench: $httpClient uses URLSession from the app (the old core dialed directly from the app
 /// too; redirects are always followed here, `policy` / `insecure` are ignored); $httpAPI gets no answer (no
-/// tunnel controller in the app process); the Egern ctx adapter (the old core's egernadapter.go) is not applied.
+/// tunnel controller in the app process); the Egern ctx adapter (the old core's egernadapter) is not applied.
 enum NCScriptDebug {
 
     struct HTTP {
@@ -67,7 +67,7 @@ enum NCScriptDebug {
         return state
     }
 
-    // MARK: helpers (debugrun.go)
+    // MARK: helpers
 
     static func normType(_ t: String) -> String {
         switch t.trimmingCharacters(in: .whitespaces).lowercased() {

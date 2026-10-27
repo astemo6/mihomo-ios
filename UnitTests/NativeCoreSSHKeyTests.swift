@@ -59,7 +59,7 @@ final class NativeCoreSSHKeyTests: XCTestCase {
     //: its
     // ssh-ed25519 host-key blob was asserted there, so the same blob must
     // come out of the Swift parser here.
-    private static let goVectorPEM = """
+    private static let refVectorPEM = """
     -----BEGIN OPENSSH PRIVATE KEY-----
     b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
     c2gtZWQyNTUxOQAAACA5MWYkja6EUd4XV7GtukXb7net/MS0uerC9fgjcNnM/gAA
@@ -69,7 +69,7 @@ final class NativeCoreSSHKeyTests: XCTestCase {
     LWlvcwECAwQFBg==
     -----END OPENSSH PRIVATE KEY-----
     """
-    private static let goVectorPub = "AAAAC3NzaC1lZDI1NTE5AAAAIDkxZiSNroRR3hdXsa26Rdvud638xLS56sL1+CNw2cz+"
+    private static let refVectorPub = "AAAAC3NzaC1lZDI1NTE5AAAAIDkxZiSNroRR3hdXsa26Rdvud638xLS56sL1+CNw2cz+"
 
     func testUnencryptedOpenSSHKey() {
         let (key, why) = NCSSHKey.parse(Self.plainPEM)
@@ -82,9 +82,9 @@ final class NativeCoreSSHKeyTests: XCTestCase {
     }
 
     func testGoVectorKeyParsesToSameBlob() {
-        let (key, why) = NCSSHKey.parse(Self.goVectorPEM)
+        let (key, why) = NCSSHKey.parse(Self.refVectorPEM)
         XCTAssertNil(why)
-        XCTAssertEqual(key?.publicBlob.base64EncodedString(), Self.goVectorPub)
+        XCTAssertEqual(key?.publicBlob.base64EncodedString(), Self.refVectorPub)
     }
 
     func testEncryptedAES256CTRKey() {

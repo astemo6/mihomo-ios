@@ -66,6 +66,13 @@ final class NCDataPlane {
     private var tracedIn = 0
     private var tracedOut = 0
     private var packetsOut = 0
+    // selfreview-g2: output batch (on `queue`), handed to writePackets once per queue turn.
+    private var outBatch: [Data] = []
+    private var outFamilies: [NSNumber] = []
+    private var outFlushScheduled = false
+    static let outBatchMax = 64
+    static let familyV4 = NSNumber(value: AF_INET)
+    static let familyV6 = NSNumber(value: AF_INET6)
     private var dnsServfail = 0
     // fix/nc-ctrl-bsd: per-connection outcome counters (+15 / +60 s statsLine) and the rate-limited
     // per-connection lines in NativeLogRing (→ /logs, 诊断包 core-log.txt). On `queue`; read racily for the log line.
@@ -212,7 +219,15 @@ final class NCDataPlane {
         self.engine = engine
         self.flow = flow
         self.mtu = mtu
+        self.localTunnel = NCLocalDeviceTunnelState.active
     }
+
+    /// 本机隧道 (LocalDevVPN compatible), copied once: packets to its peer are reflected before lwIP.
+    private let localTunnel: NCLocalDeviceTunnel?
+    /// Reflected packets waiting for the end-of-turn writePackets (kept separate from lwIP's output batch so they
+    /// are never counted or traced). Capacity is kept between turns; empty when the feature is off.
+    private var reflectBatch: [Data] = []
+    private var reflectFamilies: [NSNumber] = []
 
     func start() throws {
         stack.onOutput = { [weak self] packet in
@@ -222,8 +237,21 @@ final class NCDataPlane {
                 self.tracedOut += 1
                 StartupLog.write("pkt out #\(self.tracedOut): \(NCPacketTrace.summary(packet, checksums: true))", mirror: false)
             }
-            let family: NSNumber = (packet[0] >> 4) == 6 ? NSNumber(value: AF_INET6) : NSNumber(value: AF_INET)
-            flow.writePackets([packet], withProtocols: [family])
+            // selfreview-g2: packets lwIP emits during one queue turn (the ACKs for a readPackets batch, the segments
+            // one drain writes) go to NEPacketTunnelFlow in ONE writePackets call at the end of the turn, instead of
+            // one call (two one-element arrays + an NSNumber) per packet. Flushed early at outBatchMax.
+            self.outBatch.append(packet)
+            self.outFamilies.append((packet[0] >> 4) == 6 ? Self.familyV6 : Self.familyV4)
+            if self.outBatch.count >= Self.outBatchMax {
+                self.flushOutput(flow)
+            } else if !self.outFlushScheduled {
+                self.outFlushScheduled = true
+                self.queue.async { [weak self] in
+                    guard let self else { return }
+                    self.outFlushScheduled = false
+                    if let flow = self.flow { self.flushOutput(flow) } else { self.outBatch = []; self.outFamilies = [] }
+                }
+            }
         }
         stack.onTCPAccept = { [weak self] conn in self?.accept(conn) ?? false }
         stack.onTCPData = { [weak self] conn, data in self?.tcpData(conn, data) }
@@ -272,6 +300,14 @@ final class NCDataPlane {
                        leeway: fast ? .milliseconds(25) : .seconds(1))
     }
 
+    /// On `queue`: one writePackets call for everything batched since the last flush.
+    private func flushOutput(_ flow: NEPacketTunnelFlow) {
+        guard !outBatch.isEmpty else { return }
+        flow.writePackets(outBatch, withProtocols: outFamilies)
+        outBatch.removeAll(keepingCapacity: true)
+        outFamilies.removeAll(keepingCapacity: true)
+    }
+
     func stop() {
         queue.sync {
             timer?.cancel()
@@ -292,6 +328,7 @@ final class NCDataPlane {
             NCOCStack.shared.teardownAll()
             NCWGStack.shared.teardownAll()
             stack.stop()
+            if let flow { flushOutput(flow) } // the RSTs the aborts above emitted still reach the apps
             isRunning = false
         }
         flow = nil
@@ -324,13 +361,32 @@ final class NCDataPlane {
             self.queue.async {
                 // rv2-life: a stopped plane stops reading (a restarted core's new plane owns the flow now)
                 guard self.isRunning else { return }
+                // 本机隧道: reflect packets for the peer straight back to the TUN — before lwIP, the rules, the
+                // packet trace and the counters (a 4-byte compare per packet; nothing at all when off).
+                var reflected = 0
+                if let local = self.localTunnel {
+                    for p in packets where local.matches(p) {
+                        var r = p
+                        NCLocalDeviceTunnel.reflect(&r)
+                        self.reflectBatch.append(r)
+                        self.reflectFamilies.append(Self.familyV4)
+                        reflected += 1
+                    }
+                    if reflected > 0, let flow = self.flow {
+                        flow.writePackets(self.reflectBatch, withProtocols: self.reflectFamilies)
+                        self.reflectBatch.removeAll(keepingCapacity: true)
+                        self.reflectFamilies.removeAll(keepingCapacity: true)
+                    }
+                    if reflected == packets.count { self.readLoop(); return }
+                }
                 if !self.tickFast { self.setTickFast(true) }
-                self.packetsIn &+= packets.count
+                self.packetsIn &+= packets.count - reflected
                 if !self.loggedFirstPacket {
                     self.loggedFirstPacket = true
                     StartupLog.write("data plane: first packet processed on the lwIP queue (\(Self.describe(packets.first ?? Data())))")
                 }
                 for p in packets {
+                    if reflected > 0, let local = self.localTunnel, local.matches(p) { continue }
                     if self.tracedIn < Self.traceInLimit {
                         self.tracedIn += 1
                         StartupLog.write("pkt in #\(self.tracedIn): \(NCPacketTrace.summary(p))", mirror: false)
@@ -1388,6 +1444,12 @@ final class NCDataPlane {
             session = NCUDPMieruSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "anytls":
             session = NCUDPAnyTLSSession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "masque":
+            // fix/nc-proto-masque-int: RFC 9298 CONNECT-UDP, one request stream per flow (NCMASQUEUDP.swift).
+            session = NCUDPMASQUESession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "trusttunnel" || proxy.type == "trust-tunnel":
+            // fix/nc-trusttunnel-h3: spec §6 _udp2 multiplexer stream (H2 or H3), one per flow (NCTrustTunnelUDP.swift).
+            session = NCUDPTrustTunnelSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "gost-relay":
             // feat/nc-gost-relay: CONNECT|UDP relay connection bound to this flow's target (NCGostRelayUDP.swift).
             session = NCUDPGostRelaySession(proxy: proxy, target: target, queue: queue)

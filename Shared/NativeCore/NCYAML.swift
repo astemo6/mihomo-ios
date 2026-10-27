@@ -343,7 +343,7 @@ enum NCYAML {
                     }
                     if quote == "\"", c == "\\", let esc = s.first {
                         s = s.dropFirst()
-                        // YAML 1.2 §5.7 double-quoted escapes (rv2: the profile editor's yaml.v3-style quoting
+                        // YAML 1.2 §5.7 double-quoted escapes (rv2: the profile editor's reference-YAML-style quoting
                         // emits \a \b \e \f \v \N \L \P \xXX \uXXXX \UXXXXXXXX for control / break chars).
                         switch esc {
                         case "n": out.append("\n")

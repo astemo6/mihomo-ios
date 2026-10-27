@@ -1,7 +1,7 @@
 // Native MitM stage 3, lane s3-script — the response phase of a natively forwarded request whose response rules
 // include http-response scripts, in Swift.
 //
-// It reproduces what the old flow API answers for the same request (flow_request.go runResponse around handler.go
+// It reproduces what the old flow API answers for the same request (flow_request runResponse around handler
 // modifyResponse with the native body lane): header rules and scripts in rule order; the body loaded once, at the
 // first script that needs it, through the same admission (the old core: slots, budgets, locks, memory gates) into
 // NativeBodyStore (decoded there, the old core's lane rules); every skip / error path with the old core's own messages; $done applied
@@ -100,7 +100,7 @@ final class NativeScriptResponse {
     private var respSkip = ""
     private var nativeH: Int64 = 0          // the store handle holding the current body
     private var nativeLen: Int64 = 0
-    private var goBody: Data?               // `body` when it is bytes (a set body)
+    private var hostBody: Data?               // `body` when it is bytes (a set body)
     private var bodySet = false             // resp.Body replaced by bytes (setBody ran with a body)
     private var rawPass = false             // resp.Body is the raw bytes as received (a skipped load)
     private var rawTail = Data()            // received bytes the store did not take (after its failure)
@@ -243,7 +243,7 @@ final class NativeScriptResponse {
 
     private enum Load { case ready(Int64), skipped, needBody, handBack(String) }
 
-    private var blen: Int64 { nativeH > 0 ? nativeLen : Int64(goBody?.count ?? 0) }
+    private var blen: Int64 { nativeH > 0 ? nativeLen : Int64(hostBody?.count ?? 0) }
 
     /// modifyResponse's `loadBody(limit)` for the script at rule, holding slot. .ready: run it; .skipped: logged,
     /// slot released; .needBody: wait for the session's push.
@@ -293,7 +293,7 @@ final class NativeScriptResponse {
         loadFailure = nil
         let flowNoBody = mrNoBody || (100..<200).contains(status)
         if flowNoBody || contentLength == 0 {
-            return completeLoad(rule) // http.NoBody: nothing to push
+            return completeLoad(rule) // no body: nothing to push
         }
         loadPending = true
         return .needBody
@@ -320,7 +320,7 @@ final class NativeScriptResponse {
             if msg == "too-big" {
                 loadFailure = ("too-big", "")
             } else if msg.hasPrefix("decode:") {
-                // loadBodyLane: strings.TrimPrefix(err, "decode: ")
+                // loadBodyLane: the "decode: " prefix stripped from err
                 loadFailure = ("decode", msg.hasPrefix("decode: ") ? String(msg.dropFirst(8)) : msg)
             } else {
                 loadFailure = ("lane", "write: " + msg)
@@ -442,7 +442,7 @@ final class NativeScriptResponse {
         var resp: [String: Any] = ["headers": Self.headerPairs(header), "body": -1]
         if status != 0 { resp["status"] = status }
         if body {
-            resp["body"] = nativeH > 0 ? run.addBody(nil, native: nativeH) : run.addBody(goBody ?? Data(), native: 0)
+            resp["body"] = nativeH > 0 ? run.addBody(nil, native: nativeH) : run.addBody(hostBody ?? Data(), native: 0)
         }
         obj["resp"] = resp
         guard let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) else { return base }
@@ -476,7 +476,7 @@ final class NativeScriptResponse {
             owned.insert(res.nativeBody)
             if nativeH > 0 && nativeH != res.nativeBody { freeOwned(nativeH) }
             nativeH = res.nativeBody
-            goBody = nil
+            hostBody = nil
             nativeLen = store.len(res.nativeBody, raw: false)
             loaded = true
             tooBig = false
@@ -487,14 +487,14 @@ final class NativeScriptResponse {
             if nativeH > 0 { freeOwned(nativeH); nativeH = 0; nativeLen = 0 }
             setBody(res.body ?? Data())
         } else if loaded && !tooBig && nativeH == 0 {
-            setBody(goBody ?? Data())
+            setBody(hostBody ?? Data())
         }
         return nil
     }
 
     /// modifyResponse's setBody.
     private func setBody(_ b: Data) {
-        goBody = b
+        hostBody = b
         loaded = true
         if mrNoBody { return }
         bodySet = true
@@ -536,11 +536,11 @@ final class NativeScriptResponse {
             }
         } else {
             if loaded && !tooBig {
-                setBody(goBody ?? Data())
+                setBody(hostBody ?? Data())
                 h = header
             }
             if bodySet {
-                serve = goBody ?? Data()
+                serve = hostBody ?? Data()
             } else if rawPass && loadH > 0 {
                 // the raw bytes as received: the store's raw part, then what it did not take
                 let rawLen = store.len(loadH, raw: true)
@@ -555,7 +555,7 @@ final class NativeScriptResponse {
                 mode = .upstream
             }
         }
-        out.logHeaders = h.sortedPairs // ent.Response(resp.StatusCode, resp.Header)
+        out.logHeaders = h.sortedPairs // the response entry (status code, headers)
         var length: Int64 = -1
         let clv = h.get("Content-Length")
         if !clv.isEmpty {

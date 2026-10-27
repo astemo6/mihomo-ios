@@ -706,7 +706,7 @@ struct PolicyView: View {
                     card.onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                     // fix/nc-ui-smooth: members as lazy rows of this stack (only the rows on screen are built).
                     if expanded.contains(g.name) {
-                        ForEach(0..<card.memberRowCount, id: \.self) { r in card.memberRow(r) }
+                        ForEach(card.memberRowKeys) { k in card.memberRow(k.row) }
                     }
                   }
                 }
@@ -780,7 +780,7 @@ struct PolicyView: View {
                                         chain: graph.chain(from: g.name, delays: offline.delays))
                         card.onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                         if expanded.contains("offline:" + g.name) {
-                            ForEach(0..<card.memberRowCount, id: \.self) { r in card.memberRow(r) }
+                            ForEach(card.memberRowKeys) { k in card.memberRow(k.row) }
                         }
                       }
                     }
@@ -1061,6 +1061,11 @@ struct PolicyGroupCard: View {
     static let memberColumns = 2
     var memberRowCount: Int { (group.members.count + Self.memberColumns - 1) / Self.memberColumns }
 
+    /// fix/nc-combine-2 (test62): the rows are children of the page's LazyVStack, so their identity must name the
+    /// group. Bare 0..<n ids collided across cards: after 规则 (Node Select expanded, 4 rows) → 全局, GLOBAL's rows
+    /// 0–3 were Node Select's stale rows and only rows 4–5 were GLOBAL's own.
+    var memberRowKeys: [PolicyMemberRowKey] { (0..<memberRowCount).map { PolicyMemberRowKey(group: group.name, row: $0) } }
+
     /// One row of members, drawn as the continuation of this card (the 8 pt gap of the page's LazyVStack above it is
     /// covered by its background). Only rows on screen are built.
     @ViewBuilder func memberRow(_ row: Int) -> some View {
@@ -1122,6 +1127,13 @@ struct PolicyGroupCard: View {
 
 /// fix/nc-ui-smooth: a piece of a 策略 group card. The header and the member rows below it are separate rows of the
 /// page's LazyVStack; together they draw one card (continuous corners only at its top and bottom).
+/// Identity of one lazy member row of a group card (group name + row index).
+struct PolicyMemberRowKey: Hashable, Identifiable {
+    let group: String
+    let row: Int
+    var id: Self { self }
+}
+
 struct PolicyCardSegment: View {
     let roundTop: Bool
     let roundBottom: Bool

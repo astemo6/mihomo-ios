@@ -2011,6 +2011,7 @@ enum NativeJQ {
             sem.signal()
         }
         t.stackSize = stackSize
+        t.qualityOfService = Thread.current.qualityOfService // selfreview-g2: caller waits on it (no inversion)
         t.name = "tern.jq"
         t.start()
         sem.wait()
@@ -2063,6 +2064,7 @@ enum NativeJQ {
             sem.signal()
         }
         t.stackSize = stackSize
+        t.qualityOfService = Thread.current.qualityOfService // selfreview-g2: caller waits on it (no inversion)
         t.start()
         sem.wait()
         return (box.outs, box.err)
@@ -2097,6 +2099,7 @@ enum NativeJQ {
             }
         }
         t.stackSize = stackSize
+        t.qualityOfService = Thread.current.qualityOfService // selfreview-g2: caller waits on it (no inversion)
         t.name = "tern.jq"
         t.start()
         sem.wait()

@@ -5,10 +5,10 @@ import Foundation
 /// readable summary of a logical rule), a human rule-type name under it, then the policy. One place for the Home 规则
 /// card, 规则命中, the 连接 list and its filter sheet, and the connection detail.
 ///
-/// Input is what Clash.Meta's /connections (and the tunnel's stats) carry: `rule` = the old core type name (constant/rule.go
+/// Input is what Clash.Meta's /connections (and the tunnel's stats) carry: `rule` = the old core type name (constant/rule
 /// RuleType.String(): Domain, DomainSuffix, RuleSet, GeoIP, IPCIDR, Match, AND, ProcessName…), `rulePayload` = the
 /// rule's Payload(); logical rules log their sub-rules as `((Network,tcp) && (DstPort,80))`, `(… || …)` and NOT as
-/// `(!(Type,payload))` (rules/logic/logic.go). The combined `Type(payload)` form is ConnectionItem.ruleText, the key the
+/// `(!(Type,payload))`. The combined `Type(payload)` form is ConnectionItem.ruleText, the key the
 /// session stats count hits by. Filtering always keeps using those raw values; only the text shown changes.
 ///
 /// App-injected rules never show their internals: the engine's outbound `__MITM__`

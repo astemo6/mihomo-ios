@@ -47,16 +47,30 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
 | 18014 | sing-box VLESS inbound with ECH — same uuid, TLS + ECH (`outer.localhost` / `localhost`) |
 | 18015 | sing-box Trojan inbound with ECH — `nc-loop-trojan-pw`, TLS + ECH (`outer.localhost` / `localhost`) |
+| 18016 | `lua-mock-server.py` — Lua backend peer: `HE`→`HO` greeting, then XOR-0x5A relay to 18080 (fix/nc-proto-lua-int) |
+| 18018 | sing-box plain HTTP CONNECT inbound (no auth) — peer for the verbatim Shadowrocket `http-backend.lua` (fix/nc-proto-lua-int) |
 | 18040 | sing-box naive inbound, TCP (HTTP/2 CONNECT + naive padding) — `nc-loop` / `nc-loop-naive-pw`, self-signed TLS |
 | 18041 | sing-box naive inbound, UDP (HTTP/3 over QUIC, ALPN h3) — same user |
 | 18060 | sing-box Trojan inbound over WebSocket `/tj` — same password, self-signed TLS (fix/nc-silent-fail) |
 | 18061 | sing-box VLESS inbound over HTTPUpgrade `/up` (v2ray-http-upgrade) |
 | 18062 | sing-box VLESS inbound over WebSocket `/ed`, max_early_data 2048 in `Sec-WebSocket-Protocol` |
 | 18063 | sing-box Trojan inbound over gRPC (service `TunSvc`), self-signed TLS |
+| 18013 | trusttunnel_endpoint — H2 (TCP) & H3 (UDP) inbound, Basic auth `nc-loop-tt-user`/`nc-loop-tt-pw` |
+| 18012 | masque-proxy — RFC 9298 CONNECT-UDP (HTTP/3) / self-signed TLS (CN=localhost) |
 | 18080 | `echo_server.py` TCP echo |
 | 18081 | `echo_server.py` UDP echo |
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
 | 18083 | `echo_server.py` UDP control: datagram `go` → blackhole discards; `pause` → holds again |
+| 18090 | official Sudoku server v0.5.2.0 (`sudoku/entropy.json`) — prefer_entropy, chacha20-poly1305, legacy HTTP mask, pure downlink; fallback → 18080 |
+| 18091 | official Sudoku server (`sudoku/ascii-packed.json`) — prefer_ascii, aes-128-gcm, no HTTP mask, packed downlink |
+| 18092 | official Sudoku server (`sudoku/directional-none.json`) — up_ascii_down_entropy, custom table `xpxvvpvv`, aead none |
+| 18093 | official Sudoku server (`sudoku/rotation.json`) — custom-tables `xpxvvpvv` / `vxpvxvvp` (ClientHello table hint), packed downlink |
+| 18094 | official Sudoku server (`sudoku/closed-fallback.json`) — like 18090, fallback → 18099 (nothing listens: wrong key = closed socket) |
+| 18095 | `python3 -m http.server` origin serving `sudoku-fetch.txt` (48 KiB) for the HTTP-fetch-through-Sudoku test |
+
+Sudoku key: the servers hold the master **public** key `3388f6b5…451d`; the tests dial with the split private key
+(exercising client key normalisation) and with the public key itself. CI builds the server from the pinned tag's source
+(`SUDOKU_BIN`); locally `start-servers.sh` downloads the release tarball.
 
 All inbounds route to a `direct` outbound, so the target a client asks for
 *is* the backend it reaches: tests aim at 18080 for echo and 18082 for
@@ -90,6 +104,7 @@ These materials are strictly for loopback testing with self-signed TLS certifica
 - HTTP2 / HTTP3 proxies without naive padding: no sing-box inbound speaks plain h2/h3 CONNECT
   (the naive inbound insists on the `padding` header), so they are covered by the unit tests
   (NativeCoreNaiveH2H3Tests) and share the naive h2/h3 transport code exercised here.
+- TrustTunnel (official trusttunnel_endpoint): H2 TCP echo + wrong password → 407; H3 track not available yet.
 - Back-pressure (SS, VMess): against the blackhole. If an environment's
   buffers absorb everything sent, the lag never appears and the test skips
   with an explanation instead of failing — the property is then not
@@ -102,6 +117,8 @@ These materials are strictly for loopback testing with self-signed TLS certifica
 - Hysteria2 UDP echo: the shared `NCHysteria2Connection` (Shared) over its
   RFC 9221 QUIC datagram flow — spec UDPMessages to the hy2 inbound → UDP echo
   backend; a 3000-byte packet exercises fragmentation and reassembly both ways.
+- **MASQUE**: RFC 9298 CONNECT-UDP echo against `masque-proxy` on port 18012
+  (QUIC / HTTP/3 Datagrams targeting UDP echo `:18081`).
 - **WireGuard**: server endpoint stands up, but there is no client test —
   NativeCore's WireGuard dialer only exists inside the tunnel (userspace
   lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.

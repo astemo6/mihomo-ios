@@ -20,7 +20,11 @@ enum NCSupport {
         // feat/nc-naive-h2h3 (NCNaive / NCH2ProxySession / NCH3ProxySession): NaïveProxy (h2, or h3 with
         // quic: true) and Shadowrocket-style HTTP/2 / HTTP/3 CONNECT proxies.
         "naive", "http2", "h2", "http3", "h3",
+        "lua",
         "openconnect", "anyconnect",
+        "trusttunnel", "trust-tunnel",
+        "masque",
+        "sudoku",
     ]
     /// Stream transports (`network:`) the connector implements.
     /// "xhttp" (feat/nc-xhttp, NCXHTTP / NCXHTTPStream): VLESS / VMess / Trojan over HTTP/2, all three modes.
@@ -33,7 +37,7 @@ enum NCSupport {
         guard types.contains(t) else {
             return "类型 \(t) 尚未接入"
         }
-        if t != "wireguard", t != "brook", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
+        if t != "wireguard", t != "brook", t != "trusttunnel", t != "trust-tunnel", t != "masque", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
         if p.fields["network"]?.string?.lowercased() == "xhttp", let why = NCXHTTPConfig.unsupportedReason(p) {
@@ -70,6 +74,12 @@ enum NCSupport {
             if let aid = p.fields["alterId"]?.int, aid > 0 {
                 return "VMess alterId \(aid)（旧版 MD5 认证）尚未接入，请改为 alterId: 0"
             }
+        case "lua":
+            // feat/nc-lua S2: the connector runs the backend in NCLuaSession; a node without any
+            // script source can never dial, so say so at import/display time already.
+            let hasScript = !(p.fields["script"]?.string ?? "").isEmpty
+            let hasFile = !(p.fields["file"]?.string ?? "").isEmpty
+            if !hasScript && !hasFile { return "Lua 后端缺少脚本 (file/script)" }
         case "ss":
             // One gate for every SS plugin (ssPluginUnsupported): simple-obfs / v2ray-plugin use #101's
             // NCSSPluginOptions parse (same as the connector), gost-plugin / shadow-tls / restls the nc-proto rules.
@@ -84,6 +94,8 @@ enum NCSupport {
             if let why = sshUnsupported(p) { return why }
         case "wireguard":
             if let why = wireguardUnsupported(p) { return why }
+        case "masque":
+            if let why = masqueUnsupported(p) { return why }
         case "mieru":
             if let why = mieruUnsupported(p) { return why }
         case "brook":
@@ -98,6 +110,8 @@ enum NCSupport {
             // fix/nc-openconnect-dp: real data plane (lwIP netif over CSTP, NCOpenConnectNetif.swift).
             if let why = NCOpenConnect.unsupportedReason(p) { return why }
             if !NCOpenConnect.dataPlaneVerified { return NCOpenConnect.dataPlaneUnavailable }
+        case "sudoku":
+            if let why = sudokuUnsupported(p) { return why }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
@@ -105,6 +119,8 @@ enum NCSupport {
             let u = (p.uuid ?? "").trimmingCharacters(in: .whitespaces)
             let pwd = (p.password ?? "").trimmingCharacters(in: .whitespaces)
             if u.isEmpty || pwd.isEmpty { return "Juicity 缺少 uuid / password" }
+        case "trusttunnel", "trust-tunnel":
+            if let why = trusttunnelUnsupported(p) { return why }
         case "vless":
             if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
                 // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).
@@ -244,6 +260,33 @@ enum NCSupport {
         return nil
     }
 
+    /// TrustTunnel (NCTrustTunnel, feat/nc-trusttunnel): HTTP/2 and HTTP/3 tunnel proxy.
+    static func trusttunnelUnsupported(_ p: NCProxy) -> String? {
+        if (p.server ?? "").isEmpty { return "TrustTunnel 缺少 server" }
+        if (p.port ?? 0) == 0 { return "TrustTunnel 缺少 port" }
+        let username = p.fields["username"]?.string ?? ""
+        if username.isEmpty { return "TrustTunnel 缺少 username" }
+        let password = p.password ?? p.fields["password"]?.string ?? ""
+        if password.isEmpty { return "TrustTunnel 缺少 password" }
+        if p.fields["anti-dpi"]?.bool == true
+            || !(p.fields["client-random-prefix"]?.string ?? "").isEmpty
+            || !(p.fields["client_random_prefix"]?.string ?? "").isEmpty {
+            return "TrustTunnel anti-dpi / client-random-prefix 尚未接入"
+        }
+        if !(p.fields["client-random-auth-key"]?.string ?? "").isEmpty
+            || !(p.fields["client_random_auth_key"]?.string ?? "").isEmpty {
+            return "TrustTunnel client-random-auth-key 尚未接入"
+        }
+        if p.fields["icmp"]?.bool == true {
+            return "TrustTunnel icmp 尚未接入"
+        }
+        // fix/nc-trusttunnel-h3: HTTP/3 (quic: true / network h3) runs on the shared NativeCore H3 CONNECT
+        // stack (NCH3ProxyConnection), with H2 fallback unless h2-fallback: false. TCP and UDP (_udp2).
+        let net = (p.fields["network"]?.string ?? "").lowercased()
+        if !net.isEmpty && !["h2", "tcp", "h3", "quic"].contains(net) { return "TrustTunnel network \(net) 尚未接入" }
+        return nil
+    }
+
     /// WireGuard (NCWireGuard, feat/nc-wg): same checks as NCWGConfig.parse in the tunnel. AmneziaWG 1.0
     /// (jc/jmin/jmax/s1/s2/h1–h4) and 2.0 (h1–h4 header ranges, s3/s4 padding) are supported;
     /// i1–i5 signature packets are ignored (standard packets are sent instead).
@@ -262,6 +305,61 @@ enum NCSupport {
             return "WireGuard 缺少 server / port / public-key"
         }
         return nil
+    }
+
+    /// MASQUE (RFC 9298 CONNECT-UDP / RFC 9484 CONNECT-IP):
+    /// Requires server, port, and either (private-key, public-key, ip/ipv6) for WARP/CONNECT-IP
+    /// or (username/password) for RFC 9298 HTTP/3 proxying.
+    static func masqueUnsupported(_ p: NCProxy) -> String? {
+        if p.server == nil || (p.server ?? "").isEmpty || (p.port ?? 0) <= 0 {
+            return "MASQUE 缺少 server / port"
+        }
+        let f = p.fields
+        if let explicit = f["unsupported"]?.string, !explicit.isEmpty {
+            return explicit
+        }
+        let priv = f["private-key"]?.string ?? f["privateKey"]?.string ?? ""
+        let pub = f["public-key"]?.string ?? f["publicKey"]?.string ?? ""
+        let user = f["username"]?.string ?? ""
+        let pass = p.password ?? f["password"]?.string ?? ""
+        let hasKeys = !priv.isEmpty && !pub.isEmpty
+        let hasCreds = !user.isEmpty || !pass.isEmpty
+        if !hasKeys && !hasCreds {
+            return "MASQUE 缺少 private-key / public-key 或认证凭据"
+        }
+        if hasKeys && (f["ip"]?.string ?? "").isEmpty && (f["ipv6"]?.string ?? "").isEmpty && (f["network"]?.string ?? "") != "h3-l4proxy" {
+            return "MASQUE CONNECT-IP 缺少 ip / ipv6"
+        }
+        if let net = f["network"]?.string?.lowercased(), !net.isEmpty {
+            if net != "h3" && net != "quic" && net != "h2" && net != "h3-l4proxy" {
+                return "MASQUE network \(net) 尚未接入（仅支持 h3 / quic / h2 / h3-l4proxy）"
+            }
+        }
+        if let stack = f["ip-stack"]?.object?["mode"]?.string?.lowercased() ?? f["ip-stack"]?.string?.lowercased(), !stack.isEmpty {
+            if stack != "lwip" && stack != "system" {
+                return "MASQUE ip-stack \(stack) 尚未接入（仅支持 lwip / system）"
+            }
+        }
+        if let hopping = f["port-hopping"]?.string, !hopping.isEmpty {
+            return "MASQUE port-hopping 尚未接入"
+        }
+        // fix/nc-proto-masque-int: only RFC 9298 CONNECT-UDP (mode: connect-udp, QUIC) is wired, and only for UDP
+        // (NCUDPMASQUESession). WARP / CONNECT-IP keys and h3-l4proxy were shown available but every dial refused.
+        guard let cfg = NCMASQUE.Config(proxy: p) else { return "MASQUE 配置无效" }
+        switch cfg.mode {
+        case .connectUDP:
+            if cfg.network == "h2" { return "MASQUE over HTTP/2 尚未接入（仅 HTTP/3）" }
+        case .connectIP:
+            return "MASQUE CONNECT-IP（WARP）尚未接入：需隧道内 L3 网卡"
+        case .l4Proxy:
+            return "MASQUE h3-l4proxy 尚未接入"
+        }
+        return nil
+    }
+
+    /// Sudoku (NCSudoku, feat/nc-sudoku): validation and unsupported marker checks.
+    static func sudokuUnsupported(_ p: NCProxy) -> String? {
+        NCSudoku.unsupportedReason(p)
     }
 
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.

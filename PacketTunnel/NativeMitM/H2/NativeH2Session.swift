@@ -1,6 +1,6 @@
 // Native MitM stage 3 lane s3-h2: one decrypted HTTP/2 client connection, served natively.
 //
-//   old engine (nativeterm.go: CONNECT, MitM host list, pinning; ALPN offer incl. "h2" only when the engine's h2
+//   old engine (nativeterm: CONNECT, MitM host list, pinning; ALPN offer incl. "h2" only when the engine's h2
 //   option and this switch are on) → MitmTLSFront (h2 listener: ALPN "h2, http/1.1") → TLS → ALPN h2 →
 //   NativeH2Session: H2Connection (server role) demultiplexes streams; every stream is an H2Exchange that maps
 //   onto the SAME flow API as an HTTP/1.1 request (MitmFlowDriving: the old core — or the native rewrite engine when
@@ -174,7 +174,7 @@ enum H2Request {
         var headers: HTTPHeaderList = host.isEmpty ? [] : [("Host", host)]
         headers.append(contentsOf: regular)
         // Unknown length: what the old core's h2 server reports as ContentLength -1; the flow API's head JSON expresses it as
-        // chunked (the old core removes Transfer-Encoding exactly like net/http's server does).
+        // chunked (the old core removes Transfer-Encoding exactly like a standard HTTP server does).
         if length < 0 { headers.append(("Transfer-Encoding", "chunked")) }
         let head = HTTPRequestHead(method: m, target: p, version: "HTTP/2.0", headers: headers)
         return .success(H2ParsedRequest(head: head, length: length, scheme: sch, authority: host))

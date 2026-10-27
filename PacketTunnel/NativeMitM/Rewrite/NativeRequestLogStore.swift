@@ -98,7 +98,7 @@ final class NativeRequestLogStore: NativeRequestLogSink {
         return out
     }
 
-    // MARK: events (nativerecord.go applyNative)
+    // MARK: events (nativerecord applyNative)
 
     private func apply(_ r: Event) -> Bool {
         switch r.ev {

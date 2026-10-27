@@ -2,9 +2,9 @@ import CryptoKit
 import Foundation
 
 // SS restls plugin (feat/native-core-eval, based on astemo6/Muse NativeCore): pure-Swift client side of restls,
-// ported from github.com/metacubex/restls-client-go v0.1.9 (the version Clash.Meta v1.19.33 pins; restls_utils.go,
-// conn.go readRecordOrCCS / writeRestlsApplicationRecord, handshake_client.go generateSessionID*, u_conn.go,
-// key_agreement.go eager ECDHE) as Clash.Meta transport/restls + adapter/outbound/shadowsocks.go drive it.
+// ported from github.com/metacubex/restls-client-go v0.1.9 (the version Clash.Meta v1.19.33 pins; restls_utils,
+// conn readRecordOrCCS / writeRestlsApplicationRecord, handshake_client generateSessionID*, u_conn,
+// key_agreement eager ECDHE) as Clash.Meta transport/restls + adapter/outbound/shadowsocks drive it.
 //
 // It rides on NCTLSClientStream (the hand-rolled TLS 1.3 / 1.2 client): the TLS handshake is a real one with the
 // camouflage server (`host`), relayed by the restls server, which proves itself inside it:
@@ -51,7 +51,7 @@ enum NCRestls {
 
     enum ScriptError: Error { case invalid(String) }
 
-    /// parseRecordScript (restls_utils.go).
+    /// parseRecordScript.
     static func parseScript(_ script: String) throws -> [Line] {
         var lines: [Line] = []
         for rawLine in script.replacingOccurrences(of: " ", with: "").split(separator: ",", omittingEmptySubsequences: true) {

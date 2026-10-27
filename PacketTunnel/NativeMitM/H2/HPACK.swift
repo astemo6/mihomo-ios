@@ -59,8 +59,9 @@ enum HPACKHuffman {
     private static let tree: [Int32] = {
         var t: [Int32] = [0, 0]
         for sym in 0..<257 {
-            let code = HPACKHuffmanTable.codes[sym]
-            let len = Int(HPACKHuffmanTable.lengths[sym])
+            // selfreview-g2: the shared RFC 7541 table (NCHPACK; the duplicate HPACKHuffmanTable is gone).
+            let code = sym < 256 ? NCHPACK.huffmanCodes[sym] : NCHPACK.huffmanEOSCode
+            let len = Int(sym < 256 ? NCHPACK.huffmanCodeLens[sym] : NCHPACK.huffmanEOSLen)
             var node = 0
             var i = len - 1
             while i >= 0 {
@@ -114,7 +115,7 @@ enum HPACKHuffman {
 
     static func encodedLength(_ s: [UInt8]) -> Int {
         var bits = 0
-        for b in s { bits += Int(HPACKHuffmanTable.lengths[Int(b)]) }
+        for b in s { bits += Int(NCHPACK.huffmanCodeLens[Int(b)]) }
         return (bits + 7) / 8
     }
 
@@ -122,8 +123,8 @@ enum HPACKHuffman {
         var acc: UInt64 = 0
         var n = 0
         for b in s {
-            let l = Int(HPACKHuffmanTable.lengths[Int(b)])
-            acc = (acc << UInt64(l)) | UInt64(HPACKHuffmanTable.codes[Int(b)])
+            let l = Int(NCHPACK.huffmanCodeLens[Int(b)])
+            acc = (acc << UInt64(l)) | UInt64(NCHPACK.huffmanCodes[Int(b)])
             n += l
             while n >= 8 {
                 n -= 8

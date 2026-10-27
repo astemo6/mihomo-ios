@@ -42,7 +42,7 @@ struct NCSnifferConfig: Equatable {
             if let tls = byProto["TLS"] { tlsPorts = Self.parsePorts(tls["ports"]) }
             if let quic = byProto["QUIC"] { quicPorts = Self.parsePorts(quic["ports"]) }
         } else if enable {
-            // bridge.go's injected default table, verbatim.
+            // bridge's injected default table, verbatim.
             httpPorts = [80...80, 8080...8880]
             httpOverrideDestination = true
             tlsPorts = [443...443, 8443...8443]

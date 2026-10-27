@@ -385,7 +385,7 @@ enum NCShareLink {
             // the old core: url.User(u) when no password (no colon), else UserPassword.
             let u = sStr(m, "username")
             let pw = sStr(m, "password")
-            let user = pw.isEmpty ? goEscape(u, mode: .userPassword) : userPassword(u, pw)
+            let user = pw.isEmpty ? urlEscape(u, mode: .userPassword) : userPassword(u, pw)
             var q = KVList()
             q.add("private-key", sStr(m, "private-key"))
             q.add("private-key-passphrase", sStr(m, "private-key-passphrase"))
@@ -416,6 +416,8 @@ enum NCShareLink {
             q.add("client-fingerprint", sStr(m, "client-fingerprint"))
             q.add("fingerprint", sStr(m, "fingerprint"))
             return "relay://\(user)\(hostPort(m))\(q.queryString)#\(frag(name))"
+        case "masque":
+            return try NCMASQUE.encodeShareLink(m)
 
         default:
             throw ShareLinkError.message("\(typ) 类型没有通用的分享链接格式")
@@ -760,7 +762,7 @@ enum NCShareLink {
             return list.map { String(describing: $0) }
         }
         if let s = v as? String, !s.isEmpty {
-            // the retired bridge sList: strings.Split(t, ",") — no trimming.
+            // the retired bridge sList: a plain comma split — no trimming.
             return s.components(separatedBy: ",")
         }
         return []
@@ -789,10 +791,10 @@ enum NCShareLink {
         escapePath(name)
     }
 
-    /// the old core net/url shouldEscape byte table: unreserved [A-Za-z0-9-_.~] plus the
+    /// the old core's URL escaping byte table: unreserved [A-Za-z0-9-_.~] plus the
     /// reserved set each mode leaves alone; everything else is %XX (uppercase
     /// hex, over the UTF-8 bytes).
-    private static func goEscape(_ s: String, mode: GoEscapeMode) -> String {
+    private static func urlEscape(_ s: String, mode: URLEscapeMode) -> String {
         var out = ""
         out.reserveCapacity(s.utf8.count)
         for b in s.utf8 {
@@ -820,18 +822,18 @@ enum NCShareLink {
         return out
     }
 
-    private enum GoEscapeMode { case pathSegment, userPassword, query }
+    private enum URLEscapeMode { case pathSegment, userPassword, query }
 
     /// the retired bridge: url.PathEscape (fragment names, uuid, passwords, keys).
-    private static func escapePath(_ s: String) -> String { goEscape(s, mode: .pathSegment) }
+    private static func escapePath(_ s: String) -> String { urlEscape(s, mode: .pathSegment) }
 
     /// the retired bridge: url.QueryEscape (kvList keys and values).
-    private static func escapeQuery(_ s: String) -> String { goEscape(s, mode: .query) }
+    private static func escapeQuery(_ s: String) -> String { urlEscape(s, mode: .query) }
 
     /// the retired bridge: url.UserPassword(u, pw).String() — always carries the
     /// colon, even with an empty password.
     private static func userPassword(_ u: String, _ pw: String) -> String {
-        goEscape(u, mode: .userPassword) + ":" + goEscape(pw, mode: .userPassword)
+        urlEscape(u, mode: .userPassword) + ":" + urlEscape(pw, mode: .userPassword)
     }
 
     private static func base64URLNoPadding(_ data: Data) -> String {

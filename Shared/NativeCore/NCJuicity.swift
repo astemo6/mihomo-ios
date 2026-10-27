@@ -9,8 +9,8 @@ import os
 /// Specification references:
 ///  - Juicity Protocol Spec: https://github.com/juicity/juicity/blob/main/docs/spec.md
 ///  - Juicity Client/Server implementation: daeuniverse/outbound protocol/juicity
-///    (client.go, dialer.go, stream_conn.go, stream_packet_conn.go)
-///  - Address and command framing: trojanc.Metadata (addr.go)
+///    (client, dialer, stream_conn, stream_packet_conn)
+///  - Address and command framing: trojanc.Metadata
 ///
 /// Wire format:
 ///  - ALPN: "h3" (default), TLS 1.3+
@@ -441,7 +441,7 @@ final class NCJuicityTCPStream: NCRelayStream {
     private var open = false, closed = false
     private var failure: Error?
     private var outbox = Data()
-    private var inbox: [Data] = []
+    private var inbox: NCDeque<Data> = [] // F13
     private var inboxBytes = 0
     private var pending: ((Data?, Error?) -> Void)?
     private var outboxWaiters: [NCCallOnce] = []

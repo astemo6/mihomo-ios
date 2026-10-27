@@ -13,8 +13,16 @@ UI text). Legal attributions (GPL notices, MetaCubeX) and the repository URL ast
 Rename check (2026-10-27, the app is a new app with com.astemo6.tern ids): "mihomo" in any spelling in ANY tracked
 text file fails the audit unless the line is on the allow-list below — upstream attribution (MetaCubeX / GPL), the
 repository URL, the subscription User-Agent option value (servers pick the format by UA), the IPA guards that assert the
-retired core framework is not bundled — or the file is the one legacy-import spot (App/Core/LegacyImport.swift, which
-reads backups written by the pre-rename app) or this script.
+retired core framework is not bundled — or the file is this script.
+
+Strict source check (combine-2, user 2026-10-27 13:06 — old-app backup import deleted, Tern backups only): in tracked
+files under App/, Shared/, PacketTunnel/, Widget/ and the test bundles, "mihomo" in any spelling fails unless the exact
+(stripped) line is in STRICT_ALLOWED below: the subscription User-Agent option value (servers pick the format by that
+UA) and the open-source credits / licence attribution. Nothing else — no regex allow-list applies there.
+
+Path check (selfreview-g2, user 2026-10-27 「不要有mihomo路径」): a "mihomo/" path in any spelling fails in ANY tracked text
+file — even on an allow-listed line — except this script. No directory on disk is named after the old app. Upstream URLs
+(…/MetaCubeX/mihomo/…) are not paths of ours and are allowed.
 
 Usage: scripts/term_audit.py [-q]
 """
@@ -43,7 +51,27 @@ BRAND = re.compile(r"\bmihomo\b", re.I)
 BRAND_OK = re.compile(r"MetaCubeX|General Public License|GPL|astemo6+/mihomo-ios", re.I)
 # Repository-wide rename check (any tracked text file, code, comments and docs alike).
 REPO_BRAND = re.compile(r"mihomo", re.I)
-REPO_OK_FILES = {"App/Core/LegacyImport.swift", "scripts/term_audit.py"}
+REPO_OK_FILES = {"scripts/term_audit.py"}
+# Strict source check: directories where only the exact lines below may contain "mihomo".
+STRICT_DIRS = ("App/", "Shared/", "PacketTunnel/", "Widget/", "UnitTests/", "UITests/", "AppTests/", "E2ETests/")
+STRICT_ALLOWED = {
+    # Subscription User-Agent option value: subscription servers choose the returned format by this UA.
+    ("App/Views/SubscriptionSheets.swift", 'static let metaCore = "mihomo"'),
+    # Open-source credits / licence attribution (About → 开源许可).
+    ("App/Views/MoreView.swift", 'Credit(name: "mihomo", note: "代理内核（MetaCubeX）", license: "GPL-3.0", url: "https://github.com/MetaCubeX/mihomo"),'),
+    ("App/Views/MoreView.swift", 'Credit(name: "Tern jq", note: "Tern 自己的 jq 解释器（纯 Swift），用于 jq 请求体 / 响应体重写，语义与 jq 1.7.1 一致", license: "GPL-3.0", url: "https://github.com/astemo6/mihomo-ios"),'),
+    ("App/Views/MoreView.swift", 'Text("本应用以 GNU General Public License v3.0 发布，与 mihomo 内核许可一致。你可以在 GPL-3.0 的条款下自由使用、修改和再分发本软件及其源代码。本软件不提供任何担保。")'),
+    ("App/Views/MoreView.swift", 'Link("本项目源代码", destination: URL(string: "https://github.com/astemo6/mihomo-ios")!)'),
+    # The same licence text in the string catalog (key + translations).
+    ("App/Localizable.xcstrings", '"本应用以 GNU General Public License v3.0 发布，与 mihomo 内核许可一致。你可以在 GPL-3.0 的条款下自由使用、修改和再分发本软件及其源代码。本软件不提供任何担保。": {'),
+    ("App/Localizable.xcstrings", '"value": "This app is released under the GNU General Public License v3.0, the same license as the mihomo core. You may use, modify and redistribute this software and its source code under the terms of GPL-3.0. This software comes with no warranty."'),
+    ("App/Localizable.xcstrings", '"value": "本應用以 GNU General Public License v3.0 釋出，與 mihomo 核心許可一致。你可以在 GPL-3.0 的條款下自由使用、修改和再分發本軟體及其原始碼。本軟體不提供任何擔保。"'),
+    ("App/Localizable.xcstrings", '"value": "本アプリは mihomo コアと同じ GNU General Public License v3.0 で公開されています。GPL-3.0 の条件に従って本ソフトウェアとソースコードを使用、改変、再配布できます。本ソフトウェアは無保証です。"'),
+    ("App/Localizable.xcstrings", '"value": "이 앱은 mihomo 코어와 같은 GNU General Public License v3.0으로 공개됩니다. GPL-3.0 조건에 따라 이 소프트웨어와 소스 코드를 사용, 수정, 재배포할 수 있습니다. 이 소프트웨어는 어떠한 보증도 제공하지 않습니다."'),
+    ("App/Localizable.xcstrings", '"value": "Приложение распространяется по GNU General Public License v3.0, как и ядро mihomo. Вы можете использовать, изменять и распространять программу и её исходный код на условиях GPL-3.0. Программа предоставляется без гарантий."'),
+}
+# "mihomo/" as a path segment of ours (not Libmihomo/…, not mihomo-ios/…, not the upstream MetaCubeX/mihomo URL).
+PATH_BRAND = re.compile(r"(?<!MetaCubeX/)(?<![\w-])mihomo/", re.I)
 REPO_OK_LINE = re.compile(r"MetaCubeX|General Public License|\bGPL\b|astemo6+/mihomo-ios|SubscriptionUA|metaCore")
 # The IPA guards (retired core framework must not be bundled) keep the framework name, in these files only.
 REPO_OK_GUARD = {".github/workflows/ios.yml": re.compile(r"Libmihomo"), "scripts/ipa_size.py": re.compile(r"Libmihomo")}
@@ -108,8 +136,15 @@ def repo_hits():
         if not REPO_BRAND.search(text):
             continue
         guard = REPO_OK_GUARD.get(rel)
+        strict = rel.startswith(STRICT_DIRS)
         for n, line in enumerate(text.split("\n"), 1):
-            if REPO_BRAND.search(line) and not REPO_OK_LINE.search(line) and not (guard and guard.search(line)):
+            if strict:
+                if REPO_BRAND.search(line) and (rel, line.strip()) not in STRICT_ALLOWED:
+                    hits.append((f"{rel}:{n} (strict: not an allowed line)", line.strip()))
+                continue
+            if PATH_BRAND.search(line):
+                hits.append((f"{rel}:{n} (old storage path)", line.strip()))
+            elif REPO_BRAND.search(line) and not REPO_OK_LINE.search(line) and not (guard and guard.search(line)):
                 hits.append((f"{rel}:{n}", line.strip()))
     return hits
 

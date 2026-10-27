@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// B6 (nc-dego-rest): the retired bridge / mitm.ScriptSource + mitm/resources.go (Get, cachePath,
+/// B6 (nc-dego-rest): the retired bridge / mitm.ScriptSource + mitm/resources (Get, cachePath,
 /// LocalPath, fetch) in Swift — the code of a local script, or the cached copy of a remote one (downloaded and
 /// cached when missing). Used by 脚本列表, 脚本调试台, 地理位置检测 and the workbench's debug runs.
 ///
