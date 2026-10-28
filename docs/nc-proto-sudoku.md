@@ -118,7 +118,10 @@ All control messages are wrapped in KIP frames:
   encoding (uplink: destination, domains resolved by the server; downlink: the peer IP). `addrLen = 0` ends the
   session; an undecodable address skips that datagram. One tunnel per UDP association (as the official client and
   Clash.Meta do); each frame is written as one record. Verified against the official server v0.5.2.0 in
-  NativeCoreLoopbackTests (`testSudokuUDP*`).
+  NativeCoreLoopbackTests (`testSudokuUDP*`). Wiring (feat/nc-sudoku-udp-wire): UoT is offered unless the node
+  sets `udp: false` (`NCProxy.effectiveUDP`; the controller and the data plane read the same value), and a
+  chained transport cannot carry UoT yet — `NCConnector.sudokuUoTStream` rejects it with an explicit error
+  instead of silently dialing direct.
 
 ### 2.6 Interoperability Status vs Upstream v0.5.2 (实现现状对照)
 
@@ -180,7 +183,7 @@ actually does with each field.
 | HTTP mask TLS | `httpmask.tls` | `ht` | `httpmask-tls=` | `httpmask-tls=` | Bool | `false` | parsed; no TLS wrapping in data plane |
 | HTTP mask Host | `httpmask.host` | `hh` | `httpmask-host=` | `httpmask-host=` | String | `""` | used for the legacy fake head |
 | HTTP mask Path | `httpmask.path-root` | `hy` | `httpmask-path=` | `httpmask-path=` | String | `""` | used for the legacy fake head |
-| UDP forwarding | `udp` | — | `udp=` / `udp-relay=` | `udp-relay=` | Bool | `false` | UoT (0x12) inside the tunnel, always available like Clash.Meta's Sudoku outbound (the protocol has no UDP switch; the flag is not consulted) — NCDataPlane `sudoku` case → NCSudokuUDPSession |
+| UDP forwarding | `udp` | — | `udp=` / `udp-relay=` | `udp-relay=` | Bool | `true` (Sudoku default) | UoT (0x12) inside the tunnel — feat/nc-sudoku-udp-wire: `NCProxy.effectiveUDP` (explicit field wins, absent = true for Sudoku like Clash.Meta's always-on Sudoku outbound); runtime generation writes the default in (`NCRuntimeSteps.normalizeSudokuUDP`); `udp: false` → NCDataPlane drops the flow like any UDP-incapable policy; UDP over a proxy chain is not supported yet (`NCConnector.sudokuUoTStream` fails with an explicit error) |
 
 ## 4. Unsupported Fields & Explicit Markers
 

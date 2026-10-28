@@ -125,7 +125,7 @@ NativeCore 出站协议（尚未接入的节点保留在配置中、显示为不
 | WireGuard（含 AmneziaWG 1.0） | 独立 lwIP netif（nc_wg） |
 | Tailscale | 控制面、DERP、MagicDNS；未经真机验证 |
 | **OpenConnect**（新） | CSTP + **DTLS** 数据通道（DTLS 不通时回退 CSTP）、split-include / split-exclude 路由；不支持 OTP / 二次认证、ASA 旧式 DTLS |
-| **Sudoku**（新） | 与官方服务端 TCP 互通（握手、双向密钥轮换、自定义表）；不支持 UDP、HTTP 隧道模式（stream / poll / auto / ws）与 `multiplex: on` |
+| **Sudoku**（新） | 与官方服务端 TCP 互通（握手、双向密钥轮换、自定义表）；UDP 走 UoT（每个 UDP 会话一条隧道，节点 `udp: false` 可关）；不支持 HTTP 隧道模式（stream / poll / auto / ws）与 `multiplex: on`，UDP 暂不支持代理链 |
 | **TrustTunnel**（新） | HTTP/2 + **HTTP/3**，TCP + UDP；H3 连不上时回退 H2（`h2-fallback`，默认开） |
 | **MASQUE**（新） | CONNECT-UDP + **CONNECT-IP**（RFC 9484，TCP + UDP）+ **Cloudflare WARP**（cf-connect-ip，客户端证书 mTLS + 服务端公钥固定）；WARP 配置需用外部工具生成（App 内不做注册） |
 | **Lua 自定义后端**（新） | Shadowrocket 风格 Lua 后端（精简 Lua 5.4） |
@@ -259,7 +259,7 @@ NativeCore 出站协议（尚未接入的节点保留在配置中、显示为不
 - 仅代理模式：不遵守系统代理的 App 与所有 UDP / QUIC 会直连；按 IP 的规则与 Fake-IP 不生效。
 - iCloud 备份需要签名里有 iCloud 容器权限；没有时可在「保存到文件」时选 iCloud 云盘。
 - MitM：HTTP/3（QUIC）无法解密，默认对 MitM 主机阻断 UDP 443（可按主机放行，或选择全部阻断）；证书固定的 App 会握手失败并被自动放行。
-- 协议缺口见「协议支持」：OpenConnect 无 OTP / ASA DTLS，Sudoku 无 UDP；TrustTunnel H3 不通时第一个连接最多等约 15 秒才回退 H2。
+- 协议缺口见「协议支持」：OpenConnect 无 OTP / ASA DTLS，Sudoku 的 UDP 暂不支持代理链；TrustTunnel H3 不通时第一个连接最多等约 15 秒才回退 H2。
 - 本机隧道、Tailscale、MitM CA p12 尚未经过真机验证。
 - `socks5` 节点 `tls=true` 目前仍按明文连接（#168）；AnyTLS 节点主机名超过 255 字节会导致隧道崩溃（#170）。
 - 喜马拉雅解锁脚本在 NativeCore 下尚未经过真机验证；WARP 注册与 Sudoku UDP 已有内核实现，但尚未接入 App 界面（#166 / #167）。

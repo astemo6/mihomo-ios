@@ -199,6 +199,7 @@ enum NCSudoku {
                 .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             if !list.isEmpty { fields["custom-tables"] = .array(list.map { .string($0) }) }
         }
+        if let v = take("udp"), let b = boolValue(v) { fields["udp"] = .bool(b) }
         if let v = take("padding-min") ?? take("padding_min"), let n = Int(v) { fields["padding-min"] = .number(Double(n)) }
         if let v = take("padding-max") ?? take("padding_max"), let n = Int(v) { fields["padding-max"] = .number(Double(n)) }
         if let v = take("enable-pure-downlink") ?? take("pure-downlink"), let b = boolValue(v) {

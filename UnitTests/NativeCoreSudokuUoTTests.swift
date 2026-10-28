@@ -188,6 +188,65 @@ final class NativeCoreSudokuUoTTests: XCTestCase {
         XCTAssertNil(NCSupport.unsupportedReason(p))
         XCTAssertNil(NCSupport.sudokuUnsupported(p), "NCDataPlane opens NCSudokuUDPSession only for available nodes")
     }
+
+    // MARK: - feat/nc-sudoku-udp-wire: the UDP switch
+
+    private func proxy(_ type: String, _ extra: [String: NCJSONValue] = [:]) -> NCProxy {
+        var f: [String: NCJSONValue] = ["server": .string("1.2.3.4"), "port": .number(443)]
+        for (k, v) in extra { f[k] = v }
+        return NCProxy(name: "n", type: type, fields: f)
+    }
+
+    func testEffectiveUDPDefaults() {
+        // Sudoku without a udp field: on (the reference outbound always offers UDP).
+        XCTAssertTrue(proxy("sudoku").effectiveUDP)
+        XCTAssertFalse(proxy("sudoku").udp, "the raw field stays absent; only the effective value defaults")
+        // An explicit field always wins, both ways.
+        XCTAssertFalse(proxy("sudoku", ["udp": .bool(false)]).effectiveUDP)
+        XCTAssertTrue(proxy("sudoku", ["udp": .bool(true)]).effectiveUDP)
+        // Other protocols keep the historical semantics.
+        XCTAssertFalse(proxy("vmess").effectiveUDP)
+        XCTAssertTrue(proxy("vmess", ["udp": .bool(true)]).effectiveUDP)
+        XCTAssertFalse(proxy("ss", ["udp": .bool(false)]).effectiveUDP)
+    }
+
+    func testNormalizeSudokuUDPFillsDefaultAndPreservesFalse() {
+        var raw: [String: NCJSONValue] = ["proxies": .array([
+            .object(["name": .string("a"), "type": .string("sudoku")]),
+            .object(["name": .string("b"), "type": .string("sudoku"), "udp": .bool(false)]),
+            .object(["name": .string("c"), "type": .string("vmess")]),
+        ])]
+        XCTAssertEqual(NCRuntimeSteps.normalizeSudokuUDP(&raw), 1)
+        let proxies = raw.list("proxies").map { $0.object ?? [:] }
+        XCTAssertEqual(proxies[0]["udp"], .bool(true), "absent udp is written as true for Sudoku")
+        XCTAssertEqual(proxies[1]["udp"], .bool(false), "an explicit udp: false survives runtime generation")
+        XCTAssertNil(proxies[2]["udp"], "other types are untouched")
+        // And the generated config parses back to the same effective values (export keeps the field).
+        XCTAssertTrue(NCProxy(name: "a", type: "sudoku", fields: proxies[0]).effectiveUDP)
+        XCTAssertFalse(NCProxy(name: "b", type: "sudoku", fields: proxies[1]).effectiveUDP)
+    }
+
+    func testSudokuURICarriesUDPFlag() {
+        let p = NCSudoku.parseURI("mykey@127.0.0.1:18090?udp=false#n1")
+        XCTAssertEqual(p?.fields["udp"], .bool(false))
+        XCTAssertEqual(p?.effectiveUDP, false)
+        let q = NCSudoku.parseURI("mykey@127.0.0.1:18090#n2")
+        XCTAssertNil(q?.fields["udp"])
+        XCTAssertEqual(q?.effectiveUDP, true)
+    }
+
+    func testChainedUoTIsRejectedWithExplicitError() {
+        let exp = expectation(description: "chain rejected")
+        let queue = DispatchQueue(label: "nc.sudoku-uot.chain-test")
+        NCConnector.sudokuUoTStream(proxy: proxy("sudoku", ["key": .string("3388f6b59b225f4e41cd14f445b73b6568711ce536832217b15649253612451d")]), queue: queue,
+                                    transport: MemoryUoTStream()) { stream, err in
+            XCTAssertNil(stream)
+            XCTAssertTrue(err?.localizedDescription.contains("暂不支持代理链") ?? false,
+                          "got: \(String(describing: err))")
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5)
+    }
 }
 
 /// In-memory stand-in for the Sudoku tunnel after StartUoT.

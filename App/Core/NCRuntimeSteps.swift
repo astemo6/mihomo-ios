@@ -1103,6 +1103,25 @@ enum NCRuntimeSteps {
         return n
     }
 
+    /// feat/nc-sudoku-udp-wire: Sudoku's UDP (UoT) is on unless the node opts out — write the
+    /// default into the runtime config so every consumer of the generated config (tunnel,
+    /// controller, exports) sees the same value NCProxy.effectiveUDP computes. An explicit
+    /// `udp: false` is preserved untouched. Returns the number of nodes filled in.
+    static func normalizeSudokuUDP(_ raw: inout [String: NCJSONValue]) -> Int {
+        var n = 0
+        var proxies = raw.list("proxies")
+        for i in proxies.indices {
+            guard case .object(var m) = proxies[i],
+                  m.str("type").lowercased() == "sudoku",
+                  m["udp"] == nil else { continue }
+            m["udp"] = .bool(true)
+            proxies[i] = .object(m)
+            n += 1
+        }
+        if n > 0 { raw["proxies"] = .array(proxies) }
+        return n
+    }
+
     /// bridge checkEditedRuleTargets.
     static func checkEditedRuleTargets(
         _ raw: inout [String: NCJSONValue],

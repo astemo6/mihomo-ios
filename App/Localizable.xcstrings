@@ -8487,36 +8487,36 @@
         }
       }
     },
-    "Sudoku：以数独编码伪装流量的 TCP 协议。密钥与服务端相同；HTTP 伪装可穿过只放行 HTTP 的网络或 CDN。": {
+    "Sudoku：以数独编码伪装流量；TCP 直连，UDP 走 UoT（UDP over TCP）。密钥与服务端相同；HTTP 伪装可穿过只放行 HTTP 的网络或 CDN。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sudoku: a TCP protocol that disguises traffic with Sudoku-based encoding. Use the same key as the server; the HTTP mask gets through networks or CDNs that only allow HTTP."
+            "value": "Sudoku: disguises traffic with Sudoku-based encoding; TCP direct, UDP over UoT (UDP over TCP). Use the same key as the server; the HTTP mask gets through networks or CDNs that only allow HTTP."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sudoku：数独ベースの符号化で通信を偽装する TCP プロトコルです。キーはサーバーと同じものを使います。HTTP 偽装を使うと HTTP しか通さないネットワークや CDN も通過できます。"
+            "value": "Sudoku：数独ベースの符号化で通信を偽装します。TCP は直接、UDP は UoT（UDP over TCP）経由です。キーはサーバーと同じものを使います。HTTP 偽装を使うと HTTP しか通さないネットワークや CDN も通過できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sudoku: 스도쿠 기반 인코딩으로 트래픽을 위장하는 TCP 프로토콜입니다. 키는 서버와 같아야 하며, HTTP 위장을 쓰면 HTTP만 허용하는 네트워크나 CDN도 통과할 수 있습니다."
+            "value": "Sudoku: 스도쿠 기반 인코딩으로 트래픽을 위장합니다. TCP는 직접, UDP는 UoT(UDP over TCP)로 전송합니다. 키는 서버와 같아야 하며, HTTP 위장을 쓰면 HTTP만 허용하는 네트워크나 CDN도 통과할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sudoku — TCP-протокол, маскирующий трафик кодированием на основе судоку. Ключ должен совпадать с сервером; маскировка под HTTP проходит через сети и CDN, пропускающие только HTTP."
+            "value": "Sudoku — маскирует трафик кодированием на основе судоку; TCP напрямую, UDP — через UoT (UDP over TCP). Ключ должен совпадать с сервером; маскировка под HTTP проходит через сети и CDN, пропускающие только HTTP."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sudoku：以數獨編碼偽裝流量的 TCP 協議。金鑰與服務端相同；HTTP 偽裝可穿過只放行 HTTP 的網路或 CDN。"
+            "value": "Sudoku：以數獨編碼偽裝流量；TCP 直連，UDP 走 UoT（UDP over TCP）。金鑰與服務端相同；HTTP 偽裝可穿過只放行 HTTP 的網路或 CDN。"
           }
         }
       }

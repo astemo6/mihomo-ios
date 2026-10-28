@@ -132,6 +132,7 @@ enum NCRuntimeBuilder {
             NCRuntimeSteps.expandOwnPolicyProviders(&raw, home: o.home)
         }
         NCRuntimeSteps.normalizeTailscale(&raw, home: o.home)
+        _ = NCRuntimeSteps.normalizeSudokuUDP(&raw)
         if core.safeMode {
             _ = NCRuntimeSteps.applyChains(&raw, chains: [:])
         } else {

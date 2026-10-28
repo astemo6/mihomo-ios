@@ -1042,6 +1042,12 @@ enum NCConnector {
             queue.async { completion(nil, Failure.unsupported(why)) }
             return
         }
+        // feat/nc-sudoku-udp-wire: a chained transport (dialer-proxy) cannot carry the UoT
+        // tunnel yet — fail loudly instead of silently dialing direct.
+        if transport != nil {
+            queue.async { completion(nil, Failure.unsupported("Sudoku UDP 暂不支持代理链")) }
+            return
+        }
         sudokuStream(proxy: proxy, target: NCTarget(host: "0.0.0.0", port: 0), uot: true, transport: transport,
                      queue: queue, completion: completion)
     }
