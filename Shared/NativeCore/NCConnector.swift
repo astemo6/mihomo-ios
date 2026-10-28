@@ -315,13 +315,13 @@ enum NCConnector {
                         completion: @escaping (NCRelayStream?, Error?) -> Void) {
         switch resolution {
         case .proxy(let proxy):
-            gatedConnect(key: proxy.name, queue: queue, retry: true) { done in
+            gatedConnect(key: proxy.name, queue: queue, retry: true, { done in
                 connectViaProxy(target: target, proxy: proxy, queue: queue, completion: done)
-            } completion: completion
+            }, completion: completion)
         case .chain(let proxies):
-            gatedConnect(key: proxies.first?.name ?? "chain", queue: queue, retry: true) { done in
+            gatedConnect(key: proxies.first?.name ?? "chain", queue: queue, retry: true, { done in
                 connectChain(target: target, proxies: proxies, queue: queue, completion: done)
-            } completion: completion
+            }, completion: completion)
         default:
             connectUnpaced(target: target, resolution: resolution, queue: queue, completion: completion)
         }
