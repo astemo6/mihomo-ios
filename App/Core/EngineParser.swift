@@ -2364,6 +2364,11 @@ extension NCEngineRuleset {
             return
         }
         let body = v.object ?? [:]
+        // feat/nc-egern-disabled-import (#169): Egern rule items carry `disabled`
+        // (docs: every rule type) — a disabled rule is not imported as enabled.
+        // Module routing rules have no per-item off state, so it is skipped here;
+        // in a full config import the same rule lands in `disabledRules` instead.
+        if body["disabled"]?.bool == true { return }
         let policy = Self.egernStr(body["policy"]).trimmingCharacters(in: .whitespaces)
         let (cond, err) = Self.egernCond(item)
         if let err {
@@ -2507,6 +2512,8 @@ extension NCEngineRuleset {
         if let arr = root["widgets"]?.array {
             for item in arr {
                 guard let w = item.object else { continue }
+                // feat/nc-egern-disabled-import (#169): a switched-off widget is not imported.
+                if w["enabled"]?.bool == false || w["disabled"]?.bool == true { continue }
                 let wname = Self.egernStr(w["name"])
                 if wname.isEmpty { continue }
                 var script = Self.egernStr(w["script_name"])
@@ -2561,6 +2568,8 @@ extension NCEngineRuleset {
         for (key, phase) in [("response_jq", "response"), ("request_jq", "request")] {
             guard let spec = o[key]?.object else { continue }
             handled = true
+            // feat/nc-egern-disabled-import (#169): body rewrite items carry `disabled`.
+            if spec["disabled"]?.bool == true { continue }
             let filter = Self.egernStr(spec["filter"]).trimmingCharacters(in: .whitespacesAndNewlines)
             let pats = Self.egernPatterns(spec["match"] ?? .null)
             if filter.isEmpty || pats.isEmpty {
@@ -2653,11 +2662,49 @@ extension NCEngineRuleset {
     /// dropped: each is surfaced in `unsupported` with its original
     /// value, and an entry with no mappable trigger at all stays in
     /// `unsupported` whole, as before.
+    /// feat/nc-egern-disabled-import (#169): typed config entries
+    /// (`- http_request: {…}`) are normalised by egernScriptingFlat first;
+    /// `disabled: true` (entry- or trigger-level) keeps tasks as
+    /// switched-off tasks and drops script rules, like enable=false lines
+    /// of the other formats — never imports them as enabled.
+    /// feat/nc-egern-disabled-import (#169): Egern *config* scriptings are typed entries
+    /// (`- http_request: {name, match, script_url, disabled, …}` — the documented shape),
+    /// while module files use the flat shape `parseEgernScripting` consumes. Normalise
+    /// the typed shape onto the flat one so both share the conversion (and `disabled`).
+    static func egernScriptingFlat(_ o: [String: NCJSONValue]) -> [String: NCJSONValue]? {
+        guard o.count == 1, let (k, v) = o.first, let spec = v.object else { return nil }
+        guard ["http_request", "http_response", "schedule", "generic", "network"].contains(k) else { return nil }
+        var flat: [String: NCJSONValue] = [:]
+        if let n = spec["name"] { flat["name"] = n }
+        if let u = spec["script_url"] ?? spec["url"] ?? spec["path"] { flat["url"] = u }
+        for key in ["env", "timeout", "argument", "disabled"] {
+            if let x = spec[key] { flat[key] = x }
+        }
+        switch k {
+        case "http_request", "http_response":
+            var trig: [String: NCJSONValue] = [:]
+            if let m = spec["match"] { trig["patterns"] = .array([m]) }
+            if let b = spec["body_required"] ?? spec["requires_body"] { trig["requires_body"] = b }
+            if let d = spec["disabled"] { trig["disabled"] = d }
+            flat[k] = .object(trig)
+        case "schedule":
+            if let c = spec["cron"] { flat["schedule"] = c }
+        case "generic":
+            flat["widget"] = .bool(true)
+        case "network":
+            flat["network_changed"] = .bool(true)
+        default:
+            break
+        }
+        return flat
+    }
+
     func parseEgernScripting(_ item: NCJSONValue) {
-        guard let obj = item.object else {
+        guard let rawObj = item.object else {
             unsupported.append("egern scripting: \(item)")
             return
         }
+        let obj = Self.egernScriptingFlat(rawObj) ?? rawObj
         let name = obj["name"]?.string ?? ""
         let path = obj["url"]?.string ?? obj["path"]?.string ?? obj["script"]?.string ?? ""
         guard !path.isEmpty else {
@@ -2689,8 +2736,15 @@ extension NCEngineRuleset {
                 break
             }
         }
-        var consumed: Set<String> = ["name", "url", "path", "script", "timeout", "env", "argument"]
+        var consumed: Set<String> = ["name", "url", "path", "script", "timeout", "env", "argument", "disabled"]
         var imported = false
+        // feat/nc-egern-disabled-import (#169): `disabled: true` on the entry (or on one
+        // trigger object) — tasks keep their off state (disabledByLine, like a Surge /
+        // Loon line's enable=false), script rules follow the same-line convention and are
+        // not added. `handledDisabled` keeps a fully-disabled entry out of `unsupported`.
+        let itemDisabled = obj["disabled"]?.bool == true
+        var handledDisabled = false
+        let taskParams: [String: String]? = itemDisabled ? ["enabled": "false"] : nil
         let line = "egern scripting: \(name)"
         for (key, phase, type) in [("http_request", "request", "http-request"),
                                    ("http-request", "request", "http-request"),
@@ -2698,6 +2752,10 @@ extension NCEngineRuleset {
                                    ("http-response", "response", "http-response")] {
             guard let trig = obj[key] else { continue }
             consumed.insert(key)
+            if itemDisabled || trig.object?["disabled"]?.bool == true {
+                handledDisabled = true
+                continue
+            }
             var s2 = sc
             s2.type = type
             if let rb = trig.object?["requires_body"]?.bool ?? trig.object?["requires-body"]?.bool {
@@ -2722,7 +2780,7 @@ extension NCEngineRuleset {
                 continue
             }
             for c in crons {
-                addTask(kind: "cron", cron: c, event: "", sc: sc, source: "", line: line, format: "egern", params: nil)
+                addTask(kind: "cron", cron: c, event: "", sc: sc, source: "", line: line, format: "egern", params: taskParams)
             }
             imported = true
         }
@@ -2730,26 +2788,30 @@ extension NCEngineRuleset {
             guard let trig = obj[key] else { continue }
             consumed.insert(key)
             if trig.bool == false { continue }
-            addTask(kind: "event", cron: "", event: "network-changed", sc: sc, source: "", line: line, format: "egern", params: nil)
+            addTask(kind: "event", cron: "", event: "network-changed", sc: sc, source: "", line: line, format: "egern", params: taskParams)
             imported = true
         }
         if let trig = obj["widget"] {
             consumed.insert("widget")
             if trig.bool != false {
-                addTask(kind: "generic", cron: "", event: "", sc: sc, source: "", line: line, format: "egern", params: nil)
+                addTask(kind: "generic", cron: "", event: "", sc: sc, source: "", line: line, format: "egern", params: taskParams)
                 imported = true
             }
         }
         for (key, phase) in [("dns", "dns"), ("rule", "rule")] {
             guard obj[key] != nil else { continue }
             consumed.insert(key)
+            if itemDisabled {
+                handledDisabled = true
+                continue
+            }
             var s2 = sc
             s2.type = phase
             let pat = Self.egernPatterns(obj[key]!).first ?? ""
             addRule(line: line, NCEngineRule(kind: "script", phase: phase, pattern: pat, script: s2), nil)
             imported = true
         }
-        if !imported {
+        if !imported && !handledDisabled {
             unsupported.append("egern scripting: \(item)")
             return
         }

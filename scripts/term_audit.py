@@ -40,7 +40,7 @@ CANON = {
 }
 # Different concepts that share a Chinese word: the iOS VPN configuration, foreign client configs,
 # the generated runtime config, proxy-server name resolution.
-SKIP = re.compile(r"VPN 配置|Surge|Quantumult|QX|运行配置|未配置|proxy-server-nameserver|规则集 / 节点集缓存|一个 zip|MitM 即可重写")
+SKIP = re.compile(r"VPN 配置|Surge|Quantumult|QX|Egern|运行配置|未配置|proxy-server-nameserver|规则集 / 节点集缓存|一个 zip|MitM 即可重写")
 
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
