@@ -11,6 +11,9 @@ final class NCMMDB {
     private let ipVersion: Int
     private let treeSize: Int
     private let dataStart: Int
+    /// fix/nc-0.20.3-geoip: the node an IPv4 lookup starts from in an IPv6 tree — reached by 96 zero bits from the
+    /// root (`::a.b.c.d`, the MaxMind spec / libmaxminddb / Go maxminddb-golang `ipv4Start`). 0 for an IPv4 tree.
+    private var ipv4Start = 0
     public let buildEpoch: Double?
     public let databaseType: String?
 
@@ -40,38 +43,60 @@ final class NCMMDB {
         dataStart = treeSize + 16 // separator
         buildEpoch = m["build_epoch"]?.number ?? m["build_epoch"]?.int.map(Double.init)
         databaseType = m["database_type"]?.string
+        if ipVersion == 6 {
+            var node = 0
+            var depth = 0
+            while depth < 96, node < nodeCount {
+                node = readRecord(node: node, index: 0)
+                depth += 1
+            }
+            ipv4Start = node
+        }
     }
 
     /// Raw record for an IP, if any network covers it.
+    ///
+    /// fix/nc-0.20.3-geoip: IPv4 used to be walked as `::ffff:a.b.c.d` through the IPv6 tree. MaxMind's own GeoLite2
+    /// aliases ::ffff:0:0/96 onto the IPv4 subtree, so that worked there — but MetaCubeX `geoip.metadb` (Meta-geoip0)
+    /// has no such alias: every IPv4 lookup hit an empty node at bit 80 and returned nil, so `GEOIP,cn` never matched
+    /// and CN traffic fell through to the final (proxy) rule. IPv4 now starts at `ipv4Start` (the `::a.b.c.d`
+    /// subtree), exactly like libmaxminddb / maxminddb-golang, which Clash.Meta uses.
+    /// An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`, which NCIP keeps as .v6) is looked up as its IPv4 address, as
+    /// maxminddb-golang does (`ip.To4() != nil`).
     func lookup(_ ip: NCIP) -> NCJSONValue? {
-        let bits: [UInt8]
+        var bytes = ip.bytes
+        if bytes.count == 16, bytes[10] == 0xff, bytes[11] == 0xff, bytes[0..<10].allSatisfy({ $0 == 0 }) {
+            bytes = Array(bytes[12..<16])
+        }
+        var node: Int
         let bitCount: Int
-        switch ip {
-        case .v4:
-            if ipVersion == 6 {
-                bits = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff] + ip.bytes
-                bitCount = 128
-            } else {
-                bits = ip.bytes
-                bitCount = 32
-            }
-        case .v6:
+        switch bytes.count {
+        case 4:
+            node = ipv4Start
+            bitCount = 32
+        case 16:
             guard ipVersion == 6 else { return nil }
-            bits = ip.bytes
+            node = 0
             bitCount = 128
+        default:
+            return nil
         }
-        var node = 0
-        for i in 0..<bitCount {
-            let bit = (bits[i / 8] >> (7 - (i % 8))) & 1
-            node = readRecord(node: node, index: Int(bit))
-            if node > nodeCount {
-                let pointer = node - nodeCount - 16
-                var decoder = NCMMDBDecoder(data: data, offset: dataStart + pointer, dataStart: dataStart)
-                return decoder.decode()
-            }
+        var i = 0
+        while true {
+            if node > nodeCount { return record(at: node) }
             if node == nodeCount { return nil }
+            guard i < bitCount else { return nil }
+            let bit = (bytes[i >> 3] >> (7 - UInt8(i & 7))) & 1
+            node = readRecord(node: node, index: Int(bit))
+            i += 1
         }
-        return nil
+    }
+
+    private func record(at node: Int) -> NCJSONValue? {
+        let pointer = node - nodeCount - 16
+        guard pointer >= 0 else { return nil }
+        var decoder = NCMMDBDecoder(data: data, offset: dataStart + pointer, dataStart: dataStart)
+        return decoder.decode()
     }
 
     private func readRecord(node: Int, index: Int) -> Int {
