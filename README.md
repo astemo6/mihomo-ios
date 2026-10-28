@@ -127,7 +127,7 @@ NativeCore 出站协议（尚未接入的节点保留在配置中、显示为不
 | **OpenConnect**（新） | CSTP + **DTLS** 数据通道（DTLS 不通时回退 CSTP）、split-include / split-exclude 路由；不支持 OTP / 二次认证、ASA 旧式 DTLS |
 | **Sudoku**（新） | 与官方服务端 TCP 互通（握手、双向密钥轮换、自定义表）；不支持 UDP、HTTP 隧道模式（stream / poll / auto / ws）与 `multiplex: on` |
 | **TrustTunnel**（新） | HTTP/2 + **HTTP/3**，TCP + UDP；H3 连不上时回退 H2（`h2-fallback`，默认开） |
-| **MASQUE**（新） | CONNECT-UDP + **CONNECT-IP**（RFC 9484，TCP + UDP）+ **Cloudflare WARP**（cf-connect-ip，客户端证书 mTLS + 服务端公钥固定）；WARP 配置需用外部工具生成（App 内不做注册） |
+| **MASQUE**（新） | CONNECT-UDP + **CONNECT-IP**（RFC 9484，TCP + UDP）+ **Cloudflare WARP**（cf-connect-ip，客户端证书 mTLS + 服务端公钥固定）；WARP 设备可在 App 内一键注册（添加节点 → Cloudflare WARP），凭据存本机 Keychain，删除节点时自动注销设备 |
 | **Lua 自定义后端**（新） | Shadowrocket 风格 Lua 后端（精简 Lua 5.4） |
 
 **本机隧道（wloc，新，实验性）**：兼容 LocalDevVPN，把发往 `10.7.0.1`（可改）的包在隧道内反射回本机，供 wloc、StikDebug、SideStore 等工具使用，不经过规则与统计。默认关闭，入口「更多 → 高级设置 → 连接方式 → 本机隧道」，改后需重新连接；尚未经过真机验证。

@@ -181,7 +181,7 @@ struct NodeListView: View {
         .sheet(item: $editing, onDismiss: { Task { await model.reload() } }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
         .confirmationDialog("删除这个本地节点？", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                             titleVisibility: .visible, presenting: confirmDelete) { n in
-            Button("删除", role: .destructive) { Task { await model.delete(n) } }
+            Button("删除", role: .destructive) { Task { if let w = await model.delete(n) { message = w } } }
         } message: { n in Text(verbatim: n.name) }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
@@ -417,6 +417,8 @@ struct NodeDetailView: View {
     @State private var addingLocal = false
     @State private var addedLocal: AddedLocal?
     @State private var editingCopy: NodeEditTarget?
+    // WARP re-register
+    @State private var reregistering = false
 
     struct AddedLocal: Identifiable {
         let name: String
@@ -552,6 +554,19 @@ struct NodeDetailView: View {
                             do { try await model.duplicate(node); message = String(localized: "已复制一份") } catch { message = error.localizedDescription }
                         }
                     } label: { Label("复制一份", systemImage: "plus.square.on.square") }
+                    // WARP re-register: only for manual nodes that have a WARP account record.
+                    if node.type == "masque", WarpRegistration.account(nodeName: node.name) != nil {
+                        Button {
+                            Task { await reregisterWarpNode() }
+                        } label: {
+                            if reregistering {
+                                ProgressView()
+                            } else {
+                                Label { Text("重新注册", tableName: "WarpRegister") } icon: { Image(systemName: "arrow.clockwise") }
+                            }
+                        }
+                        .disabled(reregistering)
+                    }
                     Button(role: .destructive) { confirmDelete = true } label: { Label("删除", systemImage: "trash") }
                 }
                 if let p = editableProfile, let entry = profileEntry {
@@ -659,7 +674,7 @@ struct NodeDetailView: View {
         .onDisappear { hideSecrets() }
         .onChange(of: scenePhase) { phase in if phase != .active { hideSecrets() } }
         .confirmationDialog("删除这个本地节点？", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("删除", role: .destructive) { Task { await model.delete(node); dismiss() } }
+            Button("删除", role: .destructive) { Task { if let w = await model.delete(node) { message = w } else { dismiss() } } }
         }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
@@ -752,6 +767,22 @@ struct NodeDetailView: View {
             let name = try await model.addToLocal(node)
             let inRuntime = model.nodes.contains { $0.source.kind == .manual && $0.name == name && $0.inRuntime }
             addedLocal = AddedLocal(name: name, inRuntime: inRuntime)
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    /// Re-registers the WARP node (same name), replacing its keys and credentials.
+    func reregisterWarpNode() async {
+        reregistering = true
+        defer { reregistering = false }
+        do {
+            let warning = try await WarpNodeLifecycle.reregister(nodeName: node.name) { fields in
+                try await ProfileStore.shared.upsertManualNode(fields, oldName: node.name)
+            }
+            if let w = warning { message = w }
+            else { message = String(localized: "已重新注册，节点密钥已更新", table: "WarpRegister") }
+            await model.reload(force: true)
         } catch {
             message = error.localizedDescription
         }

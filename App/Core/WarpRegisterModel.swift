@@ -15,12 +15,16 @@ final class WarpRegisterModel: ObservableObject {
     @Published private(set) var phase: Phase = .idle
 
     /// Injected for tests / previews; the app uses the real API and ProfileStore.
-    var http: WarpRegistration.HTTP = WarpRegistration.urlSession
+    /// Defaults read from WarpNodeLifecycle so UI tests can override in one place.
+    var http: WarpRegistration.HTTP = WarpNodeLifecycle.http
     var existingNames: @MainActor () -> Set<String> = {
         Set(ProfileStore.shared.manualNodes().compactMap { $0["name"] as? String })
     }
     var save: @MainActor ([String: Any]) async throws -> Void = { try await ProfileStore.shared.upsertManualNode($0, oldName: nil) }
-    var credentials: WarpRegistration.CredentialStore = .keychain
+    var credentials: WarpRegistration.CredentialStore = WarpNodeLifecycle.credentials
+
+    /// The current registration task, for cancellation.
+    private var currentTask: Task<WarpRegistration.Node, Error>?
 
     var canRegister: Bool { acceptedTerms && phase != .working }
 
@@ -34,12 +38,21 @@ final class WarpRegisterModel: ObservableObject {
         return "\(base) \(i)"
     }
 
+    /// Cancels the ongoing registration. If a device was already registered, it will be unregistered.
+    func cancel() {
+        currentTask?.cancel()
+        currentTask = nil
+    }
+
     @discardableResult
     func register() async -> WarpRegistration.Node? {
         guard canRegister else { return nil }
         phase = .working
         let nodeName = Self.uniqueName(name, taken: existingNames())
-        do {
+        // The work runs in its own task so cancel() can stop it; a cancellation
+        // inside WarpRegistration.register unregisters a half-registered device
+        // (its PATCH failure path), and lands back here as CancellationError.
+        let task = Task { () throws -> WarpRegistration.Node in
             let node = try await WarpRegistration.register(name: nodeName, http: http)
             do {
                 try await save(node.proxyFields)
@@ -48,8 +61,17 @@ final class WarpRegisterModel: ObservableObject {
                 throw error
             }
             WarpRegistration.saveAccount(node.account, nodeName: node.name, store: credentials)
+            return node
+        }
+        currentTask = task
+        defer { currentTask = nil }
+        do {
+            let node = try await task.value
             phase = .done(node.name)
             return node
+        } catch is CancellationError {
+            phase = .idle
+            return nil
         } catch {
             phase = .failed(error.localizedDescription)
             return nil

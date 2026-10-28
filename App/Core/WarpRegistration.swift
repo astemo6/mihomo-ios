@@ -83,6 +83,9 @@ enum WarpRegistration {
             switch self {
             case .http(let step, let status, let body):
                 let tail = body.isEmpty ? "" : "：" + body
+                if status == 429 {
+                    return String(localized: "Cloudflare WARP 注册被限流（HTTP 429），请稍后重试", table: "WarpRegister") + tail
+                }
                 return String(localized: "Cloudflare WARP 注册失败（\(step) HTTP \(status)）\(tail)", table: "WarpRegister")
             case .transport(let why):
                 return String(localized: "无法连接 Cloudflare WARP 注册接口：\(why)", table: "WarpRegister")
@@ -129,6 +132,7 @@ enum WarpRegistration {
         let keys = keyPair ?? generateKeyPair()
         let enroll: Data
         do {
+            try Task.checkCancellation()
             enroll = try await send(enrollRequest(deviceID: account.id, token: account.token,
                                                   publicKeySPKI: keys.publicKeySPKI),
                                     step: "PATCH /reg", http: http, retries: 0)
@@ -137,6 +141,7 @@ enum WarpRegistration {
             throw error
         }
         do {
+            try Task.checkCancellation()
             return try parseEnrollResponse(enroll, name: name, privateKey: keys.privateKey, account: account)
         } catch {
             try? await unregister(account, http: http)

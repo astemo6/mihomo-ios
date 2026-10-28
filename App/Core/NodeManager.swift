@@ -554,10 +554,15 @@ final class NodeManagerModel: ObservableObject {
         return name
     }
 
-    func delete(_ n: ManagedNode) async {
-        guard let m = manualNode(n), let name = m["name"] as? String else { return }
+    /// Deletes a manual node. For WARP nodes, also cleans up the Cloudflare device registration.
+    /// - Returns: A warning message if WARP unregister failed (nil on success or non-WARP node).
+    @discardableResult
+    func delete(_ n: ManagedNode) async -> String? {
+        guard let m = manualNode(n), let name = m["name"] as? String else { return nil }
         await ProfileStore.shared.deleteManualNode(name)
+        let warning = await WarpNodeLifecycle.deleteCleanup(nodeName: name)
         await reload()
+        return warning
     }
 }
 
