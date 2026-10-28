@@ -100,6 +100,9 @@ targets:
       - path: PacketTunnel/NativeCore/NativeCoreEngine.swift
       - path: PacketTunnel/NativeCore/NCHealthCheck.swift
       - path: PacketTunnel/NativeCore/NCMemorySampler.swift
+      # fix/nc-0.20.3-diag: the MitM / script upstream connector, in the app only so UnitTests (NativeCoreLoopbackTests)
+      # drive the real MitM upstream path — rules → group → vmess+ws(+tls) node → origin — against the loopback fleet.
+      - path: PacketTunnel/NativeCore/NCUpstreamConnector.swift
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig

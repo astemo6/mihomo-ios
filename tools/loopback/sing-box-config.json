@@ -296,6 +296,29 @@
       "listen_port": 18018,
       "tag": "http-connect-in",
       "type": "http"
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18064,
+      "tag": "vmess-ws-tls-in",
+      "tls": {
+        "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "enabled": true,
+        "key_path": "__LOOPBACK_DIR__/key.pem",
+        "server_name": "localhost"
+      },
+      "transport": {
+        "path": "/vws",
+        "type": "ws"
+      },
+      "type": "vmess",
+      "users": [
+        {
+          "alterId": 0,
+          "name": "nc-loop",
+          "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811"
+        }
+      ]
     }
   ],
   "log": {

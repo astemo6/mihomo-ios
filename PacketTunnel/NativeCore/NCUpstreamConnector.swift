@@ -19,7 +19,9 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
     }()
 
     func open(host: String, port: Int, tls: Bool, completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
-        open(host: host, port: port, tls: tls, policy: nil, insecure: false, completion: completion)
+        // The MitM entry (NativeMitmRuntime installs the shared connector as its upstream): its route is logged.
+        open(host: host, port: port, tls: tls, policy: nil, insecure: false, alpn: ["http/1.1"], route: nil,
+             logRoute: true, completion: completion)
     }
 
     /// policy: an explicit proxy / group / DIRECT / REJECT name instead of the rule match ($httpClient `policy`);
@@ -37,10 +39,70 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
         open(host: host, port: port, tls: tls, policy: policy, insecure: insecure, alpn: alpn, route: nil, completion: completion)
     }
 
+    // MARK: fix/nc-0.20.3-diag — connection reuse, dial pacing, route log
+
+    /// Finished keep-alive upstream connections (route + origin key). 15 s: well inside common origin / CDN idle
+    /// timeouts, so a parked connection is rarely dead when taken; NativeMitmSession retries a request whose reused
+    /// connection fails before the response head. ≤ 2 per origin, ≤ 12 overall (memory first: each holds its relay).
+    static let idlePool = NCIdlePool<NCRelayUpstreamLease>(ttl: 15, maxPerKey: 2, maxTotal: 12,
+                                                       discard: { $0.closeNow() })
+    /// At most 4 dials in flight per proxy node; the rest queue (a decrypted app's launch burst no longer turns into
+    /// dozens of simultaneous TLS + ws upgrades against one CDN host).
+    static let dialGate = NCDialGate(limit: 4)
+    /// One more try for a transient proxied dial failure, after this pause (+ up to the same again, jittered).
+    static var retryDelay: TimeInterval = 0.4
+    /// Counters for 诊断 / the tests.
+    private static let statsLock = NSLock()
+    private static var _dials = 0, _reuses = 0, _retries = 0
+    static var stats: (dials: Int, reuses: Int, retries: Int) {
+        statsLock.lock(); defer { statsLock.unlock() }; return (_dials, _reuses, _retries)
+    }
+    private static func count(dial: Int = 0, reuse: Int = 0, retry: Int = 0) {
+        statsLock.lock(); _dials += dial; _reuses += reuse; _retries += retry; statsLock.unlock()
+    }
+    /// Route log: one line per host per minute ("[MITM] upstream host:port → rule … → policy (node)").
+    private static let routeLogLock = NSLock()
+    private static var routeLogged: [String: TimeInterval] = [:]
+    static func logRouteOnce(_ key: String, _ line: String, now: TimeInterval = Date().timeIntervalSince1970) {
+        routeLogLock.lock()
+        let last = routeLogged[key]
+        let fire = last == nil || now - last! >= 60
+        if fire {
+            if routeLogged.count > 256 { routeLogged.removeAll() }
+            routeLogged[key] = now
+        }
+        routeLogLock.unlock()
+        if fire { NCDiagLimiter.shared.line(line) }
+    }
+
+    /// "rule → policy (node chain)" for logs and error texts.
+    static func routeText(policy: String, rule: String, resolution: NCGroupEngine.Resolution) -> String {
+        let chain: String = switch resolution {
+        case .direct: "DIRECT"
+        case .reject: "REJECT"
+        case .proxy(let p): p.name
+        case .chain(let ps): ps.map { $0.name }.joined(separator: " -> ")
+        case .unknown(let n): n
+        }
+        let r = rule.isEmpty ? "" : "rule \(rule) → "
+        return policy == chain || policy.isEmpty ? r + chain : r + "\(policy) (\(chain))"
+    }
+
+    /// The node a resolution dials first (the dial gate's key); nil for DIRECT / REJECT.
+    static func gateKey(_ resolution: NCGroupEngine.Resolution) -> String? {
+        switch resolution {
+        case .proxy(let p): return "\(p.name)|\(p.server ?? "")|\(p.port ?? 0)"
+        case .chain(let ps): return ps.first.map { "\($0.name)|\($0.server ?? "")|\($0.port ?? 0)" }
+        default: return nil
+        }
+    }
+
     /// fix/nc-open-6-10 #9: `route` (when given) receives the rule / policy / chain this open used, for
     /// /app/stats (script requests). The routing itself is unchanged.
+    /// logRoute: the MitM paths — the chosen route goes to the core log (once per host per minute) and every dial
+    /// failure names the policy / node it went through.
     func open(host: String, port: Int, tls: Bool, policy: String?, insecure: Bool, alpn: [String], route: NCUpstreamRoute?,
-              completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
+              logRoute: Bool = false, completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
         let queue = Self.dialQueue
         let target = NCTarget(host: host, port: port)
 
@@ -71,6 +133,7 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
                 completion(.failure(UpstreamError.connectFailed("unknown policy: \(explicit)")))
                 return
             }
+            let via = Self.routeText(policy: policyName, rule: ruleText, resolution: resolution)
             if let route {
                 route.policy = policyName
                 route.rule = ruleText
@@ -82,8 +145,82 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
                 case .unknown(let n): n
                 }
             }
-            Self.dial(host: host, port: port, tls: tls, insecure: insecure, alpn: alpn, target: target,
-                      resolution: resolution, queue: queue, completion: completion)
+            if logRoute {
+                Self.logRouteOnce("\(host.lowercased()):\(port)", "[MITM] upstream \(host):\(port) → \(via)")
+            }
+            if case .reject = resolution {
+                completion(.failure(UpstreamError.proxyRefused(status: 403, reason: "rejected by rule")))
+                return
+            }
+            // Reuse a parked keep-alive connection of the same route to the same origin (same TLS / ALPN offer).
+            let key = Self.poolKey(host: host, port: port, tls: tls, insecure: insecure, alpn: alpn, via: via)
+            if let lease = Self.idlePool.take(key) {
+                lease.markReused()
+                Self.count(reuse: 1)
+                return completion(.success(lease))
+            }
+            let finish: (Result<MitmUpstreamLease, Error>) -> Void = { r in
+                if case .success(let l) = r, let rl = l as? NCRelayUpstreamLease { rl.poolKey = key }
+                if logRoute, case .failure(let e) = r {
+                    // the 502 line names the route: "connect failed: via 终极清单 (🇯🇵 node): handshake failed: …"
+                    if case UpstreamError.connectFailed(let s)? = e as? UpstreamError, !s.hasPrefix("via ") {
+                        return completion(.failure(UpstreamError.connectFailed("via \(via): \(s)")))
+                    }
+                }
+                completion(r)
+            }
+            guard let gate = Self.gateKey(resolution) else {
+                Self.count(dial: 1)
+                return Self.dial(host: host, port: port, tls: tls, insecure: insecure, alpn: alpn, target: target,
+                                 resolution: resolution, queue: queue, completion: finish)
+            }
+            Self.gatedDial(gate: gate, host: host, port: port, tls: tls, insecure: insecure, alpn: alpn, target: target,
+                           resolution: resolution, queue: queue, retry: true, completion: finish)
+        }
+    }
+
+    static func poolKey(host: String, port: Int, tls: Bool, insecure: Bool, alpn: [String], via: String) -> String {
+        "\(host.lowercased()):\(port)|\(tls ? "tls" : "tcp")|\(insecure ? "k" : "v")|\(alpn.joined(separator: ","))|\(via)"
+    }
+
+    /// A proxied dial through the node's gate; a transient failure (handshake / transport) is retried once after a
+    /// short jittered pause, outside the gate slot.
+    private static func gatedDial(gate: String, host: String, port: Int, tls: Bool, insecure: Bool, alpn: [String],
+                                  target: NCTarget, resolution: NCGroupEngine.Resolution, queue: DispatchQueue, retry: Bool,
+                                  completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
+        Self.dialGate.acquire(gate) {
+            queue.async {
+                Self.count(dial: 1)
+                Self.dial(host: host, port: port, tls: tls, insecure: insecure, alpn: alpn, target: target,
+                          resolution: resolution, queue: queue) { r in
+                    Self.dialGate.release(gate)
+                    if retry, case .failure(let e) = r, Self.isTransientUpstream(e) {
+                        Self.count(retry: 1)
+                        let pause = Self.retryDelay + Double.random(in: 0...max(0, Self.retryDelay))
+                        queue.asyncAfter(deadline: .now() + pause) {
+                            Self.gatedDial(gate: gate, host: host, port: port, tls: tls, insecure: insecure, alpn: alpn,
+                                           target: target, resolution: resolution, queue: queue, retry: false,
+                                           completion: completion)
+                        }
+                        return
+                    }
+                    completion(r)
+                }
+            }
+        }
+    }
+
+    /// Transport / handshake failures towards the proxy are worth one retry; a refusal by policy, an unknown policy
+    /// or an origin TLS failure (the origin, not the path, said no) is not.
+    static func isTransientUpstream(_ e: Error) -> Bool {
+        guard let u = e as? UpstreamError else { return true }
+        switch u {
+        case .connectFailed(let s):
+            if s.hasPrefix("upstream TLS:") || s.hasPrefix("unknown policy") { return false }
+            if s.hasPrefix("unsupported:") || s.contains("rejected by policy") { return false }
+            return true
+        case .timeout: return true
+        default: return false
         }
     }
 
@@ -114,7 +251,9 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
         // Proxy connection path via NCConnector:
         NCConnector.connect(target: target, resolution: resolution, queue: queue) { relayStream, err in
             guard let relayStream else {
-                completion(.failure(UpstreamError.connectFailed(err?.localizedDescription ?? "connector failed")))
+                let text: String
+                if let f = err as? NCConnector.Failure { text = f.description } else { text = err?.localizedDescription ?? "connector failed" }
+                completion(.failure(UpstreamError.connectFailed(text)))
                 return
             }
             guard tls else {
@@ -151,6 +290,13 @@ final class NCRelayUpstreamLease: MitmUpstreamLease {
     let stream: ByteStream
     /// Origin ALPN on the proxied TLS path (nil: plain, direct, or the origin sent none).
     var negotiatedALPN: String?
+    /// fix/nc-0.20.3-diag: the idle-pool key (route + origin) set by NCUpstreamConnector; nil = never pooled.
+    var poolKey: String?
+    private let lock = NSLock()
+    private var released = false
+    private var _reused = false
+    /// True when this lease was taken from the idle pool (it served a request before).
+    var wasReused: Bool { lock.lock(); defer { lock.unlock() }; return _reused }
 
     init(stream: NCStream, queue: DispatchQueue) {
         self.stream = NCStreamByteStream(stream: stream, queue: queue)
@@ -160,11 +306,23 @@ final class NCRelayUpstreamLease: MitmUpstreamLease {
         self.stream = NCRelayByteStream(relay: relay, queue: queue)
     }
 
-    /// There is no native pool behind this lease: a "reusable" connection was never reused and stayed open until
-    /// the origin closed it. Close it either way (memory first).
+    func markReused() { lock.lock(); _reused = true; released = false; lock.unlock() }
+
+    /// fix/nc-0.20.3-diag: a keep-alive connection (complete response, nothing pending) goes back to the idle pool
+    /// (was: always closed, so every MitM request dialed the proxy again). h2 connections are owned by their
+    /// H2Connection and never pooled here. Released twice → the second call is ignored.
     func release(reusable: Bool) {
+        lock.lock()
+        let first = !released
+        released = true
+        lock.unlock()
+        guard first else { return }
+        if reusable, negotiatedALPN != "h2", let key = poolKey, NCUpstreamConnector.idlePool.put(self, key: key) { return }
         stream.close()
     }
+
+    /// Pool eviction / shutdown.
+    func closeNow() { stream.close() }
 }
 
 final class NCStreamByteStream: ByteStream {

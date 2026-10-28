@@ -354,7 +354,7 @@ do_start() {
     # (hysteria2 / tuic / wireguard / masque) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
-    for p in 18001 18002 18003 18004 18005 18014 18015 18040 18060 18061 18062 18063 18080 18082 18016 18018 18013; do
+    for p in 18001 18002 18003 18004 18005 18014 18015 18040 18060 18061 18062 18063 18064 18080 18082 18016 18018 18013; do
         wait_tcp "$p"
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
@@ -363,7 +363,7 @@ do_start() {
     kill -0 "$(cat "$RUN/trusttunnel.pid")"
     start_hy2_ref_client "$sb"
     start_sudoku
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 echo :18080/:18081 blackhole :18082 dns :18084 lua :18016 http-connect :18018 tt :18013 masque :18012 sudoku :18090-:18094 http :18095"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 vmess-ws-tls :18064 echo :18080/:18081 blackhole :18082 dns :18084 lua :18016 http-connect :18018 tt :18013 masque :18012 sudoku :18090-:18094 http :18095"
 }
 
 # hy2-frag: sing-box's own hysteria2 client as a reference (socks :19080 -> hy2-in), probed by

@@ -126,6 +126,13 @@ protocol MitmUpstreamLease: AnyObject {
     var stream: ByteStream { get }
     /// Give it back: reusable true only after a complete, keep-alive response with nothing pending.
     func release(reusable: Bool)
+    /// fix/nc-0.20.3-diag: true when the connection came from a keep-alive pool (it served a request before) — a
+    /// failure before the response head is then the cue to retry once on a fresh connection.
+    var wasReused: Bool { get }
+}
+
+extension MitmUpstreamLease {
+    var wasReused: Bool { false }
 }
 
 /// The upstream lane: origin connections through the old relay (loopback CONNECT → Tern rules/proxies), TLS
