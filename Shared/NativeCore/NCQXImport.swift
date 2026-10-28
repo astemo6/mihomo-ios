@@ -258,6 +258,8 @@ enum NCQXImport {
             if let u = take("username") { fields["username"] = .string(u) }
             if let p = take("password") { fields["password"] = .string(p) }
             if let ot = take("over-tls"), NCConfImport.boolValue(ot) == true { fields["tls"] = .bool(true) }
+            // feat/nc-socks5-tls (#168): QX spells the TLS server name `tls-host`.
+            if let s = take("tls-host") ?? take("tls-name") ?? take("sni") { fields["sni"] = .string(s) }
         case "snell":
             if let p = take("psk") ?? take("password") { fields["password"] = .string(p) }
             if let v = take("version"), let n = Int(v) { fields["version"] = .number(Double(n)) }
