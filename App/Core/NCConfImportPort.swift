@@ -407,7 +407,9 @@ enum NCConfImportPort {
             }
             p["username"] = firstNonEmpty(kv["username"], p["username"] as? String)
             p["password"] = firstNonEmpty(kv["password"], p["password"] as? String)
-            if typ == "https" { setTLS() }
+            // feat/nc-socks5-tls (#168): `http` + `tls=true` is the same TLS proxy as `https`.
+            if typ == "https" || truthy(kv["tls"]) { setTLS() }
+            if p["tls"] as? Bool == true, let th = firstNonEmpty(kv["tls-hostname"], kv["tls-host"]), !th.isEmpty { p["sni"] = th }
         case "socks5", "socks5-tls":
             p["type"] = "socks5"
             if pos.count >= 5 {
@@ -417,7 +419,10 @@ enum NCConfImportPort {
             p["username"] = firstNonEmpty(kv["username"], p["username"] as? String)
             p["password"] = firstNonEmpty(kv["password"], p["password"] as? String)
             p["udp"] = udp
-            if typ == "socks5-tls" { setTLS() }
+            // feat/nc-socks5-tls (#168): the `socks5-tls` type or a plain `socks5` line with
+            // `tls=true`; the TLS server name rides in `tls-hostname` (Surge) / `tls-host`.
+            if typ == "socks5-tls" || truthy(kv["tls"]) { setTLS() }
+            if p["tls"] as? Bool == true, let th = firstNonEmpty(kv["tls-hostname"], kv["tls-host"]), !th.isEmpty { p["sni"] = th }
         case "hysteria2", "hy2":
             p["type"] = "hysteria2"
             p["password"] = firstNonEmpty(kv["password"], at(3))
