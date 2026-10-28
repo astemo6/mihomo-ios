@@ -516,7 +516,13 @@ final class NCResources {
     /// cancelled and no new one starts (they used to keep a worker blocked past it); a cancelled download is not
     /// recorded as a failure, so the next prepare tries it again. The build then reads whatever is cached and fetches
     /// nothing it already saw fail.
-    func prefetch(_ paths: [String], maxConcurrent: Int = 6, deadline: TimeInterval = 15) {
+    /// `blockFor`: how long the caller waits for the workers. Downloads keep running to the
+    /// `deadline` after the caller stops waiting (they only fill the cache; a resource that
+    /// lands late is picked up by the next prepare, exactly like one that failed). The VPN
+    /// start path passes a short grace so one hanging uncached resource cannot hold the
+    /// tunnel hostage for the full fetch timeout (device diag 2026-10-28: prefetch 13.4 s of
+    /// a 14 s start, for a single URL whose 10-minute failure TTL had just expired).
+    func prefetch(_ paths: [String], maxConcurrent: Int = 6, deadline: TimeInterval = 15, blockFor: TimeInterval? = nil) {
         var seen = Set<String>()
         var todo: [String] = []
         for p in paths where Self.isRemote(p) && seen.insert(p).inserted {
@@ -548,7 +554,11 @@ final class NCResources {
                 }
             }
         }
-        _ = group.wait(timeout: end + .milliseconds(200)) // workers return right after the deadline cancels them
+        if let blockFor, blockFor < deadline {
+            _ = group.wait(timeout: DispatchTime.now() + blockFor)
+        } else {
+            _ = group.wait(timeout: end + .milliseconds(200)) // workers return right after the deadline cancels them
+        }
     }
 
     /// One URLSession per QoS band, its delegate (completion) queue at that QoS, so a thread waiting on a download

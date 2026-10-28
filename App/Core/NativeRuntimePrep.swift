@@ -211,7 +211,10 @@ enum NativeRuntimePrep {
         res.fetchTimeout = prepFetchTimeout
         if let cfg, let rs, cfg.anyOn || cfg.mitm {
             let remote = remoteResources(rs)
-            res.prefetch(remote, maxConcurrent: 6, deadline: prepFetchTimeout + 2)
+            // Start path: only a short grace is synchronous — downloads keep filling the cache
+            // in the background afterwards. One hanging uncached resource must not delay the
+            // tunnel by the full fetch timeout (device diag 2026-10-28: 13.4 s prefetch).
+            res.prefetch(remote, maxConcurrent: 6, deadline: prepFetchTimeout + 2, blockFor: 3)
             timing?.lap("prefetch", "\(Set(remote).count) remote, fetched \(res.fetchedCount), failed \(res.failedCount), skipped \(res.skippedRecentFailure)")
         }
         let box = PrepState(rep: rep)
