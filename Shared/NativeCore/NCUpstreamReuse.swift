@@ -109,6 +109,13 @@ final class NCDialGate {
 
     init(limit: Int) { self.limit = limit }
 
+    /// The one per-node dial budget shared by every dial path (MitM upstream, plain TUN flows,
+    /// probes, health checks): they all contend for the same proxy edge, so separate gates would
+    /// each allow `limit` concurrent upgrades and the burst protection would not hold (device
+    /// diag 2026-10-28: plain flows still died with ws-upgrade 403s while only the MitM path
+    /// was gated).
+    static let sharedNodeGate = NCDialGate(limit: 4)
+
     func inFlight(_ key: String) -> Int { lock.lock(); defer { lock.unlock() }; return inFlight[key] ?? 0 }
     func waiting(_ key: String) -> Int { lock.lock(); defer { lock.unlock() }; return waiters[key]?.count ?? 0 }
 

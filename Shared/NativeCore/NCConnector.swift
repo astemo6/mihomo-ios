@@ -304,10 +304,55 @@ enum NCConnector {
 
     /// Opens a relay stream to `target` through the resolved outbound.
     /// Completion fires on `queue` exactly once.
+    /// fix/nc-dial-gate: proxied resolutions share the MitM upstream's per-node dial gate and
+    /// its one transient retry — a CDN edge refusing a burst of ws upgrades (HTTP 403)
+    /// otherwise kills whole app launches on the plain TUN path, which was never gated
+    /// (device diag 2026-10-28: www.google.com / clients3 / oauthaccountmanager died during a
+    /// YouTube launch while gated MitM-upstream flows went through).
     static func connect(target: NCTarget,
                         resolution: NCGroupEngine.Resolution,
                         queue: DispatchQueue,
                         completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        switch resolution {
+        case .proxy(let proxy):
+            gatedConnect(key: proxy.name, queue: queue, retry: true, { done in
+                connectViaProxy(target: target, proxy: proxy, queue: queue, completion: done)
+            }, completion: completion)
+        case .chain(let proxies):
+            gatedConnect(key: proxies.first?.name ?? "chain", queue: queue, retry: true, { done in
+                connectChain(target: target, proxies: proxies, queue: queue, completion: done)
+            }, completion: completion)
+        default:
+            connectUnpaced(target: target, resolution: resolution, queue: queue, completion: completion)
+        }
+    }
+
+    /// One gated attempt: acquire a per-node slot, run `body`, release, and on a transient
+    /// failure retry the whole attempt once after a short jittered pause (outside the slot).
+    private static func gatedConnect(key: String, queue: DispatchQueue, retry: Bool,
+                                     _ body: @escaping (@escaping (NCRelayStream?, Error?) -> Void) -> Void,
+                                     completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        NCDialGate.sharedNodeGate.acquire(key) {
+            body { relay, err in
+                NCDialGate.sharedNodeGate.release(key)
+                if retry, relay == nil, let err, NCUpstreamRetry.isTransient(err) {
+                    queue.asyncAfter(deadline: .now() + 0.4 + Double.random(in: 0...0.4)) {
+                        gatedConnect(key: key, queue: queue, retry: false, body, completion: completion)
+                    }
+                    return
+                }
+                completion(relay, err)
+            }
+        }
+    }
+
+    /// The ungated resolution entry. Callers that already pace and retry their dials
+    /// (NCUpstreamConnector.gatedDial) use this — acquiring the shared gate twice on the
+    /// same key would deadlock a burst.
+    static func connectUnpaced(target: NCTarget,
+                               resolution: NCGroupEngine.Resolution,
+                               queue: DispatchQueue,
+                               completion: @escaping (NCRelayStream?, Error?) -> Void) {
         switch resolution {
         case .direct:
             let s = NCStream(to: target.host, port: target.port, queue: queue)
