@@ -1564,6 +1564,11 @@ final class NCDataPlane {
             // silently dropping every further reply
             if !self.stack.udpSend(session: sid, payload) { self.udpGone(sid) }
         }
+        // fix/nc-udp-direct-ready: a direct session whose connection failed tears the whole
+        // session down, so the flow's next datagram re-opens instead of black-holing.
+        if let direct = session as? NCUDPDirectSession {
+            direct.onDead = { [weak self] in self?.udpGone(sid) }
+        }
         udpSessions[info.id] = entry
         for p in packets { countUDP(entry, up: p.count); session.send(p, to: target) }
     }

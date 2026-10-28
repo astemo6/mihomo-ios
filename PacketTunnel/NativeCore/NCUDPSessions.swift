@@ -14,8 +14,14 @@ protocol NCUDPSession: AnyObject {
 /// the data plane, so this stays one-to-one.
 final class NCUDPDirectSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
+    /// Set by the data plane: the connection died before/while serving — the plane tears the
+    /// session down so the flow's next datagram opens a fresh one instead of piling into a corpse.
+    var onDead: (() -> Void)?
     private let conn: NWConnection
     private var cancelled = false
+    private var ready = false
+    private var dead = false
+    private var outbox: [Data] = []
     private let label: String
     private var replies = 0
 
@@ -24,16 +30,23 @@ final class NCUDPDirectSession: NCUDPSession {
         label = "\(target.host):\(target.port)"
         conn = NWConnection(host: NWEndpoint.Host(target.host), port: port, using: NCOutboundBinding.params(.udp, host: target.host))
         conn.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+            guard let self, !self.cancelled else { return }
             switch state {
             case .ready:
+                // fix/nc-udp-direct-ready: datagrams are only handed to the connection once it
+                // is ready — the discipline the (working) DNS forwarder uses. The old code sent
+                // the first datagram the moment the session was created, while the connection
+                // was still preparing; on device every QUIC-first app's direct UDP sessions then
+                // returned exactly 0 B (builds 543-546) while the forwarder's send-on-ready
+                // exchanges on the same binding completed 93/93.
+                self.ready = true
+                let queued = self.outbox
+                self.outbox.removeAll()
+                for d in queued { self.conn.send(content: d, completion: .idempotent) }
                 self.receiveLoop()
             case .failed(let err):
-                // fix/nc-udp-close-log: a direct UDP session whose connection never became
-                // ready used to be invisible — sends queued silently, no reply ever arrived,
-                // and nothing anywhere logged why (device builds 543-546: QUIC sessions to
-                // bare IPs opened and returned exactly 0 B while TCP/DNS stayed healthy).
                 StartupLog.write("[UDP] direct \(self.label) connection failed: \(err)")
+                self.die()
             case .waiting(let err):
                 StartupLog.write("[UDP] direct \(self.label) connection waiting: \(err)")
             default:
@@ -41,6 +54,13 @@ final class NCUDPDirectSession: NCUDPSession {
             }
         }
         conn.start(queue: queue)
+    }
+
+    private func die() {
+        guard !dead else { return }
+        dead = true
+        outbox.removeAll()
+        onDead?()
     }
 
     private func receiveLoop() {
@@ -56,7 +76,12 @@ final class NCUDPDirectSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
-        conn.send(content: data, completion: .idempotent)
+        guard !cancelled, !dead else { return }
+        if ready {
+            conn.send(content: data, completion: .idempotent)
+        } else if outbox.count < 64 {
+            outbox.append(data)
+        }
     }
 
     func cancel() {
