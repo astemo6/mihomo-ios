@@ -139,14 +139,14 @@ final class NativeCoreSocksAddressTests: XCTestCase {
         var wire: [UInt8] = [0x03, 0xff]
         wire += [UInt8](repeating: 0x61, count: 255)
         wire += [0x01, 0xbb, 0xde, 0xad]
-        let parsed = NCShadowsocks2022.parseTarget(Data(wire))
+        let parsed = NCSS2022.parseTarget(Data(wire))
         XCTAssertEqual(parsed?.0.host, host(255))
         XCTAssertEqual(parsed?.0.port, 443)
         XCTAssertEqual(parsed?.1, 259)
         // Zero-length domain is not a target (was: parsed as an empty host).
-        XCTAssertNil(NCShadowsocks2022.parseTarget(Data([0x03, 0x00, 0x01, 0xbb])))
+        XCTAssertNil(NCSS2022.parseTarget(Data([0x03, 0x00, 0x01, 0xbb])))
         // Truncated 255-byte domain.
-        XCTAssertNil(NCShadowsocks2022.parseTarget(Data(wire[..<100])))
+        XCTAssertNil(NCSS2022.parseTarget(Data(wire[..<100])))
     }
 
     // MARK: Encoders — 255 encodes, 256 fails cleanly (no truncation, no trap)
@@ -247,7 +247,7 @@ final class NativeCoreSocksAddressTests: XCTestCase {
             if let (consumed, _) = NCSOCKS5.parseResponse(data) {
                 XCTAssertTrue(consumed <= data.count)
             }
-            if let (_, consumed) = NCShadowsocks2022.parseTarget(data) {
+            if let (_, consumed) = NCSS2022.parseTarget(data) {
                 XCTAssertTrue(consumed <= data.count)
             }
             _ = NCSudokuUoT.decodeAddress(data, 0..<data.count)
