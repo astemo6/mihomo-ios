@@ -48,7 +48,7 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
                                                        discard: { $0.closeNow() })
     /// At most 4 dials in flight per proxy node; the rest queue (a decrypted app's launch burst no longer turns into
     /// dozens of simultaneous TLS + ws upgrades against one CDN host).
-    static let dialGate = NCDialGate(limit: 4)
+    static let dialGate = NCDialGate.sharedNodeGate
     /// One more try for a transient proxied dial failure, after this pause (+ up to the same again, jittered).
     static var retryDelay: TimeInterval = 0.4
     /// Counters for 诊断 / the tests.
@@ -248,8 +248,9 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
             return
         }
 
-        // Proxy connection path via NCConnector:
-        NCConnector.connect(target: target, resolution: resolution, queue: queue) { relayStream, err in
+        // Proxy connection path via NCConnector (unpaced entry: this dial is already gated and
+        // retried by gatedDial above — gating again here would nest acquires on the same key).
+        NCConnector.connectUnpaced(target: target, resolution: resolution, queue: queue) { relayStream, err in
             guard let relayStream else {
                 let text: String
                 if let f = err as? NCConnector.Failure { text = f.description } else { text = err?.localizedDescription ?? "connector failed" }
