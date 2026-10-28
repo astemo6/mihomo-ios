@@ -617,6 +617,42 @@ final class NCResources {
         return ((home as NSString).appendingPathComponent("engine/scripts") as NSString).appendingPathComponent(cleanP)
     }
 
+    /// Prepare-path variant of get(): never blocks on the network. A remote path with no
+    /// cached copy throws (the caller marks that script bad for this session) and a
+    /// background fetch is kicked off so the next prepare has it — the same contract
+    /// prefetch gives rewrite resources. Device diag 2026-10-28 (build 543): the script
+    /// manifest build's serial get() calls spent 12.3 s of a 15.7 s prepare downloading
+    /// scripts one by one synchronously.
+    func getCachedOnly(path: String, maxAge: Int = 0) throws -> Data {
+        if !Self.isRemote(path) { return try get(path: path, maxAge: maxAge) }
+        lock.lock()
+        if let entry = memCache[path] {
+            lock.unlock()
+            refreshIfStale(path: path, maxAge: maxAge)
+            return entry.data
+        }
+        lock.unlock()
+        let cp = cachePath(path)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: cp),
+           let attrs = try? fm.attributesOfItem(atPath: cp),
+           let mtime = attrs[.modificationDate] as? Date,
+           let data = try? Data(contentsOf: URL(fileURLWithPath: cp)) {
+            if maxAge > 0 && Date().timeIntervalSince(mtime) > Double(maxAge) {
+                refreshIfStale(path: path, maxAge: maxAge)
+            }
+            if data.count < Self.memCacheMax {
+                lock.lock()
+                memCache[path] = (data, Date())
+                lock.unlock()
+            }
+            return data
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in _ = try? self?.fetch(path) }
+        throw NSError(domain: "NCResources", code: -3,
+                      userInfo: [NSLocalizedDescriptionKey: "脚本未缓存（已后台下载，下次启动生效）"])
+    }
+
     func get(path: String, maxAge: Int = 0) throws -> Data {
         if !Self.isRemote(path) {
             let fullPath = localPath(path)
