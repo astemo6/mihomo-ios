@@ -252,6 +252,12 @@ enum ImportTools {
         if isQXConf(t) {
             return "conf"
         }
+        // feat/nc-egern-disabled-import (#169): an Egern *configuration* (top-level
+        // proxies: / policy_groups:) converts through the config importer, not the
+        // module path — its disabled entries map onto the v0.20.2 mechanisms.
+        if NCEgernImport.isConfig(t) {
+            return "conf"
+        }
         if NCEngineRuleset.isEgern(t) {
             return "module:egern"
         }
