@@ -6,13 +6,19 @@ import Foundation
 /// profile doesn't carry one — this parser mirrors that injection so the
 /// native core behaves exactly like the old core on the same runtime.yaml).
 ///
-/// Defaults follow Clash.Meta: disabled unless enabled, parse-pure-ip off,
-/// override-destination on. force-domain / skip-domain use domain-trie
-/// semantics (`+.d` or bare `d` = d and its subdomains; `*` globs allowed).
+/// Defaults follow Clash.Meta: disabled unless enabled, override-destination
+/// on. parse-pure-ip defaults ON when the field is absent (an explicit false
+/// is honored): QX-style configs carry no such switch and QX always evaluates
+/// its filters with the SNI domain, and with the gate off every DOMAIN rule in
+/// every rule-set is silently dead for bare-IP flows (HTTPDNS apps — device
+/// 2026-10-28: Baidu Maps ads matched only the ad list's 28 IP-CIDR lines,
+/// its 2700+ host rules never saw a domain). force-domain / skip-domain use
+/// domain-trie semantics (`+.d` or bare `d` = d and its subdomains; `*` globs
+/// allowed).
 struct NCSnifferConfig: Equatable {
     var enable = false
     var overrideDestination = true
-    var parsePureIP = false
+    var parsePureIP = true
     var forceDNSMapping = false // parsed for completeness; the native DNS path always records mappings in fake-ip mode and in redir-host mode
     var forceDomain: [String] = []
     var skipDomain: [String] = []
@@ -24,7 +30,7 @@ struct NCSnifferConfig: Equatable {
     init(fields: [String: NCJSONValue]) {
         enable = fields["enable"]?.bool ?? false
         overrideDestination = fields["override-destination"]?.bool ?? true
-        parsePureIP = fields["parse-pure-ip"]?.bool ?? false
+        parsePureIP = fields["parse-pure-ip"]?.bool ?? true
         forceDNSMapping = fields["force-dns-mapping"]?.bool ?? false
         forceDomain = fields["force-domain"]?.array?.compactMap { $0.string } ?? []
         skipDomain = fields["skip-domain"]?.array?.compactMap { $0.string } ?? []
