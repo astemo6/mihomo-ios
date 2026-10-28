@@ -13,27 +13,39 @@
 #define LWIP_CALLBACK_API 1
 
 /* Memory — byte accounting in docs/nativecore-memory-budget.md (nc-memory audit).
-   Static total of heap + pools below is ≈540 KB. Per-connection TCP payload
-   (windows) is drawn from the shared heap/pool, not allocated per PCB. */
+   Static total of heap + pools below is ≈1.9 MB (fix/nc-stack-pool-capacity;
+   was ≈540 KB). Per-connection TCP payload (windows) is drawn from the shared
+   heap/pool, not allocated per PCB. */
 #define MEM_LIBC_MALLOC 0
 #define MEMP_MEM_MALLOC 0
 #define MEM_ALIGNMENT 8
-/* nc-memory: 384K → 320K (−64 KB). Heap consumers here are PBUF_RAM send copies
-   (bounded by TCP_SND_BUF per conn, back-pressured by the Swift outbox cap) and
-   small structs; 320K still holds ~13 full send windows concurrently. */
-#define MEM_SIZE (320 * 1024)
-#define MEMP_NUM_PBUF 96
-/* nc-memory: 96 → 80 (−16 × ~2.1 KB ≈ −33 KB of pool payload+headers). The pool
-   is shared by TUN + WireGuard netifs and all TCP/UDP payload; 80 × 2048 B =
-   160 KB of payload absorbs bursts of ~7 full receive windows. */
-#define PBUF_POOL_SIZE 80
+/* fix/nc-stack-pool-capacity: 320K → 1M (+704 KB). Heap consumers here are
+   PBUF_RAM send copies (bounded by TCP_SND_BUF per conn, back-pressured by the
+   Swift outbox cap) and small structs; 1M holds ~44 full send windows
+   concurrently. Device evidence (build 545, clean single-app sessions): the
+   old sizing starved app-launch bursts — a feed refresh opens 30–60 flows at
+   once, the pools below ran dry and the unlucky flows stalled past the apps'
+   image timeouts (Xiaohongshu covers blank, YouTube home skeleton) while the
+   same traffic completed instantly with the tunnel off. */
+#define MEM_SIZE (1024 * 1024)
+#define MEMP_NUM_PBUF 320
+/* fix/nc-stack-pool-capacity: 80 → 320 (× 2048 B = 640 KB of pool payload).
+   The pool is shared by TUN + WireGuard netifs and all TCP/UDP payload;
+   320 × 2048 B absorbs bursts of ~28 full receive windows (was ~7). */
+#define PBUF_POOL_SIZE 320
 #define PBUF_POOL_BUFSIZE 2048
-/* feat/nc-wg: +32 TCP / +16 UDP PCBs for WireGuard client flows (nc_wg.c), ~8 KB. */
-#define MEMP_NUM_TCP_PCB 128
+/* feat/nc-wg: +32 TCP / +16 UDP PCBs for WireGuard client flows (nc_wg.c), ~8 KB.
+   fix/nc-stack-pool-capacity: 128 → 384 — NC_MAX_TCP_CONNS (288) + listeners
+   (24) + TIME_WAIT churn headroom. */
+#define MEMP_NUM_TCP_PCB 384
 /* nc-memory: 48 → 24 (−24 × ~104 B ≈ −2.4 KB). Listening PCBs are one per
    listen port on the stack queue; nothing here opens dozens of listeners. */
 #define MEMP_NUM_TCP_PCB_LISTEN 24
-#define MEMP_NUM_TCP_SEG 128
+/* fix/nc-stack-pool-capacity: 128 → 1024. Segments are the tightest shared
+   pool under burst load: 128 across ~50 concurrent flows is 2–3 per flow, so
+   simultaneous downloads dropped/queued segments and crawled; 1024 gives a
+   50-flow burst ~20 per flow (a full window is 16). */
+#define MEMP_NUM_TCP_SEG 1024
 #define MEMP_NUM_UDP_PCB 64
 #define MEMP_NUM_RAW_PCB 8
 #define MEMP_NUM_NETBUF 0
