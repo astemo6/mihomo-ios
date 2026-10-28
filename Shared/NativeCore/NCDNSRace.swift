@@ -16,6 +16,9 @@ import Foundation
 /// What happened to each upstream a query tried — for the per-query failure log line. Bounded (≤ 6 parts).
 final class NCDNSAttemptTrace {
     private(set) var parts: [String] = []
+    /// Label of the upstream that produced the accepted answer (fix/nc-dns-log-lines: the
+    /// [DNS] resolve line the Home card and DNS log aggregate names the winner).
+    var winner: String?
     /// The core reloaded while this query was in flight and the query was re-sent on the new config.
     var retriedAfterReload = false
     func add(_ s: String) {

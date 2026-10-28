@@ -1169,6 +1169,8 @@ final class NCDataPlane {
         if info.dst.port == 53 {
             dnsQueries &+= 1
             if let reply = engine.dnsHostsReply(data) ?? engine.handleDNSQuery(data) {
+                // fix/nc-dns-log-lines: answered locally (hosts / fake-ip / cache) — the card's cache bucket.
+                dnsLogCacheHit(data)
                 // nc-script-runtime: registered type=dns scripts may rewrite the finished reply before
                 // it is written back (async, on the hook queue; fail-open). No dns scripts: direct send.
                 if engine.hasDNSScripts {
@@ -1220,6 +1222,7 @@ final class NCDataPlane {
         let deliver: (Data) -> Void = { [weak self] resp in
             guard let self else { return }
             self.dnsReplies &+= 1
+            self.dnsLogResolve(query, upstream: trace.winner ?? primary.label)
             if !self.loggedFirstDNSReply {
                 self.loggedFirstDNSReply = true
                 StartupLog.write("data plane: first upstream DNS reply delivered (\(resp.count) B)")
@@ -1294,22 +1297,43 @@ final class NCDataPlane {
         connLog(line, level: "warning")
     }
 
-    static func dnsFailureLine(_ query: Data, trace: NCDNSAttemptTrace) -> String {
+    /// (name, type) of a query's first question, as printed by every [DNS] line.
+    static func dnsNameType(_ query: Data) -> (name: String, type: String) {
         let q = NCDNSMessage.parse(query)?.questions.first
-        let name = q?.name ?? "?"
         let t = q?.type ?? 0
-        let type: String
         switch t {
-        case 1: type = "A"
-        case 28: type = "AAAA"
-        case 65: type = "HTTPS"
-        case 5: type = "CNAME"
-        case 12: type = "PTR"
-        case 16: type = "TXT"
-        case 33: type = "SRV"
-        default: type = q == nil ? "?" : "type \(t)"
+        case 1: return (q?.name ?? "?", "A")
+        case 28: return (q?.name ?? "?", "AAAA")
+        case 65: return (q?.name ?? "?", "HTTPS")
+        case 5: return (q?.name ?? "?", "CNAME")
+        case 12: return (q?.name ?? "?", "PTR")
+        case 16: return (q?.name ?? "?", "TXT")
+        case 33: return (q?.name ?? "?", "SRV")
+        default: return (q?.name ?? "?", q == nil ? "?" : "type \(t)")
         }
-        return "[DNS] \(name) \(type) failed (SERVFAIL to client): \(trace.summary)"
+    }
+
+    /// fix/nc-dns-log-lines: the failure line takes the canonical "[DNS] resolve … error:"
+    /// stem the Home DNS card / DNS log parse (the old "(SERVFAIL to client)" wording matched
+    /// nothing, so failures were invisible there too); the attempt trace stays as the detail.
+    static func dnsFailureLine(_ query: Data, trace: NCDNSAttemptTrace) -> String {
+        let (name, type) = dnsNameType(query)
+        return "[DNS] resolve \(name) \(type) error: \(trace.summary)"
+    }
+
+    /// One canonical DNS line into the controller log ring — what the Home DNS card and the
+    /// DNS log page aggregate (they were built for the old core's line formats, which the
+    /// native core never emitted: both stayed permanently empty while DNS itself worked).
+    /// Written straight to the ring, not through the 20/s flow-diagnostics limiter: natural
+    /// query rates are the same order as the connection lines the ring already rolls through.
+    private func dnsLogResolve(_ query: Data, upstream: String) {
+        let (name, type) = Self.dnsNameType(query)
+        NativeLogRing.shared.add(type: "info", payload: "[DNS] resolve \(name) \(type) from \(upstream)")
+    }
+
+    private func dnsLogCacheHit(_ query: Data) {
+        let (name, type) = Self.dnsNameType(query)
+        NativeLogRing.shared.add(type: "info", payload: "[DNS] cache hit \(name) \(type)")
     }
 
     /// fix/nc-tcp0: every upstream failed — answer SERVFAIL (Clash.Meta's DNS server does) instead of dropping the query;

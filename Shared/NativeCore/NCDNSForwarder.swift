@@ -143,6 +143,7 @@ final class NCDNSForwarder {
                     let ms = Int((DispatchTime.now().uptimeNanoseconds &- t0.uptimeNanoseconds) / 1_000_000)
                     if resp == nil { trace.add("\(upstream.label) no answer \(ms) ms") }
                     else if let r = resp, !NCDNSRace.isUsable(r) { trace.add("\(upstream.label) rcode \(NCDNSRace.rcode(r)) \(ms) ms") }
+                    else { trace.winner = upstream.label }
                 }
                 completion(resp)
             })
@@ -191,6 +192,7 @@ final class NCDNSForwarder {
             guard let self else { done(nil); return nil }
             return self.dispatchOnce(query, upstream: u, completion: done)
         }, completion: { resp, winner in
+            if let winner, resp != nil { trace?.winner = list[winner].label }
             if let winner, winner != start {
                 Self.groupLock.lock()
                 if Self.groupLastGood.count > 64 { Self.groupLastGood.removeAll() }
