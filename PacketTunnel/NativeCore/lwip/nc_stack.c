@@ -66,7 +66,12 @@ u32_t sys_now(void) {
    destinations; it must not exceed lwIP's listen-PCB pool or tcp_listen fails before the table ever evicts. */
 #define NC_MAX_LISTENERS 24
 #define NC_MAX_UDP_SESSIONS 64
-#define NC_MAX_TCP_CONNS 96
+/* fix/nc-stack-pool-capacity: 96 → 288. At 96 the accept callback aborted
+   burst connections outright (conn_full fired 14–23× in 12–15 s clean
+   single-app device sessions, 2460× in a full-config session): apps whose
+   connect() is aborted mid-burst show dead content while neighbours survive.
+   288 + 24 listeners stays under MEMP_NUM_TCP_PCB (384) with TIME_WAIT room. */
+#define NC_MAX_TCP_CONNS 288
 #define NC_UDP_IDLE_MS (120 * 1000)
 #define NC_LISTENER_IDLE_MS (300 * 1000)
 
