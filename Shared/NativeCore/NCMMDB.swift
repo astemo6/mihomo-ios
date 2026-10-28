@@ -61,19 +61,25 @@ final class NCMMDB {
     /// has no such alias: every IPv4 lookup hit an empty node at bit 80 and returned nil, so `GEOIP,cn` never matched
     /// and CN traffic fell through to the final (proxy) rule. IPv4 now starts at `ipv4Start` (the `::a.b.c.d`
     /// subtree), exactly like libmaxminddb / maxminddb-golang, which Clash.Meta uses.
+    /// An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`, which NCIP keeps as .v6) is looked up as its IPv4 address, as
+    /// maxminddb-golang does (`ip.To4() != nil`).
     func lookup(_ ip: NCIP) -> NCJSONValue? {
-        let bytes = ip.bytes
+        var bytes = ip.bytes
+        if bytes.count == 16, bytes[10] == 0xff, bytes[11] == 0xff, bytes[0..<10].allSatisfy({ $0 == 0 }) {
+            bytes = Array(bytes[12..<16])
+        }
         var node: Int
         let bitCount: Int
-        switch ip {
-        case .v4:
-            guard bytes.count == 4 else { return nil }
+        switch bytes.count {
+        case 4:
             node = ipv4Start
             bitCount = 32
-        case .v6:
-            guard ipVersion == 6, bytes.count == 16 else { return nil }
+        case 16:
+            guard ipVersion == 6 else { return nil }
             node = 0
             bitCount = 128
+        default:
+            return nil
         }
         var i = 0
         while true {

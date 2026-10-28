@@ -61,7 +61,7 @@ final class NativeCoreGeoIPLookupTests: XCTestCase {
         XCTAssertEqual(db.countryCodes(for: try ip("1.1.1.1")), ["cn"])
         XCTAssertEqual(db.countryCodes(for: try ip("180.163.0.1")), ["us"])
         XCTAssertEqual(db.countryCode(for: try ip("8.8.8.8")), "cn")
-        // IPv4-mapped IPv6 text normalizes to IPv4 and takes the same subtree.
+        // IPv4-mapped IPv6 (NCIP keeps it as .v6) takes the IPv4 subtree too.
         XCTAssertEqual(db.countryCodes(for: try ip("::ffff:58.218.0.1")), ["cn"])
         // Real IPv6 still walks from the root.
         XCTAssertEqual(db.countryCodes(for: try ip("8000::1")), ["jp"])
