@@ -59,7 +59,7 @@ final class WarpLifecycleTests: XCTestCase {
         return Data("""
         {"id":"t.new","key":"MFkw","key_type":"secp256r1","tunnel_type":"masque","account":{"account_type":"free"},
          "config":{"client_id":"AAAA","peers":[{"public_key":"\(pk)","endpoint":{"v4":"162.159.198.2:0","v6":"[2606:4700:103::2]:0",
-          "host":"engage.cloudflareclient.com:2408","ports":[443,500,1701,4500]}],
+          "host":"engage.cloudflareclient.com:2408","ports":[443,500,1701,4500]}}],
           "interface":{"addresses":{"v4":"172.16.0.2","v6":"2606:4700:110:8a36::2"}},
           "services":{"http_proxy":"172.16.0.1:2480"}},
          "policy":{"tunnel_protocol":"masque"}}
