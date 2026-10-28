@@ -187,7 +187,6 @@ final class NativeScriptResponse {
         contentLength = cl
         upstreamLength = cl
         mrNoBody = req.method == "HEAD" || st == 204 || st == 304
-        let flowNoBody = mrNoBody || (100..<200).contains(st)
         if st == 101 {
             // modifyResponse returns at once: no rule runs
             return .done(ScriptResponseOutput(action: .upgrade, status: 101, headers: h.sortedPairs, bodyMode: .upstream, length: -1,
@@ -197,7 +196,12 @@ final class NativeScriptResponse {
         header = h
         if let why = Self.unsupported(steps, nativeOnly: true) { return .handBack(why) }
         if needsBody {
-            if !(flowNoBody || cl == 0) && cl < 0 { return .handBack("body length unknown") }
+            // An unknown length (chunked / no Content-Length) is NOT a hand-back: the load machinery is
+            // built for it — bodyAdmit budgets length -1, the store caps raw bytes as they are pushed, and
+            // an over-cap load ends as a raw pass-through. Handing back here silently disabled every
+            // response script whose API answers chunked (device 2026-10-28, build 545 diagnostics:
+            // ximalaya baseInfo, xiaohongshu config / homefeed, youtube get_watch all handed back
+            // "body length unknown", so no script ever ran). QX buffers such bodies for scripts.
             if !Self.encodingOK(header.get("Content-Encoding")) { return .handBack("content-encoding") }
         }
         token = hostAPI.token()
@@ -304,6 +308,14 @@ final class NativeScriptResponse {
     func write(_ data: Data) -> FlowWriteResult {
         guard loadH > 0, !finished else { return .stop }
         if loadFailure != nil {
+            // The load already failed (over cap / decode error): the raw bytes are kept only so the
+            // response can still be served whole (rawPass). That buffer must stay bounded — past the
+            // cap a script flow must not swallow an unbounded unknown-length stream into tunnel
+            // memory. .stop ends the push; the buffered prefix is what gets served (an over-cap body
+            // with a script attached is the only case that can truncate, and it beats OOM-killing the
+            // tunnel). Reachable in practice only for unknown-length bodies: a known over-limit
+            // Content-Length is refused up front by bodyAdmit and never pushed.
+            if Int64(rawTail.count) > cap { return .stop }
             rawTail.append(data)
             return .taken
         }
