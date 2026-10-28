@@ -1007,8 +1007,30 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     /// the old core takes the response over: its request phase runs again (no script ran yet, so nothing is repeated; it
     /// decides the same forward), then FlowResponse with the upstream's head. Every later call for id goes to it.
+    /// Hand-backs relay the response with NO script run and, unlike skips / errors, left no
+    /// trace anywhere (counters only) — a module script that never fired was undiagnosable from
+    /// device logs (2026-10-28: every other junction probed clean in unit tests, and the [SCRIPT]
+    /// diag lines go through the shared 20/s limiter that launch bursts saturate). One
+    /// startup-log line per (reason, host) per minute: the startup log is not rate-limited
+    /// and is part of every diagnostics export.
+    private static var handBackLogAt: [String: TimeInterval] = [:]
+    private static let handBackLogLock = NSLock()
+    private static func logHandBack(why: String, url: String) {
+        let host = URL(string: url)?.host ?? url
+        let key = why + "|" + host
+        let now = Date().timeIntervalSince1970
+        handBackLogLock.lock()
+        let last = handBackLogAt[key] ?? 0
+        if now - last >= 60 { handBackLogAt[key] = now }
+        handBackLogLock.unlock()
+        if now - last >= 60 {
+            StartupLog.write("[SCRIPT] hand-back (\(why)) \(url)")
+        }
+    }
+
     private func handBack(_ id: Int64, _ sf: ScriptFlow, head: HTTPResponseHead, length: Int64, why: String) -> FlowDecision {
         countScript(handedBack: why)
+        Self.logHandBack(why: why, url: sf.plan.url)
         let d = innerBegin(sf.head, sf.conn, gen: sf.engine.generation, scripted: sf.scripted, clientBody: sf.clientBody, alreadySent: true)
         guard d.action == .forward, d.id > 0 else {
             if d.id > 0 { inner.cancel(d.id, why: "native hand-back") }
