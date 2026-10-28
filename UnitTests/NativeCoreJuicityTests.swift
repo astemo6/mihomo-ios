@@ -16,25 +16,25 @@ final class NativeCoreJuicityTests: XCTestCase {
         XCTAssertNil(NCJuicityWire.uuidBytes("00112233-4455-6677-8899-aabbccddeezz"))
     }
 
-    func testRequestHeaders() {
+    func testRequestHeaders() throws {
         let v4 = NCTarget(host: "1.2.3.4", port: 443)
-        XCTAssertEqual(hex(NCJuicityWire.tcpRequestHeader(target: v4)), "010101020304" + "01bb")
-        XCTAssertEqual(hex(NCJuicityWire.udpRequestHeader(target: v4)), "030101020304" + "01bb")
+        XCTAssertEqual(hex(try XCTUnwrap(NCJuicityWire.tcpRequestHeader(target: v4))), "010101020304" + "01bb")
+        XCTAssertEqual(hex(try XCTUnwrap(NCJuicityWire.udpRequestHeader(target: v4))), "030101020304" + "01bb")
         let dom = NCTarget(host: "a.io", port: 53)
-        XCTAssertEqual(hex(NCJuicityWire.tcpRequestHeader(target: dom)), "0103" + "04" + "612e696f" + "0035")
+        XCTAssertEqual(hex(try XCTUnwrap(NCJuicityWire.tcpRequestHeader(target: dom))), "0103" + "04" + "612e696f" + "0035")
         let v6 = NCTarget(host: "::1", port: 80)
-        XCTAssertEqual(hex(NCJuicityWire.udpRequestHeader(target: v6)),
+        XCTAssertEqual(hex(try XCTUnwrap(NCJuicityWire.udpRequestHeader(target: v6))),
                        "0304" + "00000000000000000000000000000001" + "0050")
     }
 
-    func testUDPFrameRoundTripAndPartial() {
+    func testUDPFrameRoundTripAndPartial() throws {
         let t = NCTarget(host: "8.8.8.8", port: 53)
         let payload = Data([0xde, 0xad, 0xbe, 0xef])
-        let frame = NCJuicityWire.sealUDPPacket(target: t, payload: payload)
+        let frame = try XCTUnwrap(NCJuicityWire.sealUDPPacket(target: t, payload: payload))
         XCTAssertEqual(hex(frame), "01080808080035" + "0004" + "deadbeef")
         // Two frames back to back, second one cut short: the first parses, the second waits for more bytes.
         var buf = frame
-        buf.append(NCJuicityWire.sealUDPPacket(target: NCTarget(host: "x.y", port: 1), payload: Data([1, 2, 3])))
+        buf.append(try XCTUnwrap(NCJuicityWire.sealUDPPacket(target: NCTarget(host: "x.y", port: 1), payload: Data([1, 2, 3]))))
         let first = NCJuicityWire.unsealUDPPacket(buf)
         XCTAssertEqual(first?.payload, payload)
         XCTAssertEqual(first?.consumed, frame.count)

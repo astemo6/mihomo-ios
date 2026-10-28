@@ -242,8 +242,13 @@ final class NCAnyTLSStream: NCRelayStream {
             if self.failure != nil || self.cancelled { once.call(); return } // dead stream: drop, but never hang the caller
             var payload = data
             if let target = self.target, !self.targetWritten {
+                guard let addr = target.atypEncoded else {
+                    once.call()
+                    self.failLocal("anytls target cannot be encoded")
+                    return
+                }
                 self.targetWritten = true
-                var first = target.atypEncoded
+                var first = addr
                 first.append(data)
                 payload = first
             }

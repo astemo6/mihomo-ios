@@ -96,14 +96,20 @@ enum NCAnyTLS {
 enum NCUoT {
     static let magicTarget = NCTarget(host: "sp.v2.udp-over-tcp.arpa", port: 0)
 
-    static func request(destination: NCTarget) -> Data {
+    static func request(destination: NCTarget) -> Data? {
+        guard let addr = destination.atypEncoded else { return nil }
         var out = Data()
         out.append(0x00) // isConnect = false
-        out.append(destination.atypEncoded)
+        out.append(addr)
         return out
     }
 
-    static func packet(target: NCTarget, payload: Data) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target — the
+    /// domain length goes into a u8, so a >255-byte host used to trap here
+    /// (`UInt8(host.count)`); the UDP path never passed an isWireEncodable
+    /// check. Callers drop the datagram on nil.
+    static func packet(target: NCTarget, payload: Data) -> Data? {
+        guard target.isWireEncodable else { return nil }
         var out = Data()
         if let ip = target.ip {
             switch ip {

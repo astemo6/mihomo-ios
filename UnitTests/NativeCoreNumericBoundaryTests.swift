@@ -103,12 +103,15 @@ final class NativeCoreNumericBoundaryTests: XCTestCase {
         XCTAssertGreaterThan(hello.count, 0)
     }
 
+    /// fix/nc-socks-domain-len (#170): an over-long host used to be truncated
+    /// to 255 bytes and sent anyway; the encoders now fail cleanly (nil).
     func testSnellHeadersCapHostLength() {
         let long = String(repeating: "a", count: 300)
-        let udp = NCSnell.udpFrame(target: NCTarget(host: long, port: 70_000), payload: Data())
-        XCTAssertEqual(udp[1], 255)
-        let tcp = NCSnell.connectHeader(host: long, port: 443, version: 2)
-        XCTAssertEqual(tcp[3], 255)
+        XCTAssertNil(NCSnell.udpFrame(target: NCTarget(host: long, port: 70_000), payload: Data()))
+        XCTAssertNil(NCSnell.connectHeader(host: long, port: 443, version: 2))
+        // A 255-byte host still encodes, with length byte 255.
+        let max = String(repeating: "a", count: 255)
+        XCTAssertEqual(NCSnell.connectHeader(host: max, port: 443, version: 2)?[3], 255)
     }
 
     // MARK: Downloaded files: MaxMind DB, MRS rule sets

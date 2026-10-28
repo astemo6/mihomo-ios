@@ -34,13 +34,13 @@ final class NativeCoreAnyTLSTests: XCTestCase {
         XCTAssertEqual(frames[1].data, Data("hello".utf8))
     }
 
-    func testUoTPackets() {
-        let req = NCUoT.request(destination: NCTarget(host: "dns.example", port: 53))
+    func testUoTPackets() throws {
+        let req = try XCTUnwrap(NCUoT.request(destination: NCTarget(host: "dns.example", port: 53)))
         XCTAssertEqual(req[0], 0)
         XCTAssertEqual(Data(req.dropFirst(1)), NCTarget(host: "dns.example", port: 53).atypEncoded)
         XCTAssertEqual(NCUoT.magicTarget.host, "sp.v2.udp-over-tcp.arpa")
 
-        let packet = NCUoT.packet(target: NCTarget(host: "8.8.8.8", port: 53), payload: Data("q".utf8))
+        let packet = try XCTUnwrap(NCUoT.packet(target: NCTarget(host: "8.8.8.8", port: 53), payload: Data("q".utf8)))
         XCTAssertEqual(packet[0], 0x00) // uot family byte: v4
         let parsed = NCUoT.parsePacket(packet + Data([0xff]))
         XCTAssertEqual(parsed?.0, NCTarget(host: "8.8.8.8", port: 53))

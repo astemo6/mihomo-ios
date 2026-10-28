@@ -26,13 +26,13 @@ enum NCTUICUDP {
         var data: Data
     }
 
-    static func address(_ t: NCTarget) -> Data { NCTUICWire.address(t) }
+    static func address(_ t: NCTarget) -> Data? { NCTUICWire.address(t) }
 
     /// Packet commands for one datagram, already fragmented for v5 native mode (`fragPayload` = max data bytes of
     /// the first fragment; later fragments use the same size).
     static func encode(version: Int, assoc: UInt16, pktID: UInt16, target: NCTarget, payload: Data,
                        fragPayload: Int?) -> [Data] {
-        let addr = address(target)
+        guard let addr = address(target) else { return [] }
         if version == 4 {
             var d = Data([4, 2])
             d.appendBE32(UInt32(assoc))
@@ -203,7 +203,8 @@ extension NCTUICConnection {
         let pktID = UInt16.random(in: 0...0xffff)
         if udpNative {
             // Fragment payload room: max datagram frame minus header (the first fragment carries the address).
-            let addrLen = NCTUICUDP.address(target).count
+            guard let tuicAddr = NCTUICUDP.address(target) else { return }
+            let addrLen = tuicAddr.count
             let header = 2 + 2 + 2 + 2 + 2 + addrLen
             let frames = NCTUICUDP.encode(version: tuicVersion, assoc: assoc, pktID: pktID, target: target,
                                           payload: payload, fragPayload: max(64, min(udpMaxPacket, 1200 - 3 - header)))

@@ -69,7 +69,7 @@ final class NCSSRelayStream: NCRelayStream {
         self.raw = raw
         self.encoder = encoder
         self.decoder = decoder
-        if let head = encoder.encode(target.atypEncoded) {
+        if let addr = target.atypEncoded, let head = encoder.encode(addr) {
             raw.send(head)
         }
     }
@@ -182,7 +182,8 @@ final class NCSnellStreamRelay: NCRelayStream {
         self.raw = raw
         encoder = NCSnellStreamEncoder(psk: psk, version: version)
         decoder = NCSnellStreamDecoder(psk: psk, version: version)
-        if let wire = encoder.encode(NCSnell.connectHeader(host: target.host, port: target.port, version: version)) {
+        if let head = NCSnell.connectHeader(host: target.host, port: target.port, version: version),
+           let wire = encoder.encode(head) {
             raw.send(wire)
         }
     }
@@ -230,7 +231,8 @@ final class NCSnellV4Relay: NCRelayStream {
         self.raw = raw
         writer = NCSnellV4Writer(psk: psk)
         reader = NCSnellV4Reader(psk: psk)
-        if let wire = writer.write(NCSnell.connectHeader(host: target.host, port: target.port, version: 4)) {
+        if let head = NCSnell.connectHeader(host: target.host, port: target.port, version: 4),
+           let wire = writer.write(head) {
             raw.send(wire)
         }
     }
@@ -629,7 +631,10 @@ enum NCConnector {
                     guard let base else { completion(nil, err); return }
                     xhttpStream(raw: base, proxy: proxy, queue: queue) { x, xerr in
                         guard let x else { completion(nil, xerr); return }
-                        x.send(NCTrojan.requestHead(password: password, target: target))
+                        guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                            completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                        }
+                        x.send(head)
                         completion(x, nil)
                     }
                 }
@@ -655,7 +660,10 @@ enum NCConnector {
                 // fix/nc-silent-fail: trojan-go ws / trojan-grpc / h2 — the transport carries the Trojan head.
                 trojanTransportBase(proxy: proxy, server: server, port: port, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
-                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                        completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                    }
+                    base.send(head)
                     completion(base, nil)
                 }
                 return
@@ -663,7 +671,10 @@ enum NCConnector {
             if realityParams(proxy) != nil {
                 dialReality(proxy: proxy, server: server, port: port, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
-                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                        completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                    }
+                    base.send(head)
                     completion(base, nil)
                 }
                 return
@@ -672,7 +683,10 @@ enum NCConnector {
             if needsNativeTLS(proxy) {
                 dialNativeTLS(proxy: proxy, server: server, port: port, serverName: trojanSNI, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
-                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                        completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                    }
+                    base.send(head)
                     completion(base, nil)
                 }
                 return
@@ -683,7 +697,10 @@ enum NCConnector {
                                queue: queue)
             raw.start { err in
                 guard err == nil else { completion(nil, err); return }
-                raw.send(NCTrojan.requestHead(password: password, target: target))
+                guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                    completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                }
+                raw.send(head)
                 completion(raw, nil)
             }
         case "vless":
@@ -1758,9 +1775,12 @@ enum NCConnector {
             let option: UInt8 = security == NCVMess.securityNone ? 0
                 : NCVMess.optionChunkStream | NCVMess.optionChunkMasking
             let paddingCount = Int(randomData(1)[0]) % 16
-            let plain = NCVMess.plainHeader(reqNonce: reqNonce, reqKey: reqKey, respV: respV,
-                                            option: option, security: security,
-                                            padding: randomData(paddingCount), target: target)
+            guard let plain = NCVMess.plainHeader(reqNonce: reqNonce, reqKey: reqKey, respV: respV,
+                                                  option: option, security: security,
+                                                  padding: randomData(paddingCount), target: target) else {
+                completion(nil, Failure.handshake("vmess target cannot be encoded"))
+                return
+            }
             let sealed = NCVMess.sealHeader(cmdKey: NCVMess.cmdKey(uuidBytes: uuidBytes),
                                             plainHeader: plain,
                                             time: Int64(Date().timeIntervalSince1970),
@@ -1824,7 +1844,11 @@ enum NCConnector {
 
     private static func socksRequest(raw: NCRelayStream, target: NCTarget, buf: NCByteBuffer,
                                      completion: @escaping (NCRelayStream?, Error?) -> Void) {
-        raw.send(NCSOCKS5.connectRequest(target: target))
+        guard let req = NCSOCKS5.connectRequest(target: target) else {
+            completion(nil, Failure.handshake("socks target cannot be encoded"))
+            return
+        }
+        raw.send(req)
         func step() {
             if NCSOCKS5.isMalformedResponse(buf.data) { completion(nil, Failure.handshake("socks bad reply")); return }
             if let (need, rep) = NCSOCKS5.parseResponse(buf.data) {

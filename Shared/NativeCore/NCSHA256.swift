@@ -69,18 +69,22 @@ enum NCTrojan {
         NCSHA256.hash(Data(password.utf8), variant224: true).ncHex
     }
 
-    static func requestHead(password: String, target: NCTarget, udp: Bool = false) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func requestHead(password: String, target: NCTarget, udp: Bool = false) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
         var out = Data(passwordHashHex(password).utf8)
         out.append(contentsOf: [0x0d, 0x0a])
         out.append(udp ? 0x03 : 0x01)
-        out.append(target.atypEncoded)
+        out.append(addr)
         out.append(contentsOf: [0x0d, 0x0a])
         return out
     }
 
     /// Trojan UDP packet: ATYP target + 2-byte length + CRLF + payload.
-    static func udpPacket(target: NCTarget, payload: Data) -> Data {
-        var out = target.atypEncoded
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func udpPacket(target: NCTarget, payload: Data) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
+        var out = addr
         out.append(UInt8((payload.count >> 8) & 0xff))
         out.append(UInt8(payload.count & 0xff))
         out.append(contentsOf: [0x0d, 0x0a])

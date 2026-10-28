@@ -887,7 +887,7 @@ extension NCConnector {
             queue.async { completion(nil, Failure.handshake("brook: invalid node (server / port / transport)")) }
             return
         }
-        guard let codec = o.makeCodec(udp: false, dst: target.atypEncoded) else {
+        guard let dst = target.atypEncoded, let codec = o.makeCodec(udp: false, dst: dst) else {
             queue.async { completion(nil, Failure.handshake("brook: target cannot be encoded")) }
             return
         }

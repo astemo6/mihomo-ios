@@ -69,7 +69,8 @@ enum NCSS2022 {
         case 0x03:
             guard data.count >= 2 else { return nil }
             let len = Int(data[s + 1])
-            guard data.count >= 2 + len + 2 else { return nil }
+            // fix/nc-socks-domain-len (#170): a zero-length domain is not a target.
+            guard len > 0, data.count >= 2 + len + 2 else { return nil }
             let host = String(decoding: data[(s + 2)..<(s + 2 + len)], as: UTF8.self)
             let port = Int(data[s + 2 + len]) << 8 | Int(data[s + 3 + len])
             return (NCTarget(host: host, port: port), 2 + len + 2)
@@ -141,8 +142,9 @@ final class NCSS2022Encoder {
 
     /// salt ‖ sealed fixed header ‖ sealed variable header (target+padding).
     func requestHead(target: NCTarget, timestamp: UInt64) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
         var variable = Data()
-        variable.append(target.atypEncoded)
+        variable.append(addr)
         variable.appendBE16(UInt16(paddingLen))
         variable.append(Data(count: paddingLen))
         var fixed = Data()
@@ -400,20 +402,21 @@ final class NCSS2022UDPCrypto {
     }
 
     private func headerPlaintext(type: UInt8, timestamp: UInt64, padding: Int,
-                                 target: NCTarget, payload: Data) -> Data {
+                                 target: NCTarget, payload: Data) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
         var out = Data()
         out.append(type)
         out.appendBE64(timestamp)
         out.appendBE16(UInt16(padding))
         out.append(Data(count: padding))
-        out.append(target.atypEncoded)
+        out.append(addr)
         out.append(payload)
         return out
     }
 
     func encodePacket(target: NCTarget, payload: Data, timestamp: UInt64, padding: Int = 0) -> Data? {
-        let body = headerPlaintext(type: 0x00, timestamp: timestamp, padding: padding,
-                                   target: target, payload: payload)
+        guard let body = headerPlaintext(type: 0x00, timestamp: timestamp, padding: padding,
+                                         target: target, payload: payload) else { return nil }
         if spec.isAES {
             guard let aesSessionKey else { return nil }
             var header = Data(count: 16)

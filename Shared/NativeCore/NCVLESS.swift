@@ -26,13 +26,17 @@ enum NCVLESS {
         out.append(command) // 0x01 TCP, 0x02 UDP
         out.append(UInt8((target.port >> 8) & 0xff))
         out.append(UInt8(target.port & 0xff))
-        out.append(addressEncoded(target)) // VLESS address types differ from SOCKS
+        guard let addr = addressEncoded(target) else { return nil }
+        out.append(addr) // VLESS address types differ from SOCKS
         return out
     }
 
     /// VLESS address encoding: 0x01 IPv4, 0x02 domain (length-prefixed),
     /// 0x03 IPv6 — NOT the SOCKS numbering.
-    static func addressEncoded(_ target: NCTarget) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target; the
+    /// domain is never truncated to fit the u8 length.
+    static func addressEncoded(_ target: NCTarget) -> Data? {
+        guard target.isWireEncodable else { return nil }
         var out = Data()
         if let ip = target.ip {
             switch ip {
@@ -44,8 +48,7 @@ enum NCVLESS {
                 out.append(contentsOf: ip.bytes)
             }
         } else {
-            // Never traps: callers validate `isWireEncodable` first (connectViaProxy / requestHead); clamp anyway.
-            let host = Array(target.host.utf8.prefix(255))
+            let host = Array(target.host.utf8)
             out.append(0x02)
             out.append(UInt8(host.count))
             out.append(contentsOf: host)

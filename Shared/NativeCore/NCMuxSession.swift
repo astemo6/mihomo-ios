@@ -290,8 +290,12 @@ final class NCMuxStream: NCRelayStream {
             // A failed / closed stream drops writes (they used to pile up in pendingSend after a session teardown).
             if self.failure != nil || self.cancelled { once.call(); return }
             if !self.rawMode && !self.requestWritten {
+                guard let request = NCMux.streamRequestTCP(target: self.target) else {
+                    once.call()
+                    self.failLocal("mux target cannot be encoded")
+                    return
+                }
                 self.requestWritten = true
-                let request = NCMux.streamRequestTCP(target: self.target)
                 self.pendingSend.append(request)
                 self.pendingEntries.append(NCPendingSendEntry(count: request.count, once: nil))
             }

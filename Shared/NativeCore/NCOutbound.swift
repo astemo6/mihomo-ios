@@ -17,7 +17,12 @@ struct NCTarget: Equatable {
     }
 
     /// SOCKS / Shadowsocks target encoding: ATYP + address + port (big-endian).
-    var atypEncoded: Data {
+    /// fix/nc-socks-domain-len (#170): the one safe encoding entry — nil when
+    /// the target cannot be carried (`isWireEncodable` is false). This used to
+    /// `prefix(255)` the domain, silently connecting to a truncated host; every
+    /// caller now fails or drops cleanly on nil instead.
+    var atypEncoded: Data? {
+        guard isWireEncodable else { return nil }
         var out = Data()
         if let ip = ip {
             switch ip {
@@ -29,7 +34,7 @@ struct NCTarget: Equatable {
                 out.append(contentsOf: ip.bytes)
             }
         } else {
-            let utf8 = Array(host.utf8.prefix(255))
+            let utf8 = Array(host.utf8)
             out.append(0x03)
             out.append(UInt8(utf8.count))
             out.append(contentsOf: utf8)
@@ -58,9 +63,10 @@ enum NCSOCKS5 {
         return out
     }
 
-    static func connectRequest(target: NCTarget, udp: Bool = false) -> Data {
+    static func connectRequest(target: NCTarget, udp: Bool = false) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
         var out = Data([0x05, udp ? 0x03 : 0x01, 0x00])
-        out.append(target.atypEncoded)
+        out.append(addr)
         return out
     }
 

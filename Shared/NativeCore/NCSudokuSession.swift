@@ -370,8 +370,10 @@ enum NCSudokuKIP {
     }
 
     /// OpenTCP: SOCKS5-style ATYP ‖ address ‖ BE16 port.
-    static func openTCP(target: NCTarget) -> Data {
-        buildMessage(type: .openTCP, payload: target.atypEncoded)
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func openTCP(target: NCTarget) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
+        return buildMessage(type: .openTCP, payload: addr)
     }
 
     /// StartUoT: empty payload; afterwards the tunnel carries UoT datagram frames (NCSudokuUoT).
@@ -446,7 +448,10 @@ final class NCSudokuRelay: NCRelayStream {
          queue: DispatchQueue) throws {
         self.raw = raw
         self.options = options
-        openMessage = uot ? NCSudokuKIP.startUoT() : NCSudokuKIP.openTCP(target: target)
+        guard let open = uot ? NCSudokuKIP.startUoT() : NCSudokuKIP.openTCP(target: target) else {
+            throw NCSudokuError.handshake("sudoku target cannot be encoded")
+        }
+        openMessage = open
         self.queue = queue
         let norm = NCSudokuKeys.normalize(options.key)
         psk = norm.psk
