@@ -86,7 +86,7 @@ final class NativeCoreSocks5TLSTests: XCTestCase {
             sni: clash-sni.example.com
             skip-cert-verify: true
         """
-        let proxies = try XCTUnwrap(NCSubscription.parseClashYAML(yaml))
+        let proxies = try XCTUnwrap(NCSubscriptionParser.parseClashYAML(yaml))
         let n = try XCTUnwrap(proxies.first { $0.name == "Clash-SocksTLS" })
         XCTAssertEqual(n.type, "socks5")
         XCTAssertEqual(n.fields["tls"]?.bool, true)
@@ -96,19 +96,19 @@ final class NativeCoreSocks5TLSTests: XCTestCase {
     }
 
     func testShadowrocketLinkImport() throws {
-        let a = try XCTUnwrap(NCSubscription.parseURI(
+        let a = try XCTUnwrap(NCSubscriptionParser.parseURI(
             "socks5://user1:pass1@sr.example.com:1080?tls=1&peer=sr-sni.example.com#SR"))
         XCTAssertEqual(a.type, "socks5")
         XCTAssertEqual(a.fields["tls"]?.bool, true)
         XCTAssertEqual(a.fields["sni"]?.string, "sr-sni.example.com")
 
-        let b = try XCTUnwrap(NCSubscription.parseURI(
+        let b = try XCTUnwrap(NCSubscriptionParser.parseURI(
             "socks5-tls://user1:pass1@sr2.example.com:1080?sni=sr2-sni.example.com&insecure=1#SR2"))
         XCTAssertEqual(b.fields["tls"]?.bool, true)
         XCTAssertEqual(b.fields["sni"]?.string, "sr2-sni.example.com")
         XCTAssertEqual(b.fields["skip-cert-verify"]?.bool, true)
 
-        let plain = try XCTUnwrap(NCSubscription.parseURI("socks5://user1:pass1@sr.example.com:1080#Plain"))
+        let plain = try XCTUnwrap(NCSubscriptionParser.parseURI("socks5://user1:pass1@sr.example.com:1080#Plain"))
         XCTAssertNil(plain.fields["tls"])
         XCTAssertFalse(NCConnector.proxyUsesTLS(plain))
     }
@@ -124,7 +124,7 @@ final class NativeCoreSocks5TLSTests: XCTestCase {
         ])
         let link = try NCShareLink.encode(node)
         XCTAssertTrue(link.contains("tls=1"), link)
-        let back = try XCTUnwrap(NCSubscription.parseURI(link))
+        let back = try XCTUnwrap(NCSubscriptionParser.parseURI(link))
         XCTAssertEqual(back.type, "socks5")
         XCTAssertEqual(back.fields["tls"]?.bool, true)
         XCTAssertEqual(back.fields["sni"]?.string, "rt-sni.example.com")
