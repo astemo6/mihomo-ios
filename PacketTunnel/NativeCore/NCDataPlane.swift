@@ -1329,7 +1329,14 @@ final class NCDataPlane {
     }
 
     /// fix/nc-open-6-10 #9: a UDP session ended — its last bytes and a closed-connection record (network udp).
+    /// fix/nc-udp-close-log: mirror the close into the core log with the TCP close line's shape. UDP bytes
+    /// were previously visible only in the app's request list: every diagnostics export showed QUIC sessions
+    /// as "opened" with no fate, which left the Xiaohongshu-cover investigation blind on exactly the flows
+    /// it needed (build 545/546 exports, 2026-10-28). One line per session close is far under the diag
+    /// limiter's burst budget.
     private func recordUDPClosed(_ id: UInt32, _ e: UDPSessionEntry) {
+        let secs = Int(Date().timeIntervalSince(e.openedAt))
+        connLog("[UDP] \(e.host):\(e.dstPort) closed after \(secs) s, up \(e.up) B, down \(e.down) B")
         let rec = NCStatsRecorder.shared
         rec.bytes(policy: e.policy, host: e.host, up: e.up - e.statsUp, down: e.down - e.statsDown)
         e.statsUp = e.up
