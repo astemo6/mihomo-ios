@@ -36,6 +36,41 @@
         }
       }
     },
+    "Cloudflare WARP 注册被限流（HTTP 429），请稍后重试": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudflare WARP registration was rate limited (HTTP 429), please try again later"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudflare WARP の登録がレート制限されました（HTTP 429）。しばらくしてから再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudflare WARP 등록이 제한되었습니다 (HTTP 429). 잠시 후 다시 시도하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Регистрация Cloudflare WARP ограничена (HTTP 429), повторите попытку позже"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudflare WARP 註冊被限流（HTTP 429），請稍後重試"
+          }
+        }
+      }
+    },
     "Cloudflare WARP 注册返回的数据不完整：%@": {
       "extractionState": "manual",
       "localizations": {
@@ -71,6 +106,41 @@
         }
       }
     },
+    "一键注册 · MASQUE": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One-tap registration · MASQUE"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワンタップ登録 · MASQUE"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원터치 등록 · MASQUE"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Регистрация в один тап · MASQUE"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一鍵註冊 · MASQUE"
+          }
+        }
+      }
+    },
     "取消": {
       "extractionState": "manual",
       "localizations": {
@@ -102,6 +172,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "取消"
+          }
+        }
+      }
+    },
+    "取消注册": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel registration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録をキャンセル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "등록 취소"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить регистрацию"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消註冊"
           }
         }
       }
@@ -172,6 +277,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "已新增節點「%@」"
+          }
+        }
+      }
+    },
+    "已重新注册，节点密钥已更新": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-registered — the node's keys have been updated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再登録しました。ノードの鍵が更新されました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재등록되었습니다. 노드 키가 업데이트되었습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перерегистрировано — ключи узла обновлены"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已重新註冊，節點金鑰已更新"
           }
         }
       }
@@ -386,6 +526,76 @@
         }
       }
     },
+    "节点已删除，但设备未能注销": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The node was deleted, but its device could not be unregistered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードは削除されましたが、デバイスの登録を解除できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드가 삭제되었지만 기기 등록을 해제하지 못했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узел удалён, но регистрацию устройства отменить не удалось"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點已刪除，但裝置未能註銷"
+          }
+        }
+      }
+    },
+    "节点已重新注册，但旧设备未能注销": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The node was re-registered, but the old device could not be unregistered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードは再登録されましたが、旧デバイスの登録を解除できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드가 재등록되었지만 이전 기기의 등록을 해제하지 못했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узел перерегистрирован, но регистрацию старого устройства отменить не удалось"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點已重新註冊，但舊裝置未能註銷"
+          }
+        }
+      }
+    },
     "这是 Cloudflare 客户端使用的非官方接口，Cloudflare 可能随时调整或限制。": {
       "extractionState": "manual",
       "localizations": {
@@ -417,6 +627,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "這是 Cloudflare 用戶端使用的非官方介面，Cloudflare 可能隨時調整或限制。"
+          }
+        }
+      }
+    },
+    "重新注册": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-register"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再登録"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재등록"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перерегистрировать"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新註冊"
           }
         }
       }

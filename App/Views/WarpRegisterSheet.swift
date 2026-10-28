@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// feat/nc-warp-register: one-tap Cloudflare WARP registration. Standalone sheet, NOT wired into 添加节点 yet
-/// (integration later: present it from the node-add picker, e.g. `.sheet(isPresented:) { WarpRegisterSheet() }`, and
-/// reload NodeManagerModel in onDismiss). Strings live in their own table, WarpRegister.xcstrings.
+/// feat/nc-warp-register: one-tap Cloudflare WARP registration. Presented from 添加节点
+/// (feat/nc-warp-register-ui, #166: the Cloudflare WARP row in AddNodeView, NodeManagerModel reloads in
+/// onDismiss). Strings live in their own table, WarpRegister.xcstrings.
 struct WarpRegisterSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = WarpRegisterModel()
@@ -58,6 +58,13 @@ struct WarpRegisterSheet: View {
                         Label { Text(verbatim: why) } icon: {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         }
+                    case .working:
+                        Button(role: .destructive) {
+                            model.cancel()
+                            dismiss()
+                        } label: {
+                            Text("取消注册", tableName: "WarpRegister")
+                        }
                     default:
                         EmptyView()
                     }
@@ -67,7 +74,12 @@ struct WarpRegisterSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
+                    Button {
+                        if model.phase == .working {
+                            model.cancel()
+                        }
+                        dismiss()
+                    } label: {
                         if case .done = model.phase { Text("完成", tableName: "WarpRegister") } else { Text("取消", tableName: "WarpRegister") }
                     }
                 }

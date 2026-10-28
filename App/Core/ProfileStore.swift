@@ -563,8 +563,13 @@ final class ProfileStore: ObservableObject {
     func upsertManualNode(_ node: [String: Any], oldName: String?) async throws {
         SnapshotStore.shared.capture(String(localized: "编辑手动节点前"))
         let p = ensureManualProfile()
+        let newName = (node["name"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        let renamed = oldName != nil && oldName != newName
         let err = NCManualNodes.upsert(path: p.fileURL.path, node: node, oldName: oldName)
         if !err.isEmpty { throw StoreError.invalid(err) }
+        if renamed, let oldName {
+            WarpNodeLifecycle.migrateRename(from: oldName, to: newName)
+        }
         objectWillChange.send()
         if activeID == nil { _ = await setActive(p) } else if activeID == p.id { _ = await VPNManager.shared.reload() }
     }

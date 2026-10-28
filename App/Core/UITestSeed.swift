@@ -60,6 +60,11 @@ enum UITestSeed {
         defer { ready = true }
         // feat/surge-ui: first-run look (no profile at all) for the empty-state screenshots.
         if args.contains("-UITestNoProfile") { return }
+        // feat/nc-warp-register-ui (#166): scripted WARP API for the register UI tests
+        // (-UITestWarpMock429 makes every call fail 429, like a rate-limited client).
+        if args.contains("-UITestWarpMock") || args.contains("-UITestWarpMock429") {
+            WarpMockTransport.install(rateLimited: args.contains("-UITestWarpMock429"))
+        }
         let store = ProfileStore.shared
         if keepData && !store.profiles.isEmpty {
             await ProfileInspector.shared.load()
@@ -539,6 +544,64 @@ enum UITestSeed {
         ss://YWVzLTEyOC1nY206dWl0ZXN0LXNlY3JldC1saW5r@192.0.2.53:8388#Link%20SS
         """),
     ]
+}
+
+/// feat/nc-warp-register-ui (#166): a scripted stand-in for the Cloudflare WARP registration API,
+/// installed into WarpNodeLifecycle (the one injection point the register sheet, the delete cleanup
+/// and re-register all read) when a UI test launches with -UITestWarpMock. Replies mirror the recorded
+/// real answers in WarpRegistrationTests; the peer key is a throwaway P-256 public key.
+enum WarpMockTransport {
+    private static let serverPEM = """
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEyLQM6w+SKoemwhAgPoI/o7uW19Mj
+    /qubwonyx+lmqdYjVDGZJFLh4uE4O0xj59VS6k8I7RM/vUhwyZ6/iFQkog==
+    -----END PUBLIC KEY-----
+    """
+
+    private static func json(_ o: [String: Any]) -> Data {
+        (try? JSONSerialization.data(withJSONObject: o)) ?? Data()
+    }
+
+    private static var regReply: Data {
+        json(["id": "t.uitest-warp", "type": "a", "model": "PC", "name": "", "key": "x",
+              "account": ["id": "acc-uitest", "account_type": "free", "created": "2026-10-27T14:00:00Z",
+                          "warp_plus": false, "premium_data": 0, "quota": 0, "license": "LIC-UITEST"],
+              "token": "uitest-token", "warp_enabled": false, "waitlist_enabled": false,
+              "created": "2026-10-27T14:00:00Z", "updated": "2026-10-27T14:00:00Z",
+              "tos": "2026-10-27T14:00:00.000Z", "place": 0, "locale": "en_US", "enabled": true,
+              "install_id": "", "fcm_token": ""])
+    }
+
+    private static var enrollReply: Data {
+        json(["id": "t.uitest-warp", "key": "MFkw", "key_type": "secp256r1", "tunnel_type": "masque",
+              "account": ["account_type": "free"],
+              "config": ["client_id": "AAAA",
+                         "peers": [["public_key": serverPEM,
+                                    "endpoint": ["v4": "162.159.198.2:0", "v6": "[2606:4700:103::2]:0",
+                                                 "host": "engage.cloudflareclient.com:2408",
+                                                 "ports": [443, 500, 1701, 4500]]]],
+                         "interface": ["addresses": ["v4": "172.16.0.2", "v6": "2606:4700:110:8a36::2"]],
+                         "services": ["http_proxy": "172.16.0.1:2480"]],
+              "policy": ["tunnel_protocol": "masque"]])
+    }
+
+    static func install(rateLimited: Bool) {
+        WarpNodeLifecycle.http = { req in
+            let (status, body): (Int, Data)
+            if rateLimited {
+                (status, body) = (429, Data("slow down".utf8))
+            } else {
+                switch req.httpMethod ?? "" {
+                case "POST": (status, body) = (200, regReply)
+                case "PATCH": (status, body) = (200, enrollReply)
+                case "DELETE": (status, body) = (204, Data())
+                default: (status, body) = (500, Data("unscripted".utf8))
+                }
+            }
+            let resp = HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
+            return (body, resp)
+        }
+    }
 }
 
 /// Invisible marker for the UI tests once the seed has finished.

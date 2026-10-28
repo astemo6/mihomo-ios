@@ -14,6 +14,7 @@ struct AddNodeView: View {
     @State private var isError = false
     @State private var busy = false
     @State private var target: Target?
+    @State private var warpRegisterSheet = false
     @State private var scanning = false
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
@@ -69,6 +70,7 @@ struct AddNodeView: View {
         Proto(title: "OpenVPN", subtitle: String(localized: "用户态 · PEM"), type: "openvpn"),
         Proto(title: "TrustTunnel", subtitle: "HTTP/2 · HTTP/3", type: "trusttunnel"),
         Proto(title: "MASQUE", subtitle: "HTTP/3 · WARP", type: "masque"),
+        Proto(title: "Cloudflare WARP", subtitle: String(localized: "一键注册 · MASQUE", table: "WarpRegister"), type: "warp-register"),
         Proto(title: "Sudoku", subtitle: String(localized: "TCP · HTTP 伪装"), type: "sudoku"),
         Proto(title: "ShadowQUIC", subtitle: "QUIC · TLS 1.3", type: "shadowquic"),
         Proto(title: "GOST Relay", subtitle: "GOST v3 · TLS · WS · Mux", type: "gost-relay"),
@@ -164,6 +166,9 @@ struct AddNodeView: View {
         .sheet(item: $target, onDismiss: { Task { await model.reload() } }) { t in
             NodeEditorView(newType: t.type, preset: t.preset).environmentObject(store)
         }
+        .sheet(isPresented: $warpRegisterSheet, onDismiss: { Task { await model.reload() } }) {
+            WarpRegisterSheet()
+        }
         .sheet(isPresented: $scanning) {
             QRScannerSheet { code in
                 scanning = false
@@ -186,7 +191,13 @@ struct AddNodeView: View {
     }
 
     func protoRow(_ p: Proto, new: Bool) -> some View {
-        Button { target = Target(type: p.type, preset: p.preset) } label: {
+        Button {
+            if p.type == "warp-register" {
+                warpRegisterSheet = true
+            } else {
+                target = Target(type: p.type, preset: p.preset)
+            }
+        } label: {
             HStack(spacing: 12) {
                 Image(systemName: Self.symbol(p.type))
                     .font(.subheadline.weight(.semibold))
@@ -213,6 +224,7 @@ struct AddNodeView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: p.title))
+        .accessibilityIdentifier(p.type == "warp-register" ? "addnode.warp" : "")
     }
 
     static func symbol(_ type: String) -> String {
@@ -221,6 +233,7 @@ struct AddNodeView: View {
         case "wireguard": return "lock.shield.fill"
         case "sudoku": return "square.grid.3x3.fill"
         case "masque": return "theatermasks.fill"
+        case "warp-register": return "cloud.fill"
         case "trusttunnel": return "arrow.left.arrow.right.circle.fill"
         case "shadowquic", "hysteria", "hysteria2", "tuic", "juicity": return "hare.fill"
         case "openvpn", "ssh": return "key.fill"
