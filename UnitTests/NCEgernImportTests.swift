@@ -195,8 +195,8 @@ final class NCEgernImportTests: XCTestCase {
         XCTAssertEqual(rs.tasks.first { $0.name == "cronon" }?.disabledByLine, false)
         XCTAssertFalse(rs.rules.contains { $0.script?.name == "reqoff" }, "disabled script rule not imported")
         XCTAssertFalse(rs.rules.contains { $0.kind == "jq" }, "disabled body rewrite not imported")
-        XCTAssertFalse(rs.rules.contains { $0.line.contains("off.example.com") }, "disabled routing rule not imported")
-        XCTAssertTrue(rs.rules.contains { $0.line.contains("on.example.com") }, "enabled routing rule unaffected")
+        XCTAssertFalse(rs.coreRules.contains { $0.contains("off.example.com") }, "disabled routing rule not imported")
+        XCTAssertTrue(rs.coreRules.contains { $0.contains("on.example.com") }, "enabled routing rule unaffected")
         XCTAssertFalse(rs.unsupported.contains { $0.contains("disabled") }, "disabled is consumed, not reported unparsed: \(rs.unsupported)")
     }
 
