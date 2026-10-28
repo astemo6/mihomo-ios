@@ -1,4 +1,5 @@
 import XCTest
+@testable import Tern
 
 /// fix/nc-script-atob-binary: the host's atob/btoa must follow web semantics — byte strings
 /// (Latin-1), not UTF-8 text. The pre-Swift-port behaviour is pinned by the (previously
