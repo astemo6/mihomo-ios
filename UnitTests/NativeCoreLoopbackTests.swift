@@ -27,6 +27,10 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let socks5TlsPort = 18019
+    private static let socks5Port = 18020
+    private static let socks5User = "nc-loop-socks-user"
+    private static let socks5Password = "nc-loop-socks-pw"
     private static let trustTunnelPort = 18013
     private static let trustTunnelUser = "nc-loop-tt-user"
     private static let trustTunnelPassword = "nc-loop-tt-pw"
@@ -394,6 +398,63 @@ final class NativeCoreLoopbackTests: XCTestCase {
         try self.assertEcho(stream, payload: Self.payload)
     }
 
+    // MARK: - SOCKS5 / SOCKS5 over TLS (feat/nc-socks5-tls, #168)
+    // Servers: the minimal SOCKS5 servers in tools/loopback/echo_server.py —
+    // plain on :18020, TLS-wrapped on :18019 (self-signed cert, SAN localhost).
+
+    private static var socks5PlainProxy: NCProxy {
+        Self.proxy(name: "loop-socks5", type: "socks5", port: Self.socks5Port, extra: [:])
+    }
+
+    private static var socks5TLSProxy: NCProxy {
+        Self.proxy(name: "loop-socks5-tls", type: "socks5", port: Self.socks5TlsPort, extra: [
+            "tls": .bool(true), "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    private static var socks5TLSAuthProxy: NCProxy {
+        Self.proxy(name: "loop-socks5-tls-auth", type: "socks5", port: Self.socks5TlsPort, extra: [
+            "tls": .bool(true), "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+            "username": .string(Self.socks5User), "password": .string(Self.socks5Password),
+        ])
+    }
+
+    func testSocks5PlainEcho() throws {
+        let stream = try self.connect(proxy: Self.socks5PlainProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testSocks5TLSEcho() throws {
+        let stream = try self.connect(proxy: Self.socks5TLSProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        let stream2 = try self.connect(proxy: Self.socks5TLSProxy, target: Self.echoTarget)
+        defer { stream2.cancel() }
+        try self.assertEcho(stream2, payload: Data((0..<(1 << 20)).map { UInt8(($0 * 31 + 7) & 0xff) }), timeout: 60)
+    }
+
+    func testSocks5TLSWithAuth() throws {
+        let stream = try self.connect(proxy: Self.socks5TLSAuthProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testSocks5TLSWrongSNIRejected() throws {
+        // Without skip-cert-verify the self-signed loopback cert must not
+        // verify for a wrong SNI; with it, the same node connects.
+        let strict = Self.proxy(name: "loop-socks5-tls-wrong-sni", type: "socks5", port: Self.socks5TlsPort, extra: [
+            "tls": .bool(true), "sni": .string("wrong.example.com"),
+        ])
+        XCTAssertThrowsError(try self.connect(proxy: strict, target: Self.echoTarget))
+        let skipping = Self.proxy(name: "loop-socks5-tls-wrong-sni-skip", type: "socks5", port: Self.socks5TlsPort, extra: [
+            "tls": .bool(true), "sni": .string("wrong.example.com"), "skip-cert-verify": .bool(true),
+        ])
+        let stream = try self.connect(proxy: skipping, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
     // MARK: - ECH (Encrypted Client Hello) loopback
 
     /// ECH client-side TLS 1.3 handshake and retry_configs handling (E4 #152 + E5 #153, fix/nc-ech-rest).
@@ -592,7 +653,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
         let conn = try self.udpConnection(to: Self.ssPort)
         defer { conn.cancel() }
         let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
-        var plain = target.atypEncoded
+        var plain = try XCTUnwrap(target.atypEncoded)
         plain.append(Self.dnsQuery)
         let packet = try XCTUnwrap(NCShadowsocks.udpPacketEncode(cipher: Self.ssCipher,
                                                                  password: Self.ssPassword, plain: plain))
@@ -789,8 +850,8 @@ final class NativeCoreLoopbackTests: XCTestCase {
             let stream = try self.connect(proxy: proxy, target: NCUoT.magicTarget)
             defer { stream.cancel() }
             let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
-            stream.send(NCUoT.request(destination: target))
-            stream.send(NCUoT.packet(target: target, payload: Self.dnsQuery))
+            stream.send(try XCTUnwrap(NCUoT.request(destination: target)))
+            stream.send(try XCTUnwrap(NCUoT.packet(target: target, payload: Self.dnsQuery)))
             let exp = self.expectation(description: "uot reply \(quic)")
             let box = LockedBox<Data>(Data())
             func pump() {

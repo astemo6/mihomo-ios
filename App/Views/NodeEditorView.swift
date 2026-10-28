@@ -359,8 +359,11 @@ enum NodeProtocols {
                 FieldSpec(key: "username", label: "用户名"),
                 FieldSpec(key: "password", label: "密码", kind: .secure),
                 FieldSpec(key: "tls", label: "TLS", kind: .bool),
+                FieldSpec(key: "sni", label: "SNI"),
                 FieldSpec(key: "udp", label: "UDP", kind: .bool),
                 FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+                FieldSpec(key: "client-fingerprint", label: "TLS 指纹", kind: .choice(["", "chrome", "firefox", "safari", "ios", "edge", "random"])),
+                FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h2,http/1.1"),
             ]
         case "http":
             return [

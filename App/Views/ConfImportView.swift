@@ -107,6 +107,9 @@ struct ConfImportResult: Decodable {
     var error: String?
 
     static func convert(_ text: String) async -> ConfImportResult {
+        // feat/nc-egern-disabled-import (#169): Egern YAML configurations take their
+        // own converter into the same result shape (the .conf port below is INI-only).
+        if NCEngineRuleset.isEgern(text) { return NCEgernImport.convert(text) }
         let json = await Task.detached(priority: .userInitiated) { NCConfImportPort.importConf(text) }.value
         return (try? JSONDecoder().decode(ConfImportResult.self, from: Data(json.utf8)))
             ?? ConfImportResult(yaml: nil, module: nil, report: nil, error: String(localized: "转换失败"))
@@ -246,7 +249,7 @@ struct ConfReportSection: View {
                 } else if let rep = r.report {
                     Section {
                         HStack {
-                            Label(LocalizedStringKey(rep.format == "qx" ? "Quantumult X 配置" : "Surge 配置"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                            Label(LocalizedStringKey(rep.format == "qx" ? "Quantumult X 配置" : rep.format == "egern" ? "Egern 配置" : "Surge 配置"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
                                 .font(.headline)
                             Spacer()
                             Text("→ Tern").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)

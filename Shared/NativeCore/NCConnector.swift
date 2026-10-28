@@ -69,7 +69,7 @@ final class NCSSRelayStream: NCRelayStream {
         self.raw = raw
         self.encoder = encoder
         self.decoder = decoder
-        if let head = encoder.encode(target.atypEncoded) {
+        if let addr = target.atypEncoded, let head = encoder.encode(addr) {
             raw.send(head)
         }
     }
@@ -182,7 +182,8 @@ final class NCSnellStreamRelay: NCRelayStream {
         self.raw = raw
         encoder = NCSnellStreamEncoder(psk: psk, version: version)
         decoder = NCSnellStreamDecoder(psk: psk, version: version)
-        if let wire = encoder.encode(NCSnell.connectHeader(host: target.host, port: target.port, version: version)) {
+        if let head = NCSnell.connectHeader(host: target.host, port: target.port, version: version),
+           let wire = encoder.encode(head) {
             raw.send(wire)
         }
     }
@@ -230,7 +231,8 @@ final class NCSnellV4Relay: NCRelayStream {
         self.raw = raw
         writer = NCSnellV4Writer(psk: psk)
         reader = NCSnellV4Reader(psk: psk)
-        if let wire = writer.write(NCSnell.connectHeader(host: target.host, port: target.port, version: 4)) {
+        if let head = NCSnell.connectHeader(host: target.host, port: target.port, version: 4),
+           let wire = writer.write(head) {
             raw.send(wire)
         }
     }
@@ -505,6 +507,37 @@ enum NCConnector {
         }
         switch proxy.type {
         case "socks5":
+            // feat/nc-socks5-tls (#168): `tls: true` (Surge `socks5-tls`, Clash
+            // `type: socks5` + `tls: true`, QX `over-tls=true`) must dial TLS
+            // before the SOCKS5 handshake — the plaintext stream below was the
+            // bug: the editor/import layers honoured the flag, the dialer did not.
+            if proxyUsesTLS(proxy) {
+                if transport != nil {
+                    queue.async { completion(nil, Failure.unsupported("socks5 over TLS over a chain transport")) }
+                    return
+                }
+                if isECHEnabled(proxy) && realityParams(proxy) != nil {
+                    queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                    return
+                }
+                let sni = httpProxySNI(proxy, server: server)
+                if needsNativeTLS(proxy) {
+                    dialNativeTLS(proxy: proxy, server: server, port: port, serverName: sni, defaultALPN: [], queue: queue) { raw, err in
+                        guard let raw else { completion(nil, err); return }
+                        socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
+                    }
+                    return
+                }
+                let raw = NCStream(to: server, port: port,
+                                   tlsServerName: sni,
+                                   allowInsecure: proxy.skipCertVerify,
+                                   alpn: parseALPN(proxy) ?? [], queue: queue)
+                raw.start { err in
+                    guard err == nil else { completion(nil, err); return }
+                    socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
+                }
+                return
+            }
             obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
                 guard let raw else { completion(nil, err); return }
                 socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
@@ -674,7 +707,10 @@ enum NCConnector {
                     guard let base else { completion(nil, err); return }
                     xhttpStream(raw: base, proxy: proxy, queue: queue) { x, xerr in
                         guard let x else { completion(nil, xerr); return }
-                        x.send(NCTrojan.requestHead(password: password, target: target))
+                        guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                            completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                        }
+                        x.send(head)
                         completion(x, nil)
                     }
                 }
@@ -700,7 +736,10 @@ enum NCConnector {
                 // fix/nc-silent-fail: trojan-go ws / trojan-grpc / h2 — the transport carries the Trojan head.
                 trojanTransportBase(proxy: proxy, server: server, port: port, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
-                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                        completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                    }
+                    base.send(head)
                     completion(base, nil)
                 }
                 return
@@ -708,7 +747,10 @@ enum NCConnector {
             if realityParams(proxy) != nil {
                 dialReality(proxy: proxy, server: server, port: port, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
-                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                        completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                    }
+                    base.send(head)
                     completion(base, nil)
                 }
                 return
@@ -717,7 +759,10 @@ enum NCConnector {
             if needsNativeTLS(proxy) {
                 dialNativeTLS(proxy: proxy, server: server, port: port, serverName: trojanSNI, queue: queue) { base, err in
                     guard let base else { completion(nil, err); return }
-                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                        completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                    }
+                    base.send(head)
                     completion(base, nil)
                 }
                 return
@@ -728,7 +773,10 @@ enum NCConnector {
                                queue: queue)
             raw.start { err in
                 guard err == nil else { completion(nil, err); return }
-                raw.send(NCTrojan.requestHead(password: password, target: target))
+                guard let head = NCTrojan.requestHead(password: password, target: target) else {
+                    completion(nil, Failure.handshake("trojan target cannot be encoded")); return
+                }
+                raw.send(head)
                 completion(raw, nil)
             }
         case "vless":
@@ -1218,6 +1266,16 @@ enum NCConnector {
             if let v = proxy.fields[k]?.string, !v.isEmpty { return v }
         }
         return server
+    }
+
+    /// feat/nc-socks5-tls (#168): `httpProxyUsesTLS` generalised to the other
+    /// plain-TCP proxy type that carries a `tls` flag — socks5 (Surge
+    /// `socks5-tls`, Clash `type: socks5` + `tls: true`, QX `over-tls=true`
+    /// all normalise to `type: socks5` + `tls: true` at import). The SNI
+    /// priority is the same list, so the socks5 dial reuses `httpProxySNI`.
+    static func proxyUsesTLS(_ proxy: NCProxy) -> Bool {
+        if httpProxyUsesTLS(proxy) { return true }
+        return proxy.type == "socks5" && (proxy.fields["tls"].flatMap(NCProxy.truthy) ?? false)
     }
 
     /// Whether this proxy requires the native TLS stack (NCTLSClient).
@@ -1803,9 +1861,12 @@ enum NCConnector {
             let option: UInt8 = security == NCVMess.securityNone ? 0
                 : NCVMess.optionChunkStream | NCVMess.optionChunkMasking
             let paddingCount = Int(randomData(1)[0]) % 16
-            let plain = NCVMess.plainHeader(reqNonce: reqNonce, reqKey: reqKey, respV: respV,
-                                            option: option, security: security,
-                                            padding: randomData(paddingCount), target: target)
+            guard let plain = NCVMess.plainHeader(reqNonce: reqNonce, reqKey: reqKey, respV: respV,
+                                                  option: option, security: security,
+                                                  padding: randomData(paddingCount), target: target) else {
+                completion(nil, Failure.handshake("vmess target cannot be encoded"))
+                return
+            }
             let sealed = NCVMess.sealHeader(cmdKey: NCVMess.cmdKey(uuidBytes: uuidBytes),
                                             plainHeader: plain,
                                             time: Int64(Date().timeIntervalSince1970),
@@ -1869,7 +1930,11 @@ enum NCConnector {
 
     private static func socksRequest(raw: NCRelayStream, target: NCTarget, buf: NCByteBuffer,
                                      completion: @escaping (NCRelayStream?, Error?) -> Void) {
-        raw.send(NCSOCKS5.connectRequest(target: target))
+        guard let req = NCSOCKS5.connectRequest(target: target) else {
+            completion(nil, Failure.handshake("socks target cannot be encoded"))
+            return
+        }
+        raw.send(req)
         func step() {
             if NCSOCKS5.isMalformedResponse(buf.data) { completion(nil, Failure.handshake("socks bad reply")); return }
             if let (need, rep) = NCSOCKS5.parseResponse(buf.data) {

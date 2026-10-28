@@ -18,16 +18,19 @@ enum NCMux {
     /// connector note.
     static func preamble() -> Data { Data([0x00, 0x02]) }
 
-    static func streamRequestTCP(target: NCTarget) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func streamRequestTCP(target: NCTarget) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
         var out = Data(count: 2) // flags = 0
-        out.append(target.atypEncoded)
+        out.append(addr)
         return out
     }
 
-    static func streamRequestUDPPacketAddr() -> Data {
+    static func streamRequestUDPPacketAddr() -> Data? {
+        guard let addr = destination.atypEncoded else { return nil }
         var out = Data()
         out.appendBE16(0x0003) // flagUDP | flagAddr
-        out.append(destination.atypEncoded)
+        out.append(addr)
         return out
     }
 
@@ -51,8 +54,9 @@ enum NCMux {
 
     /// One UDP packet frame inside a packet-addr stream:
     /// [target atyp][payloadLen u16][payload].
-    static func udpPacketFrame(target: NCTarget, payload: Data) -> Data {
-        var out = target.atypEncoded
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func udpPacketFrame(target: NCTarget, payload: Data) -> Data? {
+        guard var out = target.atypEncoded else { return nil }
         out.appendBE16(UInt16(clamping: payload.count))
         out.append(payload)
         return out

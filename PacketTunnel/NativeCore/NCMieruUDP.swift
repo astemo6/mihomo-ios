@@ -63,8 +63,9 @@ final class NCUDPMieruSession: NCUDPSession {
     }
 
     private func sendNow(_ data: Data, to target: NCTarget) {
+        guard let addr = target.atypEncoded else { return }
         var inner = Data([0, 0, 0])
-        inner.append(target.atypEncoded)
+        inner.append(addr)
         inner.append(data)
         guard inner.count <= 65535 else { return }
         var frame = Data([0x00, UInt8(inner.count >> 8), UInt8(inner.count & 0xff)])

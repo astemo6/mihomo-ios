@@ -452,10 +452,12 @@ final class NCMieruStream: NCRelayStream {
     }
 
     /// SOCKS5 request as mieru's model.Request.WriteToSocks5: VER CMD RSV ATYP ADDR PORT.
-    static func socksRequest(target: NCTarget, udp: Bool) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func socksRequest(target: NCTarget, udp: Bool) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
         let cmd: UInt8 = udp ? 0x03 : 0x01
         var d = Data([0x05, cmd, 0x00])
-        d.append(target.atypEncoded)
+        d.append(addr)
         return d
     }
 
@@ -1278,6 +1280,10 @@ extension NCConnector {
             }
             pattern = decoded
         }
+        guard let socksReq = NCMieruStream.socksRequest(target: target, udp: udp) else {
+            queue.async { completion(nil, Failure.handshake("mieru target cannot be encoded")) }
+            return
+        }
         if (proxy.fields["transport"]?.string ?? "").uppercased() == "UDP" {
             // Packet underlay dials UDP directly; a chained byte-stream transport cannot carry it.
             guard transport == nil else {
@@ -1285,7 +1291,7 @@ extension NCConnector {
                 return
             }
             let s = NCMieruPacketStream(server: server, port: port, user: user, hashedPassword: hashed,
-                                        request: NCMieruStream.socksRequest(target: target, udp: udp),
+                                        request: socksReq,
                                         pattern: pattern, queue: queue)
             s.start(waitReply: !noWait, queue: queue) { err in
                 if let err { s.cancel(); completion(nil, err) } else { completion(s, nil) }
@@ -1295,7 +1301,7 @@ extension NCConnector {
         obtainMieruRaw(transport: transport, server: server, port: port, queue: queue) { raw, err in
             guard let raw else { completion(nil, err); return }
             let s = NCMieruStream(raw: raw, user: user, hashedPassword: hashed,
-                                  request: NCMieruStream.socksRequest(target: target, udp: udp),
+                                  request: socksReq,
                                   pattern: pattern)
             s.start(waitReply: !noWait, queue: queue) { err in
                 if let err { s.cancel(); completion(nil, err) } else { completion(s, nil) }

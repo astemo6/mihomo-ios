@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// feat/nc-lan-share (需同步 feat/nc-kernel): 局域网共享 policy for the NativeCore local mixed port (NCLocalProxy),
 /// with Clash.Meta's semantics for the top-level inbound keys the app writes into the runtime config
@@ -197,6 +198,67 @@ struct NCLanShare: Equatable {
         let user = String(decoding: b[2..<(2 + ulen)], as: UTF8.self)
         let pass = String(decoding: b[(3 + ulen)..<total], as: UTF8.self)
         return .ok(consumed: total, user: user, password: pass)
+    }
+
+    enum SocksRequest: Equatable {
+        case needMore
+        /// Close the connection; `reply` is the SOCKS5 REP code to send first
+        /// (nil = close silently, the pre-existing version-error behaviour).
+        case invalid(reply: UInt8?)
+        case ok(cmd: UInt8, host: String, port: Int, consumed: Int)
+    }
+
+    /// RFC 1928 request: VER CMD RSV ATYP DST.ADDR DST.PORT — a pure function
+    /// so the inbound parser can be boundary- and fuzz-tested without a socket
+    /// (fix/nc-socks-domain-len, #170). Domain rules: length 1–255 (the port
+    /// sits at 5 + len), strict UTF-8, no NUL / control bytes — an invalid
+    /// domain is rejected (REP 0x01), never decoded with replacement
+    /// characters and connected anyway. A zero-length domain yields an empty
+    /// host and the caller rejects it, as the inline parser did. Bytes past
+    /// `consumed` are the caller's payload and are left untouched.
+    static func parseSocksRequest(_ b: [UInt8]) -> SocksRequest {
+        guard b.count >= 4 else { return .needMore }
+        guard b[0] == 0x05 else { return .invalid(reply: nil) }
+        let cmd = b[1]
+        let host: String
+        let off: Int
+        switch b[3] {
+        case 0x01:
+            guard b.count >= 4 + 4 + 2 else { return .needMore }
+            host = b[4..<8].map { String($0) }.joined(separator: ".")
+            off = 8
+        case 0x03:
+            guard b.count >= 5 else { return .needMore }
+            let len = Int(b[4])
+            guard b.count >= 5 + len + 2 else { return .needMore }
+            if len > 0 {
+                let bytes = [UInt8](b[5..<(5 + len)])
+                guard !bytes.contains(where: { $0 < 0x20 || $0 == 0x7f }),
+                      let s = String(bytes: bytes, encoding: .utf8) else {
+                    return .invalid(reply: 0x01)
+                }
+                host = s
+            } else {
+                host = ""
+            }
+            off = 5 + len
+        case 0x04:
+            guard b.count >= 4 + 16 + 2 else { return .needMore }
+            host = IPv6Address(Data(b[4..<20])).map { "\($0)" } ?? ""
+            off = 20
+        default:
+            return .invalid(reply: 0x08)
+        }
+        let port = Int(b[off]) << 8 | Int(b[off + 1])
+        return .ok(cmd: cmd, host: host, port: port, consumed: off + 2)
+    }
+
+    /// Whether an inbound HTTP proxy target host may proceed to the outbound:
+    /// non-empty, at most 255 UTF-8 bytes (what every wire format can carry),
+    /// no spaces or control bytes. IP literals (incl. bracketed IPv6) pass.
+    static func isValidInboundHost(_ host: String) -> Bool {
+        guard !host.isEmpty, host.utf8.count <= 255 else { return false }
+        return !host.utf8.contains(where: { $0 <= 0x20 || $0 == 0x7f })
     }
 
     /// Port the shared listener uses: the runtime config's `mixed-port` when valid, else the app setting.

@@ -315,7 +315,7 @@ do_start() {
     start_wire_capture
 
     log "starting echo_server.py"
-    nohup python3 "$DIR/echo_server.py" >"$RUN/echo.log" 2>&1 &
+    NC_LOOPBACK_DIR="$RUN" nohup python3 "$DIR/echo_server.py" >"$RUN/echo.log" 2>&1 &
     echo $! > "$RUN/echo.pid"
 
     log "starting lua-mock-server.py (feat/nc-lua)"
@@ -354,7 +354,7 @@ do_start() {
     # (hysteria2 / tuic / wireguard / masque) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
-    for p in 18001 18002 18003 18004 18005 18014 18015 18040 18060 18061 18062 18063 18064 18080 18082 18016 18018 18013; do
+    for p in 18001 18002 18003 18004 18005 18014 18015 18040 18060 18061 18062 18063 18064 18080 18082 18016 18018 18013 18019 18020; do
         wait_tcp "$p"
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"

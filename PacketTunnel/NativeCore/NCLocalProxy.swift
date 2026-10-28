@@ -341,36 +341,25 @@ final class NCLocalProxy {
                 if c.buf.isEmpty { readHead(c) } else { socks(c) }
             }
         case .request:
-            guard b.count >= 5 else { return readHead(c) }
-            guard b[0] == 0x05 else { return close(c) }
-            let cmd = b[1], atyp = b[3]
-            var host = ""
-            var off = 4
-            switch atyp {
-            case 0x01:
-                guard b.count >= off + 4 + 2 else { return readHead(c) }
-                host = b[off..<(off + 4)].map { String($0) }.joined(separator: ".")
-                off += 4
-            case 0x03:
-                let len = Int(b[4])
-                guard b.count >= 5 + len + 2 else { return readHead(c) }
-                host = String(decoding: b[5..<(5 + len)], as: UTF8.self)
-                off = 5 + len
-            case 0x04:
-                guard b.count >= off + 16 + 2 else { return readHead(c) }
-                host = IPv6Address(Data(b[off..<(off + 16)])).map { "\($0)" } ?? ""
-                off += 16
-            default:
-                return socksReply(c, 0x08, thenClose: true)
-            }
-            let port = Int(b[off]) << 8 | Int(b[off + 1])
-            off += 2
-            c.buf = Data(b[off...])
-            socksStage.removeValue(forKey: c.id)
-            guard cmd == 0x01 else { return socksReply(c, 0x07, thenClose: true) }
-            guard !host.isEmpty, port > 0 else { return socksReply(c, 0x01, thenClose: true) }
-            connect(c, host: host, port: port) { [weak self] ok, rep in
-                self?.socksReply(c, ok ? 0x00 : rep, thenClose: !ok)
+            // fix/nc-socks-domain-len (#170): parsing lives in the pure
+            // NCLanShare.parseSocksRequest so it is boundary/fuzz tested;
+            // domains are strict-UTF-8 validated there (no replacement-char
+            // decoding of invalid bytes). Check order below is unchanged:
+            // command first (0x07), then empty host / port 0 (0x01).
+            switch NCLanShare.parseSocksRequest(b) {
+            case .needMore:
+                return readHead(c)
+            case .invalid(let reply):
+                if let reply { return socksReply(c, reply, thenClose: true) }
+                return close(c)
+            case .ok(let cmd, let host, let port, let consumed):
+                c.buf = Data(b[consumed...])
+                socksStage.removeValue(forKey: c.id)
+                guard cmd == 0x01 else { return socksReply(c, 0x07, thenClose: true) }
+                guard !host.isEmpty, port > 0 else { return socksReply(c, 0x01, thenClose: true) }
+                connect(c, host: host, port: port) { [weak self] ok, rep in
+                    self?.socksReply(c, ok ? 0x00 : rep, thenClose: !ok)
+                }
             }
         }
     }
@@ -399,7 +388,8 @@ final class NCLocalProxy {
         }
         if method.uppercased() == "CONNECT" {
             c.kind = "HTTPS"
-            guard let hp = Self.splitAuthority(uri, defaultPort: 443) else { return httpError(c, 400, "Bad Request") }
+            guard let hp = Self.splitAuthority(uri, defaultPort: 443),
+                  NCLanShare.isValidInboundHost(hp.0) else { return httpError(c, 400, "Bad Request") }
             c.buf = rest
             connect(c, host: hp.0, port: hp.1) { [weak self] ok, rep in
                 guard let self else { return }
@@ -414,7 +404,7 @@ final class NCLocalProxy {
         // Absolute-form request (a client using us as its HTTP proxy).
         c.kind = "HTTP"
         guard let url = URLComponents(string: uri), let scheme = url.scheme?.lowercased(), scheme == "http",
-              let host = url.host, !host.isEmpty else {
+              let host = url.host, NCLanShare.isValidInboundHost(host) else {
             return httpError(c, 400, "Bad Request")
         }
         let port = url.port ?? 80

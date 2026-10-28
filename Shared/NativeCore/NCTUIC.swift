@@ -18,14 +18,17 @@ import os
 /// Not yet: heartbeat datagrams (the QUIC idle timeout closes an idle session and the next flow reconnects), custom
 /// congestion control (system QUIC CC is used).
 enum NCTUICWire {
-    static func address(_ t: NCTarget) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil when the target cannot be encoded
+    /// (the domain is never truncated to fit the u8 length).
+    static func address(_ t: NCTarget) -> Data? {
+        guard t.isWireEncodable else { return nil }
         var d = Data()
         if let v4 = IPv4Address(t.host) {
             d.append(1); d.append(v4.rawValue)
         } else if let v6 = IPv6Address(t.host) {
             d.append(2); d.append(v6.rawValue)
         } else {
-            let h = Data(t.host.utf8.prefix(255))
+            let h = Data(t.host.utf8)
             d.append(0); d.append(UInt8(h.count)); d.append(h)
         }
         d.appendBE16(UInt16(clamping: t.port))
@@ -342,8 +345,9 @@ final class NCTUICConnection {
 
     private func openTCPOnQueue(target: NCTarget, callerQueue: DispatchQueue) -> NCRelayStream? {
         guard state == .ready, let conn = group?.extract(connectionTo: nil, using: nil) else { return nil }
+        guard let addr = NCTUICWire.address(target) else { return nil }
         var head = Data([UInt8(version), 1])
-        head.append(NCTUICWire.address(target))
+        head.append(addr)
         let s = NCTUICTCPStream(channel: NCHy2StreamChannel(conn: conn), head: head, expectResponse: version == 4,
                                 queue: queue, callerQueue: callerQueue)
         s.begin()

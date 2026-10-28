@@ -29,12 +29,15 @@ enum NCSnell {
         version <= 1 ? (32, false) : (16, true)
     }
 
-    static func connectHeader(host: String, port: Int, version: Int) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil when the host does not fit the u8
+    /// length (never truncated).
+    static func connectHeader(host: String, port: Int, version: Int) -> Data? {
+        let hostBytes = Data(host.utf8)
+        guard hostBytes.count <= 255 else { return nil }
         var out = Data()
         out.append(0x01) // protocol version byte (always 1 on the wire)
         out.append(version == 2 ? 0x05 : 0x01)
         out.append(0x00) // clientID length
-        let hostBytes = Data(host.utf8.prefix(255)) // u8 length; connectViaProxy already rejects longer targets
         out.append(UInt8(hostBytes.count))
         out.append(hostBytes)
         out.appendBE16(UInt16(clamping: port))
@@ -68,7 +71,10 @@ enum NCSnell {
     /// Encode one UDP packet's inner frame: [0x01 command] + address in
     /// Snell's own format + payload. Domain: [len][host][port]; IPv4:
     /// [0x00, 0x04][addr][port]; IPv6: [0x00, 0x06][addr][port].
-    static func udpFrame(target: NCTarget, payload: Data) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil when the target cannot be encoded
+    /// (UDP targets do not pass connectViaProxy's isWireEncodable check).
+    static func udpFrame(target: NCTarget, payload: Data) -> Data? {
+        guard target.isWireEncodable else { return nil }
         var out = Data()
         out.append(0x01)
         if let ip = target.ip {
@@ -82,8 +88,7 @@ enum NCSnell {
                 out.append(contentsOf: bytes)
             }
         } else {
-            // u8 length: UDP targets do not pass connectViaProxy's isWireEncodable check, so cap here (no trap).
-            let host = Data(target.host.utf8.prefix(255))
+            let host = Data(target.host.utf8)
             out.append(UInt8(host.count))
             out.append(host)
         }

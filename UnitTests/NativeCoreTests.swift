@@ -144,11 +144,11 @@ final class NativeCoreGroupTests: XCTestCase {
 }
 
 final class NativeCoreOutboundTests: XCTestCase {
-    func testBuilders() {
+    func testBuilders() throws {
         let t = NCTarget(host: "example.com", port: 443)
-        XCTAssertEqual(hex(t.atypEncoded), "030b6578616d706c652e636f6d01bb")
+        XCTAssertEqual(hex(try XCTUnwrap(t.atypEncoded)), "030b6578616d706c652e636f6d01bb")
         XCTAssertEqual(hex(NCSOCKS5.greeting(username: nil, password: nil)), "050100")
-        let req = NCSOCKS5.connectRequest(target: t)
+        let req = try XCTUnwrap(NCSOCKS5.connectRequest(target: t))
         XCTAssertEqual(hex(req), "050100030b6578616d706c652e636f6d01bb")
         // Response: ver, rep=0, rsv, atyp=v4, 1.2.3.4:80
         let resp = unhex("05000001" + "01020304" + "0050")
@@ -380,8 +380,8 @@ final class NativeCoreTrojanTests: XCTestCase {
                        "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
     }
 
-    func testTrojanHead() {
-        let head = NCTrojan.requestHead(password: "password", target: NCTarget(host: "example.com", port: 443))
+    func testTrojanHead() throws {
+        let head = try XCTUnwrap(NCTrojan.requestHead(password: "password", target: NCTarget(host: "example.com", port: 443)))
         let hashHex = NCTrojan.passwordHashHex("password")
         XCTAssertEqual(hashHex.count, 56)
         XCTAssertTrue(String(decoding: head, as: UTF8.self).hasPrefix(hashHex + "\r\n"))

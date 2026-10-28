@@ -170,7 +170,7 @@ enum NCSubscriptionParser {
         case "wireguard", "wg": return parseWireGuard(rest, scheme: scheme)
         case "snell": return parseSnell(rest)
         case "ssh": return parseSSH(rest)
-        case "socks", "socks5", "socks5h", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
+        case "socks", "socks5", "socks5h", "socks5-tls", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
         case "anytls": return parseAnyTLS(rest)
         case "mieru", "mierus": return parseMieru(rest)
         case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
@@ -1336,6 +1336,15 @@ enum NCSubscriptionParser {
         if isHTTPS {
             f["tls"] = .bool(true)
             if let sni = p.query["sni"] { f["sni"] = .string(sni) }
+        }
+        // feat/nc-socks5-tls (#168): Shadowrocket-style SOCKS5-over-TLS links —
+        // `socks5://…?tls=1&peer=<sni>` or a `socks5-tls` scheme.
+        if isSocks && (scheme == "socks5-tls" || ["1", "true"].contains((p.query["tls"] ?? "").lowercased())) {
+            f["tls"] = .bool(true)
+            if let sni = p.query["peer"] ?? p.query["sni"], !sni.isEmpty { f["sni"] = .string(sni) }
+            if ["1", "true"].contains((p.query["insecure"] ?? p.query["allowInsecure"] ?? "").lowercased()) {
+                f["skip-cert-verify"] = .bool(true)
+            }
         }
         if !p.userinfo.isEmpty {
             var ui = p.userinfo

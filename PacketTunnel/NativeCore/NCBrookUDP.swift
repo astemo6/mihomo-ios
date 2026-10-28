@@ -57,7 +57,8 @@ final class NCUDPBrookPacketSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
-        guard !cancelled, let packet = options.encodePacket(dst: target.atypEncoded, payload: data) else { return }
+        guard !cancelled, let dst = target.atypEncoded,
+              let packet = options.encodePacket(dst: dst, payload: data) else { return }
         conn.send(content: packet, completion: .idempotent)
     }
 
@@ -81,7 +82,7 @@ final class NCUDPBrookStreamSession: NCUDPSession {
     static let maxPending = 64
 
     init(options: NCBrookOptions, target: NCTarget, queue: DispatchQueue) {
-        codec = options.makeCodec(udp: true, dst: target.atypEncoded)
+        codec = target.atypEncoded.flatMap { options.makeCodec(udp: true, dst: $0) }
         guard codec != nil else { dead = true; return }
         NCConnector.brookPipe(options, queue: queue, transport: nil) { [weak self] p, _ in
             guard let self else { p?.cancel(); return }
@@ -167,7 +168,8 @@ final class NCUDPBrookQUICDatagramSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
-        guard !dead, !cancelled, let packet = options.encodePacket(dst: target.atypEncoded, payload: data),
+        guard !dead, !cancelled, let dst = target.atypEncoded,
+              let packet = options.encodePacket(dst: dst, payload: data),
               packet.count <= NCBrook.maxQUICDatagram else { return }
         if let flow {
             flow.send(content: packet, completion: .idempotent)

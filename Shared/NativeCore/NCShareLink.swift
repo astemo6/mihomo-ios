@@ -320,6 +320,14 @@ enum NCShareLink {
             if scheme == "https" {
                 q.add("sni", sStr(m, "sni"))
             }
+            // feat/nc-socks5-tls (#168): a TLS socks5 node must keep its TLS
+            // flag in link form (Shadowrocket `?tls=1&peer=<sni>`), or the
+            // re-imported node silently falls back to plaintext.
+            if typ == "socks5" && sBool(m, "tls") {
+                q.add("tls", "1")
+                q.add("peer", sStr(m, "sni", "servername"))
+                if sBool(m, "skip-cert-verify") { q.add("insecure", "1") }
+            }
             return "\(scheme)://\(user)\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "wireguard":

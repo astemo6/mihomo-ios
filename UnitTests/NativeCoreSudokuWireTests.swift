@@ -293,9 +293,9 @@ final class NativeCoreSudokuWireTests: XCTestCase {
         XCTAssertThrowsError(try NCSudokuKIP.parseServerHello(payload: sh, expectedNonce: Data(count: 16)))
         XCTAssertThrowsError(try NCSudokuKIP.parseServerHello(payload: sh + Data([0]), expectedNonce: nonce))
 
-        XCTAssertEqual(Self.hexString(NCSudokuKIP.openTCP(target: NCTarget(host: "127.0.0.1", port: 18080))),
+        XCTAssertEqual(Self.hexString(try XCTUnwrap(NCSudokuKIP.openTCP(target: NCTarget(host: "127.0.0.1", port: 18080)))),
                        "6b6970100007017f00000146a0")
-        XCTAssertEqual(Self.hexString(NCSudokuKIP.openTCP(target: NCTarget(host: "a.io", port: 443))),
+        XCTAssertEqual(Self.hexString(try XCTUnwrap(NCSudokuKIP.openTCP(target: NCTarget(host: "a.io", port: 443)))),
                        "6b6970100008030461" + "2e696f01bb")
         let un = try XCTUnwrap(try NCSudokuKIP.unwrapMessage(from: msg + Data([1, 2])))
         XCTAssertEqual(un.type, 0x01)

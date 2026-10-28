@@ -47,8 +47,8 @@ enum NCGostRelay {
             appendFeature(&features, featureUserAuth, auth)
         }
         if let target {
-            guard target.isWireEncodable else { return nil }
-            appendFeature(&features, featureAddr, target.atypEncoded)
+            guard let addr = target.atypEncoded else { return nil }
+            appendFeature(&features, featureAddr, addr)
         }
         let network = udp ? networkUDP : networkTCP
         appendFeature(&features, featureNetwork, Data([UInt8(network >> 8), UInt8(network & 0xFF)]))

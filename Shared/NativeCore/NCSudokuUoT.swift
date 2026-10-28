@@ -33,6 +33,8 @@ enum NCSudokuUoT {
     }
 
     /// SOCKS5-style address; IPv4-mapped IPv6 literals are sent as IPv4, like the official encoder.
+    /// Callers (`frame`) have already verified `isWireEncodable`, so the
+    /// fallback to `atypEncoded` cannot be nil here.
     static func address(_ target: NCTarget) -> Data {
         if case .v6(let b)? = target.ip, b[0..<10].allSatisfy({ $0 == 0 }), b[10] == 0xff, b[11] == 0xff {
             var out = Data([0x01])
@@ -41,7 +43,7 @@ enum NCSudokuUoT {
             out.append(UInt8(target.port & 0xff))
             return out
         }
-        return target.atypEncoded
+        return target.atypEncoded ?? Data()
     }
 
     enum Parsed: Equatable {

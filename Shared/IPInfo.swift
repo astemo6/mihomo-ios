@@ -24,8 +24,20 @@ struct IPInfo: Codable, Equatable {
         return country
     }
 
+    /// A geo_location_checker script title conventionally starts with the flag emoji
+    /// ("🇯🇵 Japan Tokyo") because QX shows the title alone; every Tern surface renders
+    /// `flag` next to the place text, so the title's own flag would double up
+    /// (device screenshot 2026-10-28). Strip one leading flag (a regional-indicator pair)
+    /// plus following spaces when the title is used as the place text.
+    static func stripLeadingFlag(_ s: String) -> String {
+        guard let first = s.first, first.unicodeScalars.count == 2,
+              first.unicodeScalars.allSatisfy({ (0x1F1E6...0x1F1FF).contains($0.value) }) else { return s }
+        let rest = String(s.dropFirst()).trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? s : rest
+    }
+
     var locationText: String {
-        if let t = customTitle, !t.isEmpty { return t }
+        if let t = customTitle, !t.isEmpty { return Self.stripLeadingFlag(t) }
         var parts: [String] = []
         if let c = countryName, !c.isEmpty { parts.append(c) }
         if let city = city, !city.isEmpty, city != parts.first { parts.append(city) }
@@ -42,7 +54,7 @@ struct IPInfo: Codable, Equatable {
 
     /// Header title: "日本 东京" (country + city, no separator dot).
     var placeText: String {
-        if let t = customTitle, !t.isEmpty { return t }
+        if let t = customTitle, !t.isEmpty { return Self.stripLeadingFlag(t) }
         var parts: [String] = []
         if let c = countryName, !c.isEmpty { parts.append(c) }
         if let city = city, !city.isEmpty, city != parts.first { parts.append(city) }

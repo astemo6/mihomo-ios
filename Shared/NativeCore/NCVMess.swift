@@ -75,7 +75,9 @@ enum NCVMess {
     /// The plain request header (before sealing). `reqNonce` precedes `reqKey`
     /// on the wire, matching sing-vmess's encodeHeader.
     static func plainHeader(reqNonce: Data, reqKey: Data, respV: UInt8, option: UInt8,
-                            security: UInt8, padding: Data, target: NCTarget, command: UInt8 = 1) -> Data {
+                            security: UInt8, padding: Data, target: NCTarget, command: UInt8 = 1) -> Data? {
+        // fix/nc-socks-domain-len (#170): nil for an unencodable target.
+        guard let addr = NCVLESS.addressEncoded(target) else { return nil }
         var out = Data()
         out.append(0x01) // version
         out.append(reqNonce)
@@ -86,7 +88,7 @@ enum NCVMess {
         out.append(0) // reserved
         out.append(command)
         out.appendBE16(UInt16(clamping: target.port)) // callers check isWireEncodable; never trap regardless
-        out.append(NCVLESS.addressEncoded(target)) // VMess uses the same atyp numbering
+        out.append(addr) // VMess uses the same atyp numbering
         out.append(padding)
         out.appendBE32(NCFNV1a.hash32(out))
         return out

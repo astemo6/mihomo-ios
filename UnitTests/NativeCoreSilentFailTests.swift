@@ -136,7 +136,7 @@ final class NativeCoreSilentFailTests: XCTestCase {
         XCTAssertFalse(NCConnector.trojanUsesTransport(node("trojan", [:])))
     }
 
-    func testTrojanWSUsesSNIAsHostAndCarriesHead() {
+    func testTrojanWSUsesSNIAsHostAndCarriesHead() throws {
         let p = node("trojan", ["password": .string("pw"), "sni": .string("front.example.com"),
                                 "network": .string("ws"), "ws-opts": .object(["path": .string("/tj")])])
         let raw = FakeRaw(queue: q)
@@ -155,7 +155,7 @@ final class NativeCoreSilentFailTests: XCTestCase {
             raw.inject(Self.upgrade101)
         }
         wait(for: [done], timeout: 3)
-        let head = NCTrojan.requestHead(password: "pw", target: NCTarget(host: "example.org", port: 80))
+        let head = try XCTUnwrap(NCTrojan.requestHead(password: "pw", target: NCTarget(host: "example.org", port: 80)))
         onQ { stream?.send(head) }
         settle()
         let frame = onQ { raw.takeSent() }

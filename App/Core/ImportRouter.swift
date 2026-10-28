@@ -295,6 +295,9 @@ final class ImportRouter: ObservableObject {
             // Egern modules and Stash overrides are YAML too.
             let c = ImportTools.classifyText(text)
             if c.hasPrefix("module:") { return .moduleText(name: name, text: text, source: sourceName(c)) }
+            // feat/nc-egern-disabled-import (#169): an Egern configuration file goes
+            // through the config import sheet like a .conf.
+            if c == "conf" { return .confText(name: name, text: text) }
             return .profileText(name: name, text: text)
         case "conf":
             // A full Surge / QX config, or a QX rewrite snippet saved as .conf.

@@ -63,6 +63,8 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
 | 18083 | `echo_server.py` UDP control: datagram `go` → blackhole discards; `pause` → holds again |
 | 18084 | `echo_server.py` UDP DNS: every query → one A answer 192.0.2.53 (DNS-over-UDP through Sudoku UoT) |
+| 18019 | `echo_server.py` SOCKS5 over TLS (minimal SOCKS5 behind the loopback cert; feat/nc-socks5-tls) |
+| 18020 | `echo_server.py` plain SOCKS5 (no-auth / `nc-loop-socks-user` + `nc-loop-socks-pw`) |
 | 18090 | official Sudoku server v0.5.2.0 (`sudoku/entropy.json`) — prefer_entropy, chacha20-poly1305, legacy HTTP mask, pure downlink; fallback → 18080 |
 | 18091 | official Sudoku server (`sudoku/ascii-packed.json`) — prefer_ascii, aes-128-gcm, no HTTP mask, packed downlink |
 | 18092 | official Sudoku server (`sudoku/directional-none.json`) — up_ascii_down_entropy, custom table `xpxvvpvv`, aead none |

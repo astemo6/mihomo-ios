@@ -56,9 +56,9 @@ final class NCUDPUoTSession: NCUDPSession {
         guard let stream else { return }
         if !requestWritten {
             requestWritten = true
-            stream.send(NCUoT.request(destination: flowTarget))
+            if let req = NCUoT.request(destination: flowTarget) { stream.send(req) }
         }
-        stream.send(NCUoT.packet(target: target, payload: data))
+        if let pkt = NCUoT.packet(target: target, payload: data) { stream.send(pkt) }
     }
 
     func cancel() {
