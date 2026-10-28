@@ -544,6 +544,11 @@ extension NCEngineRuleset {
             var u = v.uppercased()
             if u.hasPrefix("AS") { u = String(u.dropFirst(2)) }
             return u
+        case "GEOIP", "SRC-GEOIP":
+            // Country codes are canonical uppercase in the internal profile (matching is
+            // case-insensitive); QX/Surge sources often write `geoip, cn, …` lowercase,
+            // which would otherwise break the TernConf .conf round trip.
+            return v.uppercased()
         default:
             break
         }
