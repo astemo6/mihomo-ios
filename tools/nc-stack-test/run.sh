@@ -19,3 +19,8 @@ ${CC:-cc} -std=gnu11 -O1 -w -DNC_STACK_TEST_CLOCK -I"$L" -I"$L/include" -I"$L/po
   "$here/nc_soak_test.c" "$L/nc_stack.c" "$L"/core/*.c $shim
 "$out.soak"
 rm -f "$out" "$out.soak"
+# fix/nc-tcp-write-chunk: bulk download through nc_tcp_write in drain-sized (64 KB) calls must complete.
+${CC:-cc} -std=gnu11 -O1 -w -I"$L" -I"$L/include" -I"$L/port" -o "$out.bulk" \
+  "$here/nc_bulk_test.c" "$L/nc_stack.c" "$L"/core/*.c $shim
+"$out.bulk"
+rm -f "$out.bulk"
