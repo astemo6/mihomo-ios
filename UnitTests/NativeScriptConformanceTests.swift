@@ -42,7 +42,19 @@ final class NativeScriptConformanceTests: XCTestCase {
     }
 
     /// case name → why its divergence is a debug-host artifact, not a product bug.
-    private static let knownDivergences: [String: String] = [:]
+    private static let knownDivergences: [String: String] = [
+        // The Egern ctx adapter is applied by the tunnel host only; NCScriptDebug's own
+        // header documents that the app-process runner does not apply it.
+        "egern-native": "Egern ctx adapter not applied by the app-process runner (documented in NCScriptDebug)",
+        "egern-abort": "Egern ctx adapter not applied by the app-process runner (documented in NCScriptDebug)",
+        "egern-ctx-body-bytes": "Egern ctx adapter not applied by the app-process runner (documented in NCScriptDebug)",
+        // $httpAPI is answered by the tunnel's controller; the app process has none and
+        // the callback never fires (documented in NCScriptDebug's header).
+        "httpapi-unavailable": "no tunnel controller in the app process, $httpAPI gets no answer (documented in NCScriptDebug)",
+        // The corpus pins the old core's request-log note sentence; both native hosts log
+        // the same fact (an exception after $done is ignored) in their own wording.
+        "exception-after-done": "old-core note wording; the ignored-after-$done fact is logged by both hosts in their own wording",
+    ]
 
     private func corpus() throws -> [CorpusCase] {
         let bundle = Bundle(for: NativeScriptConformanceTests.self)
@@ -94,18 +106,22 @@ final class NativeScriptConformanceTests: XCTestCase {
             let out = NCScriptDebug.run(home: home, input: inp)
 
             var hay: [String] = out.logs.map(\.msg) + out.summary
+            hay.append("\"ok\":\(out.ok)")
             if let e = out.error { hay.append(e) }
             if let dj = out.doneJSON { hay.append(dj) }
             for p in [out.result, out.mock] {
                 guard let p else { continue }
                 if let b = p.body { hay.append(b) }
-                if let s = p.status { hay.append(String(s)) }
+                if let s = p.status { hay.append(String(s)); hay.append("\"status\":\(s)") }
+                if p.bodyBase64 == true { hay.append("\"bodyBase64\":true") }
                 if let h = p.headers { hay.append(h.map { "\($0): \($1)" }.joined(separator: "\n")) }
                 if let u = p.url { hay.append(u) }
                 if let m = p.method { hay.append(m) }
             }
-            for n in out.notifications {
-                hay.append(n.map { "\($0)=\($1)" }.joined(separator: " "))
+            if !out.notifications.isEmpty,
+               let d = try? JSONSerialization.data(withJSONObject: out.notifications),
+               let s = String(data: d, encoding: .utf8) {
+                hay.append(s)
             }
             let joined = hay.joined(separator: "\n")
             let missing = c.expect.filter { !joined.contains($0) }
@@ -114,7 +130,7 @@ final class NativeScriptConformanceTests: XCTestCase {
             } else if Self.knownDivergences[c.name] != nil {
                 continue // owned divergence, still diverging as documented
             } else {
-                unexpected.append("\(c.name): missing \(missing.map { "«\($0.prefix(60))»" }.joined(separator: ", "))")
+                unexpected.append("\(c.name): missing \(missing.map { "«\($0.prefix(60))»" }.joined(separator: ", ")) | actual: \(joined.prefix(300))")
             }
         }
         XCTAssertTrue(passedKnown.isEmpty, "knownDivergences entries that now PASS (remove them): \(passedKnown.joined(separator: ", "))")
