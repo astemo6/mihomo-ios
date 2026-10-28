@@ -295,7 +295,9 @@ enum NCScriptManifest {
                     do {
                         let interval = cfg.scriptResources?[sc.path]?.interval
                         let updateInterval = (interval != nil && interval! > 0) ? interval! : sc.updateInterval
-                        src = try res.get(path: sc.path, maxAge: updateInterval)
+                        // Cache-only on the start path: a missing script is bad for this
+                        // session and downloads in the background (see NCResources.getCachedOnly).
+                        src = try res.getCachedOnly(path: sc.path, maxAge: updateInterval)
                     } catch {
                         ent.err = "加载脚本失败：\(error.localizedDescription)"
                     }
