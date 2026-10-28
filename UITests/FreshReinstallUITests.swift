@@ -95,8 +95,9 @@ extension TernUITests {
             usleep(1_500_000) // drop + 0.6 s save
             if done() { return true }
             warnings.append("[\(Env.tag)] home drag retry")
-            // A press that ended as a context menu must be closed first, or the retry lands on a menu item.
-            if app.button(L("从首页移除")).exists || app.button(L("全宽显示")).exists {
+            // A press that ended as a context menu (or its 从首页移除 confirmation) must be closed first, or the retry
+            // lands on a menu item.
+            if app.button(L("从首页移除")).exists || app.button(L("全宽显示")).exists || app.button(L("半宽显示")).exists {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
                 usleep(700_000)
             }
@@ -106,6 +107,21 @@ extension TernUITests {
             usleep(1_500_000)
             return done()
         }
+        /// After a drag: tap the title area once, so a drag session the simulator is still winding down ends (outside
+        /// Home → saved) before the next long-press, which would otherwise open no menu (CI 40601214518 en light).
+        func settle() {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
+            usleep(1_200_000)
+        }
+        /// Both cards fully above the tab bar (a drop target under the tab bar never gets the drop: CI 40601214518 en
+        /// dark, 运行时长 full width sat behind it). The page ends below the cards, so scrolling to the end shows them.
+        func reveal(_ e: XCUIElement) {
+            let bar = app.tabBars.firstMatch
+            for _ in 0..<3 where bar.exists && e.exists && e.frame.maxY > bar.frame.minY - 8 {
+                app.swipeUp(velocity: .slow)
+                usleep(700_000)
+            }
+        }
         let uptime = tile("uptime"), memory = tile("memory")
         XCTAssertTrue(scrollTo(uptime), "运行时长 tile")
         XCTAssertTrue(memory.exists, "内存 tile")
@@ -114,18 +130,31 @@ extension TernUITests {
         XCTAssertLessThan(uptime.frame.midX, memory.frame.midX, "half tiles: 运行时长 left of 内存")
 
         // Half width: drag 内存 onto 运行时长 → 内存 first.
+        reveal(uptime)
         XCTAssertTrue(drag(memory, onto: uptime) { before("memory", "uptime") }, "drag reordered (half): \(order())")
         snap("home-drag-half")
+        settle()
         XCTAssertTrue(scrollTo(uptime), "运行时长 tile after the drag")
         XCTAssertLessThan(memory.frame.midX, uptime.frame.midX, "内存 drawn first")
 
-        // Full width: 内存 full, then drag 运行时长 onto it → 运行时长 first again.
-        memory.press(forDuration: 1.2)
-        XCTAssertTrue(tapIfExists(app.button(L("全宽显示")), timeout: 4), "全宽显示")
+        // Full width: 运行时长 full (it moves to its own row below 内存), then drag 内存 down onto it → 运行时长 first.
+        // Dragged downwards on purpose: the cards sit low on the page, so their long-press menu opens above them, and
+        // a drag upwards slides over that menu instead of starting (rel 0.20.2 CI: it ended on 从首页移除).
+        uptime.press(forDuration: 1.2)
+        // The menu item exists before it is hittable while the menu is still animating in (CI 40603265589 zh dark:
+        // found after 1 s, not hittable → tapIfExists gave up); wait for hittable, then tap.
+        let full = app.button(L("全宽显示"))
+        XCTAssertTrue(full.waitForExistence(timeout: 4), "全宽显示")
+        for _ in 0..<15 where !full.isHittable { usleep(200_000) }
+        XCTAssertTrue(tapIfExists(full, timeout: 1), "全宽显示 hittable")
         usleep(900_000)
-        XCTAssertTrue(scrollTo(memory), "内存 full width")
-        XCTAssertTrue(drag(uptime, onto: memory) { before("uptime", "memory") }, "drag reordered (full): \(order())")
+        XCTAssertTrue(scrollTo(uptime), "运行时长 full width")
+        XCTAssertTrue(memory.exists, "内存 above it")
+        reveal(uptime)
+        XCTAssertTrue(drag(memory, onto: uptime) { before("uptime", "memory") }, "drag reordered (full): \(order())")
         snap("home-drag-full")
+        settle()
+        XCTAssertTrue(scrollTo(uptime), "运行时长 tile after the full-width drag")
         // The long-press menu no longer offers 在首页隐藏; removal is 从首页移除.
         uptime.press(forDuration: 1.2)
         XCTAssertTrue(app.button(L("从首页移除")).waitForExistence(timeout: 4), "从首页移除 in the long-press menu")

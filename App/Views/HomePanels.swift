@@ -86,19 +86,42 @@ final class HomePanelStore: ObservableObject {
     /// the same or the dragged card can slide under a still finger, which must not swap them back).
     private var lastHoverTarget: String?
     private var lastMoveAt = Date.distantPast
+    /// The card the current drag session carries. Outlives `dragging` (the dimming): a session can end without
+    /// performDrop / dropExited (cancelled drags, XCUITest's synthesized drags), so the order is also saved and the
+    /// card un-dimmed once the finger has been still for a moment; moving again keeps reordering.
+    private var dragID: String?
+
+    /// Last finger location the section drop target reported. UIKit keeps calling dropSessionDidUpdate while the finger
+    /// rests (and, in the simulator, after XCUITest lifts it while the session winds down); those calls carry the same
+    /// point and must neither re-dim the card nor push the save back, or the card stays dimmed, the order is never
+    /// saved, the app never idles and the next long-press opens no menu (rel 0.20.2 CI 40601214518 test96).
+    private var lastHoverPoint: CGPoint?
 
     func beginDrag(_ id: String) {
-        commitWork?.cancel()
-        commitWork = nil
         lastHoverTarget = nil
+        lastHoverPoint = nil
+        dragID = id
         dragging = id
+        scheduleCommit(after: 2.0) // a drag that never reaches Home does not leave the card dimmed
+    }
+
+    /// The drop landed: save and end the session.
+    func endDrag() {
+        commitDrag()
+        dragID = nil
+        lastHoverTarget = nil
+        lastHoverPoint = nil
     }
 
     /// Section drop target moved to `p`: move the dragged card into the place of the card under the finger.
     func dragHover(at p: CGPoint) {
-        guard let d = dragging else { return }
-        commitWork?.cancel() // still over Home: the drop saves
-        commitWork = nil
+        guard let d = dragID else { return }
+        if let q = lastHoverPoint, abs(q.x - p.x) < 3, abs(q.y - p.y) < 3 { return } // finger still: let the save run
+        lastHoverPoint = p
+        lastDragActivity = Date()
+        if dragging != d { dragging = d }
+        // Saved at the drop, on leaving Home, or 1 s after the finger stopped moving (session ended unseen).
+        defer { scheduleCommit(after: 1.0) }
         guard let target = cardFrames.first(where: { $0.value.contains(p) })?.key else { return }
         if target == d {
             // Back over the dragged card itself (not right after a move): a later hover on the same card moves again.
@@ -109,8 +132,6 @@ final class HomePanelStore: ObservableObject {
         lastHoverTarget = target
         lastMoveAt = Date()
         dragMove(d, over: target)
-        commitWork?.cancel() // dragMove scheduled a save; the drop (or leaving Home) saves instead
-        commitWork = nil
     }
 
     /// Live reorder while a dragged card hovers `target`: the dragged id takes the target's place in the pinned order.
@@ -123,18 +144,17 @@ final class HomePanelStore: ObservableObject {
         scheduleCommit()
     }
 
-    func scheduleCommit() {
+    func scheduleCommit(after delay: Double = 0.6) {
         commitWork?.cancel()
         let w = DispatchWorkItem { [weak self] in self?.commitDrag() }
         commitWork = w
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: w)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: w)
     }
 
     func commitDrag() {
         commitWork?.cancel()
         commitWork = nil
         dragging = nil
-        lastHoverTarget = nil
         savePinned()
         orderChanged()
     }
@@ -201,10 +221,11 @@ final class HomePanelStore: ObservableObject {
     /// 「从首页移除」 from a Home card's long-press menu: ignored while a drag is in flight or within 1 s of one,
     /// so a press-and-drag that ends over the menu never removes the card.
     func unpinFromMenu(_ id: String) {
-        guard Date().timeIntervalSince(lastDragActivity) > 1.0 else { return }
-        if dragging != nil { commitDrag() } // a drag that ended outside any drop target
+        guard canRemoveFromMenu else { return }
         unpin(id)
     }
+
+    var canRemoveFromMenu: Bool { dragging == nil && Date().timeIntervalSince(lastDragActivity) > 1.0 }
 
     func move(from: IndexSet, to: Int) {
         model.pinned.move(fromOffsets: from, toOffset: to)
@@ -292,6 +313,10 @@ struct HomePanelsSection: View {
     @ObservedObject var home = HomePanelStore.shared
     @ObservedObject var overrides = PanelOverrideStore.shared
     @State private var editPanel: PanelItem?
+    /// rel 0.20.2: 「从首页移除」 in the long-press menu asks first. A press-and-drag whose drag never starts (finger
+    /// slides over the menu instead, e.g. dragging a low card upward through a menu shown above it) ends on a menu
+    /// item; removing at once lost the card (CI 40593917038 en test96).
+    @State private var confirmRemove: String?
 
     var body: some View {
         let items = home.visibleIDs.compactMap { home.item($0, connected: vpn.isConnected) }
@@ -355,9 +380,17 @@ struct HomePanelsSection: View {
         .onDrop(of: [UTType.text], delegate: HomeReorderDrop(
             update: { home.dragHover(at: $0) },
             exit: { if home.dragging != nil { home.scheduleCommit() } },
-            drop: { if home.dragging != nil { home.commitDrag() } }))
+            drop: { home.endDrag() }))
         .coordinateSpace(name: HomeReorderDrag.space)
         .sheet(item: $editPanel) { p in PanelEditSheet(p: p) }
+        .confirmationDialog(Text("从首页移除"), isPresented: Binding(get: { confirmRemove != nil }, set: { if !$0 { confirmRemove = nil } }),
+                            titleVisibility: .hidden) {
+            Button(role: .destructive) {
+                if let id = confirmRemove { home.unpin(id) }
+                confirmRemove = nil
+            } label: { Label("从首页移除", systemImage: "minus.circle") }
+            Button("取消", role: .cancel) { confirmRemove = nil }
+        }
         .task(id: vpn.isConnected) {
             home.loadCache()
             guard vpn.isConnected else { if !model.demo { model.panels = [] }; return }
@@ -392,7 +425,7 @@ extension HomePanelsSection {
                 arrangeItems(e.item.id)
                 Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
                 PanelEditButton { editPanel = e.item }
-                Button(role: .destructive) { home.unpinFromMenu(e.item.id) } label: { Label("从首页移除", systemImage: "minus.circle") }
+                Button(role: .destructive) { if home.canRemoveFromMenu { confirmRemove = e.item.id } } label: { Label("从首页移除", systemImage: "minus.circle") }
             }
             .modifier(HomeReorderDrag(id: e.item.id))
         case .tile(let t):
@@ -405,7 +438,7 @@ extension HomePanelsSection {
             .contextMenu {
                 arrangeItems(t.id)
                 Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
-                Button(role: .destructive) { home.unpinFromMenu(t.id) } label: { Label("从首页移除", systemImage: "minus.circle") }
+                Button(role: .destructive) { if home.canRemoveFromMenu { confirmRemove = t.id } } label: { Label("从首页移除", systemImage: "minus.circle") }
             }
             .modifier(HomeReorderDrag(id: t.id))
     }
@@ -631,9 +664,9 @@ struct HomePanelsEditor: View {
 /// menu preview lifts and becomes the drag (iOS 16+). rel 0.20.2 (CI 40566844130 test96): the drop target is the whole
 /// Home section, which finds the card under the finger from the cards' measured frames. Per-card drop delegates were
 /// rebuilt whenever the rows regrouped (a full-width card next to a half one), so the session never entered them and
-/// the order stayed put; a drag that ended outside Home also left `dragging` set (card stuck dimmed, 从首页移除 dead).
+/// the order stayed put; a session that ended without a drop also left `dragging` set (card stuck dimmed, 从首页移除 dead).
 /// Hovering another card moves the dragged one into its place; the order is saved at the drop, or 0.6 s after the
-/// finger leaves Home / the last move.
+/// finger leaves Home / stays still for 1 s.
 struct HomeReorderDrag: ViewModifier {
     static let space = "home.panels.space"
     let id: String
