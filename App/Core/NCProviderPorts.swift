@@ -325,6 +325,15 @@ enum NCProviderPorts {
                 var t: [String: Any] = ["kind": kind, "name": name, "url": dl, "source": xs.isEmpty ? dl : xs,
                                         "convert": convert, "path": path, "interval": ncInt(m["interval"]),
                                         "updated": mtime(path)]
+                // fix/nc-qx-fidelity: an own-policy provider whose per-policy split is missing
+                // (the profile gained x-own-policy after the list was downloaded in plain
+                // form) must be re-downloaded once so the download writes the split +
+                // sidecar; reporting it as never-updated makes every freshness check treat
+                // it as due.
+                if NCRuntimeSteps.truthy(m["x-own-policy"]),
+                   !FileManager.default.fileExists(atPath: path + ".policies.json") {
+                    t["updated"] = 0
+                }
                 let fmt = ncStr(m["format"])
                 if !fmt.isEmpty { t["format"] = fmt }
                 // fix/nc-open-6-10 #10: the provider's own User-Agent (Clash.Meta `header`), e.g. QuanX for QX imports.

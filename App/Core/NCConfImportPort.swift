@@ -1579,71 +1579,9 @@ enum NCConfImportPort {
             rules.append("RULE-SET," + name + "," + p)
         }
 
-        var finalRule: String? = nil
-        for l in nonEmpty(secs[ruleSec]) {
-            let (c, err) = NCEngineRuleset.convertRuleLine(l)
-            if let err {
-                skip(ruleSec, l, err)
-                continue
-            }
-            if !c.remoteURL.isEmpty {
-                addRemote(sec: ruleSec, u: c.remoteURL, kind: c.remoteKind, pol: c.policy, line: l, tag: "", interval0: 0)
-                continue
-            }
-            if c.rule.isEmpty { continue }
-            let (pol, ok) = resolvePol(c.policy)
-            guard ok else {
-                skip(ruleSec, l, missingPol(c.policy))
-                rulesSkipped += 1
-                continue
-            }
-            if c.type == "MATCH" {
-                finalRule = c.format(pol)
-                continue
-            }
-            rules.append(c.format(pol))
-        }
-
-        // fix/nc-0.20.2: commented-out local rules → 停用 profile rules (after the enabled local rules; they take effect
-        // there when switched on). Remote lines and the final rule are not imported this way.
-        let commented = commentedSections(text)
-        var disabledRuleTexts: [String] = []
-        for l in commented[ruleSec] ?? [] {
-            let (c, err) = NCEngineRuleset.convertRuleLine(l)
-            guard err == nil, c.remoteURL.isEmpty, !c.rule.isEmpty, c.type != "MATCH" else { continue }
-            let (pol, ok) = resolvePol(c.policy)
-            guard ok else { continue }
-            let r = c.format(pol)
-            rules.append(r)
-            disabledRuleTexts.append(r)
-        }
-
-        // fix/nc-0.20.2: Loon [Remote Rule] (`URL, policy=X, tag=Y, enabled=false`) → a rule set like a QX
-        // filter_remote; enabled=false imports it 停用 (listed, never downloaded until switched on).
-        if !isQX {
-            for l in nonEmpty(secs["remote rule"]) {
-                let opts = qxLineOpts(l)
-                let u = String(l.split(separator: ",", maxSplits: 1).first ?? "").trimmingCharacters(in: .whitespaces)
-                guard u.hasPrefix("http://") || u.hasPrefix("https://") else {
-                    skip("remote rule", l, "整个规则列表未导入：无效的规则列表地址（需要 http:// 或 https:// 开头）")
-                    rulesSkipped += 1
-                    continue
-                }
-                let off = opts["enabled"].map { !truthy($0) } ?? false
-                if off {
-                    if rep.disabled == nil { rep.disabled = [] }
-                    rep.disabled?.append("[Remote Rule] " + qxRemoteLabel(l))
-                }
-                let provBefore = Set(providers.keys)
-                addRemote(sec: "remote rule", u: u, kind: "list", pol: firstNonEmpty(opts["policy"], "DIRECT"), line: l,
-                          tag: opts["tag"] ?? "", interval0: atoi(opts["update-interval"], 0))
-                if off {
-                    let added = providers.keys.filter { !provBefore.contains($0) }.sorted()
-                    if !added.isEmpty { rep.disabledRuleSets = (rep.disabledRuleSets ?? []) + added }
-                }
-            }
-        }
-
+        // fix/nc-qx-fidelity: QX evaluates [filter_remote] BEFORE [filter_local], so the remote
+        // sets' rules are assembled first, in conf order (was: appended after every local rule,
+        // which put GEOIP,cn,DIRECT ahead of the ad-block sets and silently disabled them).
         if isQX {
             var inserted: [String] = []
             for l0 in nonEmpty(secs["filter_remote"]) {
@@ -1712,6 +1650,72 @@ enum NCConfImportPort {
             }
             if !inserted.isEmpty {
                 rules.insert(contentsOf: inserted, at: 0)
+            }
+        }
+
+
+        var finalRule: String? = nil
+        for l in nonEmpty(secs[ruleSec]) {
+            let (c, err) = NCEngineRuleset.convertRuleLine(l)
+            if let err {
+                skip(ruleSec, l, err)
+                continue
+            }
+            if !c.remoteURL.isEmpty {
+                addRemote(sec: ruleSec, u: c.remoteURL, kind: c.remoteKind, pol: c.policy, line: l, tag: "", interval0: 0)
+                continue
+            }
+            if c.rule.isEmpty { continue }
+            let (pol, ok) = resolvePol(c.policy)
+            guard ok else {
+                skip(ruleSec, l, missingPol(c.policy))
+                rulesSkipped += 1
+                continue
+            }
+            if c.type == "MATCH" {
+                finalRule = c.format(pol)
+                continue
+            }
+            rules.append(c.format(pol))
+        }
+
+        // fix/nc-0.20.2: commented-out local rules → 停用 profile rules (after the enabled local rules; they take effect
+        // there when switched on). Remote lines and the final rule are not imported this way.
+        let commented = commentedSections(text)
+        var disabledRuleTexts: [String] = []
+        for l in commented[ruleSec] ?? [] {
+            let (c, err) = NCEngineRuleset.convertRuleLine(l)
+            guard err == nil, c.remoteURL.isEmpty, !c.rule.isEmpty, c.type != "MATCH" else { continue }
+            let (pol, ok) = resolvePol(c.policy)
+            guard ok else { continue }
+            let r = c.format(pol)
+            rules.append(r)
+            disabledRuleTexts.append(r)
+        }
+
+        // fix/nc-0.20.2: Loon [Remote Rule] (`URL, policy=X, tag=Y, enabled=false`) → a rule set like a QX
+        // filter_remote; enabled=false imports it 停用 (listed, never downloaded until switched on).
+        if !isQX {
+            for l in nonEmpty(secs["remote rule"]) {
+                let opts = qxLineOpts(l)
+                let u = String(l.split(separator: ",", maxSplits: 1).first ?? "").trimmingCharacters(in: .whitespaces)
+                guard u.hasPrefix("http://") || u.hasPrefix("https://") else {
+                    skip("remote rule", l, "整个规则列表未导入：无效的规则列表地址（需要 http:// 或 https:// 开头）")
+                    rulesSkipped += 1
+                    continue
+                }
+                let off = opts["enabled"].map { !truthy($0) } ?? false
+                if off {
+                    if rep.disabled == nil { rep.disabled = [] }
+                    rep.disabled?.append("[Remote Rule] " + qxRemoteLabel(l))
+                }
+                let provBefore = Set(providers.keys)
+                addRemote(sec: "remote rule", u: u, kind: "list", pol: firstNonEmpty(opts["policy"], "DIRECT"), line: l,
+                          tag: opts["tag"] ?? "", interval0: atoi(opts["update-interval"], 0))
+                if off {
+                    let added = providers.keys.filter { !provBefore.contains($0) }.sorted()
+                    if !added.isEmpty { rep.disabledRuleSets = (rep.disabledRuleSets ?? []) + added }
+                }
             }
         }
 

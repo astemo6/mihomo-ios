@@ -205,6 +205,51 @@ final class TernConfTests: XCTestCase {
         XCTAssertNil(p["rule-providers"]?["Off"], "an enabled=false filter list is left out")
     }
 
+    /// fix/nc-qx-fidelity: QX semantics for [filter_remote] — remote sets evaluate before
+    /// [filter_local]; a list without force-policy keeps its lines' own policies
+    /// (x-own-policy provider + a fallback RULE-SET rule at the remote position); a stored
+    /// `rule-set,` line for the same set is absorbed and supplies the fallback policy;
+    /// serialization writes pure QX form (no `rule-set,` lines, geoip as `geoip, cn, …`).
+    func testQXFilterRemoteOwnPolicyAndOrder() throws {
+        let text = """
+        [policy]
+        static=Proxy, HK, direct
+
+        [server_local]
+        shadowsocks=1.1.1.1:443, method=aes-128-gcm, password=<redacted>, tag=HK
+
+        [filter_remote]
+        https://example.com/ads.list, tag=Ads, update-interval=86400
+        https://example.com/media.list, tag=Media, force-policy=Proxy, update-interval=86400
+
+        [filter_local]
+        host-suffix, example.com, direct
+        rule-set, Ads, reject
+        geoip, cn, direct
+        final, Proxy
+        """
+        let p = try TernConf.parse(text).profile
+        XCTAssertEqual(p["rules"], .array([
+            .string("RULE-SET,Ads,REJECT"), .string("RULE-SET,Media,Proxy"),
+            .string("DOMAIN-SUFFIX,example.com,DIRECT"), .string("GEOIP,CN,DIRECT"), .string("MATCH,Proxy"),
+        ]))
+        let ads = p["rule-providers"]?["Ads"]
+        XCTAssertEqual(ads?["x-own-policy"], .bool(true))
+        XCTAssertEqual(ads?["x-convert"], .string("list"))
+        XCTAssertEqual(ads?["x-fallback-policy"], .string("REJECT"))
+        let media = p["rule-providers"]?["Media"]
+        XCTAssertNil(media?["x-own-policy"])
+
+        let out = TernConf.serializeProfile(p)
+        XCTAssertFalse(out.contains("rule-set,"), "QX form has no rule-set lines:\n\(out)")
+        XCTAssertTrue(out.contains("force-policy=Proxy"), "forced set folds its policy into the [filter_remote] line:\n\(out)")
+        XCTAssertTrue(out.contains("geoip, cn, direct"), "geoip in QX spelling:\n\(out)")
+        // The serialized text parses back to the same profile (round trip is stable).
+        let p2 = try TernConf.parse(out).profile
+        XCTAssertEqual(p2["rules"], p["rules"])
+        XCTAssertEqual(p2["rule-providers"], p["rule-providers"])
+    }
+
     func testParseErrorsCarryLines() {
         let text = "[general]\nmode = rule\n\n[server_local]\nvmess=nohost, password=x, tag=A\n"
         XCTAssertThrowsError(try TernConf.parse(text)) { e in

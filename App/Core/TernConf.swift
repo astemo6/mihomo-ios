@@ -358,13 +358,52 @@ enum TernConf {
             out += "\n[server_remote]\n"
             for k in provs.keys.sorted() { out += serializeProvider(name: k, provs[k] ?? .null, ruleSet: false) + "\n" }
         }
+        // QX form (fix/nc-qx-fidelity): a RULE-SET rule that names a QX list provider
+        // (x-convert=list) is not a [filter_local] line — in Quantumult X the set exists
+        // only as its [filter_remote] line, with force-policy= folded in when the provider
+        // follows one forced policy. Clash-style providers (behavior=/format=, no
+        // x-convert) keep their rule-set line and plain provider line, as before.
+        // An x-own-policy provider keeps its list lines' own policies, so nothing is folded
+        // in for it. Providers are written in the order the rules reference them, so the
+        // text keeps QX's evaluation order (unreferenced providers follow, sorted).
+        var setPolicy: [String: String] = [:]
+        var absorbed = Set<Int>()
+        if case .object(let provs)? = owned["rule-providers"], case .array(let rules)? = owned["rules"] {
+            for (i, r) in rules.enumerated() {
+                guard case .string(let s) = r else { continue }
+                let parts = splitRule(s)
+                guard parts.count >= 3, parts[0] == "RULE-SET", let pv = provs[parts[1]],
+                      case .object(let pm) = pv, pm["x-convert"]?.string == "list" else { continue }
+                absorbed.insert(i)
+                if pm["x-own-policy"]?.bool != true, setPolicy[parts[1]] == nil {
+                    setPolicy[parts[1]] = parts[2]
+                }
+            }
+        }
         if case .object(let provs)? = owned["rule-providers"] {
             out += "\n[filter_remote]\n"
-            for k in provs.keys.sorted() { out += serializeProvider(name: k, provs[k] ?? .null, ruleSet: true) + "\n" }
+            var order: [String] = []
+            if case .array(let rules)? = owned["rules"] {
+                for r in rules {
+                    guard case .string(let s) = r else { continue }
+                    let parts = splitRule(s)
+                    if parts.count >= 2, parts[0] == "RULE-SET", provs[parts[1]] != nil, !order.contains(parts[1]) {
+                        order.append(parts[1])
+                    }
+                }
+            }
+            for k in provs.keys.sorted() where !order.contains(k) { order.append(k) }
+            for k in order {
+                var line = serializeProvider(name: k, provs[k] ?? .null, ruleSet: true)
+                if let pol = setPolicy[k] {
+                    line += ", force-policy=" + escField(writePolicy(pol, names: names))
+                }
+                out += line + "\n"
+            }
         }
         if case .array(let rules)? = owned["rules"] {
             out += "\n[filter_local]\n"
-            for r in rules { out += serializeRule(r, names: names) + "\n" }
+            for (i, r) in rules.enumerated() where !absorbed.contains(i) { out += serializeRule(r, names: names) + "\n" }
         }
         return out
     }
@@ -1007,25 +1046,82 @@ enum TernConf {
             }
             profile["proxy-providers"] = .object(m)
         }
-        var forced: [String] = []
+        // QX evaluation order (fix/nc-qx-fidelity): the [filter_remote] sets are evaluated
+        // BEFORE the [filter_local] lines, each at its own position — exactly like
+        // Quantumult X. A line with force-policy= stands for the whole list (one RULE-SET
+        // rule with that policy). A line without it keeps QX semantics: every line of the
+        // list carries its own policy, so the provider is marked x-own-policy (the download
+        // splits it per policy and the runtime expansion splices the parts in at this
+        // rule's position); its RULE-SET rule is only the fallback for unpolicied lines
+        // and the pre-download state.
+        //
+        // A stored `rule-set, X, …` line in [filter_local] that names a [filter_remote]
+        // set is that set's rule in serialized form (older Tern versions wrote it there):
+        // it supplies the own-policy fallback policy above and is then absorbed — QX has
+        // no such line, and the set's own [filter_remote] line is its only representation.
+        var localSetPolicies: [String: String] = [:]
+        if let lines = s.lines["filter_local"] {
+            for l in lines where !isComment(l.text) {
+                if let r = try? parseRule(l.text, line: l.number, names: names) {
+                    let parts = splitRule(r)
+                    if parts.count >= 3, parts[0] == "RULE-SET" { localSetPolicies[parts[1]] = parts[2] }
+                }
+            }
+        }
+        var remoteRules: [String] = []
+        var remoteNames = Set<String>()
         if let lines = s.lines["filter_remote"] {
             var m: [String: NCJSONValue] = [:]
             for l in lines where !isComment(l.text) {
                 let p = try parseProvider(l.text, line: l.number, ruleSet: true)
                 if p.skip { continue }
-                m[p.name] = p.value
-                if let r = p.rule { forced.append(r) }
+                var v = p.value
+                var qxSet = p.rule != nil
+                if p.rule == nil, case .object(var pm) = v, pm["url"] != nil,
+                   pm["behavior"] == nil, pm["format"] == nil,
+                   pm["x-convert"] == nil || pm["x-convert"]?.string == "list" {
+                    qxSet = true
+                    // No force-policy on a QX list line: own-policy semantics. (A json=-form
+                    // provider has no url and stays a plain provider, as before; a line with
+                    // behavior=/format= is a Clash-style provider and stays plain too.)
+                    if pm["x-convert"] == nil { pm["x-convert"] = .string("list") }
+                    pm["x-own-policy"] = .bool(true)
+                    // The fallback policy is part of the set's identity: a stored rule-set
+                    // line's policy is kept on the provider (x-fallback-policy) so the
+                    // serialized [filter_remote] line — the set's only representation —
+                    // carries it across round trips.
+                    if pm["x-fallback-policy"] == nil, let lp = localSetPolicies[p.name] {
+                        pm["x-fallback-policy"] = .string(lp)
+                    }
+                    v = .object(pm)
+                    let off = pm["enabled"]?.bool == false
+                        || (pm["enabled"]?.string.map { !NCConfImportPort.truthy($0) } ?? false)
+                    if !off {
+                        let pol = pm["x-fallback-policy"]?.string
+                            ?? groups.first { $0["type"]?.string == "select" }?["name"]?.string
+                            ?? "DIRECT"
+                        remoteRules.append("RULE-SET,\(p.name),\(pol)")
+                    }
+                }
+                if qxSet { remoteNames.insert(p.name) }
+                m[p.name] = v
+                if let r = p.rule { remoteRules.append(r) }
             }
             profile["rule-providers"] = .object(m)
         }
-        if s.lines["filter_local"] != nil || !forced.isEmpty {
-            var rules: [NCJSONValue] = forced.map { r in
+        if s.lines["filter_local"] != nil || !remoteRules.isEmpty {
+            var rules: [NCJSONValue] = remoteRules.map { r in
                 var parts = splitRule(r)
                 if parts.count >= 3 { parts[2] = readPolicy(parts[2], names: names) }
                 return NCJSONValue.string(parts.joined(separator: ","))
             }
             for l in s.lines["filter_local"] ?? [] where !isComment(l.text) {
-                rules.append(try parseRuleValue(l.text, line: l.number, names: names))
+                let v = try parseRuleValue(l.text, line: l.number, names: names)
+                if case .string(let r) = v {
+                    let parts = splitRule(r)
+                    if parts.count >= 2, parts[0] == "RULE-SET", remoteNames.contains(parts[1]) { continue }
+                }
+                rules.append(v)
             }
             profile["rules"] = .array(rules)
         }
