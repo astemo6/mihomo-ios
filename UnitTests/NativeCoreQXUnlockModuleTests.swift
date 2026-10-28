@@ -130,4 +130,37 @@ hostname = mobwsa.ximalaya.com,mobile.ximalaya.com, apisg.himalaya.com,36.150.21
             }
         }
     }
+
+    /// Probe 2 (takeover, 2026-10-28): on device the module is NOT a clean .txt — it is a
+    /// [rewrite_remote] subscription whose URL is the raw script file itself: the module text
+    /// lives inside a leading /* ... */ JS block comment, followed by ~360 KB of JavaScript.
+    /// The fixture above is the extracted text. Feed the build the raw form and count what
+    /// survives: if the rules vanish, the parser drops JS-wrapped modules.
+    func testRawJSWrappedModuleSurvivesBuild() throws {
+        func build(moduleText: String) throws -> (NativeRewriteEngine, NCEngineRuleset, String) {
+            let home = NSTemporaryDirectory() + "nc-qx-unlock-raw-\(UUID().uuidString)"
+            let modulesDir = home + "/engine/modules"
+            try FileManager.default.createDirectory(atPath: modulesDir, withIntermediateDirectories: true)
+            try #"{"enabled":true,"scriptsEnabled":true,"mitm":true,"modules":[{"id":"xmly","name":"ximalaya","enabled":true}]}"#
+                .write(toFile: home + "/engine/engine.json", atomically: true, encoding: .utf8)
+            try moduleText.write(toFile: modulesDir + "/xmly.txt", atomically: true, encoding: .utf8)
+            let cfg = NCEngineConfig.load(home: home)
+            let rs = NCMitmBuild.build(home: home, cfg: cfg)
+            let (data, _) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
+            let e = try XCTUnwrap(NativeRewriteEngine(json: String(decoding: data, as: UTF8.self)))
+            return (e, rs, home)
+        }
+        // A: the module text wrapped in a block comment + a small JS tail (the real file's shape).
+        let wrapped = "/*\n" + Self.module + "\n*/\nvar __x = 1;\n"
+        // B: same, with a ~360 KB JS tail (the real file's size).
+        let bigTail = wrapped + String(repeating: "var __filler = '0123456789abcdef';\n", count: 10000)
+        for (label, text) in [("wrapped", wrapped), ("wrapped+360KB", bigTail)] {
+            let (e, rs, home) = try build(moduleText: text)
+            defer { try? FileManager.default.removeItem(atPath: home) }
+            let scripts = rs.rules.filter { $0.kind == "script" }
+            print("PROBE2 \(label): rules=\(rs.rules.count) scripts=\(scripts.count) errors=\(rs.errors) snapshotScriptRules=\(e.scriptRuleCount)")
+            XCTAssertEqual(scripts.count, 1, "\(label): the unlock script rule must survive the module build")
+            XCTAssertEqual(e.scriptRuleCount, 1, "\(label): the snapshot must carry the script rule")
+        }
+    }
 }
