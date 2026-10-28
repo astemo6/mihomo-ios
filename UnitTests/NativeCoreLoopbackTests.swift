@@ -1825,4 +1825,17 @@ extension NativeCoreLoopbackTests {
         let firstSixteen = Set(r.map { Int($0.payload[1]) }).intersection(Set(0..<16))
         XCTAssertGreaterThanOrEqual(firstSixteen.count, 15, "pre-open queue: \(firstSixteen.count)/16 echoed")
     }
+
+    /// feat/nc-sudoku-udp-wire: with `udp: false` the node's UDP must not ride Sudoku at all.
+    /// NCDataPlane.openUDP's sudoku case is gated on `proxy.effectiveUDP`, so this flow lands
+    /// in the default drop path like any UDP-incapable policy (the data plane itself has no
+    /// in-process harness — this pins the gate predicate on an otherwise fully valid node,
+    /// against the same server parameters the echo tests above dial).
+    func testSudokuUDPDisabledByNodeFlag() throws {
+        let off = Self.sudokuProxy("loop-sudoku-udp-off", 18090, ["udp": .bool(false)])
+        XCTAssertNil(NCSupport.unsupportedReason(off), "node itself is valid")
+        XCTAssertFalse(off.effectiveUDP, "udp: false must close the data plane's Sudoku UDP case")
+        let on = Self.sudokuProxy("loop-sudoku-udp-on", 18090, [:])
+        XCTAssertTrue(on.effectiveUDP, "no flag: Sudoku UDP defaults on")
+    }
 }

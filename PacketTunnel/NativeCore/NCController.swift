@@ -608,7 +608,7 @@ final class NCController {
         var item: [String: Any] = [
             "name": p.name,
             "type": Self.displayType(p.type),
-            "udp": p.udp,
+            "udp": p.effectiveUDP,
             "alive": alive[p.name] ?? true,
         ]
         if let d = delays[p.name] {

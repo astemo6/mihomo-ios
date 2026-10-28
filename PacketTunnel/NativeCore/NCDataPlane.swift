@@ -1512,9 +1512,11 @@ final class NCDataPlane {
                 return
             }
             session = sn
-        case .proxy(let proxy) where proxy.type == "sudoku":
+        case .proxy(let proxy) where proxy.type == "sudoku" && proxy.effectiveUDP:
             // feat/nc-sudoku-udp: UoT inside the Sudoku tunnel (KIP StartUoT), one tunnel per flow like the
-            // official client / Clash.Meta. The protocol has no UDP switch (Clash.Meta's Sudoku always offers UDP).
+            // official client / Clash.Meta. feat/nc-sudoku-udp-wire: Sudoku defaults to UDP on
+            // (NCProxy.effectiveUDP); an explicit udp: false falls through to the default drop
+            // below — the same path every UDP-incapable policy takes.
             guard NCSupport.sudokuUnsupported(proxy) == nil else {
                 udpDropped += 1
                 return

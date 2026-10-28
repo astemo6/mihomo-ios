@@ -39,7 +39,7 @@ enum NodeProtocols {
     /// One-line explanation under the protocol section for the newer protocols.
     static func note(for type: String) -> LocalizedStringKey? {
         switch type {
-        case "sudoku": return "Sudoku：以数独编码伪装流量的 TCP 协议。密钥与服务端相同；HTTP 伪装可穿过只放行 HTTP 的网络或 CDN。"
+        case "sudoku": return "Sudoku：以数独编码伪装流量；TCP 直连，UDP 走 UoT（UDP over TCP）。密钥与服务端相同；HTTP 伪装可穿过只放行 HTTP 的网络或 CDN。"
         case "masque": return "MASQUE：基于 HTTP/3 的隧道（如 Cloudflare WARP 的 MASQUE 模式）。私钥与对端公钥来自服务端提供的参数。"
         case "trusttunnel": return "TrustTunnel：AdGuard 的 HTTP/2 · HTTP/3 隧道协议，用户名与密码由服务端分配。"
         case "shadowquic": return "ShadowQUIC：伪装成普通 QUIC（TLS 1.3）的代理协议，SNI 填被伪装的网站。"
@@ -231,6 +231,7 @@ enum NodeProtocols {
                 FieldSpec(key: "padding-min", label: "最小填充", kind: .int, placeholder: "2"),
                 FieldSpec(key: "padding-max", label: "最大填充", kind: .int, placeholder: "7"),
                 FieldSpec(key: "enable-pure-downlink", label: "纯下行", kind: .bool),
+                FieldSpec(key: "udp", label: "UDP", kind: .bool),
                 FieldSpec(key: "multiplex", label: "多路复用", kind: .choice(["", "off", "auto", "on"])),
                 FieldSpec(key: "http-mask", label: "HTTP 伪装", kind: .bool),
                 FieldSpec(key: "http-mask-mode", label: "伪装模式", kind: .choice(["", "legacy", "stream", "poll", "auto", "ws"])),
@@ -426,7 +427,7 @@ enum NodeProtocols {
         case "mieru": return ["transport": "TCP"]
         case "brook": return ["transport": "server", "udp": "true"]
         case "socks5": return ["udp": "true"]
-        case "sudoku": return ["aead-method": "chacha20-poly1305", "table-type": "prefer_ascii"]
+        case "sudoku": return ["aead-method": "chacha20-poly1305", "table-type": "prefer_ascii", "udp": "true"]
         case "masque": return ["udp": "true", "ip": "172.16.0.2", "mtu": "1280"]
         case "trusttunnel": return ["udp": "true", "alpn": "h2"]
         case "shadowquic": return ["alpn": "h3", "congestion-controller": "bbr"]

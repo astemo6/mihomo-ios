@@ -65,6 +65,16 @@ struct NCProxy: Equatable {
     var uuid: String? { fields["uuid"]?.string }
     var udp: Bool { fields["udp"]?.bool ?? false }
 
+    /// feat/nc-sudoku-udp-wire: the UDP capability every consumer must agree on — the data
+    /// plane (whether a UDP session is opened at all), the controller's /proxies payload and
+    /// the strategy-page badge derived from it. An explicit `udp` field always wins; without
+    /// one, Sudoku defaults to true (the reference implementation's Sudoku outbound always
+    /// offers UDP — UoT inside the tunnel), every other type keeps the historical false.
+    var effectiveUDP: Bool {
+        if let v = fields["udp"]?.bool { return v }
+        return type == "sudoku"
+    }
+
     /// Structured ECH options (`ech-opts`), aligned with Clash.Meta's ECHOptions.
     var echOpts: NCECHOpts? {
         if let obj = fields["ech-opts"]?.object {
