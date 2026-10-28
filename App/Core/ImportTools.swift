@@ -40,7 +40,7 @@ enum ImportTools {
         if !profilePath.isEmpty {
             let selected = (profilePath as NSString).deletingPathExtension + ".selected.json"
             for side in [profilePath + ".bak", profilePath + ".gen", selected, profilePath + ".source.conf",
-                         profilePath + ".pre-yaml-fix", profilePath + ".yaml-fix-checked"] {
+                         profilePath + ".pre-yaml-fix", profilePath + ".yaml-fix-checked"] + TernConfStore.sideFiles(profilePath) {
                 try? FileManager.default.removeItem(atPath: side)
             }
         }

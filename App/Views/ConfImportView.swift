@@ -155,6 +155,9 @@ enum ConfImport {
         let sourcePath = p.fileURL.path
         let saveErr = await Task.detached(priority: .utility) { NCAppFilePorts.saveConfSource(profilePath: sourcePath, text: text) }.value
         if !saveErr.isEmpty { StartupLog.write("conf import: source not saved: \(saveErr)", tag: "app") }
+        // feat/nc-conf-native: a Quantumult X profile that reads back as exactly what was imported keeps the user's
+        // own text as its .conf (otherwise the canonical .conf generated from the import stays).
+        _ = await Task.detached(priority: .utility) { TernConfStore.adoptOriginal(yamlPath: sourcePath, original: text) }.value
         // fix/nc-0.20.2: entries switched off in the original config are imported as 停用 node sets / rule sets —
         // listed, never fetched or loaded until the user turns them on.
         let offNodes = r.report?.disabledProviders ?? [], offRules = r.report?.disabledRuleSets ?? []

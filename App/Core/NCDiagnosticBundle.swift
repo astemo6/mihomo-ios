@@ -49,6 +49,16 @@ extension DiagnosticSummary {
         }
         out["config-effective.yaml"] = effective
         out["config-next-start.yaml"] = nextRun
+        // feat/nc-conf-native: the profile as the user edits it (.conf, redacted; shared rewrite / script / MitM
+        // sections without the CA) and, secondary, the internal file it is turned into.
+        if !profilePath.isEmpty, let b = try? Data(contentsOf: URL(fileURLWithPath: profilePath)),
+           case .object(let raw)? = NCYAML.parse(String(decoding: b, as: UTF8.self)) {
+            let red = r.config(raw)
+            let engineURL = URL(fileURLWithPath: home).appendingPathComponent("engine/engine.json")
+            let engine = (try? Data(contentsOf: engineURL)).flatMap { try? JSONDecoder().decode(EngineConfig.self, from: $0) }
+            out["config.conf"] = "# 当前配置（Tern .conf），已脱敏\n" + r.text(TernConfStore.diagnosticConf(profile: red, engine: engine))
+            out["config-internal.yaml"] = "# 当前配置的内部格式（由 .conf 生成），已脱敏\n" + NCYAMLEmitter.emit(NCJSONValue.object(red))
+        }
         for f in ["overrides.json", "dns.json", "localdns.json", "group-icons.json", "rules.json", "subscriptions.json",
                   "groups.json", "resources-state.json"] {
             if let b = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent(f)) {
@@ -75,6 +85,8 @@ extension DiagnosticSummary {
             "core-log.txt          内核最近日志（最多 400 行）\n" +
             "memory.txt            扩展内存采样（每 10 秒，最多 30 分钟）\n" +
             "modules.txt           模块、重写、脚本、MitM 开关与数量\n" +
+            "config.conf           当前配置（Tern .conf）\n" +
+            "config-internal.yaml  当前配置的内部格式\n" +
             "config-effective.yaml 上次启动实际使用的配置\n" +
             "config-next-start.yaml 下次连接会使用的配置\n" +
             "settings/             覆写、DNS、自定义规则、订阅处理等设置（provider-overrides.txt：节点集设置里停用 / 删除的节点集，不含链接）\n\n" +
