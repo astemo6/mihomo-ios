@@ -449,6 +449,11 @@ enum NCConfImport {
             else if positional.count >= 4 { fields["username"] = .string(positional[3]) }
             if let p = take("password") { fields["password"] = .string(p) }
             else if positional.count >= 5 { fields["password"] = .string(positional[4]) }
+            // feat/nc-socks5-tls (#168): a plain `socks5` / `http` line can carry TLS
+            // (`tls=true`, Shadowrocket/Surge spelling) with the server name in
+            // `tls-host` / `tls-hostname`; the `socks5-tls` type already set `tls` above.
+            if let v = take("tls") ?? take("over-tls"), let b = boolValue(v) { fields["tls"] = .bool(b) }
+            if let s = take("tls-host") ?? take("tls-hostname") ?? take("tls-name") ?? take("sni") ?? take("servername") ?? take("peer") { fields["sni"] = .string(s) }
         case "trusttunnel":
             if let u = take("username") { fields["username"] = .string(u) }
             else if positional.count >= 4 { fields["username"] = .string(positional[3]) }

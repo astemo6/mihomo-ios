@@ -121,7 +121,7 @@ NativeCore 出站协议（尚未接入的节点保留在配置中、显示为不
 | Hysteria / Hysteria2 / TUIC v5 / Juicity | QUIC 系，TCP + UDP |
 | Snell / AnyTLS / Mieru / SSH / Brook / gost-relay | — |
 | NaïveProxy、HTTP/2 / HTTP/3 CONNECT 代理 | Shadowrocket 风格 h2 / h3 节点 |
-| SOCKS5 / HTTP / HTTPS | — |
+| SOCKS5 / HTTP / HTTPS | SOCKS5 支持 over TLS（`tls: true`，含 SNI / 跳过证书验证 / 指纹）；UDP ASSOCIATE 的中继本身仍走明文 UDP |
 | WireGuard（含 AmneziaWG 1.0） | 独立 lwIP netif（nc_wg） |
 | Tailscale | 控制面、DERP、MagicDNS；未经真机验证 |
 | **OpenConnect**（新） | CSTP + **DTLS** 数据通道（DTLS 不通时回退 CSTP）、split-include / split-exclude 路由；不支持 OTP / 二次认证、ASA 旧式 DTLS |

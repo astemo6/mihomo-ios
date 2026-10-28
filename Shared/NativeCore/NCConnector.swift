@@ -505,6 +505,37 @@ enum NCConnector {
         }
         switch proxy.type {
         case "socks5":
+            // feat/nc-socks5-tls (#168): `tls: true` (Surge `socks5-tls`, Clash
+            // `type: socks5` + `tls: true`, QX `over-tls=true`) must dial TLS
+            // before the SOCKS5 handshake — the plaintext stream below was the
+            // bug: the editor/import layers honoured the flag, the dialer did not.
+            if proxyUsesTLS(proxy) {
+                if transport != nil {
+                    queue.async { completion(nil, Failure.unsupported("socks5 over TLS over a chain transport")) }
+                    return
+                }
+                if isECHEnabled(proxy) && realityParams(proxy) != nil {
+                    queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                    return
+                }
+                let sni = httpProxySNI(proxy, server: server)
+                if needsNativeTLS(proxy) {
+                    dialNativeTLS(proxy: proxy, server: server, port: port, serverName: sni, defaultALPN: [], queue: queue) { raw, err in
+                        guard let raw else { completion(nil, err); return }
+                        socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
+                    }
+                    return
+                }
+                let raw = NCStream(to: server, port: port,
+                                   tlsServerName: sni,
+                                   allowInsecure: proxy.skipCertVerify,
+                                   alpn: parseALPN(proxy) ?? [], queue: queue)
+                raw.start { err in
+                    guard err == nil else { completion(nil, err); return }
+                    socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
+                }
+                return
+            }
             obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
                 guard let raw else { completion(nil, err); return }
                 socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
@@ -1218,6 +1249,16 @@ enum NCConnector {
             if let v = proxy.fields[k]?.string, !v.isEmpty { return v }
         }
         return server
+    }
+
+    /// feat/nc-socks5-tls (#168): `httpProxyUsesTLS` generalised to the other
+    /// plain-TCP proxy type that carries a `tls` flag — socks5 (Surge
+    /// `socks5-tls`, Clash `type: socks5` + `tls: true`, QX `over-tls=true`
+    /// all normalise to `type: socks5` + `tls: true` at import). The SNI
+    /// priority is the same list, so the socks5 dial reuses `httpProxySNI`.
+    static func proxyUsesTLS(_ proxy: NCProxy) -> Bool {
+        if httpProxyUsesTLS(proxy) { return true }
+        return proxy.type == "socks5" && (proxy.fields["tls"].flatMap(NCProxy.truthy) ?? false)
     }
 
     /// Whether this proxy requires the native TLS stack (NCTLSClient).

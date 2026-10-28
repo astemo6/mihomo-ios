@@ -153,6 +153,16 @@ final class NCStream {
                 trace?.connectFailed(e)
                 trace?.fail("connect \(label): \(NCDialTrace.describe(e)) (waiting: no route / DNS failure)")
                 ready(e)
+            case .waiting(let e) where Self.isTLSFailure(e):
+                // feat/nc-socks5-tls (#168): a TLS handshake failure (certificate
+                // verification, wrong SNI) is reported by the Network framework as
+                // `.waiting` with a TLS error and then never progresses — waiting
+                // cannot heal a rejected certificate, so surface it like `.failed`
+                // (a wrong-SNI socks5-tls node otherwise hung the dial until the
+                // caller gave up). Path / DNS waiting states keep waiting.
+                fired = true
+                self?.conn.cancel()
+                ready(self?.annotate(e) ?? e)
             case .failed(let e):
                 fired = true
                 trace?.end("connect", error: e)
@@ -170,6 +180,12 @@ final class NCStream {
             _ = self
         }
         conn.start(queue: queue)
+    }
+
+    /// True when the waiting/failed error is a TLS-layer failure (see the `.waiting` case in `start`).
+    static func isTLSFailure(_ e: NWError) -> Bool {
+        if case .tls = e { return true }
+        return false
     }
 
     /// Real dials slower than this get a `[dial]` diagnostic line (rate-limited).
