@@ -163,4 +163,40 @@ hostname = mobwsa.ximalaya.com,mobile.ximalaya.com, apisg.himalaya.com,36.150.21
             XCTAssertEqual(e.scriptRuleCount, 1, "\(label): the snapshot must carry the script rule")
         }
     }
+
+    /// Probe 3 (takeover, 2026-10-28): index alignment. The script host resolves a response
+    /// step's manifest entry by RULE INDEX: the manifest is built by enumerating rs.rules,
+    /// while the step's rule number comes from the snapshot engine. If the snapshot builder
+    /// renumbers (or drops rules), the step points at the wrong manifest entry and the host
+    /// silently reserves no slot. Build all three from the same rs and compare indices.
+    func testScriptRuleIndexAlignmentAcrossSnapshotAndManifest() throws {
+        let home = NSTemporaryDirectory() + "nc-qx-unlock-align-\(UUID().uuidString)"
+        let modulesDir = home + "/engine/modules"
+        try FileManager.default.createDirectory(atPath: modulesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        try #"{"enabled":true,"scriptsEnabled":true,"mitm":true,"modules":[{"id":"xmly","name":"ximalaya","enabled":true}]}"#
+            .write(toFile: home + "/engine/engine.json", atomically: true, encoding: .utf8)
+        try Self.module.write(toFile: modulesDir + "/xmly.txt", atomically: true, encoding: .utf8)
+        let cfg = NCEngineConfig.load(home: home)
+        let rs = NCMitmBuild.build(home: home, cfg: cfg)
+        let rsIndex = try XCTUnwrap(rs.rules.firstIndex { $0.kind == "script" }, "script rule in rs")
+        let (data, _) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
+        let e = try XCTUnwrap(NativeRewriteEngine(json: String(decoding: data, as: UTF8.self)))
+        let u = URL(string: "https://mobile.ximalaya.com/mobile-user/v2/homePage/1700000000000")!
+        let q = RewriteRequest(method: "GET", target: u.path, host: u.host!, headers: [["Host", u.host!]],
+                               length: 0, connHost: u.host!, connPort: 443, tls: true)
+        let d = e.decide(q, bodies: false, scripts: true)
+        guard case .forward(let f) = d, let steps = f.response.scripts, let step = steps.first else {
+            return XCTFail("decide did not attach script steps: \(d)")
+        }
+        let man = try NCScriptManifest.buildManifest(home: home, cfg: cfg, rs: rs)
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: man.data) as? [String: Any])
+        let entries = (root["scripts"] as? [[String: Any]]) ?? []
+        let atStep = entries.first { ($0["i"] as? Int) == step.rule }
+        print("PROBE3 rsIndex=\(rsIndex) stepRule=\(step.rule) manifestEntries=\(entries.count) atStepName=\(atStep?["name"] as? String ?? "∅") atStepPatternHasHomePage=\((atStep?["pattern"] as? String ?? "").contains("homePage"))")
+        XCTAssertEqual(step.rule, rsIndex, "snapshot step rule index must equal the rs rule index the manifest is built with")
+        XCTAssertNotNil(atStep, "manifest must have an entry at the step's rule index")
+        XCTAssertTrue((atStep?["pattern"] as? String ?? "").contains("homePage"),
+                      "manifest entry at the step's index must be the ximalaya script, got \(atStep?["name"] as? String ?? "∅")")
+    }
 }
