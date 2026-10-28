@@ -358,9 +358,11 @@ enum TernConf {
             out += "\n[server_remote]\n"
             for k in provs.keys.sorted() { out += serializeProvider(name: k, provs[k] ?? .null, ruleSet: false) + "\n" }
         }
-        // QX form (fix/nc-qx-fidelity): a RULE-SET rule that names a rule provider is not a
-        // [filter_local] line — in Quantumult X the set exists only as its [filter_remote]
-        // line, with force-policy= folded in when the provider follows one forced policy.
+        // QX form (fix/nc-qx-fidelity): a RULE-SET rule that names a QX list provider
+        // (x-convert=list) is not a [filter_local] line — in Quantumult X the set exists
+        // only as its [filter_remote] line, with force-policy= folded in when the provider
+        // follows one forced policy. Clash-style providers (behavior=/format=, no
+        // x-convert) keep their rule-set line and plain provider line, as before.
         // An x-own-policy provider keeps its list lines' own policies, so nothing is folded
         // in for it. Providers are written in the order the rules reference them, so the
         // text keeps QX's evaluation order (unreferenced providers follow, sorted).
@@ -370,9 +372,10 @@ enum TernConf {
             for (i, r) in rules.enumerated() {
                 guard case .string(let s) = r else { continue }
                 let parts = splitRule(s)
-                guard parts.count >= 3, parts[0] == "RULE-SET", let pv = provs[parts[1]] else { continue }
+                guard parts.count >= 3, parts[0] == "RULE-SET", let pv = provs[parts[1]],
+                      case .object(let pm) = pv, pm["x-convert"]?.string == "list" else { continue }
                 absorbed.insert(i)
-                if case .object(let pm) = pv, pm["x-own-policy"]?.bool != true, setPolicy[parts[1]] == nil {
+                if pm["x-own-policy"]?.bool != true, setPolicy[parts[1]] == nil {
                     setPolicy[parts[1]] = parts[2]
                 }
             }
@@ -1072,12 +1075,15 @@ enum TernConf {
             for l in lines where !isComment(l.text) {
                 let p = try parseProvider(l.text, line: l.number, ruleSet: true)
                 if p.skip { continue }
-                remoteNames.insert(p.name)
                 var v = p.value
+                var qxSet = p.rule != nil
                 if p.rule == nil, case .object(var pm) = v, pm["url"] != nil,
+                   pm["behavior"] == nil, pm["format"] == nil,
                    pm["x-convert"] == nil || pm["x-convert"]?.string == "list" {
+                    qxSet = true
                     // No force-policy on a QX list line: own-policy semantics. (A json=-form
-                    // provider has no url and stays a plain provider, as before.)
+                    // provider has no url and stays a plain provider, as before; a line with
+                    // behavior=/format= is a Clash-style provider and stays plain too.)
                     if pm["x-convert"] == nil { pm["x-convert"] = .string("list") }
                     pm["x-own-policy"] = .bool(true)
                     // The fallback policy is part of the set's identity: a stored rule-set
@@ -1097,6 +1103,7 @@ enum TernConf {
                         remoteRules.append("RULE-SET,\(p.name),\(pol)")
                     }
                 }
+                if qxSet { remoteNames.insert(p.name) }
                 m[p.name] = v
                 if let r = p.rule { remoteRules.append(r) }
             }
@@ -1115,19 +1122,6 @@ enum TernConf {
                     if parts.count >= 2, parts[0] == "RULE-SET", remoteNames.contains(parts[1]) { continue }
                 }
                 rules.append(v)
-            }
-            // Canonical GEOIP country case: older imports stored `GEOIP,cn,…`; the canonical
-            // form is uppercase, and only it serializes back to a plain `geoip, cn, …` line
-            // instead of a tern-raw line.
-            rules = rules.map { v in
-                guard case .string(let r) = v else { return v }
-                var parts = splitRule(r)
-                if parts.count >= 2, parts[0] == "GEOIP", parts[1].count == 2,
-                   parts[1].allSatisfy({ $0.isASCII && $0.isLowercase }) {
-                    parts[1] = parts[1].uppercased()
-                    return .string(parts.joined(separator: ","))
-                }
-                return v
             }
             profile["rules"] = .array(rules)
         }
