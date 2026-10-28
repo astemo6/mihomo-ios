@@ -6,6 +6,9 @@ import UIKit
 /// re-coloured (whole text when small), so large profiles stay responsive.
 enum CodeLanguage {
     case javascript, yaml, conf
+    /// feat/nc-conf-native: Tern's own profile .conf (Quantumult X style sections), coloured like the YAML profile
+    /// editor was: comments, [section] headers, quoted values, keys, policies / rule types, numbers.
+    case ternConf
 
     /// One alternation per language; the first group that matches wins, scanning left to right, so a
     /// "//" inside a string literal is never taken for a comment.
@@ -14,6 +17,7 @@ enum CodeLanguage {
         case .javascript: return Self.js
         case .yaml: return Self.yml
         case .conf: return Self.cnf
+        case .ternConf: return Self.tcf
         }
     }
 
@@ -23,6 +27,7 @@ enum CodeLanguage {
         case .javascript: return [CodeTheme.comment, CodeTheme.string, CodeTheme.keyword, CodeTheme.api, CodeTheme.number]
         case .yaml: return [CodeTheme.comment, CodeTheme.string, CodeTheme.key, CodeTheme.number, CodeTheme.keyword]
         case .conf: return [CodeTheme.comment, CodeTheme.section, CodeTheme.string, CodeTheme.keyword, CodeTheme.api]
+        case .ternConf: return [CodeTheme.comment, CodeTheme.section, CodeTheme.string, CodeTheme.key, CodeTheme.keyword, CodeTheme.number]
         }
     }
 
@@ -32,6 +37,9 @@ enum CodeLanguage {
         options: [])
     private static let yml = try! NSRegularExpression(pattern:
         #"((?:^|(?<=\s))#[^\n]*)|("(?:\\.|[^"\\\n])*"?|'[^'\n]*'?)|(^[ \t]*(?:- +)?[^\s#'"\-][^:#\n]*?:(?=[ \t]|$))|(\b(?:true|false|null|yes|no)\b|(?<![\w.])-?\d+(?:\.\d+)?\b)|(\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b|\b(?:DOMAIN|GEOIP|GEOSITE|MATCH|FINAL|DIRECT|REJECT|AND|OR|NOT)\b)"#,
+        options: [.anchorsMatchLines])
+    private static let tcf = try! NSRegularExpression(pattern:
+        #"((?:^|(?<=\s))(?:#|;|//)[^\n]*)|(^[ \t]*\[[^\]\n]+\][ \t]*$)|("(?:\\.|[^"\\\n])*"?)|((?:^[ \t]*|(?<=,)[ \t]*)[A-Za-z][A-Za-z0-9_.\-]*(?=[ \t]*=))|(\b(?:direct|reject(?:-[a-z0-9]+)*|DIRECT|REJECT(?:-DROP)?|final|host(?:-suffix|-keyword|-wildcard)?|ip6?-cidr|ip-asn|geoip|geosite|rule-set|user-agent|true|false)\b)|((?<![\w.])-?\d+(?:\.\d+)?\b)"#,
         options: [.anchorsMatchLines])
     private static let cnf = try! NSRegularExpression(pattern:
         #"((?:^|(?<=\s))(?:#|;|//)[^\n]*)|(^[ \t]*\[[^\]\n]+\])|("(?:\\.|[^"\\\n])*"?)|(\b(?:reject(?:-[a-z0-9]+)?|302|307|header-(?:add|del|replace(?:-regex)?)|http-(?:request|response)(?:-jq)?|data-type|data|status-code|hostname|url|script-path|type|pattern|requires-body)\b)|(\^[^\s]*)"#,
@@ -234,9 +242,12 @@ struct CodeEditor: UIViewRepresentable {
             stack.axis = .horizontal
             stack.spacing = 6
             stack.translatesAutoresizingMaskIntoConstraints = false
-            let symbols = parent.language == .yaml
-                ? ["⇥", "-", ":", "\"", "'", "[", "]", "{", "}", ",", "#", "|", "*"]
-                : ["⇥", "{", "}", "(", ")", "[", "]", ";", "=", "\"", "'", "`", "$", ".", "/", "\\", "^", "*"]
+            let symbols: [String]
+            switch parent.language {
+            case .yaml: symbols = ["⇥", "-", ":", "\"", "'", "[", "]", "{", "}", ",", "#", "|", "*"]
+            case .ternConf: symbols = ["=", ",", "[", "]", "#", "\"", "/", "-", ".", "*", "^", "|", "(", ")"]
+            default: symbols = ["⇥", "{", "}", "(", ")", "[", "]", ";", "=", "\"", "'", "`", "$", ".", "/", "\\", "^", "*"]
+            }
             for s in symbols {
                 let b = UIButton(type: .system)
                 b.setTitle(s, for: .normal)

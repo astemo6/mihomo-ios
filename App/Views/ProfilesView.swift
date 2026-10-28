@@ -103,7 +103,7 @@ struct ProfilesView: View {
                                     Button { regenerate(p) } label: { Label("从订阅重新生成", systemImage: "arrow.triangle.2.circlepath") }
                                 }
                                 Divider()
-                                Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
+                                Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看配置" : "编辑配置"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理", systemImage: "line.3.horizontal.decrease.circle") }
                                 }
@@ -153,7 +153,7 @@ struct ProfilesView: View {
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
             .sheet(isPresented: $showAddRemote, onDismiss: { if let m = pendingMessage { pendingMessage = nil; message = m } }) { AddRemoteSheet { msg in pendingMessage = msg } }
             .sheet(isPresented: $showNewLocal) {
-                YAMLEditorView(title: "新建本地配置", initialName: "本地配置", initialText: YAMLEditorView.template, profile: nil)
+                ConfEditorView(title: "新建本地配置", initialName: "本地配置", profile: nil)
             }
             .sheet(item: $subRulesFor) { p in
                 NavigationStack {
@@ -170,7 +170,7 @@ struct ProfilesView: View {
                 .environmentObject(store)
             }
             .sheet(item: $editing) { p in
-                YAMLEditorView(title: p.kind == .remote ? "查看配置" : "编辑配置", initialName: p.name, initialText: store.content(of: p), profile: p)
+                ConfEditorView(title: p.kind == .remote ? "查看配置" : "编辑配置", initialName: p.name, profile: p)
             }
             .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
                 Button("好", role: .cancel) {}
@@ -446,207 +446,3 @@ struct AddRemoteSheet: View {
     }
 }
 
-/// Profile editor: YAML with highlighting and live validation through the core parser (line / column of
-/// the error). Local profiles save and reload; remote ones open read-only with 复制为本地配置.
-struct YAMLEditorView: View {
-    @EnvironmentObject var store: ProfileStore
-    @Environment(\.dismiss) var dismiss
-    let title: String
-    @State var name: String
-    @State var text: String
-    let profile: Profile?
-    @State private var error: String?
-    @State private var busy = false
-    @State private var check: ProfileCheckResult?
-    @State private var checking = false
-    @State private var checkTask: Task<Void, Never>?
-    /// B22: the newest check; an older (cancelled) one never leaves the spinner on, the newest always clears it.
-    @State private var checkGen = 0
-    @State private var scrollToken = 0
-    @State private var confirmDiscard = false
-    @State private var share: ShareItem?
-    private let initialName: String
-    private let initialText: String
-    /// Unsaved edits: swipe-down is blocked and 取消 asks first (review 5).
-    var dirty: Bool { !readOnly && (text != initialText || name != initialName) }
-
-    struct ProfileCheckResult: Decodable, Equatable {
-        var ok: Bool
-        var error: String?
-        var line: Int?
-        var column: Int?
-        var nodes: Int
-        var groups: Int
-        var rules: Int
-        var providers: Int
-    }
-
-    init(title: String, initialName: String, initialText: String, profile: Profile?) {
-        self.title = title
-        _name = State(initialValue: initialName)
-        _text = State(initialValue: initialText)
-        self.initialName = initialName
-        self.initialText = initialText
-        self.profile = profile
-    }
-
-    var readOnly: Bool { profile?.kind == .remote }
-
-    static let template = """
-    # Clash 配置示例（请替换为你自己的节点）
-    mode: rule
-    proxies: []
-    proxy-groups:
-      - name: 节点选择
-        type: select
-        proxies: [DIRECT]
-    rules:
-      - MATCH,节点选择
-    """
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                if readOnly {
-                    HStack(spacing: 8) {
-                        Image(systemName: "lock.fill")
-                        Text("订阅配置只读：更新订阅时会被覆盖。需要修改请复制为本地配置。")
-                    }
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Theme.cardHi)
-                } else {
-                    TextField("名称", text: $name)
-                        .padding(12)
-                        .background(Theme.cardHi)
-                }
-                if let error {
-                    Text(error).font(.caption).foregroundStyle(Theme.bad).padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                CodeEditor(text: $text, language: .yaml, editable: !readOnly,
-                           errorLine: check?.ok == false ? check?.line : nil, scrollToken: scrollToken)
-                statusBar
-            }
-            .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle(LocalizedStringKey(title))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(readOnly ? "关闭" : "取消") { if dirty { confirmDiscard = true } else { dismiss() } }
-                }
-                if let profile {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            if let u = store.exportFile(of: profile, text: text) { share = ShareItem(url: u, temporary: true) }
-                            else { error = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }
-                        } label: { Label("导出", systemImage: "square.and.arrow.up") }
-                        .accessibilityIdentifier("yaml.export")
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if busy { ProgressView() }
-                    else if readOnly { Button("复制为本地配置") { copyAsLocal() } }
-                    else { Button(profile == nil ? "校验并保存" : "保存并重载") { save() }.disabled(check?.ok == false) }
-                }
-            }
-            .onAppear { scheduleCheck(delay: 0) }
-            .onChange(of: text) { _ in scheduleCheck(delay: 700_000_000) }
-            .onDisappear { checkTask?.cancel() }
-            .confirmationDialog("放弃修改？", isPresented: $confirmDiscard, titleVisibility: .visible) {
-                Button("放弃修改", role: .destructive) { dismiss() }
-            }
-            .sheet(item: $share, onDismiss: { ProfileStore.purgeExports() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
-        }
-        .interactiveDismissDisabled(dirty)
-    }
-
-    var statusBar: some View {
-        HStack(spacing: 8) {
-            if checking {
-                ProgressView().controlSize(.mini)
-                Text("校验中…").font(.caption2).foregroundStyle(.secondary)
-            } else if let c = check {
-                if c.ok {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.good)
-                    Text("\(c.nodes) 个节点 · \(c.groups) 个策略组 · \(c.rules) 条规则 · \(c.providers) 个节点集")
-                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-                } else {
-                    Image(systemName: "xmark.octagon.fill").foregroundStyle(Theme.bad)
-                    Text(c.error ?? "").font(.caption2).foregroundStyle(Theme.bad).lineLimit(3)
-                }
-            }
-            Spacer(minLength: 4)
-            if let c = check, !c.ok, let l = c.line, l > 0 {
-                Button { scrollToken += 1 } label: {
-                    lineLabel(l, c.column ?? 0)
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(Theme.bad.opacity(0.18)))
-                        .foregroundStyle(Theme.bad)
-                }
-            }
-        }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .frame(minHeight: 36)
-        .background(Theme.card)
-    }
-
-    func lineLabel(_ l: Int, _ col: Int) -> Text {
-        col > 0 ? Text("第 \(l) 行 \(col) 列") : Text("第 \(l) 行")
-    }
-
-    func scheduleCheck(delay: UInt64) {
-        checkTask?.cancel()
-        checkGen &+= 1
-        let gen = checkGen
-        let t = text
-        let path = profile?.fileURL.path ?? AppShared.homeURL.appendingPathComponent("new-profile.yaml").path
-        let home = AppShared.homeURL.path
-        checkTask = Task {
-            // B22: cancelled mid-check with no newer check (page closed, or cancelled by hand) used to return with
-            // `checking` still true — a spinner that never stopped.
-            defer { if gen == checkGen { checking = false } }
-            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
-            guard !Task.isCancelled else { return }
-            checking = true
-            let json = await Task.detached(priority: .userInitiated) { NCProfileCheck.checkJSON(home: home, profilePath: path, text: t) }.value
-            guard !Task.isCancelled else { return }
-            checking = false
-            if let d = json.data(using: .utf8), let r = try? JSONDecoder().decode(ProfileCheckResult.self, from: d) {
-                let jump = check?.line != r.line && r.ok == false
-                check = r
-                if jump && delay == 0 { scrollToken += 1 }
-            }
-        }
-    }
-
-    func save() {
-        busy = true; error = nil
-        Task {
-            defer { busy = false }
-            do {
-                if let p = profile {
-                    try await store.saveLocalEdit(p, text: text)
-                    if name != p.name { store.rename(p, to: name) }
-                } else {
-                    _ = try await store.addLocal(name: name, text: text)
-                }
-                dismiss()
-            } catch { self.error = error.localizedDescription }
-        }
-    }
-
-    func copyAsLocal() {
-        busy = true; error = nil
-        let base = profile?.name ?? name
-        Task {
-            defer { busy = false }
-            do {
-                _ = try await store.addLocal(name: String(localized: "\(base) 副本"), text: text)
-                dismiss()
-            } catch { self.error = error.localizedDescription }
-        }
-    }
-}

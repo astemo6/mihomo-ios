@@ -107,6 +107,9 @@ final class ProfileStore: ObservableObject {
             let home = AppShared.homeURL.path
             for path in allPaths { NCProviderPathRebase.migrateFile(path, home: home) }
             for path in paths { _ = NCProviderPorts.migrateProfileProviders(path) }
+            // feat/nc-conf-native: every profile gets its .conf (first launch: generated once, the YAML kept as
+            // <id>.yaml.pre-conf); later launches only compare the YAML hash.
+            for path in allPaths { TernConfStore.sync(yamlPath: path) }
         }
     }
 
@@ -322,13 +325,114 @@ final class ProfileStore: ObservableObject {
     /// A direct `String.write(atomically:)` could interleave with a locked read-modify-write of the same profile
     /// and have its content overwritten by the other writer's stale copy. Runs off the main actor: the lock can be
     /// held for a whole node-edit validation.
-    nonisolated static func writeProfile(_ text: String, to url: URL) async throws {
+    nonisolated static func writeProfile(_ text: String, to url: URL, syncConf: Bool = true) async throws {
         let path = url.path
         try await Task.detached(priority: .userInitiated) {
             try NCPathLock.shared.withLock(for: path) {
                 try NCRuntimeFiles.writeAtomic(Data(text.utf8), to: path)
             }
+            // feat/nc-conf-native: an imported / downloaded YAML is converted to the profile's .conf right away.
+            if syncConf { TernConfStore.sync(yamlPath: path) }
         }.value
+    }
+
+    // MARK: feat/nc-conf-native — the .conf editor
+
+    /// The editor text for `p` (nil = a new local profile): its .conf plus the shared rewrite / script / MitM sections.
+    nonisolated static func confEditorText(_ p: Profile?) async -> String {
+        let path = p?.fileURL.path
+        let home = AppShared.homeURL.path
+        return await Task.detached(priority: .userInitiated) {
+            TernConfStore.editorText(yamlPath: path, home: home, engine: EngineConfig.load())
+        }.value
+    }
+
+    /// The internal YAML of `p` (advanced, read-only view).
+    func internalText(of p: Profile) -> String { content(of: p) }
+
+    /// 保存并重载 in the .conf editor: the .conf is parsed and validated, the YAML regenerated from it, then the shared
+    /// sections (rewrite / scripts / MitM, CA) are applied and the tunnel reloads.
+    func saveConfEdit(_ p: Profile, text: String) async throws {
+        let prep = try await Self.prepareConf(text)
+        if let err = await Self.validate(text: prep.yaml) { throw StoreError.invalid(err) }
+        SnapshotStore.shared.capture(String(localized: "编辑配置「\(p.name)」前"))
+        try await Self.writeProfile(prep.yaml, to: p.fileURL, syncConf: false)
+        let path = p.fileURL.path
+        try await Task.detached(priority: .userInitiated) {
+            try TernConfStore.commit(yamlPath: path, yaml: prep.yaml, conf: prep.profileConf)
+        }.value
+        let engineChanged = applyShared(prep)
+        if OverrideScriptStore.shared.enabledCount(p.id) > 0 { await OverrideScriptStore.shared.apply(p, force: false) }
+        if p.id == activeID, let e = await VPNManager.shared.reload() { VPNManager.shared.lastError = e }
+        else if engineChanged, VPNManager.shared.isConnected, let e = await VPNManager.shared.reload(hot: true) { VPNManager.shared.lastError = e }
+    }
+
+    /// 校验并保存 for a new local profile written as .conf.
+    func addLocalConf(name: String, text: String) async throws -> Profile {
+        let prep = try await Self.prepareConf(text)
+        if let err = await Self.validate(text: prep.yaml) { throw StoreError.invalid(err) }
+        SnapshotStore.shared.capture(String(localized: "导入配置前"))
+        let p = Profile(name: name.isEmpty ? "本地配置" : name, kind: .local)
+        try await Self.writeProfile(prep.yaml, to: p.fileURL, syncConf: false)
+        let path = p.fileURL.path
+        try await Task.detached(priority: .userInitiated) {
+            try TernConfStore.commit(yamlPath: path, yaml: prep.yaml, conf: prep.profileConf)
+        }.value
+        profiles.append(p)
+        persist()
+        _ = applyShared(prep)
+        if activeID == nil { _ = await setActive(p) }
+        return p
+    }
+
+    nonisolated static func prepareConf(_ text: String) async throws -> TernConfStore.Prepared {
+        try await Task.detached(priority: .userInitiated) { try TernConfStore.prepare(text: text) }.value
+    }
+
+    /// Applies the shared sections of a saved .conf to engine.json (and a changed MitM CA). True when anything changed.
+    @discardableResult
+    func applyShared(_ prep: TernConfStore.Prepared) -> Bool {
+        guard let e = prep.engine else { return false }
+        let es = EngineStore.shared
+        let next = e.applied(to: es.config)
+        var changed = false
+        if next != es.config {
+            let newModules = next.modules.filter { m in !m.url.isEmpty && !es.config.modules.contains(where: { $0.id == m.id }) }
+            es.config = next
+            es.save(reload: false)
+            changed = true
+            if !newModules.isEmpty { Task { for m in newModules where m.enabled { await es.updateModule(m) } } }
+        }
+        if let ca = prep.caPEM {
+            let home = AppShared.homeURL.path
+            if !TernConfStore.sameCA(home: home, pemCert: ca.cert) {
+                let dir = AppShared.homeURL.appendingPathComponent("engine/ca", isDirectory: true)
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                let pem = dir.appendingPathComponent("ca.pem"), key = dir.appendingPathComponent("ca.key")
+                if (try? ca.cert.write(to: pem, options: .atomic)) != nil, (try? ca.key.write(to: key, options: .atomic)) != nil {
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: pem.path)
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: key.path)
+                    NCCAManager.shared.reloadCA(home: home)
+                    es.refreshCA()
+                    changed = true
+                }
+            }
+        }
+        return changed
+    }
+
+    /// Share sheet copy of the editor text as `<name>.conf` (temporary; it can hold node secrets and the MitM key).
+    func exportConfFile(of p: Profile?, name: String, text: String) -> URL? {
+        guard !text.isEmpty else { return nil }
+        Self.purgeExports()
+        let dir = Self.exportDir
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var base = (p?.name ?? name).components(separatedBy: CharacterSet(charactersIn: "/\\:?*\"<>|\n\r")).joined(separator: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty || base.hasPrefix(".") { base = "profile" + base }
+        let url = dir.appendingPathComponent(String(base.prefix(80)) + ".conf")
+        do { try Data(text.utf8).write(to: url, options: [.atomic, .completeFileProtection]) } catch { return nil }
+        return url
     }
 
     /// Downloads a remote profile, parses subscription-userinfo, validates, and writes it.

@@ -1,0 +1,117 @@
+{
+  "cases": [
+    {
+      "name": "clash-full",
+      "format": "clash",
+      "source": "mode: rule\nlog-level: info\nipv6: false\nallow-lan: false\nmixed-port: 7890\ntun:\n  enable: true\n  stack: system\n  dns-hijack: [\"any:53\"]\ndns:\n  enable: true\n  ipv6: false\n  enhanced-mode: fake-ip\n  fake-ip-range: 198.18.0.1/16\n  nameserver: [223.5.5.5, \"https://dns.alidns.com/dns-query\"]\n  nameserver-policy:\n    \"geosite:cn\": 223.5.5.5\nhosts:\n  router.lan: 192.168.1.1\nproxies:\n  - {name: HK-SS, type: ss, server: 1.2.3.4, port: 8388, cipher: aes-256-gcm, password: \"pw,1\", udp: true}\n  - name: JP-VMess\n    type: vmess\n    server: vm.example.com\n    port: 443\n    uuid: b831381d-6324-4d53-ad4f-8cda48b30811\n    alterId: 0\n    cipher: auto\n    udp: true\n    tls: true\n    servername: sni.example.com\n    network: ws\n    ws-opts: {path: /ws, headers: {Host: cdn.example.com}}\n  - {name: US-Trojan, type: trojan, server: tr.example.com, port: 443, password: tpw, sni: tr.example.com, udp: true}\n  - {name: SG-Hy2, type: hysteria2, server: hy.example.com, port: 8443, password: hpw, sni: hy.example.com, up: \"30 Mbps\", down: 100}\n  - name: WG\n    type: wireguard\n    server: 162.159.192.1\n    port: 2408\n    ip: 172.16.0.2\n    private-key: aaa=\n    public-key: bbb=\n    allowed-ips: ['0.0.0.0/0']\n    reserved: [1, 2, 3]\nproxy-groups:\n  - {name: Proxy, type: select, proxies: [HK-SS, JP-VMess, Auto, DIRECT]}\n  - {name: Auto, type: url-test, proxies: [HK-SS, US-Trojan], url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50}\n  - {name: Fallback, type: fallback, use: [sub1], url: 'http://www.gstatic.com/generate_204', interval: 600}\nproxy-providers:\n  sub1: {type: http, url: 'https://sub.example.com/a?token=x,y', interval: 3600, path: ./providers/sub1.yaml, health-check: {enable: true, url: 'http://www.gstatic.com/generate_204', interval: 300}}\nrule-providers:\n  reject: {type: http, behavior: domain, format: yaml, url: 'https://rules.example.com/reject.yaml', path: ./ruleset/reject.yaml, interval: 86400}\nrules:\n  - RULE-SET,reject,REJECT\n  - DOMAIN-SUFFIX,google.com,Proxy\n  - GEOIP,CN,DIRECT\n  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n  - AND,((DOMAIN,a.example.com),(NETWORK,UDP)),REJECT\n  - MATCH,Proxy\n",
+      "expect": [
+        "[general]",
+        "mode = rule",
+        "log-level = info",
+        "ipv6 = false",
+        "mixed-port = 7890",
+        "tun.enable = true",
+        "tun.stack = system",
+        "tun.dns-hijack = [\"any:53\"]",
+        "[dns]",
+        "no-ipv6",
+        "server=223.5.5.5",
+        "doh-server=https://dns.alidns.com/dns-query",
+        "server=/geosite:cn/223.5.5.5",
+        "address=/router.lan/192.168.1.1",
+        "enable = true",
+        "enhanced-mode = fake-ip",
+        "fake-ip-range = 198.18.0.1/16",
+        "[policy]",
+        "static=Proxy, HK-SS, JP-VMess, Auto, direct",
+        "url-latency-benchmark=Auto, HK-SS, US-Trojan, check-interval=300, tolerance=50, url=http://www.gstatic.com/generate_204",
+        "available=Fallback, check-interval=600, url=http://www.gstatic.com/generate_204, use=[\"sub1\"]",
+        "[server_local]",
+        "shadowsocks=1.2.3.4:8388, method=aes-256-gcm, udp-relay=true, tag=HK-SS, tern-password=pw%2C1",
+        "hysteria2=hy.example.com:8443, down=100, password=hpw, sni=hy.example.com, up=30 Mbps, tag=SG-Hy2",
+        "wireguard=162.159.192.1:2408, allowed-ips=[\"0.0.0.0/0\"], ip=172.16.0.2, private-key=aaa=, public-key=bbb=, reserved=[1,2,3], tag=WG",
+        "[server_remote]",
+        "[filter_remote]",
+        "https://rules.example.com/reject.yaml, tag=reject, update-interval=86400, behavior=domain, format=yaml, path=./ruleset/reject.yaml",
+        "[filter_local]",
+        "rule-set, reject, reject",
+        "host-suffix, google.com, Proxy",
+        "geoip, cn, direct",
+        "ip-cidr, 10.0.0.0/8, direct, no-resolve",
+        "and, ((DOMAIN,a.example.com),(NETWORK,UDP)), reject",
+        "final, Proxy"
+      ],
+      "contains": [
+        "vmess=vm.example.com:443",
+        "obfs=wss",
+        "obfs-host=cdn.example.com",
+        "obfs-uri=/ws",
+        "tls-host=sni.example.com",
+        "tag=JP-VMess",
+        "trojan=tr.example.com:443",
+        "tag=US-Trojan",
+        "https://sub.example.com/a?token=x%2Cy, tag=sub1"
+      ]
+    },
+    {
+      "name": "qx",
+      "format": "qx",
+      "source": "[general]\nserver_check_url=http://www.gstatic.com/generate_204\n\n[dns]\nserver=223.5.5.5\nserver=119.29.29.29\n\n[policy]\nstatic=Main, SS1, VM1, direct\nurl-latency-benchmark=Auto, SS1, VM1, check-interval=600, tolerance=50\n\n[server_local]\nshadowsocks=1.2.3.4:8388, method=aes-256-gcm, password=pw, udp-relay=true, tag=SS1\nvmess=vm.example.com:443, method=chacha20-ietf-poly1305, password=b831381d-6324-4d53-ad4f-8cda48b30811, obfs=wss, obfs-host=cdn.example.com, obfs-uri=/ws, tls-host=sni.example.com, tag=VM1\ntrojan=tr.example.com:443, password=tpw, over-tls=true, tls-host=tr.example.com, tag=TR1\n\n[filter_remote]\nhttps://rules.example.com/ads.list, tag=Ads, force-policy=reject, update-interval=86400, opt-parser=false, enabled=true\n\n[filter_local]\nhost-suffix, google.com, Main\nhost-keyword, ads, reject\nip-cidr, 10.0.0.0/8, direct\ngeoip, cn, direct\nfinal, Main\n\n[rewrite_local]\n^https?://ad\\.example\\.com url reject\n\n[mitm]\nhostname = ad.example.com\n",
+      "expect": [
+        "[policy]",
+        "[server_local]",
+        "[filter_local]",
+        "host-suffix, google.com, Main",
+        "final, Main"
+      ],
+      "contains": [
+        "shadowsocks=1.2.3.4:8388",
+        "tag=SS1",
+        "vmess=vm.example.com:443",
+        "tag=VM1",
+        "trojan=tr.example.com:443",
+        "static=Main, SS1, VM1, direct",
+        "geoip, cn, direct"
+      ]
+    },
+    {
+      "name": "surge",
+      "format": "surge",
+      "source": "[General]\nloglevel = notify\ndns-server = 8.8.8.8, 1.1.1.1\nipv6 = true\n\n[Proxy]\nSS1 = ss, 1.2.3.4, 8388, encrypt-method=aes-256-gcm, password=secret, udp-relay=true\nVM1 = vmess, vm.example.com, 443, username=b831381d-6324-4d53-ad4f-8cda48b30811, ws=true, ws-path=/ws, ws-headers=Host:cdn.example.com, tls=true, sni=vm.example.com\n\n[Proxy Group]\nMain = select, SS1, VM1, DIRECT\nAuto = url-test, SS1, VM1, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50\n\n[Rule]\nDOMAIN-SUFFIX,google.com,Main\nDOMAIN-KEYWORD,ads,REJECT\nGEOIP,CN,DIRECT\nFINAL,Main\n",
+      "expect": [
+        "[policy]",
+        "[server_local]",
+        "[filter_local]",
+        "host-suffix, google.com, Main",
+        "final, Main"
+      ],
+      "contains": [
+        "shadowsocks=1.2.3.4:8388",
+        "tag=SS1",
+        "vmess=vm.example.com:443",
+        "tag=VM1",
+        "static=Main, SS1, VM1, direct",
+        "url-latency-benchmark=Auto"
+      ]
+    },
+    {
+      "name": "loon",
+      "format": "loon",
+      "source": "[General]\nipv6 = false\n\n[Proxy]\nSS-Loon = Shadowsocks, 5.6.7.8, 8388, method=chacha20-ietf-poly1305, password=pw123\nVM-Loon = VMess, vm2.example.com, 443, username=b831381d-6324-4d53-ad4f-8cda48b30811, transport=ws, path=/loon, host=cdn2.example.com, over-tls=true\n\n[Proxy Group]\nPROXY = select, SS-Loon, VM-Loon\n\n[Rule]\nDOMAIN-SUFFIX,google.com,PROXY\nGEOIP,CN,DIRECT\nFINAL,PROXY\n",
+      "expect": [
+        "[policy]",
+        "[server_local]",
+        "[filter_local]",
+        "host-suffix, google.com, PROXY",
+        "final, PROXY"
+      ],
+      "contains": [
+        "shadowsocks=5.6.7.8:8388",
+        "tag=SS-Loon",
+        "vmess=vm2.example.com:443",
+        "tag=VM-Loon",
+        "static=PROXY, SS-Loon, VM-Loon"
+      ]
+    }
+  ]
+}
