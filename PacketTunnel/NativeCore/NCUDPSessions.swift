@@ -183,8 +183,9 @@ final class NCUDPSocks5Session: NCUDPSession {
             if queued.count < 64 { queued.append((data, target)) }
             return
         }
+        guard let addr = target.atypEncoded else { return }
         var packet = Data([0x00, 0x00, 0x00])
-        packet.append(target.atypEncoded)
+        packet.append(addr)
         packet.append(data)
         udp.send(content: packet, completion: .idempotent)
     }
@@ -288,7 +289,8 @@ final class NCUDPSSSession: NCUDPSession {
             conn.send(content: packet, completion: .idempotent)
             return
         }
-        var plain = target.atypEncoded
+        guard let addr = target.atypEncoded else { return }
+        var plain = addr
         plain.append(data)
         guard let aead, let packet = NCShadowsocks.udpPacketEncode(spec: aead.spec, master: aead.master, plain: plain)
         else { return }
@@ -370,12 +372,13 @@ final class NCUDPMuxSession: NCUDPSession {
 
     private func sendNow(_ data: Data, to target: NCTarget) {
         guard let stream else { return }
+        guard let frame = NCMux.udpPacketFrame(target: target, payload: data) else { return }
         var out = Data()
         if !requestWritten {
             requestWritten = true
-            out.append(NCMux.streamRequestUDPPacketAddr())
+            if let addr = NCMux.streamRequestUDPPacketAddr() { out.append(addr) }
         }
-        out.append(NCMux.udpPacketFrame(target: target, payload: data))
+        out.append(frame)
         stream.sendRaw(out)
     }
 
@@ -484,9 +487,9 @@ final class NCUDPAnyTLSSession: NCUDPSession {
         guard let stream else { return }
         if !requestWritten {
             requestWritten = true
-            stream.send(NCUoT.request(destination: flowTarget))
+            if let req = NCUoT.request(destination: flowTarget) { stream.send(req) }
         }
-        stream.send(NCUoT.packet(target: target, payload: data))
+        if let pkt = NCUoT.packet(target: target, payload: data) { stream.send(pkt) }
     }
 
     func cancel() {
@@ -576,7 +579,7 @@ final class NCUDPSnellSession: NCUDPSession {
 
     func send(_ data: Data, to target: NCTarget) {
         guard !dead, !cancelled else { return }
-        let frame = NCSnell.udpFrame(target: target, payload: data)
+        guard let frame = NCSnell.udpFrame(target: target, payload: data) else { return }
         if let v4Writer {
             if let w = v4Writer.frame(frame) { wire.send(w) }
         } else if let encoder {
@@ -625,7 +628,9 @@ final class NCUDPTrojanSession: NCUDPSession {
                 return
             }
             self.stream = s
-            s.send(NCTrojan.requestHead(password: password, target: firstTarget, udp: true))
+            if let head = NCTrojan.requestHead(password: password, target: firstTarget, udp: true) {
+                s.send(head)
+            }
             let queued = self.pending
             self.pending = []
             for d in queued { s.send(d) }
@@ -691,7 +696,7 @@ final class NCUDPTrojanSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
-        let packet = NCTrojan.udpPacket(target: target, payload: data)
+        guard let packet = NCTrojan.udpPacket(target: target, payload: data) else { return }
         if let stream { stream.send(packet); return }
         if !dead, !cancelled, pending.count < Self.maxPending { pending.append(packet) }
     }
@@ -751,10 +756,10 @@ final class NCUDPVMessSession: NCUDPSession {
             guard let self, err == nil else { return }
             let option: UInt8 = sec == NCVMess.securityNone ? 0
                 : NCVMess.optionChunkStream | NCVMess.optionChunkMasking
-            let plain = NCVMess.plainHeader(reqNonce: reqNonce, reqKey: reqKey, respV: respV,
-                                            option: option, security: sec,
-                                            padding: NCConnector.randomData(Int(NCConnector.randomData(1)[0]) % 16),
-                                            target: target, command: 0x02)
+            guard let plain = NCVMess.plainHeader(reqNonce: reqNonce, reqKey: reqKey, respV: respV,
+                                                  option: option, security: sec,
+                                                  padding: NCConnector.randomData(Int(NCConnector.randomData(1)[0]) % 16),
+                                                  target: target, command: 0x02) else { return }
             let sealed = NCVMess.sealHeader(cmdKey: NCVMess.cmdKey(uuidBytes: uuidBytes),
                                             plainHeader: plain,
                                             time: Int64(Date().timeIntervalSince1970),
@@ -980,8 +985,9 @@ final class NCUDPSSRSession: NCUDPSession {
         let iv = Data((0..<ivSize).map { _ in UInt8.random(in: 0...255) })
         cipher.forEncryption = true
         cipher.setIV(iv)
+        guard let addr = target.atypEncoded else { return }
         var packet = iv
-        var plain = target.atypEncoded
+        var plain = addr
         plain.append(payload)
         packet.append(cipher.process(plain))
         conn.send(content: packet, completion: .idempotent)

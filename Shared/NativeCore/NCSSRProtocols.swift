@@ -976,7 +976,7 @@ final class NCSSRCodecRelayStream: NCRelayStream {
         }
         self.proto = proto
         self.obfs = obfs
-        send(target.atypEncoded)
+        if let addr = target.atypEncoded { send(addr) }
     }
 
     func send(_ data: Data) { send(data, completion: {}) }

@@ -653,7 +653,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
         let conn = try self.udpConnection(to: Self.ssPort)
         defer { conn.cancel() }
         let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
-        var plain = target.atypEncoded
+        var plain = try XCTUnwrap(target.atypEncoded)
         plain.append(Self.dnsQuery)
         let packet = try XCTUnwrap(NCShadowsocks.udpPacketEncode(cipher: Self.ssCipher,
                                                                  password: Self.ssPassword, plain: plain))
@@ -850,8 +850,8 @@ final class NativeCoreLoopbackTests: XCTestCase {
             let stream = try self.connect(proxy: proxy, target: NCUoT.magicTarget)
             defer { stream.cancel() }
             let target = NCTarget(host: Self.host, port: Self.udpEchoPort)
-            stream.send(NCUoT.request(destination: target))
-            stream.send(NCUoT.packet(target: target, payload: Self.dnsQuery))
+            stream.send(try XCTUnwrap(NCUoT.request(destination: target)))
+            stream.send(try XCTUnwrap(NCUoT.packet(target: target, payload: Self.dnsQuery)))
             let exp = self.expectation(description: "uot reply \(quic)")
             let box = LockedBox<Data>(Data())
             func pump() {

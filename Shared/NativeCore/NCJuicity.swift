@@ -31,7 +31,8 @@ enum NCJuicityWire {
     ///  - IPv4: 0x01 + 4 bytes IPv4 + 2 bytes port (BE)
     ///  - Domain: 0x03 + 1 byte len + domain UTF8 + 2 bytes port (BE)
     ///  - IPv6: 0x04 + 16 bytes IPv6 + 2 bytes port (BE)
-    static func address(_ t: NCTarget) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func address(_ t: NCTarget) -> Data? {
         t.atypEncoded
     }
 
@@ -51,22 +52,27 @@ enum NCJuicityWire {
     }
 
     /// Header sent on opening a TCP stream: [network=0x01][target.atypEncoded].
-    static func tcpRequestHeader(target: NCTarget) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func tcpRequestHeader(target: NCTarget) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
         var d = Data([0x01])
-        d.append(target.atypEncoded)
+        d.append(addr)
         return d
     }
 
     /// Header sent on opening a UDP stream: [network=0x03][target.atypEncoded].
-    static func udpRequestHeader(target: NCTarget) -> Data {
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func udpRequestHeader(target: NCTarget) -> Data? {
+        guard let addr = target.atypEncoded else { return nil }
         var d = Data([0x03])
-        d.append(target.atypEncoded)
+        d.append(addr)
         return d
     }
 
     /// Frame one UDP datagram: [target.atypEncoded][length: uint16 BE][payload].
-    static func sealUDPPacket(target: NCTarget, payload: Data) -> Data {
-        var d = target.atypEncoded
+    /// fix/nc-socks-domain-len (#170): nil for an unencodable target.
+    static func sealUDPPacket(target: NCTarget, payload: Data) -> Data? {
+        guard var d = target.atypEncoded else { return nil }
         let len = UInt16(clamping: payload.count)
         d.append(UInt8((len >> 8) & 0xff))
         d.append(UInt8(len & 0xff))
@@ -402,8 +408,9 @@ final class NCJuicityConnection {
         if streamCount >= Self.maxStreamsPerConnection {
             isExhausted = true
         }
+        guard let head = NCJuicityWire.tcpRequestHeader(target: target) else { return nil }
         let s = NCJuicityTCPStream(channel: NCHy2StreamChannel(conn: conn),
-                                   head: NCJuicityWire.tcpRequestHeader(target: target),
+                                   head: head,
                                    queue: queue, callerQueue: callerQueue)
         s.begin()
         return s
@@ -587,12 +594,19 @@ final class NCJuicityUDPStream {
                 self.notifyClosed()
                 return
             }
+            guard var initialData = NCJuicityWire.udpRequestHeader(target: self.initialTarget) else {
+                self.closed = true
+                self.drainOutboxWaiters()
+                self.notifyClosed()
+                return
+            }
             self.open = true
-            var initialData = NCJuicityWire.udpRequestHeader(target: self.initialTarget)
             let pending = self.outbox
             self.outbox = []
             for (data, target, once) in pending {
-                initialData.append(NCJuicityWire.sealUDPPacket(target: target, payload: data))
+                if let pkt = NCJuicityWire.sealUDPPacket(target: target, payload: data) {
+                    initialData.append(pkt)
+                }
                 once.call()
             }
             self.channel.send(initialData)
@@ -605,7 +619,10 @@ final class NCJuicityUDPStream {
         ncOnSessionQueue(queue) {
             guard !self.closed else { once.call(); return }
             if self.open {
-                let packet = NCJuicityWire.sealUDPPacket(target: target, payload: data)
+                guard let packet = NCJuicityWire.sealUDPPacket(target: target, payload: data) else {
+                    once.call()
+                    return
+                }
                 self.channel.send(packet, completion: once.call)
             } else if self.outbox.count < 64 {
                 self.outbox.append((data, target, once))
