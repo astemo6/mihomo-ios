@@ -87,4 +87,47 @@ hostname = mobwsa.ximalaya.com,mobile.ximalaya.com, apisg.himalaya.com,36.150.21
         XCTAssertEqual(scripts.first?.phase, "response")
         XCTAssertEqual(rs.rules.filter { $0.kind != "script" }.count, 9, "9 reject / reject-200 rewrites")
     }
+
+    /// Probe (takeover, 2026-10-28): the regex matches and the snapshot carries the rule, yet on
+    /// device the script host is never invoked (no [SCRIPT] ok / skipped / error line in any
+    /// diagnostics package). NativeRewriteDriver.native() only creates a ScriptFlow when the
+    /// decision is .forward with response.scripts != nil — so: does decide() attach the script
+    /// for the unlock endpoints, in either request-target form the session layer can produce?
+    func testDecideAttachesResponseScriptForUnlockEndpoints() throws {
+        let (e, _, home) = try engine()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        func q(_ url: String, absolute: Bool) -> RewriteRequest {
+            let u = URL(string: url)!
+            var target = u.path
+            if let query = u.query { target += "?" + query }
+            if absolute { target = url }
+            return RewriteRequest(method: "GET", target: target, host: u.host ?? "",
+                                  headers: [["Host", u.host ?? ""]], length: 0,
+                                  connHost: u.host ?? "", connPort: u.scheme == "http" ? 80 : 443,
+                                  tls: u.scheme == "https")
+        }
+        for url in ["https://mobile.ximalaya.com/mobile-user/v2/homePage/1700000000000",
+                    "https://mobile.ximalaya.com/product/detail/v1/basicInfo/dynamic/ts-1",
+                    "http://mobwsa.ximalaya.com/mobile-playpage/track/v4/baseInfo/ts-1?device=iPhone"] {
+            var attached = false
+            for absolute in [false, true] {
+                let d = e.decide(q(url, absolute: absolute), bodies: false, scripts: true)
+                if case .forward(let f) = d {
+                    let has = f.response.scripts != nil
+                    print("PROBE decide absolute=\(absolute) \(url) -> forward, response.scripts=\(has ? "\(f.response.scripts!.count) step(s)" : "nil")")
+                    attached = attached || has
+                } else {
+                    print("PROBE decide absolute=\(absolute) \(url) -> \(d)")
+                }
+            }
+            XCTAssertTrue(attached, "no request-target form attached the response script for \(url)")
+        }
+        // Control: a non-matching path on the same host must not gain the script.
+        for absolute in [false, true] {
+            let d = e.decide(q("https://mobile.ximalaya.com/some/other/path", absolute: absolute), bodies: false, scripts: true)
+            if case .forward(let f) = d {
+                XCTAssertNil(f.response.scripts, "control URL unexpectedly gained a script (absolute=\(absolute))")
+            }
+        }
+    }
 }
