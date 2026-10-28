@@ -16,12 +16,29 @@ final class NCUDPDirectSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let conn: NWConnection
     private var cancelled = false
+    private let label: String
+    private var replies = 0
 
     init(target: NCTarget, queue: DispatchQueue) {
         let port = NWEndpoint.Port(rawValue: UInt16(clamping: target.port)) ?? .any
+        label = "\(target.host):\(target.port)"
         conn = NWConnection(host: NWEndpoint.Host(target.host), port: port, using: NCOutboundBinding.params(.udp, host: target.host))
         conn.stateUpdateHandler = { [weak self] state in
-            if case .ready = state { self?.receiveLoop() }
+            guard let self else { return }
+            switch state {
+            case .ready:
+                self.receiveLoop()
+            case .failed(let err):
+                // fix/nc-udp-close-log: a direct UDP session whose connection never became
+                // ready used to be invisible — sends queued silently, no reply ever arrived,
+                // and nothing anywhere logged why (device builds 543-546: QUIC sessions to
+                // bare IPs opened and returned exactly 0 B while TCP/DNS stayed healthy).
+                StartupLog.write("[UDP] direct \(self.label) connection failed: \(err)")
+            case .waiting(let err):
+                StartupLog.write("[UDP] direct \(self.label) connection waiting: \(err)")
+            default:
+                break
+            }
         }
         conn.start(queue: queue)
     }
@@ -29,7 +46,11 @@ final class NCUDPDirectSession: NCUDPSession {
     private func receiveLoop() {
         conn.receiveMessage { [weak self] data, _, _, error in
             guard let self, !self.cancelled else { return }
-            if let data, !data.isEmpty { self.onReply(data) }
+            if let data, !data.isEmpty {
+                self.replies += 1
+                if self.replies == 1 { StartupLog.write("[UDP] direct \(self.label) first reply \(data.count) B") }
+                self.onReply(data)
+            }
             if error == nil { self.receiveLoop() }
         }
     }
