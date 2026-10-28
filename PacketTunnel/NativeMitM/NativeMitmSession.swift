@@ -331,6 +331,7 @@ enum NativeMitmRuntime {
         lock.lock(); _selectiveEngines = false; lock.unlock()
         cancelAll("native MitM off")
         NativeH2Runtime.cancelAll()
+        NCUpstreamConnector.idlePool.removeAll() // fix/nc-0.20.3-diag: parked keep-alive upstream connections
     }
 
     /// install(force:) (the memory bench): listen() accepts regardless of the switch.
@@ -421,6 +422,10 @@ final class NativeMitmSession {
     private var upBuf = Data()
     private var responseStarted = false   // a response byte went to the client for the current exchange
     private var curRequest = ""          // fix/nc-diag-439: "METHOD /target" of the current exchange, for the 5xx log line
+    /// fix/nc-0.20.3-diag: set while the current exchange runs on a pooled (reused) upstream connection and could be
+    /// replayed (no request body): a failure before any response byte re-forwards once on a fresh connection.
+    private var reusedRetry: (() -> Void)?
+    private var retriedReused = false
     private var sentBody: Int64 = 0       // body bytes delivered natively (FlowEnd "sent")
     private var timer: DispatchWorkItem?
     private(set) var requestsServed = 0
@@ -490,7 +495,10 @@ final class NativeMitmSession {
             guard let self else { return }
             self.queue.async {
                 guard !self.finished else { return }
-                if let err { return self.fail(S2Error.upstream("read: \(err)"), status: 502) }
+                if let err {
+                    if self.retryOnFreshConnection("read: \(err)") { return }
+                    return self.fail(S2Error.upstream("read: \(err)"), status: 502)
+                }
                 let data = data ?? Data()
                 self.upBuf.append(data)
                 cb(!(eof && data.isEmpty))
@@ -518,7 +526,10 @@ final class NativeMitmSession {
             guard let self else { return }
             self.queue.async {
                 guard !self.finished else { return }
-                if let err { return self.fail(S2Error.upstream("write: \(err)"), status: 502) }
+                if let err {
+                    if self.retryOnFreshConnection("write: \(err)") { return }
+                    return self.fail(S2Error.upstream("write: \(err)"), status: 502)
+                }
                 next()
             }
         }
@@ -529,6 +540,7 @@ final class NativeMitmSession {
     private func nextRequest() {
         guard !finished else { return }
         flowID = 0; sentBody = 0; responseStarted = false
+        reusedRetry = nil; retriedReused = false
         if releaseIdle {
             // An emptied Data keeps its capacity (removeFirst / removeSubrange): an idle keep-alive session would
             // hold the largest piece it ever buffered.
@@ -643,7 +655,8 @@ final class NativeMitmSession {
               scheme == "https" || scheme == "http" else {
             return fail(S2Error.unsupported("forward url \(d.url ?? "nil")"), status: 502)
         }
-        let host = url.host ?? conn.host
+        let host = Self.dialHost(urlHost: url.host, urlPort: url.port, scheme: scheme, requestHost: head.host,
+                                 connHost: conn.host, connPort: conn.port, connTLS: conn.tls)
         let port = url.port ?? (scheme == "https" ? 443 : 80)
         var target = url.percentEncodedPath.isEmpty ? "/" : url.percentEncodedPath
         if let q = url.percentEncodedQuery { target += "?" + q }
@@ -652,7 +665,8 @@ final class NativeMitmSession {
             return fail(S2Error.flow("body client after the body was pushed"), status: 502)
         }
         var headers = d.headerFields.filter { !Self.framingHeader($0.name) }
-        let hostValue = d.host ?? (url.port.map { "\(host):\($0)" } ?? host)
+        let urlHost = url.host ?? conn.host // the Host header keeps the URL's authority, whatever host is dialed
+        let hostValue = d.host ?? (url.port.map { "\(urlHost):\($0)" } ?? urlHost)
         if headerValue(headers, "Host") == nil { headers.insert(("Host", hostValue), at: 0) }
         if head.isUpgrade, let up = head.value(for: "Upgrade") {
             headers.append(("Connection", "Upgrade")); headers.append(("Upgrade", up))
@@ -676,10 +690,26 @@ final class NativeMitmSession {
                 guard !self.finished else { if case .success(let l) = r { l.release(reusable: false) }; return }
                 switch r {
                 case .failure(let e):
+                    // fix/nc-0.20.3-diag: REJECT by rule / policy is a routing verdict, not a failing upstream — answer
+                    // 403 without counting it towards the MitM failure breaker (adsehera.ximalaya.com on device: a
+                    // REJECTed ad host tripped "upstream failing … passed through" five times a second).
+                    if Self.isRejection(e) {
+                        self.driver.upstreamFailed(self.flowID, why: "\(e)")
+                        return self.fail(S2Error.flow("\(e)"), status: 403)
+                    }
                     self.driver.upstreamFailed(self.flowID, why: "\(e)")
                     self.fail(S2Error.upstream("\(e)"), status: 502)
                 case .success(let l):
                     self.lease = l; self.upBuf.removeAll()
+                    if l.wasReused && !self.retriedReused && mode == .none {
+                        self.reusedRetry = { [weak self] in
+                            guard let self else { return }
+                            self.retriedReused = true
+                            self.forward(d, head: head, reqFraming: reqFraming, requestBodyConsumed: requestBodyConsumed)
+                        }
+                    } else {
+                        self.reusedRetry = nil
+                    }
                     guard let wire = self.serialized(upHead) else { return }
                     self.writeUpstream(wire) {
                         self.sendRequestBody(mode, len: len, reqFraming: reqFraming, lane: d.lane, bodyPushed: requestBodyConsumed) {
@@ -690,6 +720,50 @@ final class NativeMitmSession {
                 }
             }
         }
+    }
+
+    /// fix/nc-0.20.3-diag: where a forwarded request is dialed. The URL host is the request's Host header (or a rewrite /
+    /// script target). When it is still the app's own Host header (not re-targeted) and the app's TCP connection went
+    /// to a different domain (the TLS SNI / fake-IP domain), the app's destination is kept — the way its TUN flow
+    /// would go: 喜马拉雅 connects to mermaid.c.ximalaya.com and sends `Host: mermaid.ximalaya.com`; dialing the
+    /// Host header instead changed the destination, the rule match and the origin SNI. IP connection hosts, other
+    /// ports / schemes and re-targeted URLs dial the URL host as before.
+    static func dialHost(urlHost: String?, urlPort: Int?, scheme: String, requestHost: String?,
+                         connHost: String, connPort: Int, connTLS: Bool) -> String {
+        guard let urlHost, !urlHost.isEmpty else { return connHost }
+        guard let requestHost, !connHost.isEmpty, NCIP(connHost) == nil,
+              connHost.caseInsensitiveCompare(urlHost) != .orderedSame,
+              scheme == (connTLS ? "https" : "http"),
+              urlPort == nil || urlPort == connPort,
+              hostOnly(requestHost).caseInsensitiveCompare(urlHost) == .orderedSame else { return urlHost }
+        return connHost
+    }
+
+    /// "example.com:8443" → "example.com", "[::1]:443" → "::1".
+    static func hostOnly(_ authority: String) -> String {
+        var a = authority.trimmingCharacters(in: .whitespaces)
+        if a.hasPrefix("["), let close = a.firstIndex(of: "]") {
+            return String(a[a.index(after: a.startIndex)..<close])
+        }
+        if let colon = a.lastIndex(of: ":"), a.firstIndex(of: ":") == colon { a = String(a[..<colon]) }
+        return a
+    }
+
+    /// A refusal by rule / policy (REJECT family) from the upstream connector.
+    static func isRejection(_ e: Error) -> Bool {
+        guard case UpstreamError.proxyRefused(let status, let reason)? = e as? UpstreamError else { return false }
+        return status == 403 && reason.hasPrefix("rejected")
+    }
+
+    /// fix/nc-0.20.3-diag: a reused connection failed before any response byte: drop it and re-forward once.
+    private func retryOnFreshConnection(_ why: String) -> Bool {
+        guard let retry = reusedRetry, upBuf.isEmpty, !responseStarted, !finished else { return false }
+        reusedRetry = nil
+        lease?.release(reusable: false); lease = nil
+        disarm()
+        NativeMitmRuntime.noteError("retry \(conn.host): reused upstream connection \(why)")
+        retry()
+        return true
     }
 
     /// Serializes a head the session built from the flow driver's decision; a head the flow driver's values made unserializable (CR/LF in a
@@ -844,6 +918,7 @@ final class NativeMitmSession {
             if let h = try codec.parseResponseHead(&upBuf) {
                 if h.isInterim { return readResponseHead(req) } // drop interim 1xx
                 disarm()
+                reusedRetry = nil
                 NativeMitmUpstreamHealth.success(host: conn.host)
                 let framing = codec.responseFraming(h, requestMethod: req.method)
                 let length: Int64
@@ -851,9 +926,15 @@ final class NativeMitmSession {
                 return applyResponse(driver.responsePhase(flowID, head: h, length: length), req: req, up: h, framing: framing,
                                      bodyPushed: false)
             }
-        } catch { driver.upstreamFailed(flowID, why: "\(error)"); return fail(error, status: 502) }
+        } catch {
+            if upBuf.isEmpty, retryOnFreshConnection("bad head") { return }
+            driver.upstreamFailed(flowID, why: "\(error)"); return fail(error, status: 502)
+        }
         readUpstream { [self] more in
-            if !more { driver.upstreamFailed(flowID, why: "closed before head"); return fail(S2Error.upstream("closed before head"), status: 502) }
+            if !more {
+                if retryOnFreshConnection("closed before head") { return }
+                driver.upstreamFailed(flowID, why: "closed before head"); return fail(S2Error.upstream("closed before head"), status: 502)
+            }
             readResponseHead(req)
         }
     }

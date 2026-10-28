@@ -64,7 +64,7 @@ final class H2RelayUpstreamOpener: H2UpstreamOpening {
             let ctx = engine.matchContext(domain: NCIP(host) == nil ? host : nil, ip: NCIP(host), dstPort: port, network: "tcp")
             if case .direct = engine.resolve(ctx) {} else {
                 NCUpstreamConnector.shared.open(host: host, port: port, tls: true, policy: nil, insecure: false,
-                                                alpn: ["h2", "http/1.1"]) { r in
+                                                alpn: ["h2", "http/1.1"], route: nil, logRoute: true) { r in
                     completion(r.map { lease in
                         let alpn = (lease as? NCRelayUpstreamLease)?.negotiatedALPN
                         return H2UpstreamTransport(stream: lease.stream, alpn: alpn == "h2" ? "h2" : nil) {
