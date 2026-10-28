@@ -55,7 +55,7 @@ final class NativeScriptChunkedBodyTests: XCTestCase {
         return NativeScriptResponse(gen: 1,
                                     steps: [ScriptPlanStep(rule: 0, kind: .script(requiresBody: true))],
                                     request: view, hostAPI: FakeHost(), js: FakeJS(),
-                                    store: NativeBodyStore(), nativeBase: 0)
+                                    store: NativeBodyStore.shared, nativeBase: 0)
     }
 
     func testChunkedResponseAsksForBodyInsteadOfHandBack() {
