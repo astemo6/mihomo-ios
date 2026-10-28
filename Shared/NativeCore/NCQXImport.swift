@@ -575,7 +575,11 @@ enum NCQXImport {
         case "network": mapped = "NETWORK"
         default: mapped = type.uppercased() // best-effort pass-through for newer QX types
         }
-        var s = "\(mapped),\(t[1]),\(canonicalPolicy(t[2]))"
+        // GEOIP country codes are canonical uppercase in the internal profile (every other
+        // importer and TernConf's parser agree); QX sources often write them lowercase
+        // (`geoip, cn, direct`), which would otherwise break the .conf round trip.
+        let payload = mapped == "GEOIP" ? t[1].uppercased() : t[1]
+        var s = "\(mapped),\(payload),\(canonicalPolicy(t[2]))"
         if t.count > 3 { s += "," + t.dropFirst(3).joined(separator: ",") }
         return s
     }
