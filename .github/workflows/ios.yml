@@ -266,10 +266,11 @@ jobs:
             widget.entitlements
           if-no-files-found: warn
 
-      # Releases only from main or feat/nc-integrate (10-27: a feature-branch dispatch without build_only published
-      # an unreviewed prerelease). Any other ref builds the IPA artifact only.
+      # Releases only from main, feat/nc-integrate or next/nc-0.20.3 (10-27: a feature-branch dispatch without
+      # build_only published an unreviewed prerelease; 10-28: the mainline moved to next/nc-0.20.3, and a dispatch
+      # from next silently built artifact-only). Any other ref builds the IPA artifact only.
       - name: Publish GitHub Release
-        if: ${{ !inputs.build_only && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/nc-integrate') && (inputs.ref == '' || inputs.ref == 'main' || inputs.ref == 'feat/nc-integrate' || inputs.ref == 'refs/heads/main' || inputs.ref == 'refs/heads/feat/nc-integrate') }}
+        if: ${{ !inputs.build_only && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/nc-integrate' || github.ref == 'refs/heads/next/nc-0.20.3') && (inputs.ref == '' || inputs.ref == 'main' || inputs.ref == 'feat/nc-integrate' || inputs.ref == 'next/nc-0.20.3' || inputs.ref == 'refs/heads/main' || inputs.ref == 'refs/heads/feat/nc-integrate' || inputs.ref == 'refs/heads/next/nc-0.20.3') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
