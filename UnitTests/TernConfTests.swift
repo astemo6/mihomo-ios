@@ -240,7 +240,7 @@ final class TernConfTests: XCTestCase {
         let media = p["rule-providers"]?["Media"]
         XCTAssertNil(media?["x-own-policy"])
 
-        let out = TernConf.serialize(p)
+        let out = TernConf.serializeProfile(p)
         XCTAssertFalse(out.contains("rule-set,"), "QX form has no rule-set lines:\n\(out)")
         XCTAssertTrue(out.contains("force-policy=Proxy"), "forced set folds its policy into the [filter_remote] line:\n\(out)")
         XCTAssertTrue(out.contains("geoip, cn, direct"), "geoip in QX spelling:\n\(out)")
