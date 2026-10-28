@@ -258,8 +258,9 @@ enum NCEgernImport {
             if let moduleText {
                 let parsed = NCEngineRuleset()
                 parsed.parseText(moduleText, source: "", args: [:])
-                rep.scripts = parsed.rules.filter { $0.kind == "script" }.count
-                rep.rewrites = parsed.rules.count - rep.scripts
+                let scriptCount = parsed.rules.filter { $0.kind == "script" }.count
+                rep.scripts = scriptCount
+                rep.rewrites = parsed.rules.count - scriptCount
                 rep.tasks = parsed.tasks.count
                 rep.hostnames = parsed.hostnames.count
                 rep.module = true
