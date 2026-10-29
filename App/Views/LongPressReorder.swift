@@ -1,17 +1,23 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 // Long-press drag reorder for the lists that used to reorder only in edit mode (排序):
 // 重写 subscriptions / local rules / local scripts, 分流规则 subscriptions and rule sets,
 // 本地规则 custom rules, and the 节点列表 (user 2026-10-29: 「正常情况下没法直接按住拖动吗」).
 //
-// The transport is the one Home's cards already ship (HomeReorderDrag / HomeReorderDrop),
-// including its hard-won lesson (rel 0.20.2, CI 40566844130 test96): per-row drop delegates
-// in a List never see the drag — the rows regroup as the working copy moves, the delegates
-// are rebuilt, the session enters none of them and the order stays put (and a session that
-// ends without a drop leaves the row stuck dimmed). So: rows only START the drag (.onDrag)
-// and report their frames; ONE section-wide drop target maps the finger's location to the
-// row under it through those frames.
+// Transport history, two lessons deep:
+// 1. Per-row drop delegates in a List never see the drag (rel 0.20.2, CI 40566844130
+//    test96): the rows regroup as the working copy moves, the delegates are rebuilt, the
+//    session enters none of them and the order stays put.
+// 2. A section-wide .onDrop fixed the delegate problem on Home's ScrollView (test31
+//    proves that transport in CI), but inside a List the UIKit table drag machinery
+//    competes with .onDrag and the session is unreliable (PR #194 CI rounds).
+// So the List pages don't use a drag session at all: each row carries a
+// LongPressGesture sequenced before a DragGesture in the section's coordinate space.
+// The long press is what keeps ordinary scrolling and swipe actions intact — a quick
+// swipe scrolls, a hold starts the reorder. Rows report their frames; the gesture's
+// location maps to the row under the finger through those frames, exactly like the
+// drop target did. Rows that also carry a .contextMenu (scripts, custom rules) may
+// have the menu win the press — the reorder then simply doesn't start, as before.
 //
 // While a session is live the list renders a working copy; hovering another row moves the
 // dragged row into its place in the copy. Nothing is saved per hover step — the stores'
@@ -110,8 +116,11 @@ final class DragReorderState<Item: Identifiable>: ObservableObject, DragReorderS
     }
 }
 
-/// Row side of the transport: drag source + frame reporting + the dragged row's dimming.
-/// The caller passes its begin() in `start` (it knows the store's list and how to commit).
+/// Row side of the transport: the long-press → drag gesture + frame reporting + the
+/// dragged row's dimming. The caller passes its begin() in `start` (it knows the
+/// store's list and how to commit). The session begins lazily on the first actual
+/// movement, so a stationary long press (the context-menu case) never commits an
+/// unchanged order.
 struct LongPressReorderRow<Item: Identifiable>: ViewModifier where Item.ID == String {
     let item: Item
     @ObservedObject var state: DragReorderState<Item>
@@ -125,10 +134,26 @@ struct LongPressReorderRow<Item: Identifiable>: ViewModifier where Item.ID == St
                 Color.clear.preference(key: DragReorderFrameKey.self,
                                        value: [item.id: g.frame(in: .named(state.space))])
             })
-            .modifier(OptionalDrag(provider: enabled ? {
-                start()
-                return NSItemProvider(object: item.id as NSString)
-            } : nil))
+            .gesture(reorderGesture)
+    }
+
+    private var reorderGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(state.space)))
+            .onChanged { value in
+                guard enabled else { return }
+                guard case .second(_, let drag?) = value else { return }
+                if state.draggingID != item.id {
+                    // First movement of this press: begin only once the finger has
+                    // actually left the press point (stationary presses do nothing).
+                    guard drag.location != drag.startLocation else { return }
+                    start()
+                }
+                state.update(location: drag.location)
+            }
+            .onEnded { _ in
+                if state.draggingID == item.id { state.finish() }
+            }
     }
 }
 
@@ -140,21 +165,8 @@ struct DragReorderFrameKey: PreferenceKey {
     }
 }
 
-/// Section-wide drop target (HomeReorderDrop's shape): forwards the finger's location to
-/// whichever session is live; the drop commits it, leaving the section schedules the commit.
-struct DragReorderDropDelegate: DropDelegate {
-    let sessions: [any DragReorderSession]
-    private var active: (any DragReorderSession)? { sessions.first { $0.isActive } }
-    func validateDrop(info: DropInfo) -> Bool { active != nil }
-    func dropEntered(info: DropInfo) { active?.update(location: info.location) }
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        active?.update(location: info.location)
-        return DropProposal(operation: .move)
-    }
-    func dropExited(info: DropInfo) { active?.exit() }
-    func performDrop(info: DropInfo) -> Bool { active?.finish(); return true }
-}
-
+/// Section anchor for the gesture transport: names the coordinate space the rows
+/// measure their frames in and feeds the frames to every session of the section.
 struct DragReorderTarget: ViewModifier {
     let sessions: [any DragReorderSession]
     let space: String
@@ -164,12 +176,11 @@ struct DragReorderTarget: ViewModifier {
             .onPreferenceChange(DragReorderFrameKey.self) { frames in
                 for s in sessions { s.absorb(frames) }
             }
-            .onDrop(of: [UTType.text], delegate: DragReorderDropDelegate(sessions: sessions))
     }
 }
 
 extension View {
-    /// Attach the section-wide drop target for the given drag sessions (anchored in `space`).
+    /// Anchor the section's coordinate space + frame feed for the given drag sessions.
     func dragReorderTarget(_ sessions: [any DragReorderSession], space: String) -> some View {
         modifier(DragReorderTarget(sessions: sessions, space: space))
     }
