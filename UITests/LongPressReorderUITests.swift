@@ -24,15 +24,19 @@ extension TernUITests {
     /// Home), drag slowly onto the target's upper part and hold. One retry from a different x after
     /// dismissing a menu the first press may have left open.
     private func longPressDrag(_ e: XCUIElement, above target: XCUIElement) -> Bool {
-        e.press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)),
-                withVelocity: .slow, thenHoldForDuration: 0.8)
+        // Coordinate-to-coordinate: XCUIElement.press(thenDragTo:) takes an element; the
+        // coordinate overload lives on XCUICoordinate and lands on the target's upper part.
+        e.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)),
+                   withVelocity: .slow, thenHoldForDuration: 0.8)
         usleep(1_800_000) // drop, or the 1.5 s idle commit
         if isBefore(e, target) { return true }
         warnings.append("[\(Env.tag)] long-press drag retry on \(e.identifier)")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
         usleep(700_000)
-        e.press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.2)),
-                withVelocity: .slow, thenHoldForDuration: 0.8)
+        e.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+            .press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.2)),
+                   withVelocity: .slow, thenHoldForDuration: 0.8)
         usleep(1_800_000)
         return isBefore(e, target)
     }
