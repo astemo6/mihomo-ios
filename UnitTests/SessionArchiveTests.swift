@@ -1,4 +1,5 @@
 import XCTest
+@testable import Tern
 
 /// feat/session-records: the session archive behind whole-connection retention of
 /// closed connections (NCStatsRecorder) and DNS queries (NativeLogRing).
