@@ -815,9 +815,12 @@ enum NCConnector {
                     }
                     if visionFlow(proxy), let tlsClient = base0 as? NCTLSClientStream,
                        let uuidBytes = NCVLESS.uuidBytes(uuid) {
+                        // The request head travels UNFRAMED (a vision server parses it before
+                        // unframing the body); only the payload is vision-framed. The response
+                        // head is stripped inside NCVisionStream, so no relay wrapper here.
+                        tlsClient.send(head)
                         let vision = NCVisionStream(tls: tlsClient, uuid: uuidBytes)
-                        vision.send(head)
-                        completion(NCVLESSRelayStream(raw: vision), nil)
+                        completion(vision, nil)
                         return
                     }
                     transportStream(raw: base0, proxy: proxy, server: server, queue: queue) { base, terr in
@@ -909,9 +912,9 @@ enum NCConnector {
                     let tls = NCTLSClientStream(raw: raw, config: config, queue: queue)
                     tls.startHandshake { herr in
                         guard herr == nil else { completion(nil, herr); return }
+                        tls.send(head) // unframed, like every vision site (see the REALITY one)
                         let vision = NCVisionStream(tls: tls, uuid: uuidBytes)
-                        vision.send(head)
-                        completion(NCVLESSRelayStream(raw: vision), nil)
+                        completion(vision, nil)
                     }
                     return
                 }
@@ -1062,9 +1065,9 @@ enum NCConnector {
         let enc = NCVLESSEncStream(raw: base, inst: inst, queue: queue)
         enc.handshake { err in
             if let err { completion(nil, err); return }
+            enc.send(head) // unframed, like every vision site (see the REALITY one)
             let vision = NCVisionStream(tls: enc, uuid: uuidBytes)
-            vision.send(head)
-            completion(NCVLESSRelayStream(raw: vision), nil)
+            completion(vision, nil)
         }
     }
 

@@ -6,7 +6,13 @@ import Foundation
 /// (commandDirect → raw socket bytes both ways, TLS layer detached).
 ///
 /// Layering: app bytes → NCVisionWriter frames → TLS records → socket;
-/// inbound reverses through NCVisionReader. On direct: writes go straight
+/// inbound reverses through NCVisionReader. The VLESS request/response heads
+/// are NOT vision content: the request head goes out over the carrier unframed
+/// (NCConnector's vision sites send it before this stream exists), and the
+/// response head is stripped below, before the reader — a server parses the
+/// request head first and only then unframes the body (Xray's inbound order;
+/// feeding it the head framed is what its "invalid request version" rejects).
+/// On direct: writes go straight
 /// to the raw NCStream; reads first drain (a) the reader's remaining framed
 /// output, (b) TLS-decrypted leftovers fed through the reader, (c) the TLS
 /// layer's unparsed raw tail — inner plaintext that arrived past the last
@@ -67,6 +73,24 @@ final class NCVisionStream: NCRelayStream {
     }
     private var readEOF = false
     private var pending: ((Data?, Error?) -> Void)?
+    /// VLESS response head (version + addon length + addons), stripped before the reader.
+    private var respHeadBuffer = Data()
+    private var respHeadDone = false
+
+    /// Returns the body bytes of `data` once the response head is fully consumed,
+    /// nil while more head bytes are needed (an empty Data means the head ended
+    /// exactly at this chunk — keep reading).
+    private func stripResponseHead(_ data: Data) -> Data? {
+        if respHeadDone { return data }
+        respHeadBuffer.append(data)
+        guard respHeadBuffer.count >= 2 else { return nil }
+        let total = 2 + Int(respHeadBuffer[respHeadBuffer.startIndex + 1])
+        guard respHeadBuffer.count >= total else { return nil }
+        respHeadDone = true
+        let rest = Data(respHeadBuffer.dropFirst(total))
+        respHeadBuffer = Data()
+        return rest
+    }
 
     init(tls: NCVisionCarrier, uuid: [UInt8]) {
         self.tls = tls
@@ -157,8 +181,12 @@ final class NCVisionStream: NCRelayStream {
                 self.deliverEOF(error)
                 return
             }
+            guard let body = self.stripResponseHead(data), !body.isEmpty else {
+                self.pump() // response head not complete yet (or ended exactly here)
+                return
+            }
             do {
-                let outs = try self.reader.feed([UInt8](data))
+                let outs = try self.reader.feed([UInt8](body))
                 guard self.offer(outs.map { Data($0) }) else {
                     self.deliverEOF(NSError(domain: "NativeCore", code: 4,
                                             userInfo: [NSLocalizedDescriptionKey: "vision receive buffer overflow"]))
@@ -184,7 +212,8 @@ final class NCVisionStream: NCRelayStream {
         let (plain, tail) = tls.spliceOut()
         rawTail = tail
         for chunk in plain {
-            if let outs = try? reader.feed([UInt8](chunk)) {
+            guard let body = stripResponseHead(chunk), !body.isEmpty else { continue }
+            if let outs = try? reader.feed([UInt8](body)) {
                 _ = offer(outs.map { Data($0) })
             }
         }
