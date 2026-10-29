@@ -3,10 +3,10 @@ import SwiftUI
 // fix/app-policy-ui #3 (user 2026-10-26 21:23, IMG_3621): 工具 → 分流规则 → 订阅 reorders like 策略组 — ⋯ → 编辑排序
 // swaps the page for a reorder list (drag handles, 置顶) with 取消 / 完成, the same ReorderRow and flow as
 // GroupReorderList. The order IS the matching priority:
-//   • the profile's rule sets → provider-overrides.json `#rule-order`; every runtime build (connect, reload, a
-//     subscription refresh or re-import of the profile) puts the RULE-SET lines of `rules:` into this order
-//     (NCRuntimeSteps.applyRuleSetOrder: only the RULE-SET slots are permuted — 本地规则 / inline rules and the
-//     final MATCH keep their positions; a set the profile adds later keeps its own slot);
+//   • the profile's rule sets → written into the profile file by ProfileWriteBack (feat/profile-write-back;
+//     a subscription's edits land in its local copy): the RULE-SET lines of `rules:` are permuted into this
+//     order (NCRuntimeSteps.applyRuleSetOrder: only the RULE-SET slots are permuted — 本地规则 / inline rules
+//     and the final MATCH keep their positions; a set the profile adds later keeps its own slot);
 //   • the lists the user added (rules.json) are custom rules, injected ahead of the profile's rules, so they form
 //     their own section above.
 // 完成 writes both and reloads the core once.
@@ -76,7 +76,7 @@ struct RuleSetReorderList: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("顺序就是匹配优先级：越靠上越先匹配。拖动或置顶来调整顺序。")
-                    Text("本地规则和 Final 的位置不变；配置文件不会改动，更新订阅后仍保持此顺序。")
+                    Text("本地规则和 Final 的位置不变；顺序会写进配置文件（订阅配置写进它的本地副本），更新订阅后仍保持此顺序。")
                 }
                 .modifier(UITestOrderValue(id: "ruleorder.sets.order", order: sets.map(\.name).joined(separator: " | ")))
             }

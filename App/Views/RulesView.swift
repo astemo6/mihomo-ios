@@ -289,9 +289,16 @@ struct LocalRulesView: View {
     }
 
     func applyProfileChange() async {
+        // feat/profile-write-back: the edit lands in the profile file first (a subscription switches to
+        // its local copy, which already reloads); the inspector then reads the file as written.
+        var switched = false
+        if let o = await ProfileWriteBack.materializeActive() {
+            switched = o.switched
+            if let n = o.note { custom.message = n }
+        }
         await prof.load()
         if vpn.isConnected {
-            if let e = await VPNManager.shared.reload(hot: true) { custom.message = String(localized: "重载失败：\(e)") }
+            if !switched, let e = await VPNManager.shared.reload(hot: true) { custom.message = String(localized: "重载失败：\(e)") }
             if let r = try? await ControllerClient.shared.rules() { live = r }
         }
         await offline.load()
@@ -321,7 +328,7 @@ struct LocalRulesView: View {
                         .accessibilityIdentifier("rules.restoreDeletedProfileRules")
                     }
                     Text("顺序就是匹配优先级。轻点编辑；左滑删除或编辑；开关启用或停用；长按查看全部操作。")
-                    Text("修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。")
+                    Text("保存后立即生效。修改会写进配置文件；订阅配置会先生成一份本地副本，修改写进副本，原订阅不受影响。")
                 }
                 .font(.footnote).foregroundStyle(.secondary)
                 .listRowBackground(Color.clear)
