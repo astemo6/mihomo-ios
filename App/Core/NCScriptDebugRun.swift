@@ -424,9 +424,19 @@ final class DebugScriptHost: ScriptHostAPI {
         case "sclear":
             return NCPersistentStore.shared.clear() ? "true" : "false"
         case "btoa":
-            return Data(arg.utf8).base64EncodedString()
+            // Web btoa semantics, identical to the tunnel host (NativeScriptHost): the input
+            // is a byte string — one byte per character (Latin-1). UTF-8-encoding it instead
+            // doubles every byte >= 0x80. (This copy kept the old UTF-8 behavior after the
+            // tunnel host was fixed in #188; the conformance corpus pins both.)
+            return Data(arg.unicodeScalars.map { UInt8(truncatingIfNeeded: $0.value) }).base64EncodedString()
         case "atob":
-            return Data(base64Encoded: arg).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            // Web atob semantics, identical to the tunnel host: the result is a byte string
+            // (Latin-1), not UTF-8 text — UTF-8-decoding returns "" for almost any binary
+            // payload (e.g. base64'd AES ciphertext). Tolerate missing padding/whitespace.
+            var b64 = arg.filter { !$0.isWhitespace }
+            while b64.count % 4 != 0 { b64.append("=") }
+            guard let d = Data(base64Encoded: b64) else { return "" }
+            return String(data: d, encoding: .isoLatin1) ?? ""
         case "x-doneerr":
             addLog("warn", "$done 的参数无法读取：" + NCScriptDebug.clip(arg, 300))
             return ""
