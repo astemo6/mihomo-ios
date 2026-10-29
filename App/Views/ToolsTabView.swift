@@ -52,7 +52,7 @@ struct ToolStats: Equatable {
     /// filtering and the two small settings-file reads (task prefs, DNS override) run off the main thread.
     @MainActor static func current() async -> ToolStats {
         let profiles = ProfileStore.shared.profiles
-        let nodeSubs = NodeSubStore.shared.subs.count
+        let nodeSubIDs = NodeSubStore.shared.subs.map(\.id)
         let insp = ProfileInspector.shared
         let result = insp.result
         let delays = insp.delays
@@ -63,17 +63,26 @@ struct ToolStats: Equatable {
         let caExists = es.caInfo.exists
         let caTrusted = es.caTrusted
         return await Task.detached(priority: .userInitiated) {
-            ToolStats.compute(profiles: profiles, nodeSubs: nodeSubs, result: result, delays: delays, customRules: customRules,
+            ToolStats.compute(profiles: profiles, nodeSubIDs: nodeSubIDs, result: result, delays: delays, customRules: customRules,
                     cfg: cfg, moduleInfo: moduleInfo, caExists: caExists, caTrusted: caTrusted)
         }.value
     }
 
-    static func compute(profiles: [Profile], nodeSubs: Int, result: InspectResult, delays: [String: Int],
+    static func compute(profiles: [Profile], nodeSubIDs: [String], result: InspectResult, delays: [String: Int],
                         customRules: [CustomRule], cfg: EngineConfig, moduleInfo: [String: ParsedEngineText],
                         caExists: Bool, caTrusted: Bool?) -> ToolStats {
         var s = ToolStats()
         s.profileSubs = profiles.filter { $0.kind == .remote }.count
-        s.nodeSubs = nodeSubs
+        // Node subscriptions are whatever feeds nodes in as a set, in every format the app
+        // ingests: a QX profile's [server_remote] lines and Clash proxy-providers both
+        // surface in the inspector result as proxy providers, and a 节点订阅 added on the
+        // node page downloads into one of those providers too (NodeManagerModel matches it
+        // by its nodesubs/<id> path). Counting NodeSubStore alone read 0 for a profile whose
+        // nodes all come from its own subscriptions while the node count read 42
+        // (user 2026-10-29). A sub that has not materialized as a provider yet still counts.
+        let providerPaths = result.proxyProviders.compactMap(\.path)
+        s.nodeSubs = result.proxyProviders.count
+            + nodeSubIDs.filter { id in !providerPaths.contains { $0.contains("nodesubs/\(id).yaml") } }.count
         // Same node set as ProfileInspector.nodeIndex (profile proxies + cached provider nodes), minus built-ins.
         let builtins: Set<String> = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
         var names = Set(result.proxies.map(\.name))
