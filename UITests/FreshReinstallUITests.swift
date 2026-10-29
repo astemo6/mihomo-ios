@@ -60,6 +60,46 @@ extension TernUITests {
 
     // MARK: 96. Home: long-press-and-drag reorder (half- and full-width cards), persisted across a relaunch
 
+    // MARK: 97. Home panel: 从首页移除 from the long-press menu (device 2026-10-29: the tap was swallowed)
+
+    func test97_HomePanelRemoveFromMenu() {
+        launch()
+        tab(0)
+        let add = app.element(id: "home.addTiles")
+        XCTAssertTrue(scrollTo(add), "添加首页卡片")
+        add.tap()
+        XCTAssertTrue(app.navigationBars[L("编辑首页面板")].waitForExistence(timeout: 6), "editor")
+        for t in ["uptime", "memory"] {
+            let b = app.element(id: "homepanels.add." + t)
+            if scrollTo(b, fail: false) { b.tap(); usleep(400_000) }
+        }
+        XCTAssertTrue(tapIfExists(app.navigationBars.buttons[L("完成")].firstMatch, timeout: 4), "完成")
+        usleep(800_000)
+        func tile(_ t: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.tile." + t)).firstMatch
+        }
+        let memory = tile("memory")
+        XCTAssertTrue(scrollTo(memory), "内存 tile on Home")
+        // Long-press → 从首页移除, tapped as soon as it is hittable: the natural-speed tap the device bug
+        // swallowed (the menu's own long press arms a drag session; an unmoved session must not block).
+        memory.press(forDuration: 1.2)
+        let item = app.button(L("从首页移除"))
+        XCTAssertTrue(item.waitForExistence(timeout: 4), "从首页移除 in the long-press menu")
+        for _ in 0..<20 where !item.isHittable { usleep(100_000) }
+        XCTAssertTrue(item.isHittable, "menu item hittable")
+        item.tap()
+        // The confirmation (with its own 从首页移除 button) must follow — pre-fix it never appeared.
+        let confirm = app.button(L("从首页移除"))
+        XCTAssertTrue(confirm.waitForExistence(timeout: 4), "remove confirmation")
+        for _ in 0..<20 where !confirm.isHittable { usleep(100_000) }
+        XCTAssertTrue(confirm.isHittable, "confirmation hittable")
+        confirm.tap()
+        usleep(800_000)
+        XCTAssertFalse(tile("memory").exists, "内存 tile removed from Home")
+        XCTAssertTrue(tile("uptime").exists, "运行时长 tile stays")
+        assertAlive("home panel remove")
+    }
+
     func test96_HomeDragReorder() {
         launch()
         tab(0)
