@@ -36,6 +36,12 @@ struct ProviderOverride: Codable, Hashable {
     }
 
     static func ruleKey(_ name: String) -> String { "rule:" + name }
+    /// The rule family: the entries ProfileWriteBack bakes into the profile file (the Final, the profile's own
+    /// rule edits, the rule-set order and the rule sets' own entries) — as opposed to the proxy-provider
+    /// （节点集） entries, which stay overrides.
+    static func isRuleFamilyKey(_ k: String) -> Bool {
+        k == finalKey || k == profileRulesKey || k == ruleOrderKey || k.hasPrefix("rule:")
+    }
     /// Never a provider name the other lists act on (bridge ruleOrderKey).
     static let ruleOrderKey = "#rule-order"
     /// The profile's own rules (bridge profileRulesKey) and its Final / MATCH policy (bridge finalRuleKey).
@@ -166,6 +172,28 @@ final class ProviderOverrideStore: ObservableObject {
     /// nil = the profile's own Final.
     func setFinalPolicy(_ profileID: String, _ policy: String?) {
         update(profileID, ProviderOverride.finalKey) { $0.policy = (policy ?? "").isEmpty ? nil : policy }
+    }
+
+    // MARK: 写回配置文件 (ProfileWriteBack)
+
+    /// The profile's rule-family overrides (Final / profile rules / rule-set order / rule sets).
+    func ruleFamily(_ profileID: String?) -> [String: ProviderOverride] {
+        overrides(profileID).filter { ProviderOverride.isRuleFamilyKey($0.key) }
+    }
+
+    /// After ProfileWriteBack baked the rule family into the profile's file: those entries go, except the
+    /// profile-rule entries it hands back (停用 ones — a disabled rule has no representation in a profile
+    /// file, so it stays an override and keeps skipping at runtime).
+    func clearRuleFamily(_ profileID: String, keeping keptRules: [ProfileRuleOverride] = []) {
+        guard var m = all[profileID] else { return }
+        m = m.filter { !ProviderOverride.isRuleFamilyKey($0.key) }
+        if !keptRules.isEmpty {
+            var o = ProviderOverride()
+            o.rules = keptRules
+            m[ProviderOverride.profileRulesKey] = o
+        }
+        all[profileID] = m.isEmpty ? nil : m
+        write()
     }
 
     func loadDeclared(_ profile: Profile?, force: Bool = false) async {

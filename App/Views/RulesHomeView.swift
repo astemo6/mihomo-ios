@@ -154,12 +154,19 @@ struct RulesView: View {
         if let sets, let id = profiles.activeID {
             providerOV.update(id, ProviderOverride.ruleOrderKey) { $0.order = sets }
         }
+        // feat/profile-write-back: a new rule-set order is written into the profile file (a subscription
+        // switches to its local copy, which already reloads) instead of staying an override.
+        var switched = false
+        if sets != nil, let o = await ProfileWriteBack.materializeActive() {
+            switched = o.switched
+            if let n = o.note { custom.message = n }
+        }
         var err: String?
         if let mine {
             err = await custom.setRemoteOrder(mine) // saves + reloads (the rule-set order rides along)
             await load()
         } else {
-            if vpn.isConnected, let e = await VPNManager.shared.reload(hot: true) { err = e }
+            if !switched, vpn.isConnected, let e = await VPNManager.shared.reload(hot: true) { err = e }
             await load()
         }
         UINotificationFeedbackGenerator().notificationOccurred(err == nil ? .success : .error)
@@ -168,7 +175,14 @@ struct RulesView: View {
     }
 
     func applySetChange() async {
-        if vpn.isConnected, let e = await VPNManager.shared.reload(hot: true) { custom.message = e }
+        // feat/profile-write-back: rule edits land in the profile file first (a subscription switches to
+        // its local copy, which already reloads); the hot reload below then runs what the file now says.
+        var switched = false
+        if let o = await ProfileWriteBack.materializeActive() {
+            switched = o.switched
+            if let n = o.note { custom.message = n }
+        }
+        if !switched, vpn.isConnected, let e = await VPNManager.shared.reload(hot: true) { custom.message = e }
         await load()
     }
 
@@ -248,7 +262,7 @@ struct RulesView: View {
         .sheet(isPresented: $editingFinal) {
             PolicyPickerSheet(title: Text(verbatim: "Final"), current: finalPolicy ?? profileRules.finalInfo.policy,
                               original: profileRules.finalInfo.original,
-                              footer: "修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。") { saveFinal($0) }
+                              footer: "保存后立即生效。修改会写进配置文件；订阅配置会先生成一份本地副本，修改写进副本，原订阅不受影响。") { saveFinal($0) }
         }
         .sheet(item: $editingSet) { s in
             RuleSetOverrideEditor(name: s.name,
@@ -533,7 +547,7 @@ struct RuleSetOverrideEditor: View {
                         ForEach(choices, id: \.self) { Text(verbatim: $0).tag($0) }
                     }
                 } footer: {
-                    Text("修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。")
+                    Text("保存后立即生效。修改会写进配置文件；订阅配置会先生成一份本地副本，修改写进副本，原订阅不受影响。")
                 }
             }
             .navigationTitle("编辑规则集")
