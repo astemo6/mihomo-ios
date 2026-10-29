@@ -78,6 +78,14 @@ final class NativeScriptConformanceTests: XCTestCase {
         return try JSONDecoder().decode([CorpusCase].self, from: Data(contentsOf: url))
     }
 
+    /// Foundation's JSONSerialization escapes "/" as "\/" in this runtime, so a URL that
+    /// only exists inside a serialized haystack element (a notification's open-url, say)
+    /// would never match the corpus's plain fragment. Undo that one escape on the JSON
+    /// renderings; the plain-text elements are appended unserialized elsewhere.
+    private static func unescapeSlashes(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\/", with: "/")
+    }
+
     /// Which corpus bodies are BYTES (stored base64) rather than text. The corpus flags
     /// some itself (input.binary — including fixtures whose bytes happen to be valid
     /// UTF-8, like qx-request-binary-patch's control bytes); the lane/gzip/protobuf
@@ -141,7 +149,7 @@ final class NativeScriptConformanceTests: XCTestCase {
                 if let h = p.headers {
                     hay.append(h.map { "\($0): \($1)" }.joined(separator: "\n"))
                     if let d = try? JSONSerialization.data(withJSONObject: h),
-                       let s = String(data: d, encoding: .utf8) { hay.append(s) }
+                       let s = String(data: d, encoding: .utf8) { hay.append(Self.unescapeSlashes(s)) }
                 }
                 if let u = p.url { hay.append(u) }
                 if let m = p.method { hay.append(m) }
@@ -149,14 +157,14 @@ final class NativeScriptConformanceTests: XCTestCase {
             if !out.notifications.isEmpty,
                let d = try? JSONSerialization.data(withJSONObject: out.notifications),
                let s = String(data: d, encoding: .utf8) {
-                hay.append(s)
+                hay.append(Self.unescapeSlashes(s))
             }
             // The old workbench's output was JSON records; a bare log line also appeared
             // embedded as {"msg":"…"}. Offer that rendering too.
             if !out.logs.isEmpty,
                let d = try? JSONSerialization.data(withJSONObject: out.logs.map { ["level": $0.level, "msg": $0.msg] }),
                let s = String(data: d, encoding: .utf8) {
-                hay.append(s)
+                hay.append(Self.unescapeSlashes(s))
             }
             let joined = hay.joined(separator: "\n")
             // Some fragments were authored against the old workbench's JSON-embedded
