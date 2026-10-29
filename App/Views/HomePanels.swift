@@ -74,11 +74,16 @@ final class HomePanelStore: ObservableObject {
     // MARK: drag reorder on Home
 
     /// The id being dragged on Home (nil when no drag is in flight).
-    @Published var dragging: String? { didSet { if dragging != nil || oldValue != nil { lastDragActivity = Date() } } }
+    @Published var dragging: String?
     private var commitWork: DispatchWorkItem?
-    /// Last time a Home drag started or ended. A long-press that turns into a drag can end with the finger over the
-    /// context menu, which would pick 「从首页移除」; the menu's remove ignores taps during / right after a drag.
+    /// Last time a Home drag actually MOVED (hover travel / a reorder), and whether the current session has
+    /// moved at all. A long-press that turns into a drag can end with the finger over the context menu, which
+    /// would pick 「从首页移除」; the menu's remove ignores taps during / right after such a drag. But the
+    /// context menu's OWN long press also starts a drag session (onDrag fires beginDrag), so the guard must
+    /// key on movement, not on the session: a stationary press never moves, and stamping it poisoned the
+    /// menu's remove for seconds (device 2026-10-29: long-press → 从首页移除 did nothing, repeatedly).
     private var lastDragActivity = Date.distantPast
+    private var dragMoved = false
 
     /// Card frames in the Home section's coordinate space (not published: read only while dragging).
     var cardFrames: [String: CGRect] = [:]
@@ -100,6 +105,7 @@ final class HomePanelStore: ObservableObject {
     func beginDrag(_ id: String) {
         lastHoverTarget = nil
         lastHoverPoint = nil
+        dragMoved = false
         dragID = id
         dragging = id
         scheduleCommit(after: 2.0) // a drag that never reaches Home does not leave the card dimmed
@@ -117,8 +123,10 @@ final class HomePanelStore: ObservableObject {
     func dragHover(at p: CGPoint) {
         guard let d = dragID else { return }
         if let q = lastHoverPoint, abs(q.x - p.x) < 3, abs(q.y - p.y) < 3 { return } // finger still: let the save run
+        // Real travel only (a previous point exists and differs): the first hover of a stationary long
+        // press — the context menu's — must not count as drag activity (see lastDragActivity).
+        if lastHoverPoint != nil { dragMoved = true; lastDragActivity = Date() }
         lastHoverPoint = p
-        lastDragActivity = Date()
         if dragging != d { dragging = d }
         // Saved at the drop, on leaving Home, or 1 s after the finger stopped moving (session ended unseen).
         defer { scheduleCommit(after: 1.0) }
@@ -138,6 +146,8 @@ final class HomePanelStore: ObservableObject {
     /// Saved shortly after the last move (and at the drop), so hovering over many cards writes once.
     func dragMove(_ id: String, over target: String) {
         guard id != target, let from = model.pinned.firstIndex(of: id), let to = model.pinned.firstIndex(of: target) else { return }
+        dragMoved = true
+        lastDragActivity = Date()
         withAnimation(.easeInOut(duration: 0.2)) {
             model.pinned.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
         }
@@ -155,6 +165,7 @@ final class HomePanelStore: ObservableObject {
         commitWork?.cancel()
         commitWork = nil
         dragging = nil
+        dragMoved = false // the session is over; the lastDragActivity window guards the just-ended drag
         savePinned()
         orderChanged()
     }
@@ -218,14 +229,28 @@ final class HomePanelStore: ObservableObject {
         savePinned()
     }
 
-    /// 「从首页移除」 from a Home card's long-press menu: ignored while a drag is in flight or within 1 s of one,
-    /// so a press-and-drag that ends over the menu never removes the card.
+    /// 「从首页移除」 from a Home card's long-press menu: ignored while a drag that actually moved is in
+    /// flight or within 1 s of one, so a press-and-drag that ends over the menu never removes the card.
+    /// A stationary long press — the menu's own gesture — never moves, so its remove works at once.
     func unpinFromMenu(_ id: String) {
         guard canRemoveFromMenu else { return }
         unpin(id)
     }
 
-    var canRemoveFromMenu: Bool { dragging == nil && Date().timeIntervalSince(lastDragActivity) > 1.0 }
+    var canRemoveFromMenu: Bool {
+        Self.removeAllowed(dragging: dragging != nil, dragMoved: dragMoved,
+                           secondsSinceDragActivity: Date().timeIntervalSince(lastDragActivity))
+    }
+
+    /// The menu-remove guard, pure for tests: a moved drag blocks (in flight, or ≤ 1 s after it ended);
+    /// an unmoved drag session — every context-menu long press starts one — never does.
+    static func removeAllowed(dragging: Bool, dragMoved: Bool, secondsSinceDragActivity: TimeInterval) -> Bool {
+        // A session still in flight blocks only if it actually travelled (the context menu's own
+        // long press arms a session that never moves — that tap must go through immediately).
+        // With no session in flight, the 1 s window after the last real drag activity guards the tap.
+        if dragging { return !dragMoved }
+        return secondsSinceDragActivity > 1.0
+    }
 
     func move(from: IndexSet, to: Int) {
         model.pinned.move(fromOffsets: from, toOffset: to)
