@@ -56,6 +56,10 @@ final class NCStatsRecorder {
     }
 
     private let lock = NSLock()
+    /// feat/session-records: every closed connection also lands in this session archive
+    /// (disk), so the drill-in lists keep the whole connection's records instead of the
+    /// ring's last 300. Set once by the tunnel at start; nil in the App / unit tests.
+    private var closedArchive: NCSessionArchive?
     private var session: Int64 = 0
     private var since: Int64 = 0
     private var total = 0
@@ -132,6 +136,13 @@ final class NCStatsRecorder {
     }
 
     /// A connection closed: into the ring (seq assigned here).
+    /// feat/session-records: start archiving closed connections for this connection
+    /// session (truncates any previous session's archive — reconnecting zeroes records).
+    func enableSessionArchive() {
+        lock.lock(); defer { lock.unlock() }
+        closedArchive = NCSessionArchive(url: AppShared.homeURL.appendingPathComponent("diag/session-closed.jsonl"))
+    }
+
     func closed(_ c: Closed) {
         lock.lock(); defer { lock.unlock() }
         seq += 1
@@ -147,6 +158,7 @@ final class NCStatsRecorder {
             ring[closedPos] = c
             closedPos = (closedPos + 1) % Self.closedCap
         }
+        closedArchive?.append(Self.closedJSON(c))
         version &+= 1
     }
 
@@ -190,6 +202,7 @@ final class NCStatsRecorder {
             ring[closedPos] = c
             closedPos = (closedPos + 1) % Self.closedCap
         }
+        closedArchive?.append(Self.closedJSON(c))
         version &+= 1
     }
 
@@ -256,6 +269,7 @@ final class NCStatsRecorder {
         total = 0
         policies = [:]; hosts = [:]; rules = [:]
         ring = []; closedPos = 0; seq = 0
+        closedArchive?.reset() // 清零 zeroes the session's records too, not just the counters
         version &+= 1
     }
 
@@ -277,15 +291,24 @@ final class NCStatsRecorder {
         rl.sort { a, b in a.hits != b.hits ? a.hits > b.hits : (a.rule != b.rule ? a.rule < b.rule : a.policy < b.policy) }
         if ruleLimit > 0, rl.count > ruleLimit { rl.removeLast(rl.count - ruleLimit) }
         let oldest = seq - Int64(ring.count)
-        let full = asked != session || closedAfter > seq || closedAfter < oldest
+        var full = asked != session || closedAfter > seq || closedAfter < oldest
         let after = full ? 0 : closedAfter
         var out: [[String: Any]] = []
-        for i in 0..<ring.count {
-            let idx = (closedPos - 1 - i + 2 * Self.closedCap) % Self.closedCap
-            guard idx < ring.count else { continue }
-            let c = ring[idx]
-            if c.seq <= after { break }
-            out.append(Self.closedJSON(c))
+        if let a = closedArchive {
+            // feat/session-records: serve from the session archive (whole connection,
+            // newest first, one generous page) — the ring window no longer decides what
+            // the drill-in lists can show. `full` now means only a session change or a
+            // cursor from the future; a cursor older than the ring is served, not reset.
+            full = asked != session || closedAfter > seq
+            out = a.read(afterSeq: full ? 0 : closedAfter, limit: 20_000)
+        } else {
+            for i in 0..<ring.count {
+                let idx = (closedPos - 1 - i + 2 * Self.closedCap) % Self.closedCap
+                guard idx < ring.count else { continue }
+                let c = ring[idx]
+                if c.seq <= after { break }
+                out.append(Self.closedJSON(c))
+            }
         }
         return [
             "session": session, "since": since, "version": version, "totalConnections": total,

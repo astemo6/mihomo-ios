@@ -320,8 +320,14 @@ final class NCController {
             NativeLogRing.shared.clearScripts()
             respond(conn, status: 204, json: nil)
         case ("GET", "/hark/logs"):
-            let (seq, lines) = NativeLogRing.shared.since(UInt64(req.query["since"] ?? "") ?? 0)
             let kind = req.query["kind"] ?? "general"
+            // feat/session-records: DNS history comes from the session archive (the whole
+            // connection), not from the 400-line ring window.
+            if kind == "dns", let h = NativeLogRing.shared.dnsHistory() {
+                respond(conn, status: 200, json: ["seq": h.seq, "logs": h.lines] as [String: Any])
+                break
+            }
+            let (seq, lines) = NativeLogRing.shared.since(UInt64(req.query["since"] ?? "") ?? 0)
             let picked = kind == "dns" ? lines.filter { $0.payload.hasPrefix("[DNS]") } : lines
             let logs: [[String: Any]] = picked.map {
                 ["seq": $0.seq, "time": $0.time, "type": $0.type, "payload": $0.payload]

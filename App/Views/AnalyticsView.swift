@@ -32,7 +32,10 @@ final class ConnectionAnalytics: ObservableObject {
     /// them, so the 2 s ingest never re-renders anything by itself. closedAt = the poll that no longer listed them.
     private(set) var activeItems: [ConnectionItem] = []
     private(set) var closedItems: [ConnectionItem] = []
-    static let closedCap = 500
+    /// feat/session-records: the tunnel archives every closed connection for the whole
+    /// session; the App keeps them all too (the old 500 cap rotated records out while the
+    /// session's hit counts lived on). 100k is a sanity ceiling, not a rotation window.
+    static let closedCap = 100_000
     /// r7: bumped whenever policies / rules / hosts / counts change, so readers (HomeAnalysisModel) can skip a re-sort
     /// when nothing moved.
     private(set) var version = 0
@@ -114,7 +117,10 @@ final class ConnectionAnalytics: ObservableObject {
         b.hosts.reserveCapacity(s.hosts.count)
         for h in s.hosts { b.hosts[h.name] = Bytes(up: h.up, down: h.down) }
         b.rules.reserveCapacity(s.rules.count)
-        for r in s.rules where r.policy != RuleDisplay.engineOutbound {
+        // feat/session-records: the TERN-PROBE group is the App's own delay-probe machinery
+        // (PolicyProbe) — its flows match no rule, so its pseudo-rule row (「—」 · TERN-PROBE)
+        // only confuses the 规则命中 list; it is not a user rule and never shows there.
+        for r in s.rules where r.policy != RuleDisplay.engineOutbound && r.policy != PolicyProbe.group {
             let hit = RuleHit(rule: r.rule, policy: r.policy, hits: r.hits)
             b.rules[hit.id] = hit
         }
@@ -160,9 +166,11 @@ final class ConnectionAnalytics: ObservableObject {
             let prev = last[c.id]
             if prev == nil {
                 newCount += 1
-                let rule = c.ruleText.isEmpty ? "—" : c.ruleText
-                let key = rule + "\u{1}" + policy
-                rs[key, default: RuleHit(rule: rule, policy: policy, hits: 0)].hits += 1
+                if policy != PolicyProbe.group { // probe machinery is not a rule hit; see build(_:)
+                    let rule = c.ruleText.isEmpty ? "—" : c.ruleText
+                    let key = rule + "\u{1}" + policy
+                    rs[key, default: RuleHit(rule: rule, policy: policy, hits: 0)].hits += 1
+                }
             }
             let du = max(0, c.upload - (prev?.up ?? 0))
             let dd = max(0, c.download - (prev?.down ?? 0))
