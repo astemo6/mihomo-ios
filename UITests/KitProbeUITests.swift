@@ -51,10 +51,18 @@ extension TernUITests {
             usleep(2_000_000)
         }
         snap("kit-probe-result")
+        var report = ""
         for n in names {
             let el = app.element(id: "policy.member.Tern-Test.\(n).delay")
-            print("KIT-RESULT \(n) = \(el.exists ? el.label : "<missing>")")
+            report += "KIT-RESULT \(n) = \(el.exists ? el.label : "<missing>")\n"
         }
+        print(report)
+        // The workflow's log step greps the runner output and drops print() lines on a
+        // passing run — carry the verdicts as a text attachment in the xcresult instead.
+        let att = XCTAttachment(string: report)
+        att.name = "kit-results"
+        att.lifetime = .keepAlways
+        add(att)
         assertAlive("kit probe")
     }
 }
