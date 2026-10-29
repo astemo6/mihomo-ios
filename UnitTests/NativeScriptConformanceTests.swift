@@ -58,6 +58,9 @@ final class NativeScriptConformanceTests: XCTestCase {
         // (gzip/br) happens in the tunnel's data plane before scripts run there.
         "bom-text-go-path": "debug runner does not content-decode fixture bodies; the tunnel data plane does",
         "lane-br-bom-text": "debug runner does not content-decode fixture bodies; the tunnel data plane does",
+        // The case drives __egernCompress (the Egern bridge), which the app-process
+        // runner does not install — same stand-in family as the egern ctx cases.
+        "utils-geo-ungzip": "__egernCompress (Egern bridge) not installed by the app-process runner",
     ]
 
     private func corpus() throws -> [CorpusCase] {
@@ -69,16 +72,26 @@ final class NativeScriptConformanceTests: XCTestCase {
         return try JSONDecoder().decode([CorpusCase].self, from: Data(contentsOf: url))
     }
 
-    /// The corpus flags its binary fixtures itself (input.binary). A flagged case's body
-    /// is bytes iff it is canonical base64 — a flagged case can still carry a plain text
-    /// body on the other side, and unflagged text that happens to be canonical base64
-    /// (body-large-count's repeated pattern) stays text, as its expectations prove.
+    /// Which corpus bodies are BYTES (stored base64) rather than text. The corpus flags
+    /// some itself (input.binary — including fixtures whose bytes happen to be valid
+    /// UTF-8, like qx-request-binary-patch's control bytes); the lane/gzip/protobuf
+    /// fixtures predate the flag and are recognizable as canonical base64 decoding to
+    /// non-UTF-8. The one collision is body-large-count: a text pattern ('abab…') whose
+    /// expectations only arithmetic out as text (count of 'ab' = 30000 in 60000 chars),
+    /// so it is named here as the documented exception.
     private static func isCanonicalBase64(_ s: String) -> Bool {
         guard !s.isEmpty, s.count % 4 == 0, let d = Data(base64Encoded: s) else { return false }
         return d.base64EncodedString() == s
     }
 
-    private func http(_ h: CorpusCase.HTTP?, binary: Bool) -> NCScriptDebug.HTTP? {
+    private static func isBinaryBody(_ s: String, flagged: Bool, caseName: String) -> Bool {
+        guard isCanonicalBase64(s), let d = Data(base64Encoded: s) else { return false }
+        if flagged { return true }
+        if caseName == "body-large-count" { return false }
+        return String(data: d, encoding: .utf8) == nil
+    }
+
+    private func http(_ h: CorpusCase.HTTP?, binary: Bool, caseName: String) -> NCScriptDebug.HTTP? {
         guard let h else { return nil }
         var out = NCScriptDebug.HTTP()
         out.url = h.url
@@ -86,7 +99,7 @@ final class NativeScriptConformanceTests: XCTestCase {
         out.status = h.status
         out.headers = h.headers
         out.body = h.body
-        if binary, let b = h.body, Self.isCanonicalBase64(b) { out.bodyBase64 = true }
+        if let b = h.body, Self.isBinaryBody(b, flagged: binary, caseName: caseName) { out.bodyBase64 = true }
         return out
     }
 
@@ -103,8 +116,8 @@ final class NativeScriptConformanceTests: XCTestCase {
             inp.argument = c.input.argument
             inp.binary = c.input.binary ?? false
             inp.timeout = c.input.timeout ?? 0
-            inp.request = http(c.input.request, binary: c.input.binary ?? false)
-            inp.response = http(c.input.response, binary: c.input.binary ?? false)
+            inp.request = http(c.input.request, binary: c.input.binary ?? false, caseName: c.name)
+            inp.response = http(c.input.response, binary: c.input.binary ?? false, caseName: c.name)
             let home = NSTemporaryDirectory() + "nc-conformance/" + c.name
             try? FileManager.default.removeItem(atPath: home)
             try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
@@ -132,12 +145,26 @@ final class NativeScriptConformanceTests: XCTestCase {
                let s = String(data: d, encoding: .utf8) {
                 hay.append(s)
             }
+            // The old workbench's output was JSON records; a bare log line also appeared
+            // embedded as {"msg":"…"}. Offer that rendering too.
+            if !out.logs.isEmpty,
+               let d = try? JSONSerialization.data(withJSONObject: out.logs.map { ["level": $0.level, "msg": $0.msg] }),
+               let s = String(data: d, encoding: .utf8) {
+                hay.append(s)
+            }
             let joined = hay.joined(separator: "\n")
             // Some fragments were authored against the old workbench's JSON-embedded
-            // rendering, where quotes and backslashes appear escaped; match that too.
-            let escaped = joined.replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            let missing = c.expect.filter { !joined.contains($0) && !escaped.contains($0) }
+            // renderings: singly/doubly escaped, or Go-style (\u0026 for &). Match all.
+            func esc(_ s: String) -> String {
+                s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            }
+            let escaped = esc(joined)
+            let goEscaped = esc(joined)
+                .replacingOccurrences(of: "&", with: "\\u0026")
+                .replacingOccurrences(of: "<", with: "\\u003c")
+                .replacingOccurrences(of: ">", with: "\\u003e")
+            let variants = [joined, escaped, esc(escaped), goEscaped]
+            let missing = c.expect.filter { f in !variants.contains { $0.contains(f) } }
             if missing.isEmpty {
                 if Self.knownDivergences[c.name] != nil { passedKnown.append(c.name) }
             } else if Self.knownDivergences[c.name] != nil {

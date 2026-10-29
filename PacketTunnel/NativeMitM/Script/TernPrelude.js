@@ -655,7 +655,19 @@ return { URL: URLImpl, URLSearchParams: USP };
       this.decode = function (x) { var id = toBlob(x); return id < 0 ? '' : blobText(id); };
     };
     G.btoa = function (s) {
-      var r = host('btoa', String(s));
+      s = String(s);
+      // Web semantics: a character above U+00FF throws InvalidCharacterError. Neither host
+      // can signal it (both encode the string as Latin-1 bytes, truncating wider scalars),
+      // so the rejection lives here — the one place every host sits behind. The corpus case
+      // text-encoding-base64 pins e.name for btoa('中'); before this check it came back ''.
+      for (var i = 0; i < s.length; i++) {
+        if (s.charCodeAt(i) > 0xff) {
+          var bx = new TypeError("Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range.");
+          bx.name = 'InvalidCharacterError';
+          throw bx;
+        }
+      }
+      var r = host('btoa', s);
       if (r === '!') {
         var ex = new TypeError("Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range.");
         ex.name = 'InvalidCharacterError';
@@ -663,7 +675,19 @@ return { URL: URLImpl, URLSearchParams: USP };
       }
       return r;
     };
-    G.atob = function (s) { return host('atob', String(s)); };
+    G.atob = function (s) {
+      s = String(s);
+      // Same contract on the way in: characters outside the base64 alphabet (or a length
+      // that cannot be base64) throw InvalidCharacterError instead of silently decoding
+      // to ''. Valid input (whitespace / missing padding tolerated) goes to the host.
+      var t = s.replace(/\s+/g, '');
+      if (/[^A-Za-z0-9+/=]/.test(t) || t.length % 4 === 1) {
+        var ax = new TypeError("Failed to execute 'atob': The string to be decoded is not correctly encoded.");
+        ax.name = 'InvalidCharacterError';
+        throw ax;
+      }
+      return host('atob', s);
+    };
 
     function geo(kind) { return function (ip) { var r = host('geo', kind + String(ip)); return r === '' ? null : r; }; }
     G.$utils = {
