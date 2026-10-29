@@ -121,7 +121,7 @@ final class VPNManager: ObservableObject {
     /// The extension's alive marker exists and was refreshed recently (it is rewritten every couple of minutes).
     nonisolated static func tunnelLikelyRunning(now: Date = Date()) -> Bool {
         guard let s = try? String(contentsOf: TunnelStopReason.aliveURL, encoding: .utf8),
-              let beat = ISO8601DateFormatter().date(from: s.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+              let beat = TunnelStopReason.parseAlive(s)?.date else { return false }
         return now.timeIntervalSince(beat) < 15 * 60
     }
 
