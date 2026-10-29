@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mihomo
+@testable import Tern
 
 /// fix/nc-script-stats: a script $httpClient fetch counts into NCScriptTrafficLedger — the ledger
 /// NativeScriptHost.fetch feeds with the tunnel's instance (wired from NCDataPlane by
