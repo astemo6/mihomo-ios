@@ -61,6 +61,12 @@ final class NativeScriptConformanceTests: XCTestCase {
         // The case drives __egernCompress (the Egern bridge), which the app-process
         // runner does not install — same stand-in family as the egern ctx cases.
         "utils-geo-ungzip": "__egernCompress (Egern bridge) not installed by the app-process runner",
+        // The case's middle fragment pins the old (Go) workbench's indented-JSON rendering
+        // of the task result (`"title": "T"`, embedded escaped). The native runner's
+        // doneJSON is Swift pretty-print (`"title" : "T"`); the result value itself —
+        // title / content / n / the 2-byte binary — is present and asserted by the
+        // case's other fragments.
+        "cron-task-env": "task-result serialization style of the old workbench (indented JSON, escaped embedding) vs the native runner's Swift pretty-print doneJSON",
     ]
 
     private func corpus() throws -> [CorpusCase] {
@@ -170,7 +176,7 @@ final class NativeScriptConformanceTests: XCTestCase {
             } else if Self.knownDivergences[c.name] != nil {
                 continue // owned divergence, still diverging as documented
             } else {
-                unexpected.append("\(c.name): missing \(missing.map { "«\($0.prefix(60))»" }.joined(separator: ", ")) | actual: \(joined.prefix(300))")
+                unexpected.append("\(c.name): missing \(missing.map { "«\($0.prefix(60))»" }.joined(separator: ", ")) | actual: \(joined.prefix(1500))")
             }
         }
         XCTAssertTrue(passedKnown.isEmpty, "knownDivergences entries that now PASS (remove them): \(passedKnown.joined(separator: ", "))")
