@@ -108,6 +108,12 @@ enum UITestSeed {
                 let p = try await store.addLocal(name: "UITest Chain", text: policyChainYAML)
                 _ = await store.setActive(p)
             }
+            // probe/reality-e2e: two live VLESS+REALITY nodes against a debug-logging reference server
+            // (one xtls-rprx-vision, one plain) so a delay test shows where the native dial stalls.
+            if args.contains("-UITestRealityProbe"), !store.profiles.contains(where: { $0.name == "UITest Reality" }) {
+                let p = try await store.addLocal(name: "UITest Reality", text: realityProbeYAML)
+                _ = await store.setActive(p)
+            }
             // fix/app-policy-ui #3 / #4: a profile with three remote rule sets (http providers, already on disk — never fetched) for 分流规则 →
             // 编辑排序 and the 策略 / 分流规则 row-height comparison.
             if args.contains("-UITestRuleSets"), !store.profiles.contains(where: { $0.name == "UITest RuleSets" }) {
@@ -327,6 +333,19 @@ enum UITestSeed {
       - {name: Direct Only, type: select, proxies: [DIRECT]}
     rules:
       - MATCH,Node Select
+    """
+
+    /// probe/reality-e2e: live VLESS+REALITY nodes against a reference Xray server with debug logs
+    /// (45.92.159.155:24443): PROBE-VISION carries xtls-rprx-vision, PROBE-PLAIN is the flow-less control.
+    static let realityProbeYAML = """
+    mode: rule
+    proxies:
+      - {name: "PROBE-VISION", type: vless, server: 45.92.159.155, port: 24443, uuid: 751b9b56-b531-4efe-af29-467e32748c2b, network: tcp, tls: true, udp: true, flow: xtls-rprx-vision, servername: www.apple.com, client-fingerprint: chrome, reality-opts: {public-key: o3uurBM8T2hIo5eO-Nx5fFEv3lzij9-c0uo-SmtgLTY, short-id: ab12cd34}}
+      - {name: "PROBE-PLAIN", type: vless, server: 45.92.159.155, port: 24443, uuid: 66ac479b-e3fa-441c-9623-410aa2b66c28, network: tcp, tls: true, udp: true, servername: www.apple.com, client-fingerprint: chrome, reality-opts: {public-key: o3uurBM8T2hIo5eO-Nx5fFEv3lzij9-c0uo-SmtgLTY, short-id: ab12cd34}}
+    proxy-groups:
+      - {name: "ProbeGroup", type: select, proxies: ["PROBE-VISION", "PROBE-PLAIN"]}
+    rules:
+      - MATCH,ProbeGroup
     """
 
     /// feat/policy-chain: 流媒体 → 节点选择 → 日本节点 → 东京 AZ JP01 (three hops), automatic groups, a node that already
