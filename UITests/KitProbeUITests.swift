@@ -21,7 +21,17 @@ extension TernUITests {
         launch(["-UITestKitProbe"])
         tab(1)
         let group = app.element(id: "policy.card.Tern-Test")
-        XCTAssertTrue(group.waitForExistence(timeout: 15), "Tern-Test group card")
+        if !group.waitForExistence(timeout: 30) {
+            // Self-diagnose: dump what the proxies page actually holds (any policy cards?
+            // which labels?) so a missing seed/active state is visible in the log.
+            let cards = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'policy.card.'"))
+            var ids: [String] = []
+            for i in 0..<min(cards.count, 20) { ids.append(cards.element(boundBy: i).identifier) }
+            let labels = app.staticTexts.allElementsBoundByIndex.prefix(25).map(\.label)
+            print("KIT-DIAG cards=\(ids) labels=\(labels)")
+            XCTFail("Tern-Test group card — diag printed above")
+            return
+        }
         group.tap()
         let test = app.element(id: "policy.test.Tern-Test")
         XCTAssertTrue(test.waitForExistence(timeout: 10), "Tern-Test test button")
