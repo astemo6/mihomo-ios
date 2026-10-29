@@ -54,6 +54,10 @@ final class NativeScriptConformanceTests: XCTestCase {
         // The corpus pins the old core's request-log note sentence; both native hosts log
         // the same fact (an exception after $done is ignored) in their own wording.
         "exception-after-done": "old-core note wording; the ignored-after-$done fact is logged by both hosts in their own wording",
+        // The debug runner hands fixture bodies to the script undecoded; content-decoding
+        // (gzip/br) happens in the tunnel's data plane before scripts run there.
+        "bom-text-go-path": "debug runner does not content-decode fixture bodies; the tunnel data plane does",
+        "lane-br-bom-text": "debug runner does not content-decode fixture bodies; the tunnel data plane does",
     ]
 
     private func corpus() throws -> [CorpusCase] {
@@ -65,15 +69,16 @@ final class NativeScriptConformanceTests: XCTestCase {
         return try JSONDecoder().decode([CorpusCase].self, from: Data(contentsOf: url))
     }
 
-    /// A corpus body is base64 bytes (not text) iff it is canonical base64 whose decoding
-    /// is not valid UTF-8 — the gzip/protobuf/binary lanes store their fixtures that way.
-    private static func isBase64Bytes(_ s: String) -> Bool {
+    /// The corpus flags its binary fixtures itself (input.binary). A flagged case's body
+    /// is bytes iff it is canonical base64 — a flagged case can still carry a plain text
+    /// body on the other side, and unflagged text that happens to be canonical base64
+    /// (body-large-count's repeated pattern) stays text, as its expectations prove.
+    private static func isCanonicalBase64(_ s: String) -> Bool {
         guard !s.isEmpty, s.count % 4 == 0, let d = Data(base64Encoded: s) else { return false }
-        guard d.base64EncodedString() == s else { return false }
-        return String(data: d, encoding: .utf8) == nil
+        return d.base64EncodedString() == s
     }
 
-    private func http(_ h: CorpusCase.HTTP?) -> NCScriptDebug.HTTP? {
+    private func http(_ h: CorpusCase.HTTP?, binary: Bool) -> NCScriptDebug.HTTP? {
         guard let h else { return nil }
         var out = NCScriptDebug.HTTP()
         out.url = h.url
@@ -81,7 +86,7 @@ final class NativeScriptConformanceTests: XCTestCase {
         out.status = h.status
         out.headers = h.headers
         out.body = h.body
-        if let b = h.body, Self.isBase64Bytes(b) { out.bodyBase64 = true }
+        if binary, let b = h.body, Self.isCanonicalBase64(b) { out.bodyBase64 = true }
         return out
     }
 
@@ -98,8 +103,8 @@ final class NativeScriptConformanceTests: XCTestCase {
             inp.argument = c.input.argument
             inp.binary = c.input.binary ?? false
             inp.timeout = c.input.timeout ?? 0
-            inp.request = http(c.input.request)
-            inp.response = http(c.input.response)
+            inp.request = http(c.input.request, binary: c.input.binary ?? false)
+            inp.response = http(c.input.response, binary: c.input.binary ?? false)
             let home = NSTemporaryDirectory() + "nc-conformance/" + c.name
             try? FileManager.default.removeItem(atPath: home)
             try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
@@ -114,7 +119,11 @@ final class NativeScriptConformanceTests: XCTestCase {
                 if let b = p.body { hay.append(b) }
                 if let s = p.status { hay.append(String(s)); hay.append("\"status\":\(s)") }
                 if p.bodyBase64 == true { hay.append("\"bodyBase64\":true") }
-                if let h = p.headers { hay.append(h.map { "\($0): \($1)" }.joined(separator: "\n")) }
+                if let h = p.headers {
+                    hay.append(h.map { "\($0): \($1)" }.joined(separator: "\n"))
+                    if let d = try? JSONSerialization.data(withJSONObject: h),
+                       let s = String(data: d, encoding: .utf8) { hay.append(s) }
+                }
                 if let u = p.url { hay.append(u) }
                 if let m = p.method { hay.append(m) }
             }
@@ -124,7 +133,11 @@ final class NativeScriptConformanceTests: XCTestCase {
                 hay.append(s)
             }
             let joined = hay.joined(separator: "\n")
-            let missing = c.expect.filter { !joined.contains($0) }
+            // Some fragments were authored against the old workbench's JSON-embedded
+            // rendering, where quotes and backslashes appear escaped; match that too.
+            let escaped = joined.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let missing = c.expect.filter { !joined.contains($0) && !escaped.contains($0) }
             if missing.isEmpty {
                 if Self.knownDivergences[c.name] != nil { passedKnown.append(c.name) }
             } else if Self.knownDivergences[c.name] != nil {
