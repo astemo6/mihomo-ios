@@ -37,6 +37,8 @@ final class TunnelStopReasonUpdateTests: XCTestCase {
 
     func testAppUpdateReasonWording() {
         XCTAssertEqual(TunnelStopReason.appUpdate, 16) // NEProviderStopReason.appUpdate
-        XCTAssertTrue(TunnelStopReason.describe(TunnelStopReason.appUpdate).contains("更新"))
+        // Locale-independent: compare against the same localized lookup the code performs
+        // (a zh assertion fails on en-locale CI shards, where the string resolves to English).
+        XCTAssertEqual(TunnelStopReason.describe(TunnelStopReason.appUpdate), String(localized: "App 更新"))
     }
 }
