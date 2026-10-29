@@ -1,4 +1,5 @@
 import XCTest
+@testable import Tern
 
 /// fix/update-end-notice: an App update that replaces the extension binary can end the
 /// tunnel without stopTunnel; the alive marker's build stamp tells that end apart from a
