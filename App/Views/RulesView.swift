@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 // 规则 (live from the controller, or offline from the profile), 自定义规则 (rules.json, Surge / QX /
 // Loon / Clash.Meta syntax with live validation) and 提供者 (live, or offline from the cache files).
@@ -86,10 +85,6 @@ final class CustomRulesStore: ObservableObject {
         applySubsetOrder(list)
     }
 
-    /// feat/long-press-reorder: commit a long-press drag of one subset as displayed (same slot rule as
-    /// moveSubset: the subset's members keep the slots they hold in the full list).
-    func applyDragOrder(_ newOrder: [CustomRule]) { applySubsetOrder(newOrder) }
-
     func canStepSubset(_ subset: [CustomRule], _ id: CustomRule.ID, by: Int) -> Bool {
         guard let i = subset.firstIndex(where: { $0.id == id }) else { return false }
         return subset.indices.contains(i + by)
@@ -159,8 +154,6 @@ struct LocalRulesView: View {
     @ObservedObject private var hits = RuleHitsStore.shared
     @AppStorage("rules.sortByHits", store: AppShared.defaults) private var sortByHits = false
     @State private var confirmReset = false
-    /// feat/long-press-reorder: long-press drag of the 自定义 list (its .onMove had no edit mode to live in).
-    @StateObject private var dragCustom = DragReorderState<CustomRule>(space: "localrules.custom.space")
 
     struct Row: Hashable { var item: ProfileRuleItem; var session: Int? }
 
@@ -414,13 +407,10 @@ struct LocalRulesView: View {
                     Text("点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / Clash 写法；远程规则列表在上一页的「订阅」里添加。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                ForEach(dragCustom.shown(localCustom)) { r in
+                ForEach(localCustom) { r in
                     CustomRuleRow(rule: r, check: custom.checks[r.id]) { on in
                         if let i = custom.rules.firstIndex(where: { $0.id == r.id }) { custom.rules[i].enabled = on; custom.save() }
                     }
-                    .modifier(LongPressReorderRow(item: r, state: dragCustom, enabled: true) {
-                        dragCustom.begin(r.id, from: localCustom) { w in custom.applyDragOrder(w) }
-                    })
                     .contentShape(Rectangle())
                     .onTapGesture { editing = r }
                     // r7: 上移 / 下移 without the long-press drag (swipe right, or VoiceOver actions).
@@ -454,7 +444,6 @@ struct LocalRulesView: View {
             }
             .listRowBackground(Theme.card)
             .id(custom.orderRevision)
-            .dragReorderTarget([dragCustom], space: dragCustom.space)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)

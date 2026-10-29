@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import UserNotifications
 
 /// Form model for the rewrite editor (formerly shared with the old side's
@@ -56,10 +55,6 @@ struct RewriteView: View {
     @State private var search = ""
     @State private var newHost = ""
     @State private var editMode: EditMode = .inactive
-    /// feat/long-press-reorder: long-press drag in the normal list (排序 / edit mode stays as the fallback).
-    @StateObject private var dragModules = DragReorderState<EngineModule>(space: "rewrite.subs.space")
-    @StateObject private var dragRules = DragReorderState<EngineItem>(space: "rewrite.local.space")
-    @StateObject private var dragScripts = DragReorderState<EngineItem>(space: "rewrite.local.space")
     @State private var editingModule: EngineModule?
     /// fix/nc-0.20.2: 编辑订阅 (URL / 名称 / 自动更新 / 启用) from the row's swipe / long-press 编辑.
     @State private var editingSub: EngineModule?
@@ -308,16 +303,7 @@ struct RewriteView: View {
                     .onChange(of: cats) { cs in if !categoryFilter.isEmpty && !cs.contains(categoryFilter) { categoryFilter = "" } }
                     .onChange(of: categoryFilter) { c in if !c.isEmpty && editMode.isEditing { editMode = .inactive } }
                 }
-                ForEach(dragModules.shown(modules)) { m in
-                    moduleRow(m)
-                        .modifier(LongPressReorderRow(item: m, state: dragModules,
-                                                      enabled: !editMode.isEditing && canReorderModules) {
-                            dragModules.begin(m.id, from: modules) { w in
-                                store.config.modules = w
-                                store.save() // reloads the tunnel (debounced): the new order takes effect now
-                            }
-                        })
-                }
+                ForEach(modules) { m in moduleRow(m) }
                     .onMove(perform: editMode.isEditing && canReorderModules ? moveModules : nil)
             } header: {
                 HStack {
@@ -329,18 +315,17 @@ struct RewriteView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除或编辑；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。")
-                    Text("订阅按列表顺序生效：越靠上越先匹配。长按一行直接拖动调整顺序，也可点右上角「排序」（搜索或筛选分类时不能排序）。")
+                    Text("订阅按列表顺序生效：越靠上越先匹配。点右上角「排序」后拖动调整顺序（搜索或筛选分类时不能排序）。")
                 }
                 .modifier(UITestOrderValue(id: "rewrite.subs.order", order: store.config.modules.map(\.name).joined(separator: " | ")))
             }
             .listRowBackground(Theme.card)
-            .dragReorderTarget([dragModules], space: dragModules.space)
 
             Section {
                 if store.config.rules.isEmpty && store.config.scripts.isEmpty {
                     EmptyStateRow(icon: "arrow.triangle.swap", title: "还没有本地规则", message: "点右上角 + 添加重写或脚本；Surge、Quantumult X、Loon 写法都能识别。")
                 }
-                ForEach(dragRules.shown(rules)) { it in
+                ForEach(rules) { it in
                     RuleRow(item: it) { on in
                         if let i = store.config.rules.firstIndex(where: { $0.id == it.id }) { store.config.rules[i].enabled = on; store.save() }
                     }
@@ -349,18 +334,11 @@ struct RewriteView: View {
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) { store.config.rules.removeAll { $0.id == it.id }; store.save() } label: { Label("删除", systemImage: "trash") }
                     }
-                    .modifier(LongPressReorderRow(item: it, state: dragRules,
-                                                  enabled: !editMode.isEditing && search.isEmpty) {
-                        dragRules.begin(it.id, from: rules) { w in
-                            store.config.rules = w
-                            store.save()
-                        }
-                    })
                 }
                 .onMove(perform: editMode.isEditing && search.isEmpty ? { (from: IndexSet, to: Int) in
                     store.config.rules.move(fromOffsets: from, toOffset: to); store.save()
                 } : nil)
-                ForEach(dragScripts.shown(scripts)) { it in
+                ForEach(scripts) { it in
                     RuleRow(item: it) { on in
                         if let i = store.config.scripts.firstIndex(where: { $0.id == it.id }) { store.config.scripts[i].enabled = on; store.save() }
                     }
@@ -376,22 +354,14 @@ struct RewriteView: View {
                         Button { editingScript = it } label: { Label("编辑", systemImage: "pencil") }
                         Button { debugging = it } label: { Label("在调试台打开", systemImage: "play.fill") }
                     }
-                    .modifier(LongPressReorderRow(item: it, state: dragScripts,
-                                                  enabled: !editMode.isEditing && search.isEmpty) {
-                        dragScripts.begin(it.id, from: scripts) { w in
-                            store.config.scripts = w
-                            store.save()
-                        }
-                    })
                 }
                 .onMove(perform: editMode.isEditing && search.isEmpty ? { (from: IndexSet, to: Int) in
                     store.config.scripts.move(fromOffsets: from, toOffset: to); store.save()
                 } : nil)
             } header: { Text("本地 \(store.config.rules.count + store.config.scripts.count)") } footer: {
-                Text("你自己的重写和脚本，与订阅一起生效、优先于它们。点 + 用表单添加，或在 ⋯ 里以文本编辑；重写按顺序匹配，长按可拖动调整顺序。")
+                Text("你自己的重写和脚本，与订阅一起生效、优先于它们。点 + 用表单添加，或在 ⋯ 里以文本编辑；重写按顺序匹配。")
             }
             .listRowBackground(Theme.card)
-            .dragReorderTarget([dragRules, dragScripts], space: dragRules.space)
 
             Section {
                 ForEach(store.config.hostnames, id: \.self) { h in
