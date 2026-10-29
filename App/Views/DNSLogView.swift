@@ -5,11 +5,18 @@ import UIKit
 // every log event to subscribers whatever its own log-level is, so nothing changes in the tunnel; the stream
 // only runs from the moment this page is opened until the app goes to the background or disconnects.
 //
-// Lines used (Clash.Meta v1.19.33):
+// Lines used — the [DNS] shapes are the canonical NCDNSLogLine formats (Shared); the
+// REJECT shapes below them are the old Go core's, kept as legacy tolerance:
 //   [DNS] example.com --> [93.184.216.34] A from https://1.1.1.1/dns-query     dns/util batchExchange
 //   [DNS] cache hit example.com --> [93.184.216.34] A, expire at 2026-…          dns/resolver
 //   [DNS] resolve example.com error: …                                          tunnel/tunnel
 //   [TCP] 198.18.0.1:5000 --> ads.example.com:443 match DomainSuffix(example.com) using REJECT   tunnel/tunnel
+//
+// The native core's own outcome lines (NCFlowLogLine, Shared) are what actually arrives:
+//   [TCP] ads.example.com:443 rule DomainSuffix(ads.example.com) → REJECT rejected
+//   [UDP] app.example.com:443 rule AND(((Network,udp) && (DstPort,443))) → REJECT dropped (no UDP relay for this policy)
+// Until fix/nc-reject-log-tab the tab understood only the Go shapes, so 已拦截 stayed
+// empty while the core's rejected counter kept counting (device 2026-10-29).
 //
 // The 已拦截 tab is built from those REJECT *connection* lines, not from DNS answers (the core never refuses a DNS
 // query here). Device report 2026-10-21: most hits were the QUIC fallback rule (UDP 443 → REJECT, apps retry over
@@ -147,6 +154,11 @@ final class DNSLogStore: ObservableObject {
     private static let cacheRE = re(#"^\[DNS\] cache hit (\S+) --> (.*) (\S+), expire at"#)
     private static let errorRE = re(#"^\[DNS\] resolve (\S+) error: (.*)$"#)
     private static let rejectRE = re(#"^\[(TCP|UDP)\] .+? --> (\S+) (?:match (.+) )?using (\S*REJECT\S*)$"#)
+    /// The native core's outcome line (NCFlowLogLine): groups are proto, host:port, rule
+    /// (a final-rule flow's trailing " […]" match note rides along, stripped at ingest),
+    /// via, outcome word. Only a REJECT via counts — a UDP flow dropped because its proxy
+    /// has no UDP relay ends in the same "dropped (…)" wording and is not a block.
+    private static let nativeRejectRE = re(#"^\[(TCP|UDP)\] (\S+) rule (.+) → (.+?) (rejected|dropped)\b"#)
 
     private static func groups(_ r: NSRegularExpression, _ s: String) -> [String]? {
         let ns = s as NSString
@@ -189,20 +201,31 @@ final class DNSLogStore: ObservableObject {
             guard let e else { return }
             queries.insert(e, at: 0)
             if queries.count > Self.limit { queries.removeLast(queries.count - Self.limit) }
-        } else if line.hasPrefix("[TCP]") || line.hasPrefix("[UDP]"), line.contains("REJECT"), let g = Self.groups(Self.rejectRE, line) {
-            let h = Self.host(of: g[1])
-            guard !h.isEmpty else { return }
-            let rule = g[2].isEmpty ? g[3] : g[2]
-            let port = Self.port(of: g[1])
-            let quic = RejectClassifier.isQUIC(rule: rule, network: g[0], port: port)
-            var b = (quic ? quicBlocked[h] : blocked[h]) ?? BlockedDomain(domain: h, count: 0, rule: "", last: time, quic: quic)
-            b.count += 1
-            b.last = time
-            b.rule = rule
-            b.network = g[0]
-            b.port = port
-            if quic { quicBlocked[h] = b } else { blocked[h] = b }
+        } else if line.hasPrefix("[TCP]") || line.hasPrefix("[UDP]") {
+            if line.contains("REJECT"), let g = Self.groups(Self.rejectRE, line) {
+                recordBlock(hostPort: g[1], rule: g[2].isEmpty ? g[3] : g[2], proto: g[0], at: time)
+            } else if let g = Self.groups(Self.nativeRejectRE, line),
+                      g[3] == "REJECT" || g[3].hasPrefix("REJECT-DROP") || g[3].contains("(REJECT)") {
+                let rule = g[2].replacingOccurrences(of: #" \[.*\]$"#, with: "", options: .regularExpression)
+                recordBlock(hostPort: g[1], rule: rule, proto: g[0], at: time)
+            }
         }
+    }
+
+    /// One REJECT hit into the real-block or QUIC-fallback bucket (RejectClassifier tells
+    /// them apart; both line shapes funnel here).
+    private func recordBlock(hostPort: String, rule: String, proto: String, at time: Date) {
+        let h = Self.host(of: hostPort)
+        guard !h.isEmpty else { return }
+        let port = Self.port(of: hostPort)
+        let quic = RejectClassifier.isQUIC(rule: rule, network: proto, port: port)
+        var b = (quic ? quicBlocked[h] : blocked[h]) ?? BlockedDomain(domain: h, count: 0, rule: "", last: time, quic: quic)
+        b.count += 1
+        b.last = time
+        b.rule = rule
+        b.network = proto
+        b.port = port
+        if quic { quicBlocked[h] = b } else { blocked[h] = b }
     }
 
     /// Synthetic lines for the simulator UI tests (documentation names and addresses only).
@@ -213,12 +236,14 @@ final class DNSLogStore: ObservableObject {
             "[DNS] cache hit api.example.org --> [192.0.2.10 192.0.2.11] A, expire at 2026-10-17 22:00:00",
             "[DNS] v6.example.net --> [2001:db8::1] AAAA from 223.5.5.5",
             "[DNS] resolve broken.example.invalid error: all DNS requests failed",
-            "[TCP] 198.18.0.1:50001 --> ads.example.com:443 match DomainSuffix(ads.example.com) using REJECT",
-            "[TCP] 198.18.0.1:50002 --> ads.example.com:443 match DomainSuffix(ads.example.com) using REJECT",
-            "[UDP] 198.18.0.1:50003 --> tracker.example.net:443 match RuleSet(ads) using AdBlock[REJECT-DROP]",
-            "[UDP] 198.18.0.1:50004 --> app.example.com:443 match AND(((Network,udp) && (DstPort,443))) using REJECT",
-            "[UDP] 198.18.0.1:50005 --> app.example.com:443 match AND(((Network,udp) && (DstPort,443))) using REJECT",
-            "[UDP] 198.18.0.1:50006 --> video.example.org:443 match AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER))))) using REJECT",
+            // The REJECT lines are composed by the core's own builder, so the demo (and the
+            // UI tests on it) always shows the shapes the native core really emits.
+            NCFlowLogLine.head(proto: "TCP", host: "ads.example.com", port: 443, rule: "DomainSuffix(ads.example.com)", matchNote: "", via: "REJECT") + " rejected",
+            NCFlowLogLine.head(proto: "TCP", host: "ads.example.com", port: 443, rule: "DomainSuffix(ads.example.com)", matchNote: "", via: "REJECT") + " rejected",
+            NCFlowLogLine.udpOutcome(host: "tracker.example.net", port: 443, rule: "RuleSet(ads)", via: "REJECT", opened: false),
+            NCFlowLogLine.udpOutcome(host: "app.example.com", port: 443, rule: "AND(((Network,udp) && (DstPort,443)))", via: "REJECT", opened: false),
+            NCFlowLogLine.udpOutcome(host: "app.example.com", port: 443, rule: "AND(((Network,udp) && (DstPort,443)))", via: "REJECT", opened: false),
+            NCFlowLogLine.udpOutcome(host: "video.example.org", port: 443, rule: "AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER)))))", via: "REJECT", opened: false),
         ]
         for (i, l) in lines.enumerated() { ingest(l, at: t.addingTimeInterval(Double(i - lines.count))) }
     }
