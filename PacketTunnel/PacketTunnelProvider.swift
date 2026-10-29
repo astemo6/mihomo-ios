@@ -102,7 +102,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // crash / power off). Recorded as 上次断开原因 so 诊断 shows why the VPN was found off.
         let lastAlive = TunnelStopReason.takeUnexpectedEnd()
         if let lastAlive {
-            StartupLog.write("previous tunnel ended without stopTunnel (last alive \(ISO8601DateFormatter().string(from: lastAlive)))")
+            StartupLog.write(lastAlive.acrossUpdate
+                ? "previous tunnel ended across an app update (last alive \(ISO8601DateFormatter().string(from: lastAlive.date)))"
+                : "previous tunnel ended without stopTunnel (last alive \(ISO8601DateFormatter().string(from: lastAlive.date)))")
         }
         // feat/loon-menu-notify: started by the app / widget / shortcut (they pass this option) or by iOS (按需连接 /
         // 保持连接). A system start after a tunnel that never reached stopTunnel is an automatic reconnect.
@@ -121,7 +123,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             } else {
                 StartupLog.write("startTunnel completed OK, \(ProcessMemory.summary())")
                 TunnelStopReason.markAlive()
-                if systemReconnect && NotifyPrefs.allows(.vpn) {
+                // fix/update-end-notice: a restart caused by an App update stays silent —
+                // it is not an abnormal end and must not be announced as one.
+                if systemReconnect && lastAlive?.acrossUpdate != true && NotifyPrefs.allows(.vpn) {
                     TunnelNotice.post(kind: .vpn, title: NotifyText.loc("VPN 已自动重新连接"),
                                       body: NotifyText.loc("扩展未正常退出（被系统终止、崩溃或设备关机）"))
                 }
