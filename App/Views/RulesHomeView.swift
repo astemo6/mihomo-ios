@@ -475,7 +475,21 @@ struct RulesView: View {
         if vpn.isConnected {
             updatingLive.insert(name)
             do { try await ControllerClient.shared.updateRuleProvider(name); liveErrors[name] = nil }
-            catch { liveErrors[name] = error.localizedDescription }
+            catch {
+                // The native core does not re-fetch rule providers (PUT /providers/rules/{name}
+                // is not one of its routes — their files are App-managed), so its 404
+                // 「not available in native core」 is not the row's real error. Fall back to
+                // the App-side updater, like UpdateEverything does; clearing liveErrors lets
+                // the row show the updater's own outcome (success, or the real download /
+                // conversion error) instead of the misleading 404.
+                if let p = providersByName[name], p.vehicle == "http" {
+                    await updater.update(p.id)
+                    await offline.load()
+                    liveErrors[name] = nil
+                } else {
+                    liveErrors[name] = error.localizedDescription
+                }
+            }
             updatingLive.remove(name)
             await load()
         } else if let p = providersByName[name], p.vehicle == "http" {
