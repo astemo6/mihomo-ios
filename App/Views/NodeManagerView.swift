@@ -50,7 +50,7 @@ struct NodeListView: View {
     @State private var addedLocal: NodeDetailView.AddedLocal?
     @State private var exportSub = false
     /// feat/long-press-reorder: one drag state for every source section (the working copy is keyed by source).
-    @StateObject private var dragNodes = DragReorderState<ManagedNode>()
+    @StateObject private var dragNodes = DragReorderState<ManagedNode>(space: "nodes.space")
 
     var sort: NodeManagerModel.SortMode { NodeManagerModel.SortMode(rawValue: sortRaw) ?? .config }
 
@@ -140,7 +140,7 @@ struct NodeListView: View {
                         sourceHeader(src, count: all.count, shown: list)
                     }
                     .listRowBackground(Theme.card)
-                    .onDrop(of: [UTType.text], delegate: GroupListDropDelegate(drop: { dragNodes.finish() }))
+                    .dragReorderTarget([dragNodes], space: dragNodes.space)
                 }
             }
         }

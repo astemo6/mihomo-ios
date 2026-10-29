@@ -160,7 +160,7 @@ struct LocalRulesView: View {
     @AppStorage("rules.sortByHits", store: AppShared.defaults) private var sortByHits = false
     @State private var confirmReset = false
     /// feat/long-press-reorder: long-press drag of the 自定义 list (its .onMove had no edit mode to live in).
-    @StateObject private var dragCustom = DragReorderState<CustomRule>()
+    @StateObject private var dragCustom = DragReorderState<CustomRule>(space: "localrules.custom.space")
 
     struct Row: Hashable { var item: ProfileRuleItem; var session: Int? }
 
@@ -454,7 +454,7 @@ struct LocalRulesView: View {
             }
             .listRowBackground(Theme.card)
             .id(custom.orderRevision)
-            .onDrop(of: [UTType.text], delegate: GroupListDropDelegate(drop: { dragCustom.finish() }))
+            .dragReorderTarget([dragCustom], space: dragCustom.space)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)

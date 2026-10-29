@@ -57,9 +57,9 @@ struct RewriteView: View {
     @State private var newHost = ""
     @State private var editMode: EditMode = .inactive
     /// feat/long-press-reorder: long-press drag in the normal list (排序 / edit mode stays as the fallback).
-    @StateObject private var dragModules = DragReorderState<EngineModule>()
-    @StateObject private var dragRules = DragReorderState<EngineItem>()
-    @StateObject private var dragScripts = DragReorderState<EngineItem>()
+    @StateObject private var dragModules = DragReorderState<EngineModule>(space: "rewrite.subs.space")
+    @StateObject private var dragRules = DragReorderState<EngineItem>(space: "rewrite.local.space")
+    @StateObject private var dragScripts = DragReorderState<EngineItem>(space: "rewrite.local.space")
     @State private var editingModule: EngineModule?
     /// fix/nc-0.20.2: 编辑订阅 (URL / 名称 / 自动更新 / 启用) from the row's swipe / long-press 编辑.
     @State private var editingSub: EngineModule?
@@ -334,7 +334,7 @@ struct RewriteView: View {
                 .modifier(UITestOrderValue(id: "rewrite.subs.order", order: store.config.modules.map(\.name).joined(separator: " | ")))
             }
             .listRowBackground(Theme.card)
-            .onDrop(of: [UTType.text], delegate: GroupListDropDelegate(drop: { dragModules.finish() }))
+            .dragReorderTarget([dragModules], space: dragModules.space)
 
             Section {
                 if store.config.rules.isEmpty && store.config.scripts.isEmpty {
@@ -391,7 +391,7 @@ struct RewriteView: View {
                 Text("你自己的重写和脚本，与订阅一起生效、优先于它们。点 + 用表单添加，或在 ⋯ 里以文本编辑；重写按顺序匹配，长按可拖动调整顺序。")
             }
             .listRowBackground(Theme.card)
-            .onDrop(of: [UTType.text], delegate: GroupListDropDelegate(drop: { dragRules.finish(); dragScripts.finish() }))
+            .dragReorderTarget([dragRules, dragScripts], space: dragRules.space)
 
             Section {
                 ForEach(store.config.hostnames, id: \.self) { h in

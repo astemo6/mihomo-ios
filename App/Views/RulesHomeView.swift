@@ -49,8 +49,8 @@ struct RulesView: View {
     @State private var orderMessage: String?
     /// feat/long-press-reorder: long-press drag on the main list (编辑排序 stays as the fallback). The two
     /// kinds stay separate drag domains: the user's lists always match ahead of the profile's rule sets.
-    @StateObject private var dragMine = DragReorderState<CustomRule>()
-    @StateObject private var dragSets = DragReorderState<SetRule>()
+    @StateObject private var dragMine = DragReorderState<CustomRule>(space: "ruleshome.subs.space")
+    @StateObject private var dragSets = DragReorderState<SetRule>(space: "ruleshome.subs.space")
 
     /// One RULE-SET rule of the running / saved profile.
     struct SetRule: Hashable, Identifiable { var name: String; var policy: String; var id: String { name } }
@@ -393,7 +393,7 @@ struct RulesView: View {
                 .modifier(UITestOrderValue(id: "rules.sets.order", order: sets.map(\.name).joined(separator: " | ")))
             }
             .listRowBackground(Theme.card)
-            .onDrop(of: [UTType.text], delegate: GroupListDropDelegate(drop: { dragMine.finish(); dragSets.finish() }))
+            .dragReorderTarget([dragMine, dragSets], space: dragMine.space)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
