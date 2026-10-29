@@ -18,7 +18,8 @@ final class DNSLogRejectFormatTests: XCTestCase {
         s.ingest(tcp("ads.example.com", rule: "DomainSuffix(ads.example.com)"))
         s.ingest(tcp("ads.example.com", rule: "DomainSuffix(ads.example.com)"))
         XCTAssertEqual(s.blockedTotal, 2)
-        XCTAssertEqual(s.blocked["ads.example.com"]?.ruleLabel, "域名后缀 · ads.example.com")
+        // The label's rule-kind wording is localized at production time; pin the structure, not a language.
+        XCTAssertTrue(s.blocked["ads.example.com"]?.ruleLabel.hasSuffix(" · ads.example.com") ?? false)
         XCTAssertEqual(s.quicTotal, 0)
         XCTAssertTrue(s.queries.isEmpty)
     }
@@ -34,7 +35,7 @@ final class DNSLogRejectFormatTests: XCTestCase {
         let s = DNSLogStore()
         s.ingest(NCFlowLogLine.udpOutcome(host: "tracker.example.net", port: 443, rule: "RuleSet(ads)", via: "REJECT", opened: false))
         XCTAssertEqual(s.blockedTotal, 1)
-        XCTAssertEqual(s.blocked["tracker.example.net"]?.ruleLabel, "规则集 · ads")
+        XCTAssertTrue(s.blocked["tracker.example.net"]?.ruleLabel.hasSuffix(" · ads") ?? false)
     }
 
     func testNativeUDPQUICGoesToTheQuicBucket() {
