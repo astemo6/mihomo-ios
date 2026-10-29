@@ -245,7 +245,10 @@ final class HomePanelStore: ObservableObject {
     /// The menu-remove guard, pure for tests: a moved drag blocks (in flight, or ≤ 1 s after it ended);
     /// an unmoved drag session — every context-menu long press starts one — never does.
     static func removeAllowed(dragging: Bool, dragMoved: Bool, secondsSinceDragActivity: TimeInterval) -> Bool {
-        if dragging && dragMoved { return false }
+        // A session still in flight blocks only if it actually travelled (the context menu's own
+        // long press arms a session that never moves — that tap must go through immediately).
+        // With no session in flight, the 1 s window after the last real drag activity guards the tap.
+        if dragging { return !dragMoved }
         return secondsSinceDragActivity > 1.0
     }
 
