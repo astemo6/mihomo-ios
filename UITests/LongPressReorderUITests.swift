@@ -20,19 +20,35 @@ extension TernUITests {
         return false
     }
 
+    /// Wait until the element can actually be pressed (the first nodes run pressed mid
+    /// navigation-settle and recorded a stray "Not hittable" failure even though the retry's
+    /// drag then worked and every assertion passed).
+    private func waitHittable(_ e: XCUIElement, _ seconds: Double = 8) {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            if e.exists && e.isHittable { return }
+            usleep(250_000)
+        }
+    }
+
     /// Long-press (a context-menu preview may lift first; moving the finger hands it to the drag, as on
-    /// Home), drag slowly onto the target and hold — the element-to-element form the Home drag tests
-    /// use. One retry after dismissing a menu the first press may have left open.
+    /// Home), drag slowly onto the target and hold. The 1.2 s press matches the suite's proven Home
+    /// card drag (TernUITests); the simulator still drops some gestures (the context menu can eat
+    /// one), so retry up to three times, dismissing a possibly-open menu between attempts.
     private func longPressDrag(_ e: XCUIElement, above target: XCUIElement) -> Bool {
-        e.press(forDuration: 1.0, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.8)
-        usleep(1_800_000) // drop, or the idle commit
-        if isBefore(e, target) { return true }
-        warnings.append("[\(Env.tag)] long-press drag retry on \(e.identifier)")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
-        usleep(700_000)
-        e.press(forDuration: 1.0, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.8)
-        usleep(1_800_000)
-        return isBefore(e, target)
+        for attempt in 1...3 {
+            if attempt > 1 {
+                warnings.append("[\(Env.tag)] long-press drag retry \(attempt) on \(e.identifier)")
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
+                usleep(700_000)
+            }
+            waitHittable(e)
+            waitHittable(target)
+            e.press(forDuration: 1.2, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.8)
+            usleep(1_800_000) // drop, or the idle commit
+            if isBefore(e, target) { return true }
+        }
+        return false
     }
 
     // MARK: 重写 → 订阅: long-press drag, no 排序 button
