@@ -1170,7 +1170,7 @@ final class NCDataPlane {
             dnsQueries &+= 1
             if let reply = engine.dnsHostsReply(data) ?? engine.handleDNSQuery(data) {
                 // fix/nc-dns-log-lines: answered locally (hosts / fake-ip / cache) — the card's cache bucket.
-                dnsLogCacheHit(data)
+                dnsLogCacheHit(data, reply: reply)
                 // nc-script-runtime: registered type=dns scripts may rewrite the finished reply before
                 // it is written back (async, on the hook queue; fail-open). No dns scripts: direct send.
                 if engine.hasDNSScripts {
@@ -1222,7 +1222,7 @@ final class NCDataPlane {
         let deliver: (Data) -> Void = { [weak self] resp in
             guard let self else { return }
             self.dnsReplies &+= 1
-            self.dnsLogResolve(query, upstream: trace.winner ?? primary.label)
+            self.dnsLogResolve(query, response: resp, upstream: trace.winner ?? primary.label)
             if !self.loggedFirstDNSReply {
                 self.loggedFirstDNSReply = true
                 StartupLog.write("data plane: first upstream DNS reply delivered (\(resp.count) B)")
@@ -1309,31 +1309,32 @@ final class NCDataPlane {
         case 12: return (q?.name ?? "?", "PTR")
         case 16: return (q?.name ?? "?", "TXT")
         case 33: return (q?.name ?? "?", "SRV")
-        default: return (q?.name ?? "?", q == nil ? "?" : "type \(t)")
+        default: return (q?.name ?? "?", q == nil ? "?" : "TYPE\(t)") // spaceless: log-line fields are \S+ tokens
         }
     }
 
-    /// fix/nc-dns-log-lines: the failure line takes the canonical "[DNS] resolve … error:"
-    /// stem the Home DNS card / DNS log parse (the old "(SERVFAIL to client)" wording matched
-    /// nothing, so failures were invisible there too); the attempt trace stays as the detail.
+    /// The failure line takes the canonical NCDNSLogLine format both log consumers parse
+    /// (the old "(SERVFAIL to client)" wording matched nothing, so failures were invisible
+    /// there too); the attempt trace stays as the detail.
     static func dnsFailureLine(_ query: Data, trace: NCDNSAttemptTrace) -> String {
         let (name, type) = dnsNameType(query)
-        return "[DNS] resolve \(name) \(type) error: \(trace.summary)"
+        return NCDNSLogLine.failure(name: name, type: type, detail: trace.summary)
     }
 
-    /// One canonical DNS line into the controller log ring — what the Home DNS card and the
-    /// DNS log page aggregate (they were built for the old core's line formats, which the
-    /// native core never emitted: both stayed permanently empty while DNS itself worked).
-    /// Written straight to the ring, not through the 20/s flow-diagnostics limiter: natural
-    /// query rates are the same order as the connection lines the ring already rolls through.
-    private func dnsLogResolve(_ query: Data, upstream: String) {
+    /// One canonical DNS line into the controller log ring — what the Home DNS card and
+    /// the DNS log page aggregate. Written straight to the ring, not through the 20/s
+    /// flow-diagnostics limiter: natural query rates are the same order as the connection
+    /// lines the ring already rolls through.
+    private func dnsLogResolve(_ query: Data, response: Data, upstream: String) {
         let (name, type) = Self.dnsNameType(query)
-        NativeLogRing.shared.add(type: "info", payload: "[DNS] resolve \(name) \(type) from \(upstream)")
+        let line = NCDNSLogLine.resolve(name: name, type: type, response: NCDNSMessage.parse(response), upstream: upstream)
+        NativeLogRing.shared.add(type: "info", payload: line)
     }
 
-    private func dnsLogCacheHit(_ query: Data) {
+    private func dnsLogCacheHit(_ query: Data, reply: Data) {
         let (name, type) = Self.dnsNameType(query)
-        NativeLogRing.shared.add(type: "info", payload: "[DNS] cache hit \(name) \(type)")
+        let line = NCDNSLogLine.cacheHit(name: name, type: type, response: NCDNSMessage.parse(reply))
+        NativeLogRing.shared.add(type: "info", payload: line)
     }
 
     /// fix/nc-tcp0: every upstream failed — answer SERVFAIL (Clash.Meta's DNS server does) instead of dropping the query;

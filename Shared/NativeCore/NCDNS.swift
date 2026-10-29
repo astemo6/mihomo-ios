@@ -227,6 +227,49 @@ extension NCDNSMessage {
     }
 }
 
+/// The canonical [DNS] log lines — the ONE format both log consumers parse. The Home
+/// DNS card (HomeDNSModel.parse) keys on the "cache hit" prefix, a "resolve … error:"
+/// stem and a trailing " from <upstream>"; the DNS log page (DNSLogStore.ingest) matches
+/// the Clash-shaped regexes ("<name> --> [answers] <type> from <upstream>", "cache hit
+/// <name> --> [answers] <type>, expire at …", "resolve <name> error: …"). The first
+/// native format (fix/nc-dns-log-lines) satisfied only the card, so the page silently
+/// dropped every line and stayed empty while the card counted (device 2026-10-29).
+enum NCDNSLogLine {
+    static func resolve(name: String, type: String, response: NCDNSMessage?, upstream: String) -> String {
+        "[DNS] \(name) --> \(answersText(response)) \(type) from \(upstream)"
+    }
+
+    static func cacheHit(name: String, type: String, response: NCDNSMessage?, now: Date = Date()) -> String {
+        let ttl = response?.answers.map(\.ttl).min() ?? 0
+        let expire = expireFormatter.string(from: now.addingTimeInterval(TimeInterval(ttl)))
+        return "[DNS] cache hit \(name) --> \(answersText(response)) \(type), expire at \(expire)"
+    }
+
+    static func failure(name: String, type: String, detail: String) -> String {
+        "[DNS] resolve \(name) error: \(type) \(detail)"
+    }
+
+    /// "[93.184.216.34 2001:db8::1]" for address answers; a CNAME target when that is
+    /// the answer; a record count for other types (HTTPS/SVCB…); "[]" for NODATA.
+    private static func answersText(_ msg: NCDNSMessage?) -> String {
+        guard let msg, !msg.answers.isEmpty else { return "[]" }
+        let addrs = msg.addressAnswers.map { $0.0.string }
+        if !addrs.isEmpty { return "[" + addrs.joined(separator: " ") + "]" }
+        if let cname = msg.answers.first(where: { $0.type == NCDNSMessage.typeCNAME })?.cnameTarget, !cname.isEmpty {
+            return "[\(cname)]"
+        }
+        return "[\(msg.answers.count) record\(msg.answers.count == 1 ? "" : "s")]"
+    }
+
+    private static let expireFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+}
+
 /// redir-host mode support: remembers which real IPs a host resolved to,
 /// so connections to those IPs can be rule-matched by the original host
 /// (Clash.Meta's redir-host behaves the same). TTL-bound, size-capped.
