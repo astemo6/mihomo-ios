@@ -112,7 +112,7 @@ final class NCDataPlane {
     private static func outcomeHead(_ s: TCPSession) -> String {
         let rule = s.ruleText.isEmpty ? "-" : s.ruleText
         let via = s.chainName == s.policyName || s.policyName.isEmpty ? s.chainName : "\(s.policyName) (\(s.chainName))"
-        return "[TCP] \(s.target.host):\(s.target.port) rule \(rule)\(s.matchNote) → \(via)"
+        return NCFlowLogLine.head(proto: "TCP", host: s.target.host, port: s.target.port, rule: rule, matchNote: s.matchNote, via: via)
     }
 
     /// "v4 tcp 198.18.0.1 → 17.x.x.x" for the first-packet log line (addresses are the device's own flows).
@@ -1421,7 +1421,7 @@ final class NCDataPlane {
             }
             let opened = self.udpSessions[info.id] != nil
             if opened { self.udpOpened &+= 1 }
-            self.connLog("[UDP] \(target.host):\(target.port) rule \(ruleText ?? "-") → \(via) \(opened ? "opened" : "dropped (no UDP relay for this policy)")",
+            self.connLog(NCFlowLogLine.udpOutcome(host: target.host, port: target.port, rule: ruleText ?? "-", via: via, opened: opened),
                          level: opened ? "info" : "warning")
         }
     }
