@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - 规则 (Loon-style, 2026-10-22)
 //
@@ -46,6 +47,10 @@ struct RulesView: View {
     @State private var orderSetsOriginal: [String] = []
     @State private var orderSaving = false
     @State private var orderMessage: String?
+    /// feat/long-press-reorder: long-press drag on the main list (编辑排序 stays as the fallback). The two
+    /// kinds stay separate drag domains: the user's lists always match ahead of the profile's rule sets.
+    @StateObject private var dragMine = DragReorderState<CustomRule>(space: "ruleshome.subs.space")
+    @StateObject private var dragSets = DragReorderState<SetRule>(space: "ruleshome.subs.space")
 
     /// One RULE-SET rule of the running / saved profile.
     struct SetRule: Hashable, Identifiable { var name: String; var policy: String; var id: String { name } }
@@ -183,6 +188,16 @@ struct RulesView: View {
             if let n = o.note { custom.message = n }
         }
         if !switched, vpn.isConnected, let e = await VPNManager.shared.reload(hot: true) { custom.message = e }
+        await load()
+    }
+
+    /// feat/long-press-reorder: a long-press drag of the profile's rule sets on the main list commits straight
+    /// to `#rule-order` (the same store 编辑排序 writes) and reloads once.
+    func commitSetDrag(_ w: [SetRule]) async {
+        let names = w.map(\.name)
+        guard names != profileSets.map(\.name), let id = profiles.activeID else { return }
+        providerOV.update(id, ProviderOverride.ruleOrderKey) { $0.order = names }
+        if vpn.isConnected, let e = await VPNManager.shared.reload(hot: true) { custom.message = e }
         await load()
     }
 
@@ -343,8 +358,22 @@ struct RulesView: View {
                     Text(search.isEmpty ? "还没有规则订阅。点右上角 + →「订阅规则集」添加远程规则列表（Surge / QX / Loon / Clash 格式）。" : "没有匹配的订阅")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                ForEach(mine) { r in customRow(r) }
-                ForEach(sets) { s in profileRow(s) }
+                ForEach(dragMine.shown(mine)) { r in
+                    customRow(r)
+                        .modifier(LongPressReorderRow(item: r, state: dragMine, enabled: search.isEmpty) {
+                            dragMine.begin(r.id, from: mine) { w in
+                                Task { _ = await custom.setRemoteOrder(w.map(\.id)); await load() }
+                            }
+                        })
+                }
+                ForEach(dragSets.shown(sets)) { s in
+                    profileRow(s)
+                        .modifier(LongPressReorderRow(item: s, state: dragSets, enabled: search.isEmpty) {
+                            dragSets.begin(s.id, from: sets) { w in
+                                Task { await commitSetDrag(w) }
+                            }
+                        })
+                }
                 if deletedSetCount > 0, let id = profiles.activeID {
                     Button {
                         providerOV.restoreDeleted(id, ruleSets: true)
@@ -358,12 +387,13 @@ struct RulesView: View {
                 Text("订阅 \(mine.count + sets.count)")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("顺序就是匹配优先级：越靠上越先匹配。点右上角「排序」拖动调整顺序。")
+                    Text("顺序就是匹配优先级：越靠上越先匹配。长按一行直接拖动调整顺序，也可点右上角「排序」。")
                     Text("轻点查看内容；右滑更新，左滑删除或编辑；开关启用或关闭；长按查看全部操作。")
                 }
                 .modifier(UITestOrderValue(id: "rules.sets.order", order: sets.map(\.name).joined(separator: " | ")))
             }
             .listRowBackground(Theme.card)
+            .dragReorderTarget([dragMine, dragSets], space: dragMine.space)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)

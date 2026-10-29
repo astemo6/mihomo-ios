@@ -49,8 +49,17 @@ struct NodeListView: View {
     // as the node detail page, same result alert).
     @State private var addedLocal: NodeDetailView.AddedLocal?
     @State private var exportSub = false
+    /// feat/long-press-reorder: one drag state for every source section (the working copy is keyed by source).
+    @StateObject private var dragNodes = DragReorderState<ManagedNode>(space: "nodes.space")
 
     var sort: NodeManagerModel.SortMode { NodeManagerModel.SortMode(rawValue: sortRaw) ?? .config }
+
+    /// A drag can only place rows the user actually sees in full: 配置 order, no search / protocol filter,
+    /// and an unfiltered scope (a 筛选 scope shows a subset of each source's nodes).
+    var canDragNodes: Bool {
+        sort == .config && query.trimmingCharacters(in: .whitespaces).isEmpty && protocolFilter.isEmpty
+            && scope.names == nil && scope.pattern == nil
+    }
 
     var protocols: [String] { Array(Set(scoped.map(\.type))).sorted { ProxyItem.label(for: $0) < ProxyItem.label(for: $1) } }
 
@@ -66,7 +75,7 @@ struct NodeListView: View {
 
     func sorted(_ list: [ManagedNode]) -> [ManagedNode] {
         switch sort {
-        case .config: return list.sorted { $0.order < $1.order }
+        case .config: return model.applyingManualOrder(list.sorted { $0.order < $1.order })
         case .name: return list.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .latency:
             // Measured first (fastest on top), then timeouts, then untested.
@@ -119,11 +128,19 @@ struct NodeListView: View {
                 if !list.isEmpty || (all.isEmpty && scope.pattern == nil && query.isEmpty && protocolFilter.isEmpty && showsEmpty(src, hasNodes: !sc.isEmpty)) {
                     Section {
                         if all.isEmpty { emptyRow(src) }
-                        ForEach(list) { n in nodeRow(n) }
+                        ForEach(dragNodes.shown(list, key: src.id)) { n in
+                            nodeRow(n)
+                                .modifier(LongPressReorderRow(item: n, state: dragNodes, enabled: canDragNodes) {
+                                    dragNodes.begin(n.id, from: list, key: src.id) { w in
+                                        model.commitNodeDrag(sectionNew: w)
+                                    }
+                                })
+                        }
                     } header: {
                         sourceHeader(src, count: all.count, shown: list)
                     }
                     .listRowBackground(Theme.card)
+                    .dragReorderTarget([dragNodes], space: dragNodes.space)
                 }
             }
         }
@@ -258,7 +275,11 @@ struct NodeListView: View {
             }
             .padding(.vertical, 4)
         } footer: {
-            if let e = model.error, !e.isEmpty { Text(verbatim: e).foregroundStyle(Theme.bad) }
+            VStack(alignment: .leading, spacing: 4) {
+                if let e = model.error, !e.isEmpty { Text(verbatim: e).foregroundStyle(Theme.bad) }
+                if canDragNodes { Text("长按节点可拖动调整顺序（仅「默认顺序」下，顺序会保留，订阅更新后仍有效）。") }
+            }
+            .modifier(UITestOrderValue(id: "nodes.order", order: sorted(shown).map(\.name).joined(separator: " | ")))
         }
         .listRowBackground(Theme.card)
     }

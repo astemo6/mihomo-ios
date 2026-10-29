@@ -93,6 +93,33 @@ struct ManagedNode: Identifiable, Hashable {
                                              "selector", "urltest", "fallback", "loadbalance", "relay", "select", "url-test", "load-balance", "smart"]
 }
 
+/// feat/long-press-reorder (user 2026-10-29): the node list's manual order, persisted as node ids
+/// (ManagedNode.id = source + name, stable across subscription refreshes — a refreshed subscription's
+/// nodes keep their ids, so the order survives updates). Applied with ManualOrder's slot rule: a node the
+/// saved order does not name keeps the position its source gives it, and ids of deleted nodes simply stop
+/// matching (the next drag rewrites the saved list from the nodes that exist, dropping them).
+enum NodeManualOrder {
+    static let defaultsKey = "nodes.manualOrder"
+
+    static func load() -> [String] {
+        guard let d = AppShared.defaults.data(forKey: defaultsKey),
+              let ids = try? JSONDecoder().decode([String].self, from: d) else { return [] }
+        return ids
+    }
+
+    static func save(_ ids: [String]) {
+        if let d = try? JSONEncoder().encode(ids) { AppShared.defaults.set(d, forKey: defaultsKey) }
+    }
+
+    /// The full id list after one source section was dragged to `sectionNew`: the section's members, in
+    /// their new order, keep the slots they hold in `all` (every node in display order); the rest stay put.
+    static func spliced(all: [String], sectionNew: [String]) -> [String] {
+        let ids = Set(sectionNew)
+        var it = sectionNew.makeIterator()
+        return all.map { ids.contains($0) ? (it.next() ?? $0) : $0 }
+    }
+}
+
 /// Summary of one node from the retired bridge (no secret values).
 struct NodeSummaryInfo: Decodable {
     var name: String?
@@ -196,6 +223,24 @@ final class NodeManagerModel: ObservableObject {
     var isBulkTesting: Bool { bulk != nil }
 
     func delay(of n: ManagedNode) -> Int? { delays[n.id] ?? (n.live ? liveHistory[n.name] : nil) }
+
+    /// feat/long-press-reorder: the saved manual node order (ids), loaded once, kept in sync on commit.
+    @Published private(set) var manualOrder: [String] = NodeManualOrder.load()
+
+    /// A list in build order with the manual order applied (the 节点列表's 配置排序).
+    func applyingManualOrder(_ list: [ManagedNode]) -> [ManagedNode] {
+        ManualOrder.apply(list, order: manualOrder) { $0.id }
+    }
+
+    /// Commit a long-press drag inside one source section: `sectionNew` is that section's nodes in their
+    /// new order; every other node keeps its slot in the full display order.
+    func commitNodeDrag(sectionNew: [ManagedNode]) {
+        let all = applyingManualOrder(nodes.sorted { $0.order < $1.order }).map(\.id)
+        let next = NodeManualOrder.spliced(all: all, sectionNew: sectionNew.map(\.id))
+        guard next != manualOrder else { return }
+        manualOrder = next
+        NodeManualOrder.save(next)
+    }
 
     func manualNode(_ n: ManagedNode) -> [String: Any]? {
         guard n.source.kind == .manual else { return nil }
