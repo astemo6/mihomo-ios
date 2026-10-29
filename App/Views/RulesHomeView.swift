@@ -475,7 +475,21 @@ struct RulesView: View {
         if vpn.isConnected {
             updatingLive.insert(name)
             do { try await ControllerClient.shared.updateRuleProvider(name); liveErrors[name] = nil }
-            catch { liveErrors[name] = error.localizedDescription }
+            catch {
+                // The native core does not re-fetch rule providers (PUT /providers/rules/{name}
+                // is not one of its routes — their files are App-managed), so its 404
+                // 「not available in native core」 is not the row's real error. Fall back to
+                // the App-side updater, like UpdateEverything does; clearing liveErrors lets
+                // the row show the updater's own outcome (success, or the real download /
+                // conversion error) instead of the misleading 404.
+                if let p = providersByName[name], p.vehicle == "http" {
+                    await updater.update(p.id)
+                    await offline.load()
+                    liveErrors[name] = nil
+                } else {
+                    liveErrors[name] = error.localizedDescription
+                }
+            }
             updatingLive.remove(name)
             await load()
         } else if let p = providersByName[name], p.vehicle == "http" {
@@ -497,12 +511,14 @@ struct RulesView: View {
         defer { updatingAll = false }
         for it in res.items where it.kind == "ruleset" && it.isRemote && it.enabled { await res.update(it) }
         res.message = nil
-        if vpn.isConnected {
-            for p in liveProviders.values where p.vehicleType == "HTTP" { await update(p.name) }
-        } else {
-            _ = await updater.updateAll(only: Set(offline.result.ruleProviders.map(\.id)))
-            await offline.load()
-        }
+        // Rule providers' files are App-managed and the native core lists none of them
+        // (GET /providers/rules is an empty stub) and has no PUT route for them — the old
+        // connected branch iterated that empty list, so the page's 更新 button silently
+        // did nothing while connected (device 2026-10-29). Connected or not, the
+        // profile's rule providers update through the App-side updater.
+        _ = await updater.updateAll(only: Set(offline.result.ruleProviders.map(\.id)))
+        await offline.load()
+        await load()
     }
 }
 
