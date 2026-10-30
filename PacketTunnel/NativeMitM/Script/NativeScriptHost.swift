@@ -152,6 +152,11 @@ final class NativeScriptHost: ScriptHostAPI {
     static let shared = NativeScriptHost()
     static var geoLookup: ((String) -> String?)?
 
+    /// fix/nc-script-stats: the running tunnel's script-traffic ledger (NativeTunnelCore wires the
+    /// data plane's ledger in at start and nils it at stop); $httpClient exchanges count into it.
+    /// Nil in the app / unit-test host, where fetch is tunnel-only anyway.
+    var scriptTraffic: NCScriptTrafficLedger?
+
     private let lock = NSLock()
     private var tokenSeq: Int64 = 0
     private var slotSeq: Int64 = 0
@@ -748,6 +753,9 @@ final class NativeScriptHost: ScriptHostAPI {
         r.noRedirect = req.noRedirect ?? false
         r.policy = req.policy
         r.insecure = req.insecure ?? false
+        // fix/nc-script-stats: count this script's traffic; the name falls back like $httpAPI's label.
+        r.traffic = scriptTraffic
+        r.trafficSource = "script:\(entry(rule)?.name ?? "script #\(rule)")"
         switch NCScriptHTTPClient.fetch(r) {
         case .failure(let f):
             lock.lock(); logLines += 1; let n = logLines; lock.unlock()

@@ -102,6 +102,10 @@ targets:
       - path: PacketTunnel/NativeCore/NCMemorySampler.swift
       # fix/nc-0.20.3-diag: the MitM / script upstream connector, in the app only so UnitTests (NativeCoreLoopbackTests)
       # drive the real MitM upstream path — rules → group → vmess+ws(+tls) node → origin — against the loopback fleet.
+      # fix/nc-script-stats (ported to next): the $httpClient backend, in the app only so
+      # UnitTests/NativeCoreScriptStatsTests.swift can drive a script fetch against a fake upstream and
+      # assert the traffic ledger. The app never runs it (NativeScriptHost.fetch stays TERN_TUNNEL-only).
+      - path: PacketTunnel/NativeCore/NCScriptHTTPClient.swift
       - path: PacketTunnel/NativeCore/NCUpstreamConnector.swift
     configFiles:
       Debug: Config/App.signing.xcconfig
