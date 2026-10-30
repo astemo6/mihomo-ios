@@ -64,6 +64,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18083 | `echo_server.py` UDP control: datagram `go` → blackhole discards; `pause` → holds again |
 | 18084 | `echo_server.py` UDP DNS: every query → one A answer 192.0.2.53 (DNS-over-UDP through Sudoku UoT) |
 | 18066 | sing-box **1.15.0-alpha.13** Snell inbound, version 5 — `nc-loop-snell-psk` (separate binary/config `snell-sing-box-config.json`; sing-box only gained a Snell inbound in 1.15, built on sing-snell's model of the official snell-server v5.0.1; fix/kit-snell5) |
+| 18070 | sing-box (fleet 1.12.24) VLESS + REALITY inbound — separate instance/config `reality-sing-box-config.json`; kit-shaped parameters: short-id `21dde3c3112bbc4b`, vision + plain users, loopback-local keypair; handshake dest/SNI `www.apple.com` (NOT the kit's `www.microsoft.com`: its 8273-byte Certificate message exceeds the REALITY server's 8192-byte patch window and breaks every client — see the test-file comment) (fix/kit-reality) |
 | 18019 | `echo_server.py` SOCKS5 over TLS (minimal SOCKS5 behind the loopback cert; feat/nc-socks5-tls) |
 | 18020 | `echo_server.py` plain SOCKS5 (no-auth / `nc-loop-socks-user` + `nc-loop-socks-pw`) |
 | 18090 | official Sudoku server v0.5.2.0 (`sudoku/entropy.json`) — prefer_entropy, chacha20-poly1305, legacy HTTP mask, pure downlink; fallback → 18080 |
@@ -142,6 +143,15 @@ These materials are strictly for loopback testing with self-signed TLS certifica
   Snell UDP rides `NCUDPSnellSession` in the PacketTunnel target, which the
   app-hosted test bundle cannot link — same limitation as WireGuard, so UDP
   is not covered here.
+- **VLESS-Reality**: TCP echo against the fleet sing-box REALITY inbound
+  (:18070) with the zhiheng kit's parameter shape (8-byte short-id), as
+  vision and plain users — but with handshake dest `www.apple.com`, not
+  the kit's `www.microsoft.com`: microsoft's Certificate message is
+  8273 bytes, over the REALITY server's 8192-byte patch window, which
+  aborts the handshake for every client (diagnosed on fix/kit-reality;
+  the kit node has the same defect server-side). The handshake dest is
+  a live public site, so this pair needs runner egress to
+  `www.apple.com:443`.
 
 The constants in this table, `sing-box-config.json` and
 `UnitTests/NativeCoreLoopbackTests.swift` are three copies of one truth —
