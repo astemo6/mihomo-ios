@@ -205,7 +205,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-vless-reality-vision", type: "vless", port: Self.realityPort, extra: [
             "uuid": .string(Self.uuid), "network": .string("tcp"), "udp": .bool(true),
             "tls": .bool(true), "flow": .string("xtls-rprx-vision"),
-            "servername": .string("www.microsoft.com"), "client-fingerprint": .string("chrome"),
+            "servername": .string("www.apple.com"), "client-fingerprint": .string("chrome"),
             "reality-opts": .object([
                 "public-key": .string(Self.realityPublicKey),
                 "short-id": .string(Self.realityShortID),
@@ -220,7 +220,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-vless-reality-plain", type: "vless", port: Self.realityPort, extra: [
             "uuid": .string(Self.realityPlainUUID), "network": .string("tcp"), "udp": .bool(true),
             "tls": .bool(true),
-            "servername": .string("www.microsoft.com"), "client-fingerprint": .string("chrome"),
+            "servername": .string("www.apple.com"), "client-fingerprint": .string("chrome"),
             "reality-opts": .object([
                 "public-key": .string(Self.realityPublicKey),
                 "short-id": .string(Self.realityShortID),
