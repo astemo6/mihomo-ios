@@ -258,6 +258,7 @@ final class NCHysteria1Connection {
             guard let self else { return }
             switch st {
             case .ready:
+                NSLog("HY1DBG group ready, state=\(self.state)")
                 // The control stream is extracted only now, never right after
                 // group.start: extracting from a just-started group logs
                 // `nw_connection_group_create_connection_for_endpoint_and_parameters
@@ -302,15 +303,20 @@ final class NCHysteria1Connection {
         guard !controlOpened else { return }
         controlOpened = true
         guard let conn = group?.extract(connectionTo: nil, using: nil) else {
+            NSLog("HY1DBG extract returned nil")
             finish(NCConnector.Failure.handshake("hysteria: cannot open control stream"))
             return
         }
+        NSLog("HY1DBG extracted control stream")
         let ch = NCHy2StreamChannel(conn: conn)
         control = ch
         ch.start(queue: queue) { [weak self] err in
             guard let self else { return }
+            NSLog("HY1DBG control stream start completed err=\(String(describing: err))")
             if let err { self.finish(err); return }
-            ch.send(NCHy1.clientHello(sendBPS: self.sendBPS, recvBPS: self.recvBPS, auth: self.auth))
+            let hello = NCHy1.clientHello(sendBPS: self.sendBPS, recvBPS: self.recvBPS, auth: self.auth)
+            NSLog("HY1DBG sending clientHello \(hello.count) bytes: \(hello.map { String(format: "%02x", $0) }.joined())")
+            ch.send(hello) { NSLog("HY1DBG clientHello contentProcessed") }
             self.readServerHello()
         }
     }
@@ -318,6 +324,7 @@ final class NCHysteria1Connection {
     private func readServerHello() {
         control?.receive { [weak self] data, error in
             guard let self, self.state == .connecting else { return }
+            NSLog("HY1DBG receive data=\(data?.count ?? -1) error=\(String(describing: error))")
             guard let data else {
                 self.finish(error ?? NCConnector.Failure.handshake("hysteria control stream closed"))
                 return
