@@ -302,12 +302,22 @@ final class NCHysteria1Connection {
     private func openControlStream() {
         guard !controlOpened else { return }
         controlOpened = true
-        guard let conn = group?.extract(connectionTo: nil, using: nil) else {
-            NSLog("HY1DBG extract returned nil")
+        // The ClientHello MUST land on the QUIC connection's stream 0: the hy1
+        // server reads its handshake from the first stream it accepts, and a
+        // stream obtained via group.extract() is not that stream — the hello
+        // sent on it was never read (loopback run 41011596898: byte-exact hello,
+        // contentProcessed, then the server sat in "read client hello" until
+        // the client timed out). The group's own connection — NWConnection(from:)
+        // — is stream 0: the same hello over a plain NWConnection was answered
+        // in 0.139 s (loopback run 41014999776, testHysteria1PlainConnectionProbe).
+        // extract() remains right for every later stream (TCP flows, UDP session
+        // streams): once the handshake is done the server accepts them in order.
+        guard let group else {
             finish(NCConnector.Failure.handshake("hysteria: cannot open control stream"))
             return
         }
-        NSLog("HY1DBG extracted control stream")
+        let conn = NWConnection(from: group)
+        NSLog("HY1DBG using group connection (stream 0) as control stream")
         let ch = NCHy2StreamChannel(conn: conn)
         control = ch
         ch.start(queue: queue) { [weak self] err in
