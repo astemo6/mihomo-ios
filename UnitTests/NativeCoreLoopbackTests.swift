@@ -422,34 +422,41 @@ final class NativeCoreLoopbackTests: XCTestCase {
             let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(Self.host),
                                                port: NWEndpoint.Port(rawValue: UInt16(Self.hy1Port))!)
             let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
-            let sema = DispatchSemaphore(value: 0)
-            var result = "group-never-ready"
+            let exp = expectation(description: "hy1 group probe datagrams=\(datagrams)")
+            var result = "no-callback"
             group.stateUpdateHandler = { state in
-                guard case .ready = state else { return }
-                group.stateUpdateHandler = nil
-                guard let conn = group.extract(connectionTo: nil, using: nil) else {
-                    result = "extract-nil"
-                    sema.signal()
-                    return
-                }
-                let ch = NCHy2StreamChannel(conn: conn)
-                ch.start(queue: q) { err in
-                    if let err { result = "stream-start-\(err)"; sema.signal(); return }
-                    let hello = NCHy1.clientHello(sendBPS: 6_250_000, recvBPS: 12_500_000,
-                                                  auth: Data(Self.hy1Auth.utf8))
-                    ch.send(hello)
-                    ch.receive { data, error in
-                        if let data {
-                            result = "serverHello \(data.count) bytes"
-                        } else {
-                            result = "receive-nil error=\(String(describing: error))"
-                        }
-                        sema.signal()
+                switch state {
+                case .ready:
+                    group.stateUpdateHandler = nil
+                    guard let conn = group.extract(connectionTo: nil, using: nil) else {
+                        result = "extract-nil"
+                        exp.fulfill()
+                        return
                     }
+                    let ch = NCHy2StreamChannel(conn: conn)
+                    ch.start(queue: q) { err in
+                        if let err { result = "stream-start-\(err)"; exp.fulfill(); return }
+                        let hello = NCHy1.clientHello(sendBPS: 6_250_000, recvBPS: 12_500_000,
+                                                      auth: Data(Self.hy1Auth.utf8))
+                        ch.send(hello)
+                        ch.receive { data, error in
+                            if let data {
+                                result = "serverHello \(data.count) bytes"
+                            } else {
+                                result = "receive-nil error=\(String(describing: error))"
+                            }
+                            exp.fulfill()
+                        }
+                    }
+                case .failed(let e):
+                    result = "group-failed \(e)"
+                    exp.fulfill()
+                default:
+                    break
                 }
             }
             group.start(queue: q)
-            if sema.wait(timeout: .now() + 6) == .timedOut { result = "timeout (\(result))" }
+            wait(for: [exp], timeout: 6)
             group.cancel()
             return result
         }
