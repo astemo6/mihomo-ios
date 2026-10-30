@@ -27,6 +27,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPort = 18005
     private static let hy2Port = 18006
     private static let tuicPort = 18007
+    private static let hy1Port = 18010
     private static let socks5TlsPort = 18019
     private static let socks5Port = 18020
     private static let socks5User = "nc-loop-socks-user"
@@ -48,6 +49,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811"
     private static let trojanPassword = "nc-loop-trojan-pw"
     private static let hy2Password = "nc-loop-hy2-pw"
+    private static let hy1Auth = "nc-loop-hy1-auth"
     private static let tuicPassword = "nc-loop-tuic-pw"
 
     private static let echInnerSni = "localhost"
@@ -158,6 +160,14 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-hy2", type: "hysteria2", port: Self.hy2Port, extra: [
             "password": .string(Self.hy2Password), "sni": .string("localhost"),
             "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    private static var hy1Proxy: NCProxy {
+        Self.proxy(name: "loop-hy1", type: "hysteria", port: Self.hy1Port, extra: [
+            "auth-str": .string(Self.hy1Auth), "up": .string("50 Mbps"), "down": .string("100 Mbps"),
+            "alpn": .array([.string("hysteria")]), "protocol": .string("udp"),
+            "sni": .string("localhost"), "skip-cert-verify": .bool(true),
         ])
     }
 
@@ -382,6 +392,12 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
     func testTrojanTCPEcho() throws {
         let stream = try self.connect(proxy: Self.trojanProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    func testHysteria1TCPEcho() throws {
+        let stream = try self.connect(proxy: Self.hy1Proxy, target: Self.echoTarget)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
     }

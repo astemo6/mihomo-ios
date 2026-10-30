@@ -44,6 +44,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18005 | sing-box Trojan inbound — `nc-loop-trojan-pw`, self-signed TLS (CN=localhost) |
 | 18006 | sing-box Hysteria2 inbound — `nc-loop-hy2-pw`, TLS ALPN h3 |
 | 18007 | sing-box TUIC inbound — same uuid / `nc-loop-tuic-pw`, ALPN h3, BBR |
+| 18010 | sing-box Hysteria (v1) inbound — `auth_str` `nc-loop-hy1-auth`, up 50 / down 100 Mbps, TLS ALPN hysteria |
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
 | 18014 | sing-box VLESS inbound with ECH — same uuid, TLS + ECH (`outer.localhost` / `localhost`) |
 | 18015 | sing-box Trojan inbound with ECH — `nc-loop-trojan-pw`, TLS + ECH (`outer.localhost` / `localhost`) |
@@ -102,7 +103,7 @@ These materials are strictly for loopback testing with self-signed TLS certifica
 
 - TCP echo: SS, SS2022, VMess, VLESS, Trojan, Hysteria2, TUIC.
 - ECH echo (Trojan/VLESS + ECH): accept and retry round trips against 18015/18014 (client ECH handshake landing in E4).
-- TCP echo: SS, SS2022, VMess, VLESS, Trojan, Hysteria2, TUIC, Naïve (h2 and h3, padding
+- TCP echo: SS, SS2022, VMess, VLESS, Trojan, Hysteria (v1), Hysteria2, TUIC, Naïve (h2 and h3, padding
   negotiated, several concurrent streams on one shared h2 session).
 - Naïve UDP-over-TCP (UoT v2 through the CONNECT tunnel to the UDP echo); wrong password → 407.
 - HTTP2 / HTTP3 proxies without naive padding: no sing-box inbound speaks plain h2/h3 CONNECT

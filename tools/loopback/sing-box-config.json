@@ -148,6 +148,29 @@
       ]
     },
     {
+      "down_mbps": 100,
+      "listen": "127.0.0.1",
+      "listen_port": 18010,
+      "tag": "hy1-in",
+      "tls": {
+        "alpn": [
+          "hysteria"
+        ],
+        "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "enabled": true,
+        "key_path": "__LOOPBACK_DIR__/key.pem",
+        "server_name": "localhost"
+      },
+      "type": "hysteria",
+      "up_mbps": 50,
+      "users": [
+        {
+          "auth_str": "nc-loop-hy1-auth",
+          "name": "nc-loop"
+        }
+      ]
+    },
+    {
       "congestion_control": "bbr",
       "listen": "127.0.0.1",
       "listen_port": 18007,
