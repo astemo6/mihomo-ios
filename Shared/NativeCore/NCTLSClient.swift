@@ -298,7 +298,11 @@ final class NCTLSClientStream: NCRelayStream {
             wireHello.replaceSubrange(39..<(39 + 32), with: restls.sessionID(hello: hello))
         }
         transcript.append(wireHello)
-        sendRecord(type: 22, payload: wireHello)
+        // restls servers frame-check the first inbound record: its record-layer
+        // version must be 0x0301 (the value real TLS stacks put on the first
+        // ClientHello record); 0x0303 gets the connection rejected outright
+        // ("codec disabled due to invalid record").
+        sendRecord(type: 22, payload: wireHello, recordVersion: config.restls != nil ? 0x0301 : 0x0303)
     }
 
     private var realityAuthKey: Data?
@@ -910,6 +914,11 @@ final class NCTLSClientStream: NCRelayStream {
         finished.append(0x00)
         finished.appendBE16(UInt16(verifyData.count))
         finished.append(verifyData)
+        // restls servers require exactly one ChangeCipherSpec record from the
+        // client before its first application-data record (the Finished).
+        // Real TLS stacks send it as middlebox compatibility; this stack
+        // otherwise never sends one on the TLS 1.3 path.
+        if config.restls != nil { sendRecord(type: 20, payload: Data([0x01])) }
         let finishedRecord = sendEncryptedHandshake(finished)
         if let restls = config.restls, restls.authed { restls.clientFinished = finishedRecord.map { [UInt8]($0) } }
 
@@ -1181,10 +1190,10 @@ final class NCTLSClientStream: NCRelayStream {
         }
     }
 
-    private func sendRecord(type: UInt8, payload: Data) {
+    private func sendRecord(type: UInt8, payload: Data, recordVersion: UInt16 = 0x0303) {
         var record = Data()
         record.append(type)
-        record.appendBE16(0x0303)
+        record.appendBE16(recordVersion)
         record.appendBE16(UInt16(payload.count))
         record.append(payload)
         raw.send(record)
