@@ -154,7 +154,7 @@ struct ConnectionsListView: View {
                 Text("\(rows.count) 条连接 · 活跃 \(activeCount)")
                     .accessibilityIdentifier("connlist.count")
             } footer: {
-                Text("当前连接和连接后最近关闭的连接（由隧道持续记录，App 在后台或被关闭时也记录，最多 \(ConnectionAnalytics.closedCap) 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。")
+                Text("当前连接和本次连接内关闭的连接（由隧道持续记录，App 在后台或被关闭时也记录，本次连接内一直保留，重连后清零）。")
             }
         }
         .listStyle(.insetGrouped)

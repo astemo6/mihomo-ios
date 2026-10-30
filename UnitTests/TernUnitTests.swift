@@ -664,20 +664,18 @@ final class RejectClassifierTests: XCTestCase {
     }
 
     @MainActor
-    func testStoreSeparatesQUICFromBlocks() {
+    func testStoreKeepsOnlyDNSQueries() {
+        // The DNS page holds DNS query records only (user 2026-10-29): connection / REJECT
+        // lines never become rows — the 已拦截 tab and its blocked/QUIC aggregation are gone.
         let s = DNSLogStore()
         s.ingest("[TCP] 198.18.0.1:50001 --> ads.example.com:443 match DomainSuffix(ads.example.com) using REJECT")
-        s.ingest("[UDP] 198.18.0.1:50003 --> tracker.example.net:443 match RuleSet(ads) using AdBlock[REJECT-DROP]")
         s.ingest("[UDP] 198.18.0.1:50004 --> app.example.com:443 match AND(((Network,udp) && (DstPort,443))) using REJECT")
-        s.ingest("[UDP] 198.18.0.1:50005 --> app.example.com:443 match AND(((Network,udp) && (DstPort,443))) using REJECT")
-        s.ingest("[UDP] 198.18.0.1:50006 --> [2001:db8::1]:443 match AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER))))) using REJECT")
-        XCTAssertEqual(s.blockedTotal, 2, "real blocks only")
-        XCTAssertEqual(s.quicTotal, 3)
-        XCTAssertEqual(s.quicSorted.first?.domain, "app.example.com")
-        XCTAssertEqual(s.quicSorted.first?.port, 443)
-        XCTAssertNotNil(s.quicBlocked["2001:db8::1"])
-        XCTAssertNil(s.blocked["app.example.com"])
-        XCTAssertTrue(s.quicSorted.allSatisfy(\.quic))
+        XCTAssertTrue(s.queries.isEmpty)
+        s.ingest("[DNS] cache hit app.example.com --> [198.18.0.9] A, expire at 2026-10-29 12:00:00")
+        s.ingest("[DNS] tracker.example.net --> [] HTTPS from 119.29.29.29")
+        XCTAssertEqual(s.queries.count, 2)
+        XCTAssertEqual(s.queries.first?.domain, "tracker.example.net") // newest first
+        XCTAssertEqual(s.queries.last?.cached, true)
     }
 }
 

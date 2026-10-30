@@ -907,29 +907,12 @@ final class TernUITests: TernUITestCase {
             if cancel.exists { cancel.tap() }
             usleep(500_000)
         } else { issues.append("[\(Env.tag)] DNS 日志: no search field") }
-        // Device report 2026-10-21: QUIC refusals (UDP 443 → TCP fallback) are their own group, not counted as 已拦截.
-        let blockedTab = app.buttons[L10n.f("已拦截 %lld", 3)].firstMatch
-        XCTAssertTrue(blockedTab.waitForExistence(timeout: 5), "已拦截 3 tab (3 QUIC hits not counted)")
-        blockedTab.tap()
-        let ads = app.element(labelContains: "ads.example.com")
-        XCTAssertTrue(ads.waitForExistence(timeout: 5), "blocked domain listed")
-        XCTAssertTrue(ads.label.contains("2"), "tally 2 for ads.example.com: \(ads.label)")
-        XCTAssertTrue(app.element(labelContains: "tracker.example.net").exists, "REJECT-DROP via group counted")
-        XCTAssertFalse(app.element(labelContains: "Network,udp").exists, "no raw AND(((Network,udp)…)) rule text")
-        let quic = app.element(id: "dnslog.quic")
-        XCTAssertTrue(quic.waitForExistence(timeout: 5), "QUIC group row")
-        XCTAssertTrue(quic.label.contains(L("QUIC 已拦截 · 自动改走 TCP")), "QUIC group title: \(quic.label)")
-        XCTAssertTrue(quic.label.contains("3"), "QUIC count 3: \(quic.label)")
-        XCTAssertFalse(app.element(labelContains: "app.example.com").exists, "QUIC domains collapsed by default")
-        snap("dnslog-blocked")
-        quic.tap()
-        let app1 = app.element(labelContains: "app.example.com")
-        XCTAssertTrue(app1.waitForExistence(timeout: 5), "QUIC domain listed after expanding")
-        XCTAssertTrue(app1.label.contains(L("UDP 443（QUIC）")), "humanised QUIC rule: \(app1.label)")
-        XCTAssertTrue(app.element(labelContains: "video.example.org").exists, "阻止 QUIC 始终 rule recognised")
-        snap("dnslog-quic")
+        // feat/session-records (user 2026-10-29): the DNS page is queries only — the
+        // 已拦截 tab (rejected CONNECTIONS, not DNS) is removed; they live on 连接 → 已拦截.
+        XCTAssertFalse(app.buttons[L10n.f("已拦截 %lld", 3)].exists, "no 已拦截 tab on the DNS page")
+        XCTAssertFalse(app.element(id: "dnslog.quic").exists, "no QUIC group on the DNS page")
         XCTAssertTrue(tapIfExists(app.element(id: "dnslog.clear")), "清空")
-        XCTAssertTrue(app.element(label: L("没有被拦截的域名")).waitForExistence(timeout: 5), "cleared")
+        XCTAssertTrue(app.element(label: L("没有 DNS 查询")).waitForExistence(timeout: 5), "cleared")
         snap("dnslog-cleared")
     }
 

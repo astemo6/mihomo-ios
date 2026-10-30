@@ -263,8 +263,22 @@ final class NativeLogRing {
     private var notices: [Notice] = []
     private let noticeMax = 100
 
+    /// feat/session-records: [DNS] lines also land in a session archive on disk, so the
+    /// 域名解析记录 page keeps the whole connection's queries (the 400-line general ring
+    /// rotates them out within minutes). Truncated at install (tunnel start = new session)
+    /// and by clearGeneral (the DNS page's 清空).
+    private var dnsArchive: NCSessionArchive?
+
+    /// The session's DNS history in /hark/logs shape (oldest first), when archiving is on.
+    func dnsHistory() -> (seq: UInt64, lines: [[String: Any]])? {
+        guard let a = dnsArchive else { return nil }
+        return (UInt64(max(0, a.newestSeq)), a.readAll())
+    }
+
     /// Wires StartupLog into the ring (once, at tunnel start).
     static func install() {
+        NativeLogRing.shared.dnsArchive = NCSessionArchive(
+            url: AppShared.homeURL.appendingPathComponent("diag/session-dns.jsonl"))
         // fix/nc-mitm-live: the per-flow diagnostics limiter writes here
         NCDiagLimiter.shared.sink = { type, payload in NativeLogRing.shared.add(type: type, payload: payload) }
         StartupLog.tap = { tag, msg in
@@ -278,9 +292,13 @@ final class NativeLogRing {
         let p = payload.count > 2000 ? String(payload.prefix(2000)) + "…" : payload
         lock.lock()
         seq += 1
-        general.append(Line(seq: seq, time: Int64(Date().timeIntervalSince1970 * 1000), type: type, payload: p))
+        let line = Line(seq: seq, time: Int64(Date().timeIntervalSince1970 * 1000), type: type, payload: p)
+        general.append(line)
         if general.count > generalMax { general.removeFirst(general.count - generalMax) }
         lock.unlock()
+        if p.hasPrefix("[DNS]") {
+            dnsArchive?.append(["seq": Int64(line.seq), "time": line.time, "type": type, "payload": p])
+        }
     }
 
     /// console.log & co from a script (also mirrored as a general line).
@@ -336,7 +354,7 @@ final class NativeLogRing {
         return lines.count
     }
 
-    func clearGeneral() { lock.lock(); general.removeAll(); lock.unlock() }
+    func clearGeneral() { lock.lock(); general.removeAll(); lock.unlock(); dnsArchive?.reset() }
     func clearScripts() { lock.lock(); scripts.removeAll(); lock.unlock() }
 
     func addNotice(script: String, title: String, subtitle: String, body: String, url: String) {
