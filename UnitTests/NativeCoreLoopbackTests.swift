@@ -402,6 +402,53 @@ final class NativeCoreLoopbackTests: XCTestCase {
         try self.assertEcho(stream, payload: Self.payload)
     }
 
+    /// TEMP HY1PROBE (fix/kit-hysteria diagnosis, to be removed): handshake the hy1
+    /// inbound over a PLAIN NWConnection (no NWConnectionGroup). A standalone QUIC
+    /// connection's only stream is the connection's stream 0, which is what the
+    /// sing-box/apernet hy1 server reads its ClientHello from (AcceptStream-first).
+    /// If this probe gets a ServerHello while the group-based client times out, the
+    /// group — not the wire format, auth, or server — is the blocker.
+    func testHysteria1PlainConnectionProbe() throws {
+        let quic = NWProtocolQUIC.Options(alpn: ["hysteria"])
+        let tls = quic.securityProtocolOptions
+        sec_protocol_options_set_tls_min_version(tls, .tlsProtocol13)
+        sec_protocol_options_set_tls_server_name(tls, "localhost")
+        sec_protocol_options_set_verify_block(tls, { _, _, complete in complete(true) }, .main)
+        quic.maxDatagramFrameSize = 1400
+        let conn = NWConnection(host: NWEndpoint.Host(Self.host),
+                                port: NWEndpoint.Port(rawValue: UInt16(Self.hy1Port))!,
+                                using: NWParameters(quic: quic))
+        let exp = expectation(description: "hy1 plain probe")
+        var result = "no-callback"
+        conn.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                let hello = NCHy1.clientHello(sendBPS: 6_250_000, recvBPS: 12_500_000,
+                                              auth: Data(Self.hy1Auth.utf8))
+                conn.send(content: hello, completion: .idempotent)
+                conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, error in
+                    if let data {
+                        result = "serverHello \(data.count) bytes: " +
+                            data.map { String(format: "%02x", $0) }.joined()
+                    } else {
+                        result = "receive-nil error=\(String(describing: error))"
+                    }
+                    exp.fulfill()
+                }
+            case .failed(let e):
+                result = "conn-failed \(e)"
+                exp.fulfill()
+            default:
+                break
+            }
+        }
+        conn.start(queue: .main)
+        wait(for: [exp], timeout: 8)
+        NSLog("HY1PROBE plain-connection result: \(result)")
+        conn.cancel()
+        XCTAssertTrue(result.hasPrefix("serverHello"), "plain-connection probe: \(result)")
+    }
+
     func testHysteria2TCPEcho() throws {
         let stream = try self.connect(proxy: Self.hy2Proxy, target: Self.echoTarget)
         defer { stream.cancel() }
