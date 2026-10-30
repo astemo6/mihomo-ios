@@ -422,6 +422,9 @@ final class NativeCoreLoopbackTests: XCTestCase {
             let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(Self.host),
                                                port: NWEndpoint.Port(rawValue: UInt16(Self.hy1Port))!)
             let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
+            // Required: a group without a new-connection (or receive) handler never
+            // starts — nw_connection_group_start refuses it (seen in the v2 probe's log).
+            group.newConnectionHandler = { incoming in incoming.cancel() }
             let exp = expectation(description: "hy1 group probe datagrams=\(datagrams)")
             var result = "no-callback"
             group.stateUpdateHandler = { state in
