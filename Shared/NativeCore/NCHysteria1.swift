@@ -258,7 +258,6 @@ final class NCHysteria1Connection {
             guard let self else { return }
             switch st {
             case .ready:
-                NSLog("HY1DBG group ready, state=\(self.state)")
                 // The control stream is extracted only now, never right after
                 // group.start: extracting from a just-started group logs
                 // `nw_connection_group_create_connection_for_endpoint_and_parameters
@@ -302,30 +301,35 @@ final class NCHysteria1Connection {
     private func openControlStream() {
         guard !controlOpened else { return }
         controlOpened = true
-        // The ClientHello MUST land on the QUIC connection's stream 0: the hy1
-        // server reads its handshake from the first stream it accepts, and a
-        // stream obtained via group.extract() is not that stream — the hello
-        // sent on it was never read (loopback run 41011596898: byte-exact hello,
-        // contentProcessed, then the server sat in "read client hello" until
-        // the client timed out). The group's own connection — NWConnection(from:)
-        // — is stream 0: the same hello over a plain NWConnection was answered
-        // in 0.139 s (loopback run 41014999776, testHysteria1PlainConnectionProbe).
-        // extract() remains right for every later stream (TCP flows, UDP session
-        // streams): once the handshake is done the server accepts them in order.
-        guard let group, let conn = NWConnection(from: group) else {
+        // Extracted only after the group is .ready (see startOnQueue): before
+        // that, extract returns nil and the handshake dies instantly.
+        //
+        // KNOWN PLATFORM LIMITATION (fix/kit-hysteria, 2026-10-30): this is
+        // necessary but NOT sufficient against sing-box / apernet hy1 servers.
+        // The server reads the ClientHello from the QUIC connection's stream 0,
+        // but NWConnectionGroup never vends stream 0 to the app — the first
+        // extracted stream lands on a later stream id, so the server blocks in
+        // "read client hello: stream 0" until the client times out (loopback
+        // run 41011596898: byte-exact 35-byte hello, contentProcessed, then
+        // silence). Every avenue was exhausted in loopback: extract and
+        // NWConnection(from:), before start (both return nil) and after .ready,
+        // group datagrams on and off (runs 41014999776 / 41016502558 /
+        // 41021747531 / 41023964858 / 41025200858). The identical hello over a
+        // plain NWConnection — whose only stream IS stream 0 — is answered in
+        // 0.139 s, which clears the wire format, auth, TLS and server config.
+        // Hy1 over NWConnectionGroup cannot complete its handshake until a
+        // Network.framework API can address the connection's first stream.
+        guard let group, let conn = group.extract(connectionTo: nil, using: nil) else {
             finish(NCConnector.Failure.handshake("hysteria: cannot open control stream"))
             return
         }
-        NSLog("HY1DBG using group connection (stream 0) as control stream")
         let ch = NCHy2StreamChannel(conn: conn)
         control = ch
         ch.start(queue: queue) { [weak self] err in
             guard let self else { return }
-            NSLog("HY1DBG control stream start completed err=\(String(describing: err))")
             if let err { self.finish(err); return }
             let hello = NCHy1.clientHello(sendBPS: self.sendBPS, recvBPS: self.recvBPS, auth: self.auth)
-            NSLog("HY1DBG sending clientHello \(hello.count) bytes: \(hello.map { String(format: "%02x", $0) }.joined())")
-            ch.send(hello) { NSLog("HY1DBG clientHello contentProcessed") }
+            ch.send(hello)
             self.readServerHello()
         }
     }
@@ -333,7 +337,6 @@ final class NCHysteria1Connection {
     private func readServerHello() {
         control?.receive { [weak self] data, error in
             guard let self, self.state == .connecting else { return }
-            NSLog("HY1DBG receive data=\(data?.count ?? -1) error=\(String(describing: error))")
             guard let data else {
                 self.finish(error ?? NCConnector.Failure.handshake("hysteria control stream closed"))
                 return
