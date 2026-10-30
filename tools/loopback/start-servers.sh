@@ -118,6 +118,37 @@ stop_snell() {
     fi
 }
 
+# fix/kit-reality: the VLESS-Reality reference inbound on :18070, on the fleet
+# sing-box (1.12.24 — the same version the zhiheng kit runs) but its own
+# instance/config so the kit-faithful parameter set (handshake dest
+# www.microsoft.com:443, 8-byte short_id 21dde3c3112bbc4b, vision + plain
+# users) stays isolated and its debug log lands in the CI log on stop.
+# Config: reality-sing-box-config.json next to this script. The handshake
+# dest is a real public site, so the runner needs plain egress to it —
+# that mirrors the kit, whose dest is live too.
+start_reality() {
+    local sb
+    sb="$(find_sing_box)"
+    log "sing-box (reality) check"
+    "$sb" check -c "$DIR/reality-sing-box-config.json"
+    log "starting sing-box (reality) $("$sb" version | head -n1)"
+    nohup "$sb" run -c "$DIR/reality-sing-box-config.json" >"$RUN/reality-sing-box.log" 2>&1 &
+    echo $! > "$RUN/reality.pid"
+    wait_tcp 18070
+    kill -0 "$(cat "$RUN/reality.pid")"
+}
+
+stop_reality() {
+    if alive "$RUN/reality.pid"; then
+        kill "$(cat "$RUN/reality.pid")" 2>/dev/null || true
+    fi
+    rm -f "$RUN/reality.pid"
+    if [ -s "$RUN/reality-sing-box.log" ]; then
+        echo "--- reality-sing-box.log (last 80) ---" >&2
+        tail -n 80 "$RUN/reality-sing-box.log" >&2
+    fi
+}
+
 # fix/nc-sudoku-interop: the official Sudoku server (SUDOKU-ASCII/sudoku, pinned v0.5.2.0) as the black-box
 # peer — sing-box has no sudoku inbound. One process per config in tools/loopback/sudoku/ (:18090–:18094).
 # CI (proto-loopback.yml) builds the binary from the pinned tag's source and passes SUDOKU_BIN; locally the
@@ -389,6 +420,7 @@ do_start() {
     echo $! > "$RUN/sing-box.pid"
 
     start_snell
+    start_reality
 
     log "starting trusttunnel_endpoint $("$tt" --version 2>&1 | head -n1)"
     nohup "$tt" "$RUN/tt-settings.toml" "$RUN/tt-hosts.toml" >"$RUN/trusttunnel.log" 2>&1 &
@@ -476,6 +508,7 @@ do_stop() {
     stop_hy2_ref_client
     stop_sudoku
     stop_snell
+    stop_reality
     stop_wire_capture
     quic_debug_summary
     for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/lua.pid" "$RUN/trusttunnel.pid" "$RUN/masque.pid"; do
@@ -489,7 +522,7 @@ do_stop() {
 
 do_status() {
     local rc=0
-    for name in sing-box snell echo lua trusttunnel masque sudoku-entropy sudoku-ascii-packed sudoku-directional-none sudoku-rotation sudoku-closed-fallback sudoku-http; do
+    for name in sing-box snell reality echo lua trusttunnel masque sudoku-entropy sudoku-ascii-packed sudoku-directional-none sudoku-rotation sudoku-closed-fallback sudoku-http; do
         if alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
         else

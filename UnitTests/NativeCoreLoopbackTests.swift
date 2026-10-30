@@ -32,6 +32,13 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let socks5User = "nc-loop-socks-user"
     private static let socks5Password = "nc-loop-socks-pw"
     private static let snellPort = 18066
+    private static let realityPort = 18070
+    /// fix/kit-reality: public half of the loopback Reality keypair (private
+    /// half lives in tools/loopback/reality-sing-box-config.json). Short-id
+    /// deliberately equals the zhiheng kit's 8-byte value.
+    private static let realityPublicKey = "G-ekDdy00VdrkYTzzrfhcb1n7IhuWL3ZcWGVTsoWZDQ"
+    private static let realityShortID = "21dde3c3112bbc4b"
+    private static let realityPlainUUID = "66ac479b-e3fa-441c-9623-410aa2b66c28"
     private static let trustTunnelPort = 18013
     private static let trustTunnelUser = "nc-loop-tt-user"
     private static let trustTunnelPassword = "nc-loop-tt-pw"
@@ -190,6 +197,37 @@ final class NativeCoreLoopbackTests: XCTestCase {
         ])
     }
 
+    /// fix/kit-reality: VLESS-Reality against the sing-box 1.12.24 inbound
+    /// on :18070, fields mirroring the zhiheng kit node exactly (SNI /
+    /// handshake dest www.microsoft.com, fingerprint chrome, 8-byte
+    /// short-id) except host/port/uuid/key, which are loopback-local.
+    private static var vlessRealityVisionProxy: NCProxy {
+        Self.proxy(name: "loop-vless-reality-vision", type: "vless", port: Self.realityPort, extra: [
+            "uuid": .string(Self.uuid), "network": .string("tcp"), "udp": .bool(true),
+            "tls": .bool(true), "flow": .string("xtls-rprx-vision"),
+            "servername": .string("www.microsoft.com"), "client-fingerprint": .string("chrome"),
+            "reality-opts": .object([
+                "public-key": .string(Self.realityPublicKey),
+                "short-id": .string(Self.realityShortID),
+            ]),
+        ])
+    }
+
+    /// Same inbound, flow-less user (the kit has no plain user; the known-
+    /// good Xray 24443 instance passed both, so plain is the control that
+    /// separates "REALITY auth" from "vision framing" failures).
+    private static var vlessRealityPlainProxy: NCProxy {
+        Self.proxy(name: "loop-vless-reality-plain", type: "vless", port: Self.realityPort, extra: [
+            "uuid": .string(Self.realityPlainUUID), "network": .string("tcp"), "udp": .bool(true),
+            "tls": .bool(true),
+            "servername": .string("www.microsoft.com"), "client-fingerprint": .string("chrome"),
+            "reality-opts": .object([
+                "public-key": .string(Self.realityPublicKey),
+                "short-id": .string(Self.realityShortID),
+            ]),
+        ])
+    }
+
     private static var trojanECHProxy: NCProxy {
         Self.proxy(name: "loop-trojan-ech", type: "trojan", port: Self.trojanEchPort, extra: [
             "password": .string(Self.trojanPassword),
@@ -341,7 +379,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     func testServerPortsReachable() {
         for port in [Self.ssPort, Self.ss2022Port, Self.vmessPort, Self.vlessPort,
                      Self.trojanPort, Self.vlessEchPort, Self.trojanEchPort,
-                     Self.snellPort, Self.tcpEchoPort, Self.blackholePort] {
+                     Self.snellPort, Self.realityPort, Self.tcpEchoPort, Self.blackholePort] {
             let conn = NWConnection(host: NWEndpoint.Host(Self.host),
                                     port: NWEndpoint.Port(rawValue: UInt16(port))!,
                                     using: .tcp)
@@ -437,6 +475,21 @@ final class NativeCoreLoopbackTests: XCTestCase {
     /// exercises against snell-server v4.1.1, transplanted to v5).
     func testSnellV4TCPEcho() throws {
         let stream = try self.connect(proxy: Self.snellV4Proxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// fix/kit-reality: kit-faithful Reality (sing-box 1.12.24, microsoft
+    /// dest, 8-byte short-id) with the vision flow the kit node carries.
+    func testVLESSRealityVisionTCPEcho() throws {
+        let stream = try self.connect(proxy: Self.vlessRealityVisionProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// fix/kit-reality control: same Reality inbound, flow-less user.
+    func testVLESSRealityPlainTCPEcho() throws {
+        let stream = try self.connect(proxy: Self.vlessRealityPlainProxy, target: Self.echoTarget)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
     }
