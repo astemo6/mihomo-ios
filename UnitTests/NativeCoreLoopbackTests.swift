@@ -198,9 +198,18 @@ final class NativeCoreLoopbackTests: XCTestCase {
     }
 
     /// fix/kit-reality: VLESS-Reality against the sing-box 1.12.24 inbound
-    /// on :18070, fields mirroring the zhiheng kit node exactly (SNI /
-    /// handshake dest www.microsoft.com, fingerprint chrome, 8-byte
-    /// short-id) except host/port/uuid/key, which are loopback-local.
+    /// on :18070, fields mirroring the zhiheng kit node (fingerprint
+    /// chrome, 8-byte short-id) except host/port/uuid/key, which are
+    /// loopback-local, and the dest/SNI: www.apple.com instead of the
+    /// kit's www.microsoft.com. Microsoft's TLS 1.3 Certificate message
+    /// is 8273 bytes — over the 8192-byte patch window (realitySize) of
+    /// the REALITY server implementation (metacubex/utls reality.go:
+    /// "if handshakeLen > int(realitySize) { break f }"), which aborts
+    /// phase 2 for EVERY client after the auth itself has already
+    /// succeeded; apple's Certificate message is 4738 bytes and works.
+    /// Diagnosis runs: 41053290427 (microsoft, both echo tests fail
+    /// "closed"), 41056084496 (server trace proving auth passed +
+    /// Certificate: 8273), 41057812114 (apple, all green).
     private static var vlessRealityVisionProxy: NCProxy {
         Self.proxy(name: "loop-vless-reality-vision", type: "vless", port: Self.realityPort, extra: [
             "uuid": .string(Self.uuid), "network": .string("tcp"), "udp": .bool(true),
@@ -479,8 +488,9 @@ final class NativeCoreLoopbackTests: XCTestCase {
         try self.assertEcho(stream, payload: Self.payload)
     }
 
-    /// fix/kit-reality: kit-faithful Reality (sing-box 1.12.24, microsoft
-    /// dest, 8-byte short-id) with the vision flow the kit node carries.
+    /// fix/kit-reality: Reality (sing-box 1.12.24, apple dest — see the
+    /// proxy comment for the microsoft-dest server limit, 8-byte
+    /// short-id) with the vision flow the kit node carries.
     func testVLESSRealityVisionTCPEcho() throws {
         let stream = try self.connect(proxy: Self.vlessRealityVisionProxy, target: Self.echoTarget)
         defer { stream.cancel() }

@@ -120,12 +120,14 @@ stop_snell() {
 
 # fix/kit-reality: the VLESS-Reality reference inbound on :18070, on the fleet
 # sing-box (1.12.24 — the same version the zhiheng kit runs) but its own
-# instance/config so the kit-faithful parameter set (handshake dest
-# www.microsoft.com:443, 8-byte short_id 21dde3c3112bbc4b, vision + plain
-# users) stays isolated and its debug log lands in the CI log on stop.
-# Config: reality-sing-box-config.json next to this script. The handshake
-# dest is a real public site, so the runner needs plain egress to it —
-# that mirrors the kit, whose dest is live too.
+# instance/config so the parameter set stays isolated and its log lands in
+# the CI log on stop. Config: reality-sing-box-config.json next to this
+# script. Handshake dest is www.apple.com — NOT the kit's www.microsoft.com:
+# microsoft's TLS 1.3 Certificate message is 8273 bytes, over the 8192-byte
+# patch window (realitySize) of the REALITY server implementation, which
+# aborts phase 2 for every client (see the config/README notes). The
+# handshake dest is a real public site, so the runner needs plain egress
+# to it.
 start_reality() {
     local sb
     sb="$(find_sing_box)"
