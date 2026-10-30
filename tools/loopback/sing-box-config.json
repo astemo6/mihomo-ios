@@ -345,7 +345,7 @@
     }
   ],
   "log": {
-    "level": "info",
+    "level": "trace",
     "timestamp": true
   },
   "outbounds": [
