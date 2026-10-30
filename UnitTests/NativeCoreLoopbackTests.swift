@@ -402,6 +402,65 @@ final class NativeCoreLoopbackTests: XCTestCase {
         try self.assertEcho(stream, payload: Self.payload)
     }
 
+    /// TEMP HY1PROBE2 (fix/kit-hysteria diagnosis, to be removed): handshake the hy1
+    /// inbound through an NWConnectionGroup + extract, toggling whether the GROUP
+    /// parameters advertise QUIC datagrams (maxDatagramFrameSize). The plain
+    /// connection works and TUIC (unidirectional first stream) works with group
+    /// datagrams on — if the bidi first stream only works with group datagrams
+    /// OFF, Network.framework is reserving stream 0 when datagrams are enabled
+    /// at the group level.
+    func testHysteria1GroupProbe() throws {
+        func attempt(datagrams: Bool) -> String {
+            let quic = NWProtocolQUIC.Options(alpn: ["hysteria"])
+            let tls = quic.securityProtocolOptions
+            sec_protocol_options_set_tls_min_version(tls, .tlsProtocol13)
+            sec_protocol_options_set_tls_server_name(tls, "localhost")
+            let q = DispatchQueue(label: "hy1probe2")
+            sec_protocol_options_set_verify_block(tls, { _, _, complete in complete(true) }, q)
+            if datagrams { quic.maxDatagramFrameSize = 1400 }
+            let params = NWParameters(quic: quic)
+            let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(Self.host),
+                                               port: NWEndpoint.Port(rawValue: UInt16(Self.hy1Port))!)
+            let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
+            let sema = DispatchSemaphore(value: 0)
+            var result = "group-never-ready"
+            group.stateUpdateHandler = { state in
+                guard case .ready = state else { return }
+                group.stateUpdateHandler = nil
+                guard let conn = group.extract(connectionTo: nil, using: nil) else {
+                    result = "extract-nil"
+                    sema.signal()
+                    return
+                }
+                let ch = NCHy2StreamChannel(conn: conn)
+                ch.start(queue: q) { err in
+                    if let err { result = "stream-start-\(err)"; sema.signal(); return }
+                    let hello = NCHy1.clientHello(sendBPS: 6_250_000, recvBPS: 12_500_000,
+                                                  auth: Data(Self.hy1Auth.utf8))
+                    ch.send(hello)
+                    ch.receive { data, error in
+                        if let data {
+                            result = "serverHello \(data.count) bytes"
+                        } else {
+                            result = "receive-nil error=\(String(describing: error))"
+                        }
+                        sema.signal()
+                    }
+                }
+            }
+            group.start(queue: q)
+            if sema.wait(timeout: .now() + 6) == .timedOut { result = "timeout (\(result))" }
+            group.cancel()
+            return result
+        }
+        let withDg = attempt(datagrams: true)
+        NSLog("HY1PROBE2 group datagrams=on: \(withDg)")
+        let withoutDg = attempt(datagrams: false)
+        NSLog("HY1PROBE2 group datagrams=off: \(withoutDg)")
+        XCTAssertTrue(withDg.hasPrefix("serverHello") || withoutDg.hasPrefix("serverHello"),
+                      "group probes both failed: on=\(withDg) off=\(withoutDg)")
+    }
+
     /// TEMP HY1PROBE (fix/kit-hysteria diagnosis, to be removed): handshake the hy1
     /// inbound over a PLAIN NWConnection (no NWConnectionGroup). A standalone QUIC
     /// connection's only stream is the connection's stream 0, which is what the
