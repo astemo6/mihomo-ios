@@ -294,6 +294,7 @@ final class NCJuicityConnection {
         let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
         self.group = group
         group.stateUpdateHandler = { [weak self] (st: NWConnectionGroup.State) in
+            NSLog("[jdiag] prod group state %@", String(describing: st))
             guard let self else { return }
             switch st {
             case .ready:
@@ -326,6 +327,7 @@ final class NCJuicityConnection {
         authStream = auth
         var fired = false
         auth.stateUpdateHandler = { [weak self] st in
+            NSLog("[jdiag] prod auth state %@", String(describing: st))
             guard let self, !fired else { return }
             switch st {
             case .ready:
@@ -345,6 +347,7 @@ final class NCJuicityConnection {
     }
 
     private func sendAuth(on conn: NWConnection) {
+        NSLog("[jdiag] prod sendAuth exporter=%@", exportToken(conn) != nil)
         guard let tk = exportToken(conn) else {
             finish(NCConnector.Failure.handshake("juicity: TLS exporter unavailable"))
             return
@@ -376,6 +379,7 @@ final class NCJuicityConnection {
     }
 
     private func finish(_ error: Error?) {
+        NSLog("[jdiag] prod finish err=%@", String(describing: error))
         if error != nil, state != .ready { setState(.failed) }
         let c = startCompletion
         startCompletion = nil
