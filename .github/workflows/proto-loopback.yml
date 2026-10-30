@@ -95,7 +95,7 @@ jobs:
       scheme: TernUITests
 
   build-e2e:
-    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || contains(inputs.jobs, 'masque-warp'))
+    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || contains(inputs.jobs, 'masque-warp') || contains(inputs.jobs, 'wireguard-zh'))
     uses: ./.github/workflows/build-for-testing.yml
     with:
       ref: ${{ inputs.ref }}
@@ -384,6 +384,56 @@ jobs:
           name: masque-warp-interop-results
           path: |
             results/masque-warp.log
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  wireguard-zh:
+    needs: build-e2e
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && contains(inputs.jobs, 'wireguard-zh') && (needs.build-e2e.result == 'success' || (inputs.prebuilt && needs.build-e2e.result == 'skipped')) }}
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode_e2e || needs.build-e2e.outputs.xcode }}
+      - name: Disable Thread Performance Checker
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
+      - name: Run WireGuard interop tests (real zhiheng kit server, UDP 24034)
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          TEST_RUNNER_JSC_useJIT=false \
+          TEST_RUNNER_NC_WG_ZH=1 \
+          TEST_RUNNER_NC_WG_SERVER=45.92.159.155 \
+          TEST_RUNNER_NC_WG_PORT=24034 \
+          TEST_RUNNER_NC_WG_PRIV='OJVQcAQumlNiADByjF03bEqlq5jHFN2k3DFN0BaE/Eo=' \
+          TEST_RUNNER_NC_WG_PUB='pDuHgrRuI0rWdogrndZwuyr/D68pUDok1FbXP9Rk0X0=' \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/wireguard-zh.xcresult \
+            -only-testing:TernE2ETunnelTests/NCWireGuardZhihengInteropTests test-without-building 2>&1 | tee results/wireguard-zh.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|wg-zh"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/wireguard-zh.log
+          if grep -q "skipped" results/wireguard-zh.log && ! grep -q "passed" results/wireguard-zh.log; then RC=1; echo "::error::all WireGuard zhiheng tests skipped"; fi
+          {
+            echo "### WireGuard interop (real zhiheng kit server)"
+            grep -E "Executed [0-9]+ tests?" results/wireguard-zh.log | tail -n 1 | sed 's/^/- /'
+            grep -E "Test Case .*(passed|failed)" results/wireguard-zh.log | sed -E 's/.*-\[[^ ]+ ([^]]+)\]. (passed|failed).*/- \1: \2/'
+            grep -E "wg-zh" results/wireguard-zh.log | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: wireguard-zh-interop-results
+          path: |
+            results/wireguard-zh.log
           if-no-files-found: warn
           retention-days: 14
 

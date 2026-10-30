@@ -1,0 +1,156 @@
+import XCTest
+
+/// verify/kit-wireguard PROBE (throwaway scaffolding, not for merge): the production WireGuard
+/// outbound (NCWireGuard.swift lwIP netif, dialer installed exactly like PacketTunnelProvider does)
+/// against the REAL kit server on zhiheng — kernel WireGuard, UDP 24034, peer 10.66.0.2/32.
+/// The kit's group delay test runs in the App process, where NCConnector has no wireguardDialer
+/// (PacketTunnel-only lwIP stack) and every wireguard node fails as “超时”; this probe measures
+/// the path users actually get with the tunnel up: handshake + proxied HTTP fetch + UDP DNS.
+///
+/// Runs in proto-loopback.yml job `wireguard-zh` (verify branch only) with TEST_RUNNER_NC_WG_ZH=1
+/// and TEST_RUNNER_NC_WG_{SERVER,PORT,PRIV,PUB} in the environment; there it FAILS (never skips)
+/// when the server is unreachable; elsewhere it skips.
+final class NCWireGuardZhihengInteropTests: XCTestCase {
+    private let env = ProcessInfo.processInfo.environment
+    private let q = DispatchQueue(label: "wg.zh.interop.test")
+
+    private func node() -> NCProxy {
+        NCProxy(name: "Tern-WireGuard", type: "wireguard", fields: [
+            "server": .string(env["NC_WG_SERVER"] ?? ""),
+            "port": .number(Double(env["NC_WG_PORT"] ?? "") ?? 24034),
+            "ip": .string("10.66.0.2"),
+            "private-key": .string(env["NC_WG_PRIV"] ?? ""),
+            "public-key": .string(env["NC_WG_PUB"] ?? ""),
+            "mtu": .number(1280),
+            "dns": .array([.string("1.1.1.1")]),
+            "remote-dns-resolve": .bool(true),
+            "udp": .bool(true),
+        ])
+    }
+
+    override func setUpWithError() throws {
+        guard env["NC_WG_ZH"] == "1" else {
+            throw XCTSkip("WireGuard zhiheng interop: set TEST_RUNNER_NC_WG_ZH=1 with the kit node env (proto-loopback.yml wireguard-zh)")
+        }
+        for k in ["NC_WG_SERVER", "NC_WG_PRIV", "NC_WG_PUB"] {
+            XCTAssertFalse((env[k] ?? "").isEmpty, "\(k) missing")
+        }
+        NCConnector.installWireGuardDialer()
+    }
+
+    override func tearDown() {
+        NCLwIP.queue.sync { NCWGStack.shared.teardownAll() }
+        Thread.sleep(forTimeInterval: 0.5)
+        super.tearDown()
+    }
+
+    // MARK: helpers
+
+    private func dial(_ p: NCProxy, _ host: String, _ port: Int, timeout: TimeInterval = 60) -> (NCRelayStream?, Error?) {
+        let exp = expectation(description: "dial \(host):\(port)")
+        var out: (NCRelayStream?, Error?) = (nil, nil)
+        let t0 = Date()
+        NCConnector.connect(target: NCTarget(host: host, port: port), proxy: p, queue: q) { s, e in
+            out = (s, e)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: timeout)
+        NSLog("[wg-zh] dial %@:%d in %.2f s -> %@", host, port, Date().timeIntervalSince(t0),
+              out.0 != nil ? "ok" : "\(String(describing: out.1))")
+        return out
+    }
+
+    /// HTTP/1.0 GET over `s` until the server closes; returns (status line, body).
+    private func get(_ s: NCRelayStream, host: String, path: String, timeout: TimeInterval = 120) -> (String, Data) {
+        let done = expectation(description: "GET \(path)")
+        var raw = Data()
+        var finished = false
+        func finish() { if !finished { finished = true; done.fulfill() } }
+        func read() {
+            s.receive { d, _ in
+                guard let d, !d.isEmpty else { finish(); return }
+                raw.append(d)
+                read()
+            }
+        }
+        q.async {
+            s.send(Data("GET \(path) HTTP/1.0\r\nHost: \(host)\r\nUser-Agent: tern-wg-zh-probe\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n".utf8)) {}
+            read()
+        }
+        wait(for: [done], timeout: timeout)
+        let all = q.sync { raw }
+        guard let r = all.range(of: Data([13, 10, 13, 10])) else {
+            return (String(decoding: all.prefix(200), as: UTF8.self), Data())
+        }
+        let head = String(decoding: all[all.startIndex..<r.lowerBound], as: UTF8.self)
+        var body = Data(all[r.upperBound...])
+        if head.lowercased().contains("transfer-encoding: chunked") { body = dechunk(body) }
+        return (head.components(separatedBy: "\r\n").first ?? "", body)
+    }
+
+    private func dechunk(_ d: Data) -> Data {
+        var out = Data()
+        var i = d.startIndex
+        while let crlf = d[i...].range(of: Data([13, 10])) {
+            let sizeLine = String(decoding: d[i..<crlf.lowerBound], as: UTF8.self).split(separator: ";").first ?? ""
+            guard let n = Int(sizeLine.trimmingCharacters(in: .whitespaces), radix: 16), n > 0 else { break }
+            let start = crlf.upperBound
+            guard start + n <= d.endIndex else { out.append(d[start...]); break }
+            out.append(d[start..<(start + n)])
+            i = min(start + n + 2, d.endIndex)
+        }
+        return out
+    }
+
+    /// Peers with a completed handshake (session keys derived), read on the lwIP queue.
+    private func activeSessions(_ p: NCProxy) -> Int {
+        NCLwIP.queue.sync { (NCWGStack.shared.device(for: p).0 as? NCWGDevice)?.activeRelayCount ?? -1 }
+    }
+
+    // MARK: tests
+
+    /// TCP through the WG netif: remote-dns-resolve (DNS over the tunnel to 1.1.1.1), then a plain
+    /// HTTP fetch of cloudflare's trace page — the reported egress IP must be the zhiheng server's
+    /// own address (45.92.159.155), proving the traffic really left through the tunnel + NAT.
+    func testHTTPFetchThroughWireGuard() throws {
+        let p = node()
+        let (s, err) = dial(p, "www.cloudflare.com", 80)
+        let raw = try XCTUnwrap(s, "dial failed: \(String(describing: err))")
+        defer { raw.cancel() }
+        XCTAssertEqual(activeSessions(p), 1, "no WireGuard session (handshake) after a successful dial")
+        let (status, body) = get(raw, host: "www.cloudflare.com", path: "/cdn-cgi/trace")
+        NSLog("[wg-zh] GET /cdn-cgi/trace -> %@", status)
+        XCTAssertTrue(status.contains(" 200"), status)
+        let text = String(decoding: body, as: UTF8.self)
+        NSLog("[wg-zh] trace: %@", text.split(separator: "\n").filter { $0.hasPrefix("ip=") || $0.hasPrefix("colo=") }.joined(separator: " "))
+        XCTAssertTrue(text.contains("ip=45.92.159.155"), "egress is not the zhiheng server: \(text)")
+    }
+
+    /// A DNS query as plain UDP through the WG netif to 1.1.1.1:53, answer parsed.
+    func testUDPDNSThroughWireGuard() throws {
+        let p = node()
+        let session = NCUDPWireGuardSession(proxy: p, queue: q)
+        defer { session.cancel() }
+        let qid: UInt16 = 0x7767
+        var query: [UInt8] = [UInt8(qid >> 8), UInt8(qid & 0xff), 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]
+        for label in ["one", "one", "one", "one"] { query.append(UInt8(label.utf8.count)); query += Array(label.utf8) }
+        query += [0, 0, 1, 0, 1]
+        let got = expectation(description: "dns answer")
+        var answer: [NCIP]?
+        session.onReply = { d in
+            guard answer == nil, let r = NCWGDevice.parseDNS([UInt8](d), id: qid, qtype: 1) else { return }
+            answer = r
+            got.fulfill()
+        }
+        let timer = DispatchSource.makeTimerSource(queue: q)
+        timer.schedule(deadline: .now(), repeating: 2)
+        timer.setEventHandler { session.send(Data(query), to: NCTarget(host: "1.1.1.1", port: 53)) }
+        timer.resume()
+        wait(for: [got], timeout: 60)
+        timer.cancel()
+        let ips = Set(q.sync { answer?.map { $0.string } ?? [] })
+        NSLog("[wg-zh] one.one.one.one A = %@", ips.sorted().joined(separator: ","))
+        XCTAssertFalse(ips.isDisjoint(with: ["1.1.1.1", "1.0.0.1"]), "\(ips)")
+        XCTAssertEqual(activeSessions(p), 1, "no WireGuard session (handshake) after UDP DNS")
+    }
+}
