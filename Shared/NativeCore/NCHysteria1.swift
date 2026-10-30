@@ -312,11 +312,10 @@ final class NCHysteria1Connection {
         // in 0.139 s (loopback run 41014999776, testHysteria1PlainConnectionProbe).
         // extract() remains right for every later stream (TCP flows, UDP session
         // streams): once the handshake is done the server accepts them in order.
-        guard let group else {
+        guard let group, let conn = NWConnection(from: group) else {
             finish(NCConnector.Failure.handshake("hysteria: cannot open control stream"))
             return
         }
-        let conn = NWConnection(from: group)
         NSLog("HY1DBG using group connection (stream 0) as control stream")
         let ch = NCHy2StreamChannel(conn: conn)
         control = ch
