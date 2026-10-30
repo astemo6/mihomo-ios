@@ -402,6 +402,88 @@ final class NativeCoreLoopbackTests: XCTestCase {
         try self.assertEcho(stream, payload: Self.payload)
     }
 
+    /// TEMP HY1PROBE4 (fix/kit-hysteria diagnosis, to be removed): WHO claims the
+    /// group's stream 0? Three orderings, one group each:
+    ///  A) extract BEFORE group.start, then start the group, handshake on the
+    ///     pre-extracted connection.
+    ///  B) NWConnection(from:) BEFORE group.start, and start the CONNECTION
+    ///     (never group.start) — the first started connection may own stream 0.
+    ///  C) NWConnection(from:) BEFORE group.start, then group.start, handshake
+    ///     on the from: connection once the group is ready.
+    /// (v3 established: extract after group .ready never gets its hello read,
+    /// with group datagrams on or off; a plain NWConnection works instantly.)
+    func testHysteria1GroupProbe4() throws {
+        func makeGroup() -> (NWConnectionGroup, DispatchQueue) {
+            let quic = NWProtocolQUIC.Options(alpn: ["hysteria"])
+            let tls = quic.securityProtocolOptions
+            sec_protocol_options_set_tls_min_version(tls, .tlsProtocol13)
+            sec_protocol_options_set_tls_server_name(tls, "localhost")
+            let q = DispatchQueue(label: "hy1probe4")
+            sec_protocol_options_set_verify_block(tls, { _, _, complete in complete(true) }, q)
+            quic.maxDatagramFrameSize = 1400
+            let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(Self.host),
+                                               port: NWEndpoint.Port(rawValue: UInt16(Self.hy1Port))!)
+            let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint),
+                                          using: NWParameters(quic: quic))
+            group.newConnectionHandler = { incoming in incoming.cancel() }
+            return (group, q)
+        }
+        func handshake(_ conn: NWConnection, on q: DispatchQueue, _ done: @escaping (String) -> Void) {
+            let ch = NCHy2StreamChannel(conn: conn)
+            ch.start(queue: q) { err in
+                if let err { done("stream-start-\(err)"); return }
+                ch.send(NCHy1.clientHello(sendBPS: 6_250_000, recvBPS: 12_500_000,
+                                          auth: Data(Self.hy1Auth.utf8)))
+                ch.receive { data, error in
+                    if let data { done("serverHello \(data.count) bytes") }
+                    else { done("receive-nil error=\(String(describing: error))") }
+                }
+            }
+        }
+        // A) extract before start
+        do {
+            let (group, q) = makeGroup()
+            let exp = expectation(description: "probe4 A extract-before-start")
+            var result = "no-callback"
+            let conn = group.extract(connectionTo: nil, using: nil)
+            if conn == nil { result = "pre-start-extract-nil"; exp.fulfill() }
+            group.start(queue: q)
+            if let conn { handshake(conn, on: q) { r in result = r; exp.fulfill() } }
+            wait(for: [exp], timeout: 5)
+            group.cancel()
+            NSLog("HY1PROBE4 A extract-before-start: \(result)")
+        }
+        // B) from: before start; start the connection, not the group
+        do {
+            let (group, q) = makeGroup()
+            let exp = expectation(description: "probe4 B from-start-connection")
+            var result = "no-callback"
+            if let conn = NWConnection(from: group) {
+                handshake(conn, on: q) { r in result = r; exp.fulfill() }
+            } else { result = "from-nil"; exp.fulfill() }
+            wait(for: [exp], timeout: 5)
+            group.cancel()
+            NSLog("HY1PROBE4 B from+start-conn: \(result)")
+        }
+        // C) from: before start; group.start; handshake when group ready
+        do {
+            let (group, q) = makeGroup()
+            let exp = expectation(description: "probe4 C from-before-group-start")
+            var result = "no-callback"
+            let conn = NWConnection(from: group)
+            group.stateUpdateHandler = { state in
+                guard case .ready = state else { return }
+                group.stateUpdateHandler = nil
+                guard let conn else { result = "from-nil"; exp.fulfill(); return }
+                handshake(conn, on: q) { r in result = r; exp.fulfill() }
+            }
+            group.start(queue: q)
+            wait(for: [exp], timeout: 5)
+            group.cancel()
+            NSLog("HY1PROBE4 C from-before-group-start: \(result)")
+        }
+    }
+
     /// TEMP HY1PROBE2 (fix/kit-hysteria diagnosis, to be removed): handshake the hy1
     /// inbound through an NWConnectionGroup + extract, toggling whether the GROUP
     /// parameters advertise QUIC datagrams (maxDatagramFrameSize). The plain
