@@ -1,0 +1,17 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    {
+      "type": "snell",
+      "tag": "snell5-in",
+      "listen": "127.0.0.1",
+      "listen_port": 18066,
+      "version": 5,
+      "psk": "nc-loop-snell-psk"
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": { "final": "direct" }
+}

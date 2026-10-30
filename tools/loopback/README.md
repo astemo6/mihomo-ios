@@ -63,6 +63,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18082 | `echo_server.py` TCP blackhole (accepts, reads nothing while paused) |
 | 18083 | `echo_server.py` UDP control: datagram `go` → blackhole discards; `pause` → holds again |
 | 18084 | `echo_server.py` UDP DNS: every query → one A answer 192.0.2.53 (DNS-over-UDP through Sudoku UoT) |
+| 18066 | sing-box **1.15.0-alpha.13** Snell inbound, version 5 — `nc-loop-snell-psk` (separate binary/config `snell-sing-box-config.json`; sing-box only gained a Snell inbound in 1.15, built on sing-snell's model of the official snell-server v5.0.1; fix/kit-snell5) |
 | 18019 | `echo_server.py` SOCKS5 over TLS (minimal SOCKS5 behind the loopback cert; feat/nc-socks5-tls) |
 | 18020 | `echo_server.py` plain SOCKS5 (no-auth / `nc-loop-socks-user` + `nc-loop-socks-pw`) |
 | 18090 | official Sudoku server v0.5.2.0 (`sudoku/entropy.json`) — prefer_entropy, chacha20-poly1305, legacy HTTP mask, pure downlink; fallback → 18080 |
@@ -135,6 +136,12 @@ These materials are strictly for loopback testing with self-signed TLS certifica
   :9001, dnsmasq :53 (`*.oc.test` → 10.77.0.1), busybox httpd :8080.
 - **Mieru**: sing-box has no mieru inbound, so there is no reference server;
   not covered rather than faked.
+- **Snell**: TCP echo against the sing-box 1.15 Snell **v5** inbound (:18066),
+  with the node declared both version 5 and version 4 (the v5 wire is the v4
+  wire; the kit's official snell-server v5.0.1 accepts the same stream).
+  Snell UDP rides `NCUDPSnellSession` in the PacketTunnel target, which the
+  app-hosted test bundle cannot link — same limitation as WireGuard, so UDP
+  is not covered here.
 
 The constants in this table, `sing-box-config.json` and
 `UnitTests/NativeCoreLoopbackTests.swift` are three copies of one truth —

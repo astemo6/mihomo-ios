@@ -31,6 +31,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let socks5Port = 18020
     private static let socks5User = "nc-loop-socks-user"
     private static let socks5Password = "nc-loop-socks-pw"
+    private static let snellPort = 18066
     private static let trustTunnelPort = 18013
     private static let trustTunnelUser = "nc-loop-tt-user"
     private static let trustTunnelPassword = "nc-loop-tt-pw"
@@ -49,6 +50,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let trojanPassword = "nc-loop-trojan-pw"
     private static let hy2Password = "nc-loop-hy2-pw"
     private static let tuicPassword = "nc-loop-tuic-pw"
+    private static let snellPassword = "nc-loop-snell-psk"
 
     private static let echInnerSni = "localhost"
     /// Base64 of ECHConfigList matching tools/loopback/ech_config.pem
@@ -165,6 +167,26 @@ final class NativeCoreLoopbackTests: XCTestCase {
         Self.proxy(name: "loop-tuic", type: "tuic", port: Self.tuicPort, extra: [
             "uuid": .string(Self.uuid), "password": .string(Self.tuicPassword),
             "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+        ])
+    }
+
+    /// Snell against the version-5 inbound on :18066 (fix/kit-snell5). The
+    /// fields mirror the canonical form the YAML importer produces for the
+    /// kit node: psk + password (same value), version, udp.
+    private static var snellV5Proxy: NCProxy {
+        Self.proxy(name: "loop-snell5", type: "snell", port: Self.snellPort, extra: [
+            "psk": .string(Self.snellPassword), "password": .string(Self.snellPassword),
+            "version": .number(5), "udp": .bool(true),
+        ])
+    }
+
+    /// Same server, node declared version 4: the v5 inbound must accept the
+    /// v4-format client stream (the documented v5↔v4 wire compatibility the
+    /// kit's official snell-server v5.0.1 also relies on).
+    private static var snellV4Proxy: NCProxy {
+        Self.proxy(name: "loop-snell4", type: "snell", port: Self.snellPort, extra: [
+            "psk": .string(Self.snellPassword), "password": .string(Self.snellPassword),
+            "version": .number(4), "udp": .bool(true),
         ])
     }
 
@@ -319,7 +341,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     func testServerPortsReachable() {
         for port in [Self.ssPort, Self.ss2022Port, Self.vmessPort, Self.vlessPort,
                      Self.trojanPort, Self.vlessEchPort, Self.trojanEchPort,
-                     Self.tcpEchoPort, Self.blackholePort] {
+                     Self.snellPort, Self.tcpEchoPort, Self.blackholePort] {
             let conn = NWConnection(host: NWEndpoint.Host(Self.host),
                                     port: NWEndpoint.Port(rawValue: UInt16(port))!,
                                     using: .tcp)
@@ -394,6 +416,27 @@ final class NativeCoreLoopbackTests: XCTestCase {
 
     func testTUICTCPEcho() throws {
         let stream = try self.connect(proxy: Self.tuicProxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+    }
+
+    /// fix/kit-snell5: Snell v5 node against the sing-box Snell v5 inbound
+    /// (sing-snell's model of the official snell-server v5.0.1). The second,
+    /// larger round trip crosses the 0x3FFF frame cap and the server's
+    /// frame-size ramp in both directions.
+    func testSnellV5TCPEcho() throws {
+        let stream = try self.connect(proxy: Self.snellV5Proxy, target: Self.echoTarget)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.payload)
+        let big = Data((0..<100_003).map { UInt8(($0 * 7 + 3) & 0xff) })
+        try self.assertEcho(stream, payload: big)
+    }
+
+    /// The same v5 inbound with the node declared version 4 (v5 servers
+    /// accept v4-format clients; this is the path the kit's Snell4 node
+    /// exercises against snell-server v4.1.1, transplanted to v5).
+    func testSnellV4TCPEcho() throws {
+        let stream = try self.connect(proxy: Self.snellV4Proxy, target: Self.echoTarget)
         defer { stream.cancel() }
         try self.assertEcho(stream, payload: Self.payload)
     }
