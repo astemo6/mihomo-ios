@@ -95,7 +95,7 @@ jobs:
       scheme: TernUITests
 
   build-e2e:
-    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || contains(inputs.jobs, 'masque-warp'))
+    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || contains(inputs.jobs, 'masque-warp') || contains(inputs.jobs, 'amneziawg-zh'))
     uses: ./.github/workflows/build-for-testing.yml
     with:
       ref: ${{ inputs.ref }}
@@ -384,6 +384,55 @@ jobs:
           name: masque-warp-interop-results
           path: |
             results/masque-warp.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  amneziawg-zh:
+    needs: build-e2e
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && contains(inputs.jobs, 'amneziawg-zh') && (needs.build-e2e.result == 'success' || (inputs.prebuilt && needs.build-e2e.result == 'skipped')) }}
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode_e2e || needs.build-e2e.outputs.xcode }}
+      - name: Disable Thread Performance Checker
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
+      - name: Run AmneziaWG interop tests (real zhiheng kit server, UDP 24035)
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          TEST_RUNNER_JSC_useJIT=false \
+          TEST_RUNNER_NC_AWG_ZH=1 \
+          TEST_RUNNER_NC_AWG_SERVER=45.92.159.155 \
+          TEST_RUNNER_NC_AWG_PORT=24035 \
+          TEST_RUNNER_NC_AWG_PRIV='SEVf8Xe/xQjVtDts7zCsKgH5Mo14jT9IU3xAqmo0OUM=' \
+          TEST_RUNNER_NC_AWG_PUB='gqz9RvmIyupAg3w25yP/5n4SaYsh9V1Ihr8eTmkJfDQ=' \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/amneziawg-zh.xcresult \
+            -only-testing:TernE2ETunnelTests/NCAmneziaWGZhihengInteropTests test-without-building 2>&1 | tee results/amneziawg-zh.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|awg-zh"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/amneziawg-zh.log
+          if grep -q "skipped" results/amneziawg-zh.log && ! grep -q "passed" results/amneziawg-zh.log; then RC=1; echo "::error::all AmneziaWG zhiheng tests skipped"; fi
+          {
+            echo "### AmneziaWG interop (real zhiheng kit server)"
+            grep -E "Executed [0-9]+ tests?" results/amneziawg-zh.log | tail -n 1 | sed 's/^/- /'
+            grep -E "Test Case .*(passed|failed)" results/amneziawg-zh.log | sed -E 's/.*-\[[^ ]+ ([^]]+)\]. (passed|failed).*/- \1: \2/'
+            grep -E "awg-zh" results/amneziawg-zh.log | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: amneziawg-zh-interop-results
+          path: |
+            results/amneziawg-zh.log
           if-no-files-found: warn
           retention-days: 14
 
