@@ -171,14 +171,32 @@ struct NCDNSMessage: Equatable {
 final class NCFakeIPResponder {
     let pool: NCFakeIPPool
 
+    /// fix/dns-reject-storm: engine-injected DNS-layer reject verdict (QuanX
+    /// semantics). Given a queried name it returns the raw text of the
+    /// domain-class REJECT rule that decides it, or nil. When it fires,
+    /// A / AAAA queries are answered NXDOMAIN *instead of* a fake IP, so
+    /// the caller fails at resolution time and gives up instead of
+    /// retry-storming the connection layer (whose REJECT stays as the
+    /// backstop for IP-direct / HTTPDNS flows). Nil closure = feature off,
+    /// every query takes the classic fake-IP path.
+    var rejectMatcher: ((String) -> String?)?
+
     init(pool: NCFakeIPPool) { self.pool = pool }
 
     func respond(to queryData: Data) -> Data? {
-        guard let query = NCDNSMessage.parse(queryData), query.questions.count == 1 else { return nil }
+        respondWithOutcome(to: queryData).reply
+    }
+
+    /// As `respond(to:)`, plus the DNS-layer rejection (queried host + the
+    /// deciding rule's raw text) when the answer is a reject NXDOMAIN, so
+    /// the engine can record the block under its domain name — the device
+    /// report behind this change had only bare IPs in the blocked list.
+    func respondWithOutcome(to queryData: Data) -> (reply: Data?, rejection: (host: String, rule: String)?) {
+        guard let query = NCDNSMessage.parse(queryData), query.questions.count == 1 else { return (nil, nil) }
         let q = query.questions[0]
-        guard q.klass == NCDNSMessage.classIN else { return nil }
+        guard q.klass == NCDNSMessage.classIN else { return (nil, nil) }
         let host = q.name.lowercased()
-        guard pool.shouldFake(host) else { return nil }
+        guard pool.shouldFake(host) else { return (nil, nil) }
         var resp = NCDNSMessage()
         resp.id = query.id
         resp.isResponse = true
@@ -186,6 +204,13 @@ final class NCFakeIPResponder {
         resp.recursionDesired = query.recursionDesired
         resp.recursionAvailable = true
         resp.questions = query.questions
+        // Only A / AAAA are ever answered locally; other types keep the
+        // forward-upstream behavior (nil), REJECT-ruled or not.
+        guard q.type == NCDNSMessage.typeA || q.type == NCDNSMessage.typeAAAA else { return (nil, nil) }
+        if let rejectMatcher, let rule = rejectMatcher(host) {
+            resp.rcode = 3 // NXDOMAIN, no answers, no fake IP allocated
+            return (resp.serialized(), (host, rule))
+        }
         switch q.type {
         case NCDNSMessage.typeA:
             let ip = pool.address(for: host)
@@ -202,9 +227,9 @@ final class NCFakeIPResponder {
                 resp.answers = []
             }
         default:
-            return nil
+            return (nil, nil) // unreachable: the type guard above already filtered
         }
-        return resp.serialized()
+        return (resp.serialized(), nil)
     }
 }
 
@@ -247,6 +272,15 @@ enum NCDNSLogLine {
 
     static func failure(name: String, type: String, detail: String) -> String {
         "[DNS] resolve \(name) error: \(type) \(detail)"
+    }
+
+    /// fix/dns-reject-storm: a query answered NXDOMAIN by the DNS-layer reject
+    /// (fake-ip responder). Deliberately the `resolve … error:` shape: both log
+    /// consumers already parse it (the DNS page files it as a failed query, the
+    /// Home card under its error stem) — no new grammar, and it stays distinct
+    /// from a locally answered "cache hit" line.
+    static func rejected(name: String, type: String) -> String {
+        failure(name: name, type: type, detail: "NXDOMAIN (REJECT rule)")
     }
 
     /// "[93.184.216.34 2001:db8::1]" for address answers; a CNAME target when that is

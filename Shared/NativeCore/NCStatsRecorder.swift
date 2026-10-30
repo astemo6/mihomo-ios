@@ -135,6 +135,27 @@ final class NCStatsRecorder {
         if newH { Self.evict(&hosts, cap: Self.hostCap) }
     }
 
+    private var dnsBlockedSeq: UInt64 = 0
+
+    /// fix/dns-reject-storm: a name blocked at the DNS layer (NXDOMAIN by a
+    /// domain-class REJECT rule) never becomes a connection, so without this
+    /// it would leave no trace in the connection records — the device report
+    /// behind the change showed only bare IPs on the blocked page while
+    /// QuanX lists the blocked domains by name. Synthesise the equivalent
+    /// rejected record (host = the queried name, no destination IP — there
+    /// never was one), through the same closed() funnel as a rejected
+    /// connection, so the App's 已拦截 filter (chains ∋ REJECT) lists it by
+    /// domain. Deliberately NOT counted via opened(): it is not a
+    /// connection, and the session's connection total must stay truthful.
+    func dnsBlocked(host: String, rule: String, at: Date = Date()) {
+        lock.lock(); dnsBlockedSeq &+= 1; let n = dnsBlockedSeq; lock.unlock()
+        let ms = Int64(at.timeIntervalSince1970 * 1000)
+        closed(Closed(seq: 0, id: "dns-\(n)", network: "udp", srcPort: 0,
+                      dstIP: "", dstPort: 53, host: host, remote: host,
+                      chains: ["REJECT"], rule: rule, up: 0, down: 0,
+                      start: ms, closedAt: ms))
+    }
+
     /// A connection closed: into the ring (seq assigned here).
     /// feat/session-records: start archiving closed connections for this connection
     /// session (truncates any previous session's archive — reconnecting zeroes records).
