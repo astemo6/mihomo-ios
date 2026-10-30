@@ -177,6 +177,7 @@ final class NCSnellStreamRelay: NCRelayStream {
     private let encoder: NCSnellStreamEncoder
     private let decoder: NCSnellStreamDecoder
     private let stripper = NCSnellReplyStripper()
+    private var pendingPieces: [Data] = []
 
     init(raw: NCRelayStream, psk: Data, version: Int, target: NCTarget) {
         self.raw = raw
@@ -196,6 +197,20 @@ final class NCSnellStreamRelay: NCRelayStream {
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        // fix/kit-snell5: same surplus-piece queueing as NCSnellV4Relay —
+        // a raw chunk can decode into several payloads; deliver one per
+        // receive() call and keep the rest instead of dropping them.
+        while !pendingPieces.isEmpty {
+            let piece = pendingPieces.removeFirst()
+            if let out = stripper.feed(piece), !out.isEmpty {
+                handler(out, nil)
+                return
+            }
+            if let failure = stripper.failure {
+                handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: failure]))
+                return
+            }
+        }
         raw.receive { [weak self] data, error in
             guard let self else { handler(nil, error); return }
             guard let data else { handler(nil, error); return }
@@ -203,16 +218,7 @@ final class NCSnellStreamRelay: NCRelayStream {
                 handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: "snell decode failed"]))
                 return
             }
-            for piece in pieces {
-                if let out = self.stripper.feed(piece), !out.isEmpty {
-                    handler(out, nil)
-                    return
-                }
-                if let failure = self.stripper.failure {
-                    handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: failure]))
-                    return
-                }
-            }
+            self.pendingPieces.append(contentsOf: pieces)
             self.receive(handler)
         }
     }
@@ -226,6 +232,7 @@ final class NCSnellV4Relay: NCRelayStream {
     private let writer: NCSnellV4Writer
     private let reader: NCSnellV4Reader
     private let stripper = NCSnellReplyStripper()
+    private var pendingPieces: [NCSnellV4Reader.Piece] = []
 
     init(raw: NCRelayStream, psk: Data, target: NCTarget) {
         self.raw = raw
@@ -245,6 +252,30 @@ final class NCSnellV4Relay: NCRelayStream {
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        // fix/kit-snell5: one raw chunk routinely decodes into several v4
+        // frames — servers coalesce frames into a single TCP segment (the
+        // sing-box / official v5 frame-size ramp does exactly that). The old
+        // loop delivered the first piece and silently dropped the rest of
+        // the feed, stalling the stream after ~one frame. Queue surplus
+        // pieces and drain them on later receive() calls before pulling
+        // more from the raw stream.
+        while !pendingPieces.isEmpty {
+            let piece = pendingPieces.removeFirst()
+            switch piece {
+            case .end:
+                handler(nil, nil)
+                return
+            case .data(let plain):
+                if let out = stripper.feed(plain), !out.isEmpty {
+                    handler(out, nil)
+                    return
+                }
+                if let failure = stripper.failure {
+                    handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: failure]))
+                    return
+                }
+            }
+        }
         raw.receive { [weak self] data, error in
             guard let self else { handler(nil, error); return }
             guard let data else { handler(nil, error); return }
@@ -252,22 +283,7 @@ final class NCSnellV4Relay: NCRelayStream {
                 handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: "snell v4 decode failed"]))
                 return
             }
-            for piece in pieces {
-                switch piece {
-                case .end:
-                    handler(nil, nil)
-                    return
-                case .data(let plain):
-                    if let out = self.stripper.feed(plain), !out.isEmpty {
-                        handler(out, nil)
-                        return
-                    }
-                    if let failure = self.stripper.failure {
-                        handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: failure]))
-                        return
-                    }
-                }
-            }
+            self.pendingPieces.append(contentsOf: pieces)
             self.receive(handler)
         }
     }
