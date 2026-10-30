@@ -15,6 +15,10 @@
 # Environment:
 #   SING_BOX_VERSION   pinned sing-box version (default 1.12.24)
 #   SING_BOX_BIN       path to an existing sing-box binary (skips the download)
+#   SNELL_SING_BOX_VERSION  pinned sing-box for the Snell inbound only (default
+#                      1.15.0-alpha.13 — the first sing-box line with a Snell
+#                      inbound; kept separate so the fleet pin stays put)
+#   SNELL_SING_BOX_BIN path to an existing sing-box >= 1.15 binary for Snell
 #   SUDOKU_VERSION     official Sudoku server release (default 0.5.2.0)
 #   SUDOKU_BIN         path to an existing official sudoku binary (CI builds it from source; skips the download)
 #   NC_LOOPBACK_DIR    runtime dir for binary/config/cert/logs/pids (default /tmp/nc-loopback)
@@ -60,6 +64,58 @@ find_sing_box() {
         chmod +x "$bin"
     fi
     printf '%s' "$bin"
+}
+
+# fix/kit-snell5: the Snell reference server. sing-box only gained a Snell inbound in 1.15
+# (protocol/snell, built on sagernet/sing-snell — a from-disassembly model of the official
+# snell-server v5.0.1), so the version-5 inbound on :18066 runs on its own pinned sing-box,
+# separate from the 1.12.24 fleet. Config: snell-sing-box-config.json next to this script.
+SNELL_SING_BOX_VERSION="${SNELL_SING_BOX_VERSION:-1.15.0-alpha.13}"
+find_snell_sing_box() {
+    if [ -n "${SNELL_SING_BOX_BIN:-}" ]; then
+        printf '%s' "$SNELL_SING_BOX_BIN"
+        return
+    fi
+    local os arch
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    case "$(uname -m)" in
+        arm64|aarch64) arch="arm64" ;;
+        x86_64|amd64)  arch="amd64" ;;
+        *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+    local bin="$RUN/bin/sing-box-snell"
+    if [ ! -x "$bin" ]; then
+        local name="sing-box-${SNELL_SING_BOX_VERSION}-${os}-${arch}"
+        log "downloading sing-box ${SNELL_SING_BOX_VERSION} (snell inbound, ${os}-${arch})"
+        curl -fsSL "https://github.com/SagerNet/sing-box/releases/download/v${SNELL_SING_BOX_VERSION}/${name}.tar.gz" \
+            | tar -xz -C "$RUN/bin" --strip-components=1 "$name/sing-box"
+        mv "$RUN/bin/sing-box" "$bin"
+        chmod +x "$bin"
+    fi
+    printf '%s' "$bin"
+}
+
+start_snell() {
+    local sb
+    sb="$(find_snell_sing_box)"
+    log "sing-box (snell) check"
+    "$sb" check -c "$DIR/snell-sing-box-config.json"
+    log "starting sing-box (snell) $("$sb" version | head -n1)"
+    nohup "$sb" run -c "$DIR/snell-sing-box-config.json" >"$RUN/snell-sing-box.log" 2>&1 &
+    echo $! > "$RUN/snell.pid"
+    wait_tcp 18066
+    kill -0 "$(cat "$RUN/snell.pid")"
+}
+
+stop_snell() {
+    if alive "$RUN/snell.pid"; then
+        kill "$(cat "$RUN/snell.pid")" 2>/dev/null || true
+    fi
+    rm -f "$RUN/snell.pid"
+    if [ -s "$RUN/snell-sing-box.log" ]; then
+        echo "--- snell-sing-box.log (last 60) ---" >&2
+        tail -n 60 "$RUN/snell-sing-box.log" >&2
+    fi
 }
 
 # fix/nc-sudoku-interop: the official Sudoku server (SUDOKU-ASCII/sudoku, pinned v0.5.2.0) as the black-box
@@ -296,7 +352,7 @@ stop_wire_capture() {
 }
 
 do_start() {
-    if alive "$RUN/sing-box.pid" && alive "$RUN/echo.pid" && alive "$RUN/lua.pid" && alive "$RUN/trusttunnel.pid"; then
+    if alive "$RUN/sing-box.pid" && alive "$RUN/echo.pid" && alive "$RUN/lua.pid" && alive "$RUN/trusttunnel.pid" && alive "$RUN/snell.pid"; then
         log "already running (sing-box pid $(cat "$RUN/sing-box.pid"), echo pid $(cat "$RUN/echo.pid"), tt pid $(cat "$RUN/trusttunnel.pid"))"
         return
     fi
@@ -332,6 +388,8 @@ do_start() {
     fi
     echo $! > "$RUN/sing-box.pid"
 
+    start_snell
+
     log "starting trusttunnel_endpoint $("$tt" --version 2>&1 | head -n1)"
     nohup "$tt" "$RUN/tt-settings.toml" "$RUN/tt-hosts.toml" >"$RUN/trusttunnel.log" 2>&1 &
     echo $! > "$RUN/trusttunnel.pid"
@@ -363,7 +421,7 @@ do_start() {
     kill -0 "$(cat "$RUN/trusttunnel.pid")"
     start_hy2_ref_client "$sb"
     start_sudoku
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 vmess-ws-tls :18064 echo :18080/:18081 blackhole :18082 dns :18084 lua :18016 http-connect :18018 tt :18013 masque :18012 sudoku :18090-:18094 http :18095"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 vless-ech :18014 trojan-ech :18015 naive-h2 :18040 naive-h3 :18041 silent-fail trojan-ws :18060 vless-httpupgrade :18061 vless-ws-ed :18062 trojan-grpc :18063 vmess-ws-tls :18064 snell5 :18066 echo :18080/:18081 blackhole :18082 dns :18084 lua :18016 http-connect :18018 tt :18013 masque :18012 sudoku :18090-:18094 http :18095"
 }
 
 # hy2-frag: sing-box's own hysteria2 client as a reference (socks :19080 -> hy2-in), probed by
@@ -417,6 +475,7 @@ do_stop() {
     local f
     stop_hy2_ref_client
     stop_sudoku
+    stop_snell
     stop_wire_capture
     quic_debug_summary
     for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/lua.pid" "$RUN/trusttunnel.pid" "$RUN/masque.pid"; do
@@ -430,7 +489,7 @@ do_stop() {
 
 do_status() {
     local rc=0
-    for name in sing-box echo lua trusttunnel masque sudoku-entropy sudoku-ascii-packed sudoku-directional-none sudoku-rotation sudoku-closed-fallback sudoku-http; do
+    for name in sing-box snell echo lua trusttunnel masque sudoku-entropy sudoku-ascii-packed sudoku-directional-none sudoku-rotation sudoku-closed-fallback sudoku-http; do
         if alive "$RUN/$name.pid"; then
             log "$name running (pid $(cat "$RUN/$name.pid"))"
         else
