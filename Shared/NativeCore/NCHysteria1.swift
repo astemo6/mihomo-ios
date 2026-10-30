@@ -168,6 +168,9 @@ final class NCHysteria1Connection {
     /// Session queue only (called from readDatagrams).
     func defragFeed(_ m: NCHy1UDP.Message) -> NCHy1UDP.Message? { defragger.feed(m) }
     private var control: NCHy2StreamChannel?
+    /// Session queue only: the control stream is extracted exactly once, when the group
+    /// reports .ready (openControlStream).
+    private var controlOpened = false
     private var controlBuffer = Data()
     private var startCompletion: ((Error?) -> Void)?
 
@@ -221,8 +224,8 @@ final class NCHysteria1Connection {
         ncOnSessionQueue(queue) { self.startOnQueue() }
     }
 
-    /// Session queue only: build the QUIC group and run the ClientHello/ServerHello exchange on its
-    /// first stream.
+    /// Session queue only: build the QUIC group; the ClientHello/ServerHello exchange runs on
+    /// its first stream, extracted when the group reports .ready (openControlStream).
     private func startOnQueue() {
         let quic = NWProtocolQUIC.Options(alpn: alpn)
         let tls = quic.securityProtocolOptions
@@ -253,11 +256,26 @@ final class NCHysteria1Connection {
         self.group = group
         group.stateUpdateHandler = { [weak self] (st: NWConnectionGroup.State) in
             guard let self else { return }
-            if case .failed(let e) = st {
+            switch st {
+            case .ready:
+                // The control stream is extracted only now, never right after
+                // group.start: extracting from a just-started group logs
+                // `nw_connection_group_create_connection_for_endpoint_and_parameters
+                // … failed to create connection` ("Original connection not yet
+                // connected") and returns nil — the NCHysteria2Connection rule
+                // (its header note 3, proto-loopback run 40171239186). Hy1's first
+                // cut extracted immediately and failed with "cannot open control
+                // stream" before any packet was sent (loopback run 41008008285:
+                // the client errored in under a second and the sing-box
+                // hysteria inbound logged no connection at all).
+                if self.state == .connecting { self.openControlStream() }
+            case .failed(let e):
                 if self.state == .connecting { self.finish(e) } else if self.state == .ready {
                     self.setSnapshotState(.failed)
                     self.close(keepState: true)
                 }
+            default:
+                break
             }
         }
         group.newConnectionHandler = { [weak self] incoming in
@@ -271,7 +289,19 @@ final class NCHysteria1Connection {
             incoming.start(queue: self.queue)
         }
         group.start(queue: queue)
-        guard let conn = group.extract(connectionTo: nil, using: nil) else {
+        queue.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, self.state == .connecting else { return }
+            self.finish(NCConnector.Failure.handshake("hysteria handshake timeout"))
+        }
+    }
+
+    /// Session queue only, one-shot: open the control stream the ClientHello /
+    /// ServerHello exchange runs on. Called when the group reports .ready —
+    /// extracting earlier returns nil (see the stateUpdateHandler note).
+    private func openControlStream() {
+        guard !controlOpened else { return }
+        controlOpened = true
+        guard let conn = group?.extract(connectionTo: nil, using: nil) else {
             finish(NCConnector.Failure.handshake("hysteria: cannot open control stream"))
             return
         }
@@ -282,10 +312,6 @@ final class NCHysteria1Connection {
             if let err { self.finish(err); return }
             ch.send(NCHy1.clientHello(sendBPS: self.sendBPS, recvBPS: self.recvBPS, auth: self.auth))
             self.readServerHello()
-        }
-        queue.asyncAfter(deadline: .now() + 10) { [weak self] in
-            guard let self, self.state == .connecting else { return }
-            self.finish(NCConnector.Failure.handshake("hysteria handshake timeout"))
         }
     }
 
