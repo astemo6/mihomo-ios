@@ -102,6 +102,55 @@ final class NCWireGuardTunnelDelayTests: XCTestCase {
         XCTAssertGreaterThan(d, 0, "WG delay through the tunnel core (binding off) is 0 — see [wg-tunnel] lines")
     }
 
+    /// The test99 shape: the seeded profile's group tested the way ControllerClient does it —
+    /// per-member /proxies/{name}/delay calls, 10 in flight at once — over a 10-node profile
+    /// lifted verbatim from the reduced kit seed (both WG-family nodes included). Three rounds;
+    /// round 1 is the cold one that fails in the real probe.
+    func test3_GroupSweepConcurrent() throws {
+        let home = NSTemporaryDirectory() + "wg-tunnel-home-sweep"
+        try? FileManager.default.removeItem(atPath: home)
+        try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+        try NCWireGuardSweepFixture.yaml.write(toFile: home + "/runtime.yaml", atomically: true, encoding: .utf8)
+        E2EHarness.prepareProcess { NSLog("[wg-sweep] setup: %@", $0) }
+        lineLock.lock(); delayLines = []; lineLock.unlock()
+        NCDialTrace.logSink = { [weak self] line, _ in
+            guard let self else { return }
+            self.lineLock.lock(); self.delayLines.append(line); self.lineLock.unlock()
+        }
+        let flow = E2EFlow()
+        _ = E2ENet(flow: flow)
+        let port = E2EHarness.freePort()
+        let secret = "wg-sweep-" + String(UUID().uuidString.prefix(8))
+        try NativeTunnelCore.shared.start(home: home, flow: flow, mtu: 1500, controllerPort: port, secret: secret)
+        let api = E2EController(port: port, secret: secret)
+        let members = ["Tern-SS-AEAD", "Tern-VLESS", "Tern-Trojan", "Tern-Hysteria2", "Tern-TUIC",
+                       "Tern-Snell5", "Tern-SSR", "Tern-SS-KCPTun", "Tern-WireGuard", "Tern-AmneziaWG"]
+        var wgRounds: [Int] = []
+        for round in 1...3 {
+            var results: [String: Int] = [:]
+            let lock = NSLock()
+            let group = DispatchGroup()
+            for m in members {
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let rep = api.call("GET", "/proxies/\(E2EController.enc(m))/delay",
+                                       query: ["url": "https://www.gstatic.com/generate_204", "timeout": "5000"], timeout: 25)
+                    let d = (rep.object?["delay"] as? NSNumber)?.intValue ?? 0
+                    lock.lock(); results[m] = d; lock.unlock()
+                    group.leave()
+                }
+            }
+            group.wait()
+            wgRounds.append(results["Tern-WireGuard"] ?? -1)
+            NSLog("[wg-sweep] round %d: %@", round,
+                  members.map { "\($0)=\(results[$0] ?? -1)" }.joined(separator: " "))
+        }
+        lineLock.lock(); let lines = delayLines; lineLock.unlock()
+        for l in lines where l.contains("WireGuard") || l.contains("AmneziaWG") { NSLog("[wg-sweep] %@", l) }
+        NativeTunnelCore.shared.stop()
+        XCTAssertTrue(wgRounds.allSatisfy { $0 > 0 }, "WG delay under the concurrent sweep: rounds \(wgRounds) — see [wg-sweep] lines")
+    }
+
     func test2_DelayViaTunnelCore_BindingOn() throws {
         let d = try runProbe(tag: "bound", binding: true)
         XCTAssertGreaterThan(d, 0, "WG delay through the tunnel core (binding on) is 0 — see [wg-tunnel] lines")
