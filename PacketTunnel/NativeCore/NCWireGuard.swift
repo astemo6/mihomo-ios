@@ -1047,8 +1047,7 @@ final class NCWGPeer {
             guard let self, let c, self.conn === c else { return }
             switch state {
             case .ready:
-                NSLog("[wg-prod] endpoint conn ready: %@ -> %@", String(describing: c.localEndpoint),
-                      String(describing: c.remoteEndpoint))
+                NSLog("[wg-prod] endpoint conn ready -> %@", String(describing: c.endpoint))
                 self.receiveLoop(c)
             case .waiting(let e):
                 NSLog("[wg-prod] endpoint conn waiting: %@", e.localizedDescription)
