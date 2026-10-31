@@ -270,6 +270,50 @@ struct NCRuleMatcher {
         firstMatchWithPolicy(rules, ctx)?.policy
     }
 
+    /// Rule kinds decidable from a DNS query alone: they read only the queried
+    /// name (DOMAIN-SET is the Surge/Loon spelling of a domain RULE-SET), plus
+    /// MATCH, which reads nothing at all — it decides every name, so letting
+    /// it decide here too keeps an early MATCH from being overridden by a
+    /// later domain rule (in practice MATCH is the last rule anyway).
+    /// Everything else (IP / port / network / process / logic over mixed
+    /// conditions) is invisible at DNS time and stays the connection layer's
+    /// business — it remains the authoritative backstop for those flows.
+    static let domainKinds: Set<String> = [
+        "DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD", "DOMAIN-WILDCARD", "DOMAIN-REGEX",
+        "GEOSITE", "RULE-SET", "DOMAIN-SET", "MATCH",
+    ]
+
+    /// Whether a policy name is a reject action (mirrors NCOutbound's mapping).
+    static func isRejectPolicy(_ policy: String) -> Bool {
+        let u = policy.uppercased()
+        return u == "REJECT" || u == "REJECT-DROP"
+    }
+
+    /// fix/dns-reject-storm: the DNS-layer reject verdict (QuanX semantics —
+    /// a REJECT-ruled name fails at resolution time, so SDKs give up instead
+    /// of retry-storming the connection layer). Walks the SAME rule list in
+    /// the SAME order through the SAME `matches`, restricted to domain-class
+    /// rules and a domain-only context (no ip / port / network): the first
+    /// domain-class rule that matches decides — reject policies block, any
+    /// other policy means the name's fate is already decided and the DNS
+    /// layer stays out. Non-domain rules are skipped, never treated as
+    /// misses or hits, so a name whose connection-layer fate depends on
+    /// them is simply not DNS-blocked (the connection layer still applies).
+    static func dnsRejectVerdict(_ rules: [NCRule], _ ctx: NCMatchContext) -> Bool {
+        dnsRejectRule(rules, ctx) != nil
+    }
+
+    /// The domain-class rule that decides this name's DNS-layer rejection
+    /// (nil when the first domain-class match is not a reject, or nothing
+    /// domain-class matches). Returned so the block can be recorded with
+    /// the rule that caused it, the way connection records carry theirs.
+    static func dnsRejectRule(_ rules: [NCRule], _ ctx: NCMatchContext) -> NCRule? {
+        for r in rules where domainKinds.contains(r.kind) {
+            if matches(r, ctx) { return isRejectPolicy(r.policy) ? r : nil }
+        }
+        return nil
+    }
+
     /// First matching rule together with the policy it actually yields.
     /// Differs from `firstMatch` for SUB-RULE (the winning sub-rule's
     /// policy, not the set name in the line's policy slot) and for rules

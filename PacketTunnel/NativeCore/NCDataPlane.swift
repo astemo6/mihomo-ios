@@ -1339,7 +1339,14 @@ final class NCDataPlane {
 
     private func dnsLogCacheHit(_ query: Data, reply: Data) {
         let (name, type) = Self.dnsNameType(query)
-        let line = NCDNSLogLine.cacheHit(name: name, type: type, response: NCDNSMessage.parse(reply))
+        let parsed = NCDNSMessage.parse(reply)
+        // fix/dns-reject-storm: an NXDOMAIN out of the local answer path is the
+        // DNS-layer reject (the hosts path never sets an rcode) — file it as a
+        // rejected query, not as a cache hit, so the DNS page can tell blocked
+        // names apart from answered ones.
+        let line = parsed?.rcode == 3
+            ? NCDNSLogLine.rejected(name: name, type: type)
+            : NCDNSLogLine.cacheHit(name: name, type: type, response: parsed)
         NativeLogRing.shared.add(type: "info", payload: line)
     }
 

@@ -44,6 +44,11 @@ final class NCStatsRecorder {
         /// "Socks5" / "Probe" from 127.0.0.1 or the LAN client).
         var type: String = "Native"
         var srcIP: String = "198.18.0.1"
+        /// fix/dns-reject-storm: how many connections this record stands for.
+        /// 1 for an ordinary record; > 1 only for an aggregated rejected
+        /// record (see the storm aggregation below). Serialised as "count"
+        /// only when > 1, so existing records' JSON is unchanged.
+        var count: Int = 1
     }
 
     fileprivate struct UpDown: Touched {
@@ -71,6 +76,50 @@ final class NCStatsRecorder {
     private var ring: [Closed] = []
     private var closedPos = 0
     private var seq: Int64 = 0
+
+    // MARK: rejected-connection storm aggregation (fix/dns-reject-storm)
+    //
+    // A retry-storming app (measured: an ad SDK refused at the connection
+    // layer retried ~37k times in 8 minutes, 99% REJECT) would otherwise
+    // grow the whole-session record set — and with it the tunnel's memory,
+    // 14.5 MB -> 40 MB critical in the same incident — one stored record
+    // per retry. Rejected connections therefore pass through a coalescing
+    // gate: repeats of the same (host-or-IP, port, rule) inside a short
+    // window merge into ONE stored record carrying a count (and summed
+    // bytes). Normal connections are untouched: the user's whole-session
+    // retention stands for them; only rejected churn is aggregated.
+    //
+    /// Window from an aggregate's first connection; expiry is evaluated
+    /// lazily on recorder activity (admissions, stats reads, sampling) —
+    /// no timer, matching the recorder's existing drive points.
+    static let rejectWindowMs: Int64 = 5_000
+    /// Distinct pending aggregates; beyond this the oldest flushes early.
+    static let rejectPendingCap = 512
+    /// Hard session cap on STORED rejected records (aggregates included).
+    /// Once reached, new keys only advance `rejectedOverflow` — the fuse
+    /// that bounds memory no matter how diverse the storm's keys get.
+    static let rejectStoredCap = 2_000
+
+    private struct RejectKey: Hashable {
+        let host: String // domain when known, else the destination IP
+        let port: Int
+        let rule: String
+    }
+    private var rejectPending: [RejectKey: Closed] = [:]
+    private var rejectFlushAt: Int64 = .max // earliest pending expiry (lazy-flush early exit)
+    private var rejectStoredCount = 0
+    /// Connections folded into an aggregate beyond its first.
+    private(set) var rejectedMerged: Int = 0
+    /// Connections never individually represented because the session cap
+    /// was already reached (their aggregates flush as overflow counts).
+    private(set) var rejectedOverflow: Int = 0
+
+    /// The App's blocked test (HomeDrill.isBlocked): a chain element with
+    /// a REJECT prefix (REJECT / REJECT-DROP). Mirrored here so exactly
+    /// the records the user sees as "blocked" are the ones aggregated.
+    static func isRejected(_ c: Closed) -> Bool {
+        c.chains.contains { $0.uppercased().hasPrefix("REJECT") }
+    }
     // speed: [t, up, down, pUp, pDown] / [start, up, down, pUp, pDown, n] in rings (flat Int64 arrays)
     private var secs = Ring(width: 5, cap: NCStatsRecorder.secCap)
     private var mins = Ring(width: 6, cap: NCStatsRecorder.minCap)
@@ -135,6 +184,27 @@ final class NCStatsRecorder {
         if newH { Self.evict(&hosts, cap: Self.hostCap) }
     }
 
+    private var dnsBlockedSeq: UInt64 = 0
+
+    /// fix/dns-reject-storm: a name blocked at the DNS layer (NXDOMAIN by a
+    /// domain-class REJECT rule) never becomes a connection, so without this
+    /// it would leave no trace in the connection records — the device report
+    /// behind the change showed only bare IPs on the blocked page while
+    /// QuanX lists the blocked domains by name. Synthesise the equivalent
+    /// rejected record (host = the queried name, no destination IP — there
+    /// never was one), through the same closed() funnel as a rejected
+    /// connection, so the App's 已拦截 filter (chains ∋ REJECT) lists it by
+    /// domain. Deliberately NOT counted via opened(): it is not a
+    /// connection, and the session's connection total must stay truthful.
+    func dnsBlocked(host: String, rule: String, at: Date = Date()) {
+        lock.lock(); dnsBlockedSeq &+= 1; let n = dnsBlockedSeq; lock.unlock()
+        let ms = Int64(at.timeIntervalSince1970 * 1000)
+        closed(Closed(seq: 0, id: "dns-\(n)", network: "udp", srcPort: 0,
+                      dstIP: "", dstPort: 53, host: host, remote: host,
+                      chains: ["REJECT"], rule: rule, up: 0, down: 0,
+                      start: ms, closedAt: ms))
+    }
+
     /// A connection closed: into the ring (seq assigned here).
     /// feat/session-records: start archiving closed connections for this connection
     /// session (truncates any previous session's archive — reconnecting zeroes records).
@@ -145,8 +215,22 @@ final class NCStatsRecorder {
 
     func closed(_ c: Closed) {
         lock.lock(); defer { lock.unlock() }
+        admitLocked(c)
+        version &+= 1
+    }
+
+    /// Admission under the lock: rejected records pass the aggregation
+    /// gate, everything else stores immediately (unchanged behavior).
+    private func admitLocked(_ c: Closed) {
+        flushExpiredRejectsLocked(now: c.closedAt)
+        if Self.isRejected(c) { admitRejectedLocked(c) } else { storeLocked(c) }
+    }
+
+    /// The one store path (seq assigned here, so archived seqs stay
+    /// non-decreasing even though aggregates store late): ring + archive.
+    private func storeLocked(_ c0: Closed) {
         seq += 1
-        var c = c
+        var c = c0
         c.seq = seq
         c.id = Self.clip(c.id); c.host = Self.clip(c.host); c.remote = Self.clip(c.remote); c.rule = Self.clip(c.rule)
         c.dstIP = Self.clip(c.dstIP); c.srcIP = Self.clip(c.srcIP); c.type = Self.clip(c.type)
@@ -159,7 +243,64 @@ final class NCStatsRecorder {
             closedPos = (closedPos + 1) % Self.closedCap
         }
         closedArchive?.append(Self.closedJSON(c))
-        version &+= 1
+    }
+
+    private func admitRejectedLocked(_ c: Closed) {
+        let key = RejectKey(host: c.host.isEmpty ? c.dstIP : c.host, port: c.dstPort, rule: c.rule)
+        if var agg = rejectPending[key] {
+            if c.closedAt > agg.start + Self.rejectWindowMs {
+                // The window passed without a flush drive touching this
+                // key: close the old aggregate out and start a fresh one.
+                rejectPending.removeValue(forKey: key)
+                storeRejectedLocked(agg)
+            } else {
+                agg.count += 1
+                agg.up += c.up
+                agg.down += c.down
+                agg.closedAt = max(agg.closedAt, c.closedAt)
+                rejectPending[key] = agg
+                rejectedMerged += 1
+                return
+            }
+        }
+        // A key that is neither pending nor already stored counts against
+        // the session cap the moment it is admitted (pending aggregates
+        // are committed to store unless the session resets first).
+        guard rejectStoredCount + rejectPending.count < Self.rejectStoredCap else {
+            rejectedOverflow += 1
+            return
+        }
+        if rejectPending.count >= Self.rejectPendingCap { flushOldestRejectLocked() }
+        rejectPending[key] = c
+        rejectFlushAt = min(rejectFlushAt, c.start + Self.rejectWindowMs)
+    }
+
+    private func storeRejectedLocked(_ agg: Closed) {
+        guard rejectStoredCount < Self.rejectStoredCap else {
+            rejectedOverflow += agg.count
+            return
+        }
+        rejectStoredCount += 1
+        storeLocked(agg)
+    }
+
+    private func flushOldestRejectLocked() {
+        guard let (key, agg) = rejectPending.min(by: { $0.value.start < $1.value.start }) else { return }
+        rejectPending.removeValue(forKey: key)
+        storeRejectedLocked(agg)
+    }
+
+    /// Lazy window expiry, driven by recorder activity (admissions, stats
+    /// reads, the 1 s sampler) — deliberately no timer of its own.
+    private func flushExpiredRejectsLocked(now: Int64) {
+        guard now >= rejectFlushAt, !rejectPending.isEmpty else { return }
+        let expired = rejectPending.filter { $0.value.start + Self.rejectWindowMs <= now }
+            .sorted { $0.value.start < $1.value.start }
+        for (key, agg) in expired {
+            rejectPending.removeValue(forKey: key)
+            storeRejectedLocked(agg)
+        }
+        rejectFlushAt = rejectPending.values.map { $0.start + Self.rejectWindowMs }.min() ?? .max
     }
 
     // MARK: flows outside the TUN session table (fix/nc-open-6-10 #9)
@@ -190,19 +331,11 @@ final class NCStatsRecorder {
         oneShotSeq &+= 1
         var chains = [Self.clip(ch)]
         if p != chains[0] { chains.append(p) }
-        seq += 1
-        let c = Closed(seq: seq, id: Self.clip("\(idPrefix)-\(oneShotSeq)"), network: network, srcPort: 0,
+        let c = Closed(seq: 0, id: Self.clip("\(idPrefix)-\(oneShotSeq)"), network: network, srcPort: 0,
                        dstIP: Self.clip(host), dstPort: dstPort, host: Self.clip(host), remote: Self.clip(host),
                        chains: chains, rule: r, up: up, down: down,
                        start: Int64(start.timeIntervalSince1970 * 1000), closedAt: Int64(end.timeIntervalSince1970 * 1000))
-        if ring.count < Self.closedCap {
-            ring.append(c)
-            closedPos = ring.count % Self.closedCap
-        } else {
-            ring[closedPos] = c
-            closedPos = (closedPos + 1) % Self.closedCap
-        }
-        closedArchive?.append(Self.closedJSON(c))
+        admitLocked(c) // same gate as closed(): a rejected script flow aggregates too
         version &+= 1
     }
 
@@ -219,6 +352,9 @@ final class NCStatsRecorder {
     /// minute / hour buckets. Totals that went down (new data plane after a reload) restart the baseline.
     func sample(now: Date = Date(), up up0: Int64, down down0: Int64, proxyUp proxyUp0: Int64, proxyDown proxyDown0: Int64) {
         lock.lock(); defer { lock.unlock() }
+        // The 1 s sampler is the aggregation gate's metronome: even if the
+        // session goes quiet, pending aggregates land within ~window + 1 s.
+        flushExpiredRejectsLocked(now: Int64(now.timeIntervalSince1970 * 1000))
         let up = up0 &+ sideUp, down = down0 &+ sideDown
         let proxyUp = proxyUp0 &+ sideProxyUp, proxyDown = proxyDown0 &+ sideProxyDown
         let at = now.timeIntervalSince1970
@@ -269,6 +405,13 @@ final class NCStatsRecorder {
         total = 0
         policies = [:]; hosts = [:]; rules = [:]
         ring = []; closedPos = 0; seq = 0
+        // Pending rejected aggregates belong to the old session: dropped
+        // unwritten, exactly like the ring (reconnect zeroes everything).
+        rejectPending = [:]
+        rejectFlushAt = .max
+        rejectStoredCount = 0
+        rejectedMerged = 0
+        rejectedOverflow = 0
         closedArchive?.reset() // 清零 zeroes the session's records too, not just the counters
         version &+= 1
     }
@@ -278,6 +421,7 @@ final class NCStatsRecorder {
     /// GET /app/stats?session=&closedAfter=&hosts=&rules= (limits ≤ 0 = all).
     func statsJSON(session asked: Int64, closedAfter: Int64, hostLimit: Int, ruleLimit: Int) -> [String: Any] {
         lock.lock(); defer { lock.unlock() }
+        flushExpiredRejectsLocked(now: Int64(Date().timeIntervalSince1970 * 1000))
         func nb(_ d: [String: UpDown], limit: Int) -> [[String: Any]] {
             var l = d.map { (name: $0.key, v: $0.value) }
             l.sort { a, b in
@@ -317,6 +461,9 @@ final class NCStatsRecorder {
             "ruleCount": rules.count,
             "hosts": nb(hosts, limit: hostLimit), "hostCount": hosts.count,
             "closedSeq": seq, "closed": out, "full": full,
+            // fix/dns-reject-storm: storm-aggregation visibility (additive;
+            // older App builds ignore unknown keys).
+            "rejectedMerged": rejectedMerged, "rejectedOverflow": rejectedOverflow,
         ]
     }
 
@@ -335,7 +482,7 @@ final class NCStatsRecorder {
 
     var countsLine: String {
         lock.lock(); defer { lock.unlock() }
-        return "stats: conns \(total), policies \(policies.count), hosts \(hosts.count), rules \(rules.count), closed \(ring.count), speed \(secs.count)s"
+        return "stats: conns \(total), policies \(policies.count), hosts \(hosts.count), rules \(rules.count), closed \(ring.count), speed \(secs.count)s, rejectedMerged \(rejectedMerged), rejectedOverflow \(rejectedOverflow)"
     }
 
     // MARK: helpers
@@ -347,7 +494,7 @@ final class NCStatsRecorder {
     }()
 
     private static func closedJSON(_ c: Closed) -> [String: Any] {
-        [
+        var d: [String: Any] = [
             "seq": c.seq, "id": c.id,
             "metadata": [
                 "network": c.network, "type": c.type, "sourceIP": c.srcIP, "destinationIP": c.dstIP,
@@ -359,6 +506,10 @@ final class NCStatsRecorder {
             "start": c.start > 0 ? iso.string(from: Date(timeIntervalSince1970: Double(c.start) / 1000)) : "",
             "chains": c.chains, "rule": c.rule, "rulePayload": "", "closedAt": c.closedAt,
         ]
+        // Aggregated rejected records say how many connections they stand
+        // for; ordinary records omit the key entirely (JSON unchanged).
+        if c.count > 1 { d["count"] = c.count }
+        return d
     }
 
     static func clip(_ s: String) -> String {

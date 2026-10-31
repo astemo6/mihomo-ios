@@ -744,6 +744,19 @@ final class NativeCoreEngine {
         locked { dnsPolicy }?.answerTriggersFallback(response) ?? false
     }
 
+    /// fix/dns-reject-storm: the raw text of the domain-class REJECT rule
+    /// that decides this name at the DNS layer, or nil. Evaluated with the
+    /// very same rule snapshot and injected lookups as connection routing
+    /// (`matchContext`), restricted to rules a DNS query can decide
+    /// (NCRuleMatcher.dnsRejectRule). Only meaningful in rule mode —
+    /// direct / global mode never reject by rule, mirroring routeAsyncImpl.
+    func dnsLayerRejectRule(_ host: String) -> String? {
+        let snapshot = locked { (_config != nil && effectiveMode == "rule") ? rules : [] }
+        guard !snapshot.isEmpty else { return nil }
+        let ctx = matchContext(domain: host, ip: nil, dstPort: nil, network: "udp")
+        return NCRuleMatcher.dnsRejectRule(snapshot, ctx)?.raw
+    }
+
     /// Answers a raw DNS query in fake-IP mode (A -> fake IP, AAAA -> fake
     /// v6 when a range6 is configured, else empty NOERROR). nil means the
     /// query is not fake-IP business and must be forwarded upstream by the
@@ -752,7 +765,16 @@ final class NativeCoreEngine {
         stateLock.lock(); defer { stateLock.unlock() }
         guard !redirHostMode, let pool = fakeIP else { return nil }
         if dnsResponder == nil { dnsResponder = NCFakeIPResponder(pool: pool) }
-        return dnsResponder?.respond(to: query)
+        // Re-wired on every query (cheap) so a config reload that kept the
+        // responder instance still evaluates the current rules.
+        dnsResponder?.rejectMatcher = { [weak self] host in self?.dnsLayerRejectRule(host) }
+        let outcome = dnsResponder?.respondWithOutcome(to: query) ?? (reply: nil, rejection: nil)
+        if let rejection = outcome.rejection {
+            // The block must be visible BY DOMAIN in the connection records
+            // (已拦截), not only as a failed line on the DNS page.
+            NCStatsRecorder.shared.dnsBlocked(host: rejection.host, rule: rejection.rule)
+        }
+        return outcome.reply
     }
 
     /// redir-host: remember a forwarded response's A/AAAA answers so later
