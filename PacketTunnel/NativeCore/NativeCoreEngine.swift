@@ -68,6 +68,12 @@ final class NativeCoreEngine {
         URL(fileURLWithPath: home).appendingPathComponent("nativecore-fakeip.json")
     }
 
+    /// fix/httpdns-guard-persist: the guard's persisted table lives next
+    /// to the fake-IP snapshot — same home, same atomic-JSON convention.
+    private var httpdnsGuardFile: URL {
+        URL(fileURLWithPath: home).appendingPathComponent("nativecore-httpdns-guard.json")
+    }
+
     /// Loads (or reloads) the config for `home`. Returns an error message or nil.
     /// Config acquisition, in order: (1) `runtime.yaml` read directly by
     /// the built-in YAML parser — no the old core involved; (2) `runtime.conf`
@@ -310,6 +316,10 @@ final class NativeCoreEngine {
         // config-change refresh; the service's own timer covers the
         // 30 min cadence between reloads. Off in the overrides → the
         // service stops and the table empties.
+        // fix/httpdns-guard-persist: point the guard at its on-disk
+        // table for THIS home before arming/disarming, so start() can
+        // restore it and setEnabled(false) can clear it.
+        httpdnsGuard.setStoreFile(httpdnsGuardFile)
         httpdnsGuard.setEnabled(cfg.httpdnsGuard)
         if cfg.httpdnsGuard {
             StartupLog.write("httpdns guard: on (watching \(NCHTTPDNSGuard.watchDomains.joined(separator: ", ")))")

@@ -170,4 +170,119 @@ final class NCHTTPDNSGuardTests: XCTestCase {
         // And the override model itself defaults on.
         XCTAssertTrue(CoreOverrides().httpdnsGuard)
     }
+
+    // MARK: persistence (fix/httpdns-guard-persist)
+
+    private func tempStoreFile() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("httpdns-guard-\(UUID().uuidString).json")
+    }
+
+    func testPersistedTableRoundTripsIntoAFreshGuard() {
+        let file = tempStoreFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        let a = enabledGuard()
+        a.setStoreFile(file)
+        a.refresh(resolver: fakeResolver([
+            "httpdns.baidu.com": [ip("110.242.69.16")],
+            "httpdns.alicdn.com": [ip("163.181.154.191"), ip("163.181.154.192")],
+        ]))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+
+        // A fresh guard — the extension relaunched under memory
+        // pressure — restores last run's table before any refresh.
+        let b = enabledGuard()
+        b.setStoreFile(file)
+        b.loadPersisted()
+        XCTAssertEqual(b.domain(for: ip("110.242.69.16")), "httpdns.baidu.com")
+        XCTAssertEqual(b.domain(for: ip("163.181.154.191")), "httpdns.alicdn.com")
+        XCTAssertEqual(b.domain(for: ip("163.181.154.192")), "httpdns.alicdn.com")
+        XCTAssertEqual(b.ipCount, 3)
+    }
+
+    func testCorruptOrForeignStoreFileStartsEmpty() {
+        let file = tempStoreFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        let g = enabledGuard()
+        g.setStoreFile(file)
+        // Garbage bytes: no throw, empty table.
+        try? Data([0x00, 0xFF, 0x42]).write(to: file)
+        g.loadPersisted()
+        XCTAssertEqual(g.ipCount, 0)
+        // Valid JSON, foreign version: ignored.
+        try? Data(#"{"version":99,"ips":{"110.242.69.16":"httpdns.baidu.com"}}"#.utf8).write(to: file)
+        g.loadPersisted()
+        XCTAssertEqual(g.ipCount, 0)
+        // Current version: an unwatched domain and an unparseable IP
+        // are dropped, the legitimate entry survives.
+        try? Data(#"{"version":1,"ips":{"203.0.113.1":"httpdns.evil.example","not-an-ip":"httpdns.baidu.com","110.242.69.16":"httpdns.baidu.com"}}"#.utf8).write(to: file)
+        g.loadPersisted()
+        XCTAssertEqual(g.ipCount, 1)
+        XCTAssertEqual(g.domain(for: ip("110.242.69.16")), "httpdns.baidu.com")
+    }
+
+    func testDisablingDeletesTheStoreFile() {
+        let file = tempStoreFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        let g = enabledGuard()
+        g.setStoreFile(file)
+        g.refresh(resolver: fakeResolver(["httpdns.baidu.com": [ip("110.242.69.16")]]))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        g.setEnabled(false)
+        XCTAssertEqual(g.ipCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testLoadPersistedKeepsAFresherInMemoryTable() {
+        let file = tempStoreFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        let a = enabledGuard()
+        a.setStoreFile(file)
+        a.refresh(resolver: fakeResolver(["httpdns.baidu.com": [ip("110.242.69.16")]]))
+        // Warm reload: memory already holds a NEWER set than disk, the
+        // restore must not roll it back.
+        let b = enabledGuard()
+        b.setStoreFile(file)
+        b.applySnapshot(["httpdns.baidu.com": [ip("110.242.69.99")]])
+        b.loadPersisted()
+        XCTAssertNil(b.domain(for: ip("110.242.69.16")))
+        XCTAssertEqual(b.domain(for: ip("110.242.69.99")), "httpdns.baidu.com")
+    }
+
+    // MARK: cold-start fill (fix/httpdns-guard-persist)
+
+    func testFillMissingResolvesOnlyTheMissingDomains() {
+        var queried: [String] = []
+        let counting: NCHTTPDNSGuard.Resolver = { domain, completion in
+            queried.append(domain)
+            completion(domain == "httpdns.alicdn.com" ? [self.ip("163.181.154.191")] : nil)
+        }
+        let g = enabledGuard()
+        g.applySnapshot(["httpdns.baidu.com": [ip("110.242.69.16")]])
+        XCTAssertEqual(g.missingDomains(), [
+            "httpdns.baidubce.com", "httpdns.alicdn.com", "httpdns-api.aliyuncs.com",
+        ])
+        g.fillMissing(resolver: counting)
+        // Only the three missing domains were queried — the covered one
+        // is never re-resolved by a fill pass.
+        XCTAssertEqual(queried, [
+            "httpdns.baidubce.com", "httpdns.alicdn.com", "httpdns-api.aliyuncs.com",
+        ])
+        XCTAssertEqual(g.domain(for: ip("163.181.154.191")), "httpdns.alicdn.com")
+        // The next fill pass retries only what is STILL missing.
+        queried = []
+        g.fillMissing(resolver: counting)
+        XCTAssertEqual(queried, ["httpdns.baidubce.com", "httpdns-api.aliyuncs.com"])
+    }
+
+    func testCompletedEmptyAnswerCountsAsMissingForTheFill() {
+        let g = enabledGuard()
+        g.refresh(resolver: fakeResolver(["httpdns.baidu.com": []])) // completed, no addresses
+        XCTAssertTrue(g.missingDomains().contains("httpdns.baidu.com"))
+    }
+
+    func testInitialRetryBackoffMarks() {
+        XCTAssertEqual(NCHTTPDNSGuard.initialRetryDelays, [20, 60, 180])
+        XCTAssertLessThan(NCHTTPDNSGuard.initialRetryDelays.last!, NCHTTPDNSGuard.refreshInterval)
+    }
 }
