@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Loopback backends for the NativeCore protocol loopback tests.
 
-One process, five sockets (all 127.0.0.1):
+One process, five sockets (all 127.0.0.1 except TCP echo, which binds
+0.0.0.0 — see tcp_echo_server):
 
   TCP 18080  echo        — every byte received is sent back verbatim.
   UDP 18081  echo        — every datagram is sent back verbatim.
@@ -82,9 +83,16 @@ def _set_discarding(on: bool) -> None:
 
 
 def tcp_echo_server() -> None:
+    # Wildcard bind, unlike the other sockets: the WireGuard loopback test
+    # (E2ETests/NCWireGuardLoopbackTests) must dial this server through a
+    # sing-box WireGuard endpoint at the runner's primary address — the
+    # endpoint's gVisor netstack drops inner packets with a loopback
+    # destination as martian, so 127.0.0.1 is unreachable through it
+    # (fix/kit-wireguard phase 2). Every other consumer dials 127.0.0.1
+    # and is unaffected.
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind((HOST, TCP_ECHO_PORT))
+    srv.bind(("0.0.0.0", TCP_ECHO_PORT))
     srv.listen(64)
 
     def handle(conn: socket.socket) -> None:
