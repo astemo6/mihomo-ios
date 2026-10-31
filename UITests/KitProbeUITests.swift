@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// probe/kit-e2e: drive a REAL group delay test over every node of the tools/server-test kit
 /// profile (seed "UITest Kit", group "Tern-Test", 40 reference servers on the zhiheng VPS).
@@ -64,28 +65,39 @@ extension TernUITests {
         att.lifetime = .keepAlways
         add(att)
         // WG phase-3 diagnostics (fix/kit-wireguard-prod): pull the extension's own words out
-        // of the UI — the startup log ([wg] lines via StartupLog) on 更多, and the core log's
-        // [delay] verdicts for the WG pair on 工具 → 运行日志.
+        // through the pasteboard (shared on the simulator): 更多 → 复制启动日志, and
+        // 工具 → 运行日志 → copy-all toolbar button.
         var dump = ""
         tab(4)
-        for _ in 0..<6 { app.swipeUp() }
-        for st in app.staticTexts.allElementsBoundByIndex where st.label.contains("[wg]") {
-            dump += "STARTUPLOG:\n\(st.label)\n"
+        let copyStart = app.buttons["复制启动日志"]
+        for _ in 0..<10 where !copyStart.exists { app.swipeUp() }
+        if copyStart.exists {
+            copyStart.tap()
+            usleep(800_000)
+            if let s = UIPasteboard.general.string, !s.isEmpty {
+                dump += "STARTUP-PASTE:\n\(s)\n"
+            }
         }
         tab(3)
         let logsCard = app.staticTexts["运行日志"]
         if logsCard.waitForExistence(timeout: 8) {
             logsCard.tap()
-            usleep(2_500_000)
-            var seen: Set<String> = []
-            for _ in 0..<10 {
-                for st in app.staticTexts.allElementsBoundByIndex {
-                    let l = st.label
-                    if (l.contains("WireGuard") || l.contains("AmneziaWG")) && seen.insert(l).inserted {
-                        dump += "CORELOG: \(l)\n"
-                    }
+            usleep(3_000_000)
+            UIPasteboard.general.string = "WG-PASTE-MARKER"
+            let candidates = app.buttons.allElementsBoundByIndex.filter {
+                $0.label.contains("doc.on.doc") || $0.identifier.contains("doc.on.doc")
+            }
+            if let b = candidates.first {
+                b.tap()
+                usleep(800_000)
+                if let s = UIPasteboard.general.string, s != "WG-PASTE-MARKER" {
+                    let wg = s.split(separator: "\n").filter { $0.contains("WireGuard") || $0.contains("AmneziaWG") }
+                    dump += "CORELOG-PASTE (\(wg.count) wg lines of \(s.split(separator: "\n").count)):\n" + wg.joined(separator: "\n") + "\n"
+                } else {
+                    dump += "CORELOG-PASTE: <pasteboard unchanged>\n"
                 }
-                app.swipeUp()
+            } else {
+                dump += "CORELOG-PASTE: <copy button not found; buttons: \(app.buttons.allElementsBoundByIndex.map(\.label))>\n"
             }
         }
         let att2 = XCTAttachment(string: dump.isEmpty ? "<no wg log lines found>" : dump)
