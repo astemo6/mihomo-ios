@@ -132,6 +132,11 @@ struct NCConfig: Equatable {
     var rules: [String]
     var dns: NCDNSConfig
     var sniffer: NCSnifferConfig = NCSnifferConfig(fields: [:])
+    /// fix/httpdns-guard: CoreOverrides.httpdnsGuard, baked by the runtime
+    /// builder as the top-level `httpdns-guard` bool. Defaulted (here and in
+    /// decode) so configs built before the key existed keep the guard ON —
+    /// the override's factory default.
+    var httpdnsGuard: Bool = true
     var raw: [String: NCJSONValue]
     /// Named sub-rule sets (`sub-rules:` in the source config), parsed.
     /// Only the Clash.Meta-YAML path carries them; other construction sites
@@ -178,6 +183,7 @@ struct NCConfig: Equatable {
             rules: rules,
             dns: dns,
             sniffer: NCSnifferConfig(fields: root["sniffer"]?.object ?? [:]),
+            httpdnsGuard: root["httpdns-guard"]?.bool ?? true,
             raw: root,
             subRules: subRules)
     }

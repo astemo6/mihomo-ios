@@ -232,6 +232,11 @@ enum NCRuntimeBuilder {
         }
         raw["sniffer"] = .object(sn)
 
+        // HTTPDNS guard (fix/httpdns-guard): a plain top-level bool the
+        // tunnel engine reads (NCConfig.httpdnsGuard). NCConfig defaults
+        // it on when the key is absent, matching the override's default.
+        raw["httpdns-guard"] = .bool(core.httpdnsGuard)
+
         // TUN
         if fd > 0 {
             var tun: [String: NCJSONValue] = [

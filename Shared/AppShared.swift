@@ -219,6 +219,16 @@ struct CoreOverrides: Codable, Equatable {
     var allowLan: Bool = false
     var dnsMode: String = "fake-ip"
     var sniffer: Bool = true
+    /// HTTPDNS 守卫 (fix/httpdns-guard): the engine resolves the well-known
+    /// HTTPDNS service domains (httpdns.baidu.com 等) itself and rejects
+    /// connections to their IPs. Apps that resolve through their own
+    /// HTTPDNS bypass the user's DNS policy entirely — no query for the
+    /// DNS layer to reject, no SNI for the sniffer — so the service
+    /// endpoint is the only place the policy can bite; losing it just
+    /// pushes the app back to system DNS. The watched names are pure
+    /// resolution services and the apps' content servers do not live
+    /// behind those IPs, so the guard is on by default.
+    var httpdnsGuard: Bool = true
     var controllerPort: Int = 9090
     var secret: String = ""
     var mode: String = "rule"
@@ -409,7 +419,7 @@ struct CoreOverrides: Codable, Equatable {
     init() {}
 
     enum CodingKeys: String, CodingKey {
-        case logLevel, ipv6, allowLan, dnsMode, sniffer, controllerPort, secret, mode, memoryLimitMB
+        case logLevel, ipv6, allowLan, dnsMode, sniffer, httpdnsGuard, controllerPort, secret, mode, memoryLimitMB
         case tunnelMode, mixedPort, tunMTU, geoMirror, geoMirrorBase, geoURLs, geoAutoUpdateDays, mergeManual, safeMode
         case testURL, testTimeoutMs, overrideHealthCheck
         case includedRoutes, excludedRoutes, skipProxy, blockQUIC
@@ -432,6 +442,7 @@ struct CoreOverrides: Codable, Equatable {
         allowLan = get(.allowLan, d.allowLan)
         dnsMode = get(.dnsMode, d.dnsMode)
         sniffer = get(.sniffer, d.sniffer)
+        httpdnsGuard = get(.httpdnsGuard, d.httpdnsGuard)
         controllerPort = get(.controllerPort, d.controllerPort)
         secret = get(.secret, d.secret)
         mode = get(.mode, d.mode)

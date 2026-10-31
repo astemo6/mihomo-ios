@@ -205,6 +205,27 @@ final class NCStatsRecorder {
                       start: ms, closedAt: ms))
     }
 
+    private var guardBlockedSeq: UInt64 = 0
+
+    /// fix/httpdns-guard: a flow refused because its destination IP is a
+    /// watched HTTPDNS service address (NCHTTPDNSGuard). The app resolved
+    /// through its own HTTPDNS, so there is no DNS query to NXDOMAIN and
+    /// usually no SNI to match — the refusal happens at the data plane,
+    /// before any relay exists. Same synthetic-record funnel as dnsBlocked
+    /// (chains ∋ REJECT → the App's 已拦截 page; deliberately NOT counted
+    /// via opened()), except the attempt DID have a real destination:
+    /// dstIP / dstPort / network describe the refused flow, and `host`
+    /// names the HTTPDNS service so the record reads httpdns.baidu.com,
+    /// not a bare 110.242.x.x the user cannot attribute.
+    func guardBlocked(host: String, rule: String, dstIP: String, dstPort: Int, network: String, at: Date = Date()) {
+        lock.lock(); guardBlockedSeq &+= 1; let n = guardBlockedSeq; lock.unlock()
+        let ms = Int64(at.timeIntervalSince1970 * 1000)
+        closed(Closed(seq: 0, id: "guard-\(n)", network: network, srcPort: 0,
+                      dstIP: dstIP, dstPort: dstPort, host: host, remote: host,
+                      chains: ["REJECT"], rule: rule, up: 0, down: 0,
+                      start: ms, closedAt: ms))
+    }
+
     /// A connection closed: into the ring (seq assigned here).
     /// feat/session-records: start archiving closed connections for this connection
     /// session (truncates any previous session's archive — reconnecting zeroes records).
