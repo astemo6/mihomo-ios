@@ -95,12 +95,24 @@ extension NCLwIPDevice {
                 finishOnce(r)
             }
             let b = server.bytes + [UInt8](repeating: 0, count: 16 - server.bytes.count)
-            _ = b.withUnsafeBufferPointer { bp in
-                q.withUnsafeBufferPointer { qp in
-                    nc_wg_udp_send(sock, bp.baseAddress, server.isV4 ? 0 : 1, 53, qp.baseAddress, UInt32(qp.count))
+            func sendQuery() {
+                _ = b.withUnsafeBufferPointer { bp in
+                    q.withUnsafeBufferPointer { qp in
+                        nc_wg_udp_send(sock, bp.baseAddress, server.isV4 ? 0 : 1, 53, qp.baseAddress, UInt32(qp.count))
+                    }
                 }
             }
-            NCLwIP.queue.asyncAfter(deadline: .now() + 2.5) { finishOnce(nil) }
+            sendQuery()
+            // fix/kit-wireguard-prod: the query rides the WireGuard handshake, whose first
+            // retransmit is at 5 s (rekeyTimeout). A single shot with a 2.5 s deadline failed
+            // the whole dial whenever the first initiation (or its response) was lost, or the
+            // endpoint connection was still settling — the session would have recovered at the
+            // first retransmit. Re-send every 2 s and give the attempt 10 s (two retransmit
+            // cycles), the same order as the TCP stream's 15 s connect deadline.
+            for delay in [2.0, 4.0, 6.0, 8.0] {
+                NCLwIP.queue.asyncAfter(deadline: .now() + delay) { if !finished { sendQuery() } }
+            }
+            NCLwIP.queue.asyncAfter(deadline: .now() + 10) { finishOnce(nil) }
         }
         attempt(0)
     }
@@ -870,6 +882,7 @@ final class NCWGPeer {
             }
             if a.s1 > 0 { msg = randomBytes(a.s1) + msg }
         }
+        sentInitiations += 1
         sendRaw(msg)
         lastSentAny = now
     }
@@ -877,9 +890,7 @@ final class NCWGPeer {
     // MARK: Receiving
 
     private func received(_ d0: [UInt8]) {
-        dbgRecvTotal += 1
-        NSLog("[wg-prod] recv #%d: %d B type=%d from %@:%d", dbgRecvTotal, d0.count,
-              d0.count >= 4 ? Int(d0[0]) : -1, cfg.server, cfg.port)
+        receivedPackets += 1
         var d = d0
         if let a = amnezia {
             // AWG 2.0: the header value only has to fall inside the configured range, and the
@@ -904,12 +915,7 @@ final class NCWGPeer {
     }
 
     private func handleResponse(_ m: [UInt8]) {
-        guard let hs = handshake, le32(m, 8) == hs.localIndex else {
-            NSLog("[wg-prod] response DROPPED: handshake=%@ receiverIndex=%d localIndex=%d",
-                  handshake == nil ? "nil" : "pending", m.count >= 12 ? Int(le32(m, 8)) : -1,
-                  handshake.map { Int($0.localIndex) } ?? -1)
-            return
-        }
+        guard let hs = handshake, le32(m, 8) == hs.localIndex else { return }
         // mac1 is not checked: it is the responder's DoS cookie; the AEAD below authenticates the message.
         let remote = le32(m, 4)
         let erPub = Array(m[12..<44])
@@ -922,11 +928,11 @@ final class NCWGPeer {
         let k3 = NCWGCrypto.kdf(3, key: c, input: cfg.preSharedKey)
         c = k3[0]
         h = NCBlake2s.hash(h, k3[1])
-        guard NCWGCrypto.open(key: SymmetricKey(data: k3[2]), counter: 0, empty, aad: h) != nil else {
-            NSLog("[wg-prod] response DROPPED: empty-message AEAD open failed")
-            return
+        guard NCWGCrypto.open(key: SymmetricKey(data: k3[2]), counter: 0, empty, aad: h) != nil else { return }
+        if !loggedSession {
+            loggedSession = true
+            StartupLog.write("wireguard: \(device.name) session established with \(cfg.server):\(cfg.port)")
         }
-        NSLog("[wg-prod] handshake response ACCEPTED — session keys derived")
         let keys = NCWGCrypto.kdf(2, key: c, input: [])
         let kp = Keypair(send: keys[0], recv: keys[1], localIndex: hs.localIndex, remoteIndex: remote)
         previous = current
@@ -988,8 +994,7 @@ final class NCWGPeer {
         if handshake != nil, now.timeIntervalSince(lastInitiation) >= NCWGPeer.rekeyTimeout + retryJitter {
             if let started = attemptStarted, now.timeIntervalSince(started) > NCWGPeer.rekeyAttemptTime {
                 // Give up until new traffic asks again.
-                NSLog("[wg-prod] handshake GIVE UP after %.0f s: sent %d initiation(s), received %d packet(s) total",
-                      now.timeIntervalSince(started), dbgSentInit, dbgRecvTotal)
+                StartupLog.write("wireguard: \(device.name) handshake with \(cfg.server):\(cfg.port) gave up after \(Int(now.timeIntervalSince(started))) s (\(sentInitiations) initiation(s) sent, \(receivedPackets) packet(s) received)")
                 handshake = nil
                 attemptStarted = nil
                 queued.removeAll()
@@ -1019,21 +1024,16 @@ final class NCWGPeer {
 
     // MARK: UDP to the endpoint
 
-    // fix/kit-wireguard-prod probe counters (NSLog only; no behavior change).
-    private var dbgSentInit = 0
-    private var dbgSentTotal = 0
-    private var dbgRecvTotal = 0
+    // Handshake diagnostics for the give-up line below (a failed WireGuard handshake used to
+    // be completely silent in the tunnel's logs).
+    private var sentInitiations = 0
+    private var receivedPackets = 0
+    private var loggedSession = false
 
     private func sendRaw(_ bytes: [UInt8]) {
         if let customSender {
             customSender(bytes)
             return
-        }
-        dbgSentTotal += 1
-        if bytes.first == 1 {
-            dbgSentInit += 1
-            NSLog("[wg-prod] send initiation #%d (%d B) to %@:%d conn=%@", dbgSentInit, bytes.count,
-                  cfg.server, cfg.port, conn == nil ? "opening" : "open")
         }
         if conn == nil { openConnection() }
         conn?.send(content: Data(bytes), completion: .idempotent)
@@ -1047,15 +1047,11 @@ final class NCWGPeer {
             guard let self, let c, self.conn === c else { return }
             switch state {
             case .ready:
-                NSLog("[wg-prod] endpoint conn ready -> %@", String(describing: c.endpoint))
                 self.receiveLoop(c)
-            case .waiting(let e):
-                NSLog("[wg-prod] endpoint conn waiting: %@", e.localizedDescription)
             case .failed(let e):
-                NSLog("[wg-prod] endpoint conn FAILED: %@", e.localizedDescription)
+                StartupLog.write("wireguard: \(self.device.name) endpoint connection to \(self.cfg.server):\(self.cfg.port) failed: \(e.localizedDescription)")
                 self.conn = nil
             case .cancelled:
-                NSLog("[wg-prod] endpoint conn cancelled")
                 self.conn = nil
             default:
                 break
