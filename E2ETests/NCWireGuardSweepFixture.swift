@@ -135,5 +135,5 @@ proxy-groups:
   - Tern-AmneziaWG
 rules:
 - MATCH,Tern-Test
-    """
+"""
 }
