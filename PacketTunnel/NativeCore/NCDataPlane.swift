@@ -80,6 +80,7 @@ final class NCDataPlane {
     private var relayDirect = 0
     private var relayFailed = 0
     private var relayRejected = 0
+    private var httpdnsGuardRejected = 0 // fix/httpdns-guard: flows refused / datagrams dropped by the guard
     private var udpOpened = 0
     static let connLogPerSecond = NCDiagLimiter.perSecond
     // fix/nc-mitm-live: MitM handoff health / counters (statsLine) and the periodic fake-ip flush.
@@ -339,7 +340,7 @@ final class NCDataPlane {
     }
 
     var statsLine: String {
-        "native: packets in \(packetsIn), out \(packetsOut), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped), relay ok \(relayOK), direct \(relayDirect), relay failed \(relayFailed), rejected \(relayRejected), udp opened \(udpOpened), mitm decrypted \(mitmDecrypted), mitm passthrough \(mitmPassthrough), mitm fallback \(mitmFallbacks)\(mitmFrontDown ? " (front DOWN)" : ""), fake-ip unmapped reset \(fakeUnmappedReset), dns servfail \(dnsServfail); \(stack.cStatsLine)"
+        "native: packets in \(packetsIn), out \(packetsOut), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped), relay ok \(relayOK), direct \(relayDirect), relay failed \(relayFailed), rejected \(relayRejected), udp opened \(udpOpened), mitm decrypted \(mitmDecrypted), mitm passthrough \(mitmPassthrough), mitm fallback \(mitmFallbacks)\(mitmFrontDown ? " (front DOWN)" : ""), fake-ip unmapped reset \(fakeUnmappedReset), dns servfail \(dnsServfail), httpdns guard rejected \(httpdnsGuardRejected); \(stack.cStatsLine)"
     }
 
     // MARK: Packet flow
@@ -485,6 +486,24 @@ final class NCDataPlane {
         if fakeDomain == nil, let ip = conn.dst.ip, engine.isFakeAddress(ip) {
             fakeUnmappedReset &+= 1
             connLog("[TCP] \(conn.dst.host):\(conn.dst.port) refused: fake-ip without a domain mapping — RST right after the handshake, the app re-resolves", level: "warning")
+            return false
+        }
+        // fix/httpdns-guard: a bare-IP destination that is a watched
+        // HTTPDNS service address — the app resolved it through its own
+        // HTTPDNS, outside the user's DNS policy (no query for the DNS
+        // layer, no domain for the matcher, usually no SNI either).
+        // Refused at accept like the unmapped fake IP above (RST right
+        // after the handshake); the record names the HTTPDNS domain so
+        // the blocked page shows WHO was bypassing, not just an IP.
+        // Fake-IP destinations are excluded by construction: a fake
+        // address is the tunnel's own DNS answer, never an HTTPDNS
+        // endpoint (and the guard table only holds real upstream answers).
+        if let ip = conn.dst.ip, !engine.isFakeAddress(ip),
+           let domain = engine.httpdnsGuard.domain(for: ip) {
+            httpdnsGuardRejected &+= 1
+            connLog("[TCP] \(conn.dst.host):\(conn.dst.port) rejected: HTTPDNS guard (\(domain))", level: "warning")
+            NCStatsRecorder.shared.guardBlocked(host: domain, rule: NCHTTPDNSGuard.ruleText(for: domain),
+                                                dstIP: conn.dst.host, dstPort: conn.dst.port, network: "tcp")
             return false
         }
         let s = TCPSession(conn: conn, target: derefed, ruleDomain: fakeDomain)
@@ -1391,6 +1410,23 @@ final class NCDataPlane {
     private var udpPending: [UInt32: [Data]] = [:]
 
     private func udpForward(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
+        // fix/httpdns-guard: datagrams to a watched HTTPDNS service
+        // address (the app resolving through its own HTTPDNS, outside
+        // the user's DNS policy) are dropped before any session work;
+        // the record names the HTTPDNS domain. Checked before the
+        // session table on purpose: a guard address can never own a
+        // session, and a refresh that starts covering an existing
+        // flow's address cuts that flow off here instead of letting
+        // the established session sail on.
+        if let ip = info.dst.ip, !engine.isFakeAddress(ip),
+           let domain = engine.httpdnsGuard.domain(for: ip) {
+            httpdnsGuardRejected &+= 1
+            udpDropped += 1
+            connLog("[UDP] \(info.dst.host):\(info.dst.port) dropped: HTTPDNS guard (\(domain))", level: "warning")
+            NCStatsRecorder.shared.guardBlocked(host: domain, rule: NCHTTPDNSGuard.ruleText(for: domain),
+                                                dstIP: info.dst.host, dstPort: info.dst.port, network: "udp")
+            return
+        }
         if let entry = udpSessions[info.id] {
             entry.lastUsed = Date()
             countUDP(entry, up: data.count)

@@ -57,6 +57,11 @@ final class NativeCoreEngine {
     private let smartQueue = DispatchQueue(label: "nc.smart")
     private var canonicalGroupMap: [String: NCGroupModel] = [:]
     private var healthCheck: NCHealthCheckScheduler?
+    /// fix/httpdns-guard: engine-owned instance, armed per load() from
+    /// NCConfig.httpdnsGuard and read directly by the data plane (the
+    /// guard's own lock — never this engine's stateLock on that path).
+    let httpdnsGuard = NCHTTPDNSGuard()
+    private let httpdnsForwarder = NCDNSForwarder(queue: DispatchQueue(label: "nc.httpdns-guard-resolve"))
     private var home = ""
 
     private var fakeIPFile: URL {
@@ -301,6 +306,20 @@ final class NativeCoreEngine {
         let hc = NCHealthCheckScheduler(engine: self)
         hc.start()
         healthCheck = hc
+        // fix/httpdns-guard: (re)arm for this config — a reload IS the
+        // config-change refresh; the service's own timer covers the
+        // 30 min cadence between reloads. Off in the overrides → the
+        // service stops and the table empties.
+        httpdnsGuard.setEnabled(cfg.httpdnsGuard)
+        if cfg.httpdnsGuard {
+            StartupLog.write("httpdns guard: on (watching \(NCHTTPDNSGuard.watchDomains.joined(separator: ", ")))")
+            httpdnsGuard.start { [weak self] domain, completion in
+                guard let self else { completion(nil); return }
+                self.resolveGuardAddresses(domain, completion: completion)
+            }
+        } else {
+            httpdnsGuard.stop()
+        }
         Self.active = self
         return nil
     }
@@ -404,7 +423,8 @@ final class NativeCoreEngine {
         }
         return NCConfig(mode: cfg.mode, logLevel: cfg.logLevel, ipv6: cfg.ipv6,
                         proxies: proxies, groups: groups, rules: cfg.rules,
-                        dns: cfg.dns, sniffer: cfg.sniffer, raw: cfg.raw, subRules: cfg.subRules)
+                        dns: cfg.dns, sniffer: cfg.sniffer, httpdnsGuard: cfg.httpdnsGuard,
+                        raw: cfg.raw, subRules: cfg.subRules)
     }
 
     /// GET /providers/proxies (Clash.Meta shape): one entry per proxy provider with its (filtered / overridden) nodes.
@@ -470,6 +490,7 @@ final class NativeCoreEngine {
         stateLock.lock(); defer { stateLock.unlock() }
         healthCheck?.stop()
         healthCheck = nil
+        httpdnsGuard.stop()
         smartTimer?.cancel()
         smartTimer = nil
         smart = nil
@@ -974,6 +995,49 @@ final class NativeCoreEngine {
         resolveForwarder.forward(query, upstream: upstream) { (resp: Data?) in completion(resp) }
     }
     #endif
+
+    /// fix/httpdns-guard: ALL A + AAAA addresses of a watched HTTPDNS
+    /// service name, through the kernel upstreams — dnsRoute picks the
+    /// nameserver (nameserver-policy honoured) exactly as for rule
+    /// matching, and the answer's address records already sit behind any
+    /// CNAME chain (both proven cases are CNAMEs: httpdns.baidu.com →
+    /// httpdns.n.shifen.com, httpdns.baidubce.com →
+    /// bce-httpsdns.n.shifen.com). Completion contract (the guard's
+    /// Resolver): nil = BOTH lookups failed, so the guard keeps the
+    /// name's previous addresses; a non-nil array — possibly empty — is
+    /// a completed answer and replaces them.
+    func resolveGuardAddresses(_ host0: String, completion: @escaping ([NCIP]?) -> Void) {
+        #if TERN_TUNNEL
+        let host = host0.lowercased()
+        let group = DispatchGroup()
+        var aResult: [NCIP]? = nil
+        var aaaaResult: [NCIP]? = nil
+        // Both completions run on httpdnsForwarder's serial queue, so the
+        // two result slots need no lock; the group orders the final read.
+        for (type, isA) in [(NCDNSMessage.typeA, true), (NCDNSMessage.typeAAAA, false)] {
+            var q = NCDNSMessage()
+            q.id = UInt16.random(in: 1...0xffff)
+            q.recursionDesired = true
+            q.questions = [NCDNSQuestion(name: host, type: type, klass: NCDNSMessage.classIN)]
+            let query = q.serialized()
+            guard let upstream = dnsRoute(for: query).primary else { continue }
+            group.enter()
+            httpdnsForwarder.forward(query, upstream: upstream) { resp in
+                let ips = resp.flatMap { NCDNSMessage.parse($0) }?.addressAnswers.map { $0.0 }
+                if isA { aResult = ips } else { aaaaResult = ips }
+                group.leave()
+            }
+        }
+        group.notify(queue: .global(qos: .utility)) {
+            if aResult == nil, aaaaResult == nil { completion(nil) }
+            else { completion((aResult ?? []) + (aaaaResult ?? [])) }
+        }
+        #else
+        // App target (unit-test evidence only): the engine never runs
+        // here, so every lookup reports failure and the guard stays empty.
+        completion(nil)
+        #endif
+    }
 
     private func finishResolve(_ host: String, ip: NCIP?, ttl: Double, gen: Int) {
         resolveLock.lock()
