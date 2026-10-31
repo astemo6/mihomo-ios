@@ -304,7 +304,14 @@ jobs:
           xcrun simctl bootstatus "$DEV" -b
           mkdir -p results
           # NC_WG_LOOPBACK=1: the tests fail loudly (never skip) when the endpoint is unreachable.
-          TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_WG_LOOPBACK=1 \
+          # NC_WG_ECHO_HOST: the runner's primary IPv4. The echo target through the tunnel
+          # must not be a loopback address — the endpoint's gVisor netstack drops inner
+          # packets with a loopback destination as martian (fix/kit-wireguard phase 2).
+          ECHO_HOST="$(ipconfig getifaddr en0 || true)"
+          if [ -z "$ECHO_HOST" ]; then ECHO_HOST="$(ifconfig | awk '/inet / && $2 !~ /^127\./ {print $2; exit}')"; fi
+          test -n "$ECHO_HOST" || { echo "::error::no primary IPv4 for the WireGuard echo target"; exit 1; }
+          echo "WireGuard echo target: $ECHO_HOST:18080"
+          TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_WG_LOOPBACK=1 TEST_RUNNER_NC_WG_ECHO_HOST="$ECHO_HOST" \
           xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/wireguard.xcresult \
             -only-testing:TernE2ETunnelTests/NCWireGuardLoopbackTests test-without-building 2>&1 | tee results/wireguard.log \
             | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|wg-loopback|wireguard:"

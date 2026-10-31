@@ -17,9 +17,23 @@ import XCTest
 /// no WireGuard case). Runs in proto-loopback.yml job `wireguard` with
 /// TEST_RUNNER_NC_WG_LOOPBACK=1 — there it FAILS (never skips) when the server is unreachable;
 /// elsewhere it skips.
+///
+/// The echo target must NOT be a loopback address (fix/kit-wireguard phase 2): the reference
+/// endpoint is a sing-box WireGuard endpoint, which terminates the tunnel in a gVisor
+/// netstack — an inner packet whose destination is a loopback address arrives on the wg
+/// interface and is dropped by the stack as a "martian packet" before sing-box's router can
+/// hand it to the direct outbound, so a SYN to 127.0.0.1:18080 is never answered (the
+/// handshake completes; the client's lwIP stack just retransmits into the void). The
+/// process-proxy reference servers (ocserv, connect-ip, sing-box inbounds) terminate the
+/// protocol in-process and dial the target themselves, which is why their tests can use
+/// 127.0.0.1. CI therefore passes the runner's primary IPv4 as TEST_RUNNER_NC_WG_ECHO_HOST
+/// and the fleet's TCP echo socket binds 0.0.0.0 (echo_server.py); a local run without the
+/// env var falls back to 127.0.0.1 and hits the same martian drop.
 final class NCWireGuardLoopbackTests: XCTestCase {
     private let port = 18071
-    private let echoHost = "127.0.0.1"
+    private var echoHost: String {
+        ProcessInfo.processInfo.environment["NC_WG_ECHO_HOST"] ?? "127.0.0.1"
+    }
     private let echoPort = 18080 // tools/loopback/echo_server.py TCP echo
     private let q = DispatchQueue(label: "wg.loopback.test")
 
@@ -123,7 +137,7 @@ final class NCWireGuardLoopbackTests: XCTestCase {
         defer { stream.cancel() }
         let dev = try XCTUnwrap(device(p))
         waitUntil("WireGuard session", timeout: 10) { dev.peers.contains { $0.hasSession } }
-        NSLog("[wg-loopback] session up; echoing through 127.0.0.1:%d", echoPort)
+        NSLog("[wg-loopback] session up; echoing through %@:%d", echoHost, echoPort)
         let small = pattern(1000, seed: 3)
         XCTAssertEqual(echo(stream, small), small)
         let big = pattern(256 * 1024, seed: 9)

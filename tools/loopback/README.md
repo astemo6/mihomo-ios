@@ -131,8 +131,12 @@ These materials are strictly for loopback testing with self-signed TLS certifica
   production dialer + lwIP netif against a dedicated sing-box WireGuard
   endpoint (:18071, `wg-sing-box-config.json`, own instance with a recorded
   test keypair; kit-shaped parameters — client 10.66.0.2, MTU 1280, no PSK).
-  TCP echo to the fleet echo server (127.0.0.1:18080, reached via the
-  endpoint's direct outbound), byte-exact. The class lives in
+  TCP echo to the fleet echo server, byte-exact — but at the runner's primary
+  IPv4 (`TEST_RUNNER_NC_WG_ECHO_HOST`, and the echo socket binds 0.0.0.0), not
+  127.0.0.1: the endpoint's gVisor netstack drops inner packets with a loopback
+  destination as martian before the router can dial them out, so a loopback
+  target is never answered even though the handshake completes
+  (fix/kit-wireguard phase 2). The class lives in
   TernE2ETunnelTests because the dialer/netif are PacketTunnel code — the
   app-hosted bundle cannot link them. (The :18008 endpoint in the main
   fleet config predates this test; its client private key is not recorded.)
