@@ -502,8 +502,9 @@ jobs:
           TEST_RUNNER_NC_WG_PRIV='OJVQcAQumlNiADByjF03bEqlq5jHFN2k3DFN0BaE/Eo=' \
           TEST_RUNNER_NC_WG_PUB='pDuHgrRuI0rWdogrndZwuyr/D68pUDok1FbXP9Rk0X0=' \
           xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/wireguard-zh.xcresult \
-            -only-testing:TernE2ETunnelTests/NCWireGuardZhihengInteropTests test-without-building 2>&1 | tee results/wireguard-zh.log \
-            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|wg-zh"
+            -only-testing:TernE2ETunnelTests/NCWireGuardZhihengInteropTests \
+            -only-testing:TernE2ETunnelTests/NCWireGuardParseProbeTests test-without-building 2>&1 | tee results/wireguard-zh.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|wg-zh|wg-prod|wg-parse"
           RC=${PIPESTATUS[0]}
           [ "$RC" = 0 ] || tail -n 150 results/wireguard-zh.log
           if grep -q "skipped" results/wireguard-zh.log && ! grep -q "passed" results/wireguard-zh.log; then RC=1; echo "::error::all WireGuard zhiheng tests skipped"; fi
@@ -511,7 +512,7 @@ jobs:
             echo "### WireGuard interop (real zhiheng kit server)"
             grep -E "Executed [0-9]+ tests?" results/wireguard-zh.log | tail -n 1 | sed 's/^/- /'
             grep -E "Test Case .*(passed|failed)" results/wireguard-zh.log | sed -E 's/.*-\[[^ ]+ ([^]]+)\]. (passed|failed).*/- \1: \2/'
-            grep -E "wg-zh" results/wireguard-zh.log | sed 's/^/- /'
+            grep -E "wg-zh|wg-prod|wg-parse" results/wireguard-zh.log | sed 's/^/- /'
             echo "- exit $RC"
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$RC"

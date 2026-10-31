@@ -877,6 +877,9 @@ final class NCWGPeer {
     // MARK: Receiving
 
     private func received(_ d0: [UInt8]) {
+        dbgRecvTotal += 1
+        NSLog("[wg-prod] recv #%d: %d B type=%d from %@:%d", dbgRecvTotal, d0.count,
+              d0.count >= 4 ? Int(d0[0]) : -1, cfg.server, cfg.port)
         var d = d0
         if let a = amnezia {
             // AWG 2.0: the header value only has to fall inside the configured range, and the
@@ -901,7 +904,12 @@ final class NCWGPeer {
     }
 
     private func handleResponse(_ m: [UInt8]) {
-        guard let hs = handshake, le32(m, 8) == hs.localIndex else { return }
+        guard let hs = handshake, le32(m, 8) == hs.localIndex else {
+            NSLog("[wg-prod] response DROPPED: handshake=%@ receiverIndex=%d localIndex=%d",
+                  handshake == nil ? "nil" : "pending", m.count >= 12 ? Int(le32(m, 8)) : -1,
+                  handshake.map { Int($0.localIndex) } ?? -1)
+            return
+        }
         // mac1 is not checked: it is the responder's DoS cookie; the AEAD below authenticates the message.
         let remote = le32(m, 4)
         let erPub = Array(m[12..<44])
@@ -914,7 +922,11 @@ final class NCWGPeer {
         let k3 = NCWGCrypto.kdf(3, key: c, input: cfg.preSharedKey)
         c = k3[0]
         h = NCBlake2s.hash(h, k3[1])
-        guard NCWGCrypto.open(key: SymmetricKey(data: k3[2]), counter: 0, empty, aad: h) != nil else { return }
+        guard NCWGCrypto.open(key: SymmetricKey(data: k3[2]), counter: 0, empty, aad: h) != nil else {
+            NSLog("[wg-prod] response DROPPED: empty-message AEAD open failed")
+            return
+        }
+        NSLog("[wg-prod] handshake response ACCEPTED — session keys derived")
         let keys = NCWGCrypto.kdf(2, key: c, input: [])
         let kp = Keypair(send: keys[0], recv: keys[1], localIndex: hs.localIndex, remoteIndex: remote)
         previous = current
@@ -976,6 +988,8 @@ final class NCWGPeer {
         if handshake != nil, now.timeIntervalSince(lastInitiation) >= NCWGPeer.rekeyTimeout + retryJitter {
             if let started = attemptStarted, now.timeIntervalSince(started) > NCWGPeer.rekeyAttemptTime {
                 // Give up until new traffic asks again.
+                NSLog("[wg-prod] handshake GIVE UP after %.0f s: sent %d initiation(s), received %d packet(s) total",
+                      now.timeIntervalSince(started), dbgSentInit, dbgRecvTotal)
                 handshake = nil
                 attemptStarted = nil
                 queued.removeAll()
@@ -1005,10 +1019,21 @@ final class NCWGPeer {
 
     // MARK: UDP to the endpoint
 
+    // fix/kit-wireguard-prod probe counters (NSLog only; no behavior change).
+    private var dbgSentInit = 0
+    private var dbgSentTotal = 0
+    private var dbgRecvTotal = 0
+
     private func sendRaw(_ bytes: [UInt8]) {
         if let customSender {
             customSender(bytes)
             return
+        }
+        dbgSentTotal += 1
+        if bytes.first == 1 {
+            dbgSentInit += 1
+            NSLog("[wg-prod] send initiation #%d (%d B) to %@:%d conn=%@", dbgSentInit, bytes.count,
+                  cfg.server, cfg.port, conn == nil ? "opening" : "open")
         }
         if conn == nil { openConnection() }
         conn?.send(content: Data(bytes), completion: .idempotent)
@@ -1022,8 +1047,16 @@ final class NCWGPeer {
             guard let self, let c, self.conn === c else { return }
             switch state {
             case .ready:
+                NSLog("[wg-prod] endpoint conn ready: %@ -> %@", String(describing: c.localEndpoint),
+                      String(describing: c.remoteEndpoint))
                 self.receiveLoop(c)
-            case .failed, .cancelled:
+            case .waiting(let e):
+                NSLog("[wg-prod] endpoint conn waiting: %@", e.localizedDescription)
+            case .failed(let e):
+                NSLog("[wg-prod] endpoint conn FAILED: %@", e.localizedDescription)
+                self.conn = nil
+            case .cancelled:
+                NSLog("[wg-prod] endpoint conn cancelled")
                 self.conn = nil
             default:
                 break
