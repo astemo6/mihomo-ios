@@ -1,0 +1,1 @@
+{"endpoints":[{"address":["10.66.0.1/32"],"listen_port":18071,"peers":[{"allowed_ips":["10.66.0.2/32"],"public_key":"ycbg6RPtQUYkXM23Hn+VLGi+xT2K8fmw74Dp5hfjABI="}],"private_key":"zR6GyARXFYoCfV470OfjJvisrLKLqtn24RC7ODa0jVk=","tag":"wg-kit","type":"wireguard"}],"log":{"level":"info","timestamp":true},"outbounds":[{"tag":"direct","type":"direct"}],"route":{"final":"direct"}}

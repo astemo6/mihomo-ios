@@ -45,6 +45,7 @@ the repo. Environment overrides: `SING_BOX_VERSION` (default `1.12.24`),
 | 18006 | sing-box Hysteria2 inbound — `nc-loop-hy2-pw`, TLS ALPN h3 |
 | 18007 | sing-box TUIC inbound — same uuid / `nc-loop-tuic-pw`, ALPN h3, BBR |
 | 18008 | sing-box WireGuard endpoint (UDP) — test keypair, see config |
+| 18071 | sing-box WireGuard endpoint (UDP, own instance, `wg-sing-box-config.json`) — kit-shaped test keypair for `E2ETests/NCWireGuardLoopbackTests` (job `wireguard`) |
 | 18014 | sing-box VLESS inbound with ECH — same uuid, TLS + ECH (`outer.localhost` / `localhost`) |
 | 18015 | sing-box Trojan inbound with ECH — `nc-loop-trojan-pw`, TLS + ECH (`outer.localhost` / `localhost`) |
 | 18016 | `lua-mock-server.py` — Lua backend peer: `HE`→`HO` greeting, then XOR-0x5A relay to 18080 (fix/nc-proto-lua-int) |
@@ -126,9 +127,15 @@ These materials are strictly for loopback testing with self-signed TLS certifica
 - **MASQUE**: RFC 9298 CONNECT-UDP echo against `masque-proxy` on port 18012
 - **MASQUE CONNECT-IP** (job `masque-ip`, E2ETests/NCMASQUEIPLoopbackTests): real RFC 9484 proxy in a QEMU VM; through the tunnel 10.89.1.1 TCP echo :9000 (1 MiB byte-exact), UDP echo :9001, DNS :53 (*.mq.test), HTTP :8080
   (QUIC / HTTP/3 Datagrams targeting UDP echo `:18081`).
-- **WireGuard**: server endpoint stands up, but there is no client test —
-  NativeCore's WireGuard dialer only exists inside the tunnel (userspace
-  lwIP stack), `NCConnector` reports it unsupported in the app/test bundle.
+- **WireGuard** (job `wireguard`, E2ETests/NCWireGuardLoopbackTests): the
+  production dialer + lwIP netif against a dedicated sing-box WireGuard
+  endpoint (:18071, `wg-sing-box-config.json`, own instance with a recorded
+  test keypair; kit-shaped parameters — client 10.66.0.2, MTU 1280, no PSK).
+  TCP echo to the fleet echo server (127.0.0.1:18080, reached via the
+  endpoint's direct outbound), byte-exact. The class lives in
+  TernE2ETunnelTests because the dialer/netif are PacketTunnel code — the
+  app-hosted bundle cannot link them. (The :18008 endpoint in the main
+  fleet config predates this test; its client private key is not recorded.)
 - **OpenConnect**: not sing-box — a real ocserv in an Alpine VM under QEMU
   (`ocserv/start-ocserv-vm.sh`, cloud-init `ocserv/user-data`; TCP 443 →
   127.0.0.1:18443), job `openconnect` in proto-loopback.yml, test class
