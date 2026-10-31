@@ -715,6 +715,24 @@ extension NCRuntimeSteps {
         raw["rules"] = .array(rules + [.string(udpFallbackRule)])
     }
 
+    /// fix/quic-block: the generated QUIC rule for the default ("nondirect")
+    /// mode. It must sit at the FRONT of the rule list: MATCH is terminal and
+    /// every deciding rule ahead of it (GEOIP,CN,DIRECT in the field config)
+    /// would otherwise shadow it, which is exactly what the old append did —
+    /// the rule reached the engine (and was counted in its rule total) but
+    /// could never be the first match, so QUIC blocking silently did nothing.
+    /// Every other generated-rule injector prepends for the same reason
+    /// (applyCustomRules, applyFaceTimeRules, the "always" branch below).
+    /// Idempotent: a list already carrying the rule is left alone.
+    static func prependUDPFallback(_ raw: inout [String: NCJSONValue]) {
+        let rules = raw.list("rules")
+        if rules.isEmpty { return }
+        for r in rules {
+            if case .string(let s) = r, s == udpFallbackRule { return }
+        }
+        raw["rules"] = .array([.string(udpFallbackRule)] + rules)
+    }
+
     /// bridge applyQUICBlock.
     static func applyQUICBlock(_ raw: inout [String: NCJSONValue], mode: String) {
         switch mode {
@@ -732,7 +750,7 @@ extension NCRuntimeSteps {
             raw["rules"] = .array([.string(quicBlockAllRule)] + rules)
             appendUDPFallback(&raw)
         default:
-            appendUDPFallback(&raw)
+            prependUDPFallback(&raw)
         }
     }
 
