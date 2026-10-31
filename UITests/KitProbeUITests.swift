@@ -63,6 +63,35 @@ extension TernUITests {
         att.name = "kit-results"
         att.lifetime = .keepAlways
         add(att)
+        // WG phase-3 diagnostics (fix/kit-wireguard-prod): pull the extension's own words out
+        // of the UI — the startup log ([wg] lines via StartupLog) on 更多, and the core log's
+        // [delay] verdicts for the WG pair on 工具 → 运行日志.
+        var dump = ""
+        tab(4)
+        for _ in 0..<6 { app.swipeUp() }
+        for st in app.staticTexts.allElementsBoundByIndex where st.label.contains("[wg]") {
+            dump += "STARTUPLOG:\n\(st.label)\n"
+        }
+        tab(3)
+        let logsCard = app.staticTexts["运行日志"]
+        if logsCard.waitForExistence(timeout: 8) {
+            logsCard.tap()
+            usleep(2_500_000)
+            var seen: Set<String> = []
+            for _ in 0..<10 {
+                for st in app.staticTexts.allElementsBoundByIndex {
+                    let l = st.label
+                    if (l.contains("WireGuard") || l.contains("AmneziaWG")) && seen.insert(l).inserted {
+                        dump += "CORELOG: \(l)\n"
+                    }
+                }
+                app.swipeUp()
+            }
+        }
+        let att2 = XCTAttachment(string: dump.isEmpty ? "<no wg log lines found>" : dump)
+        att2.name = "wg-logs"
+        att2.lifetime = .keepAlways
+        add(att2)
         assertAlive("kit probe")
     }
 }
