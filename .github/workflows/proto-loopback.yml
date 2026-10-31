@@ -9,8 +9,12 @@
 # fix/nc-sudoku-interop: the official SUDOKU-ASCII/sudoku server, built here from the pinned v0.5.2.0 source, on
 # :18090–:18094 (configs in tools/loopback/sudoku/) and a plain HTTP origin on :18095.
 #
-# Not covered, by design (see tools/loopback/README.md): WireGuard client (its NativeCore dialer exists only
-# inside the packet tunnel) and Mieru (sing-box has no mieru inbound to test against).
+# Not covered, by design (see tools/loopback/README.md): Mieru (sing-box has no mieru inbound to test against).
+#
+# Job `wireguard` (fix/kit-wireguard): the WireGuard data plane against a local sing-box WireGuard endpoint
+# (tools/loopback/wg-sing-box-config.json, UDP :18071, its own instance with a recorded test keypair; kit-shaped
+# parameters). The dialer + netif are PacketTunnel code, so the test class lives in TernE2ETunnelTests (scheme
+# TernE2E), like openconnect / masque-ip; the fleet (start-servers.sh) supplies the endpoint + echo backend.
 #
 # Job `openconnect` (fix/nc-openconnect-dp): the OpenConnect data plane against a REAL ocserv — Alpine + ocserv
 # under QEMU (TCG; macOS runners have no Docker / nested virtualisation), tools/loopback/ocserv. The netif is
@@ -40,7 +44,7 @@ on:
   workflow_dispatch:
     inputs:
       jobs:
-        description: "Jobs to run (comma list of loopback, openconnect, masque-ip, masque-warp, warp-register). Empty = all except the opt-in masque-warp / warp-register."
+        description: "Jobs to run (comma list of loopback, openconnect, masque-ip, wireguard, masque-warp, warp-register). Empty = all except the opt-in masque-warp / warp-register."
         required: false
         default: ""
   workflow_call:
@@ -50,7 +54,7 @@ on:
         required: false
         default: ""
       jobs:
-        description: "Comma list of loopback, openconnect, masque-ip, masque-warp, warp-register (empty = all except masque-warp / warp-register)"
+        description: "Comma list of loopback, openconnect, masque-ip, wireguard, masque-warp, warp-register (empty = all except masque-warp / warp-register)"
         type: string
         required: false
         default: ""
@@ -75,6 +79,8 @@ on:
       - ".github/workflows/proto-loopback.yml"
       - "PacketTunnel/NativeCore/NCOpenConnectNetif.swift"
       - "PacketTunnel/NativeCore/NCWireGuard.swift"
+      - "PacketTunnel/NativeCore/NCWireGuardCrypto.swift"
+      - "E2ETests/NCWireGuardLoopbackTests.swift"
       - "E2ETests/NCOpenConnectLoopbackTests.swift"
       - "PacketTunnel/NativeCore/NCMASQUEIPNetif.swift"
       - "E2ETests/NCMASQUEIPLoopbackTests.swift"
@@ -95,7 +101,7 @@ jobs:
       scheme: TernUITests
 
   build-e2e:
-    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || contains(inputs.jobs, 'masque-warp'))
+    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || (!inputs.jobs || contains(inputs.jobs, 'wireguard')) || contains(inputs.jobs, 'masque-warp'))
     uses: ./.github/workflows/build-for-testing.yml
     with:
       ref: ${{ inputs.ref }}
@@ -253,6 +259,80 @@ jobs:
           path: |
             results/openconnect.log
             results/ocserv-console.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  wireguard:
+    needs: build-e2e
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && (!inputs.jobs || contains(inputs.jobs, 'wireguard')) && (needs.build-e2e.result == 'success' || (inputs.prebuilt && needs.build-e2e.result == 'skipped')) }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Set up Go (official Sudoku server build; part of the fleet start)
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Build official Sudoku server (SUDOKU-ASCII/sudoku v0.5.2.0, from source)
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --branch v0.5.2.0 https://github.com/SUDOKU-ASCII/sudoku /tmp/sudoku-src
+          REV=$(git -C /tmp/sudoku-src rev-parse HEAD)
+          echo "sudoku v0.5.2.0 @ $REV"
+          test "$REV" = 56ce6f1aeea18aa69b9bc1d57557ed312b59e5f5
+          mkdir -p /tmp/nc-loopback/bin
+          (cd /tmp/sudoku-src && GOTOOLCHAIN=auto go build -trimpath -ldflags "-s -w" -o /tmp/nc-loopback/bin/sudoku ./cmd/sudoku-tunnel)
+          /tmp/nc-loopback/bin/sudoku -h 2>&1 | head -n 3 || true
+          echo "SUDOKU_BIN=/tmp/nc-loopback/bin/sudoku" >> "$GITHUB_ENV"
+      - name: Start loopback servers
+        run: |
+          tools/loopback/start-servers.sh start
+          tools/loopback/start-servers.sh status
+      # Same Xcode as the build, simulator boot started, products unpacked ($TERN_PRODUCTS, $XCTESTRUN, $DEV).
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode_e2e || needs.build-e2e.outputs.xcode }}
+      # As the TernE2E scheme's disableThreadPerformanceChecker did for these jobs (scripts/ci/strip-tpc.py).
+      - name: Disable Thread Performance Checker
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
+      - name: Run WireGuard loopback tests
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          # NC_WG_LOOPBACK=1: the tests fail loudly (never skip) when the endpoint is unreachable.
+          TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_WG_LOOPBACK=1 \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/wireguard.xcresult \
+            -only-testing:TernE2ETunnelTests/NCWireGuardLoopbackTests test-without-building 2>&1 | tee results/wireguard.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|wg-loopback|wireguard:"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/wireguard.log
+          # A run where every test skipped is a failure here.
+          if grep -q "skipped" results/wireguard.log && ! grep -q "passed" results/wireguard.log; then RC=1; echo "::error::all WireGuard loopback tests skipped"; fi
+          {
+            echo "### WireGuard loopback (sing-box endpoint)"
+            grep -E "Executed [0-9]+ tests?" results/wireguard.log | tail -n 1 | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - name: Stop loopback servers
+        if: always()
+        run: |
+          tools/loopback/start-servers.sh stop || true
+          mkdir -p results
+          cp /tmp/nc-loopback/wg-sing-box.log results/wg-sing-box.log 2>/dev/null || true
+          echo "--- wg-sing-box.log (last 80) ---"
+          tail -n 80 /tmp/nc-loopback/wg-sing-box.log 2>/dev/null || true
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: wireguard-loopback-results
+          path: |
+            results/wireguard.log
+            results/wg-sing-box.log
           if-no-files-found: warn
           retention-days: 14
 

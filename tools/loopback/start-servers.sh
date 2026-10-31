@@ -151,6 +151,36 @@ stop_reality() {
     fi
 }
 
+# fix/kit-wireguard: a WireGuard reference endpoint on :18071 (UDP), its own
+# sing-box instance/config (wg-sing-box-config.json) with a recorded test
+# keypair — the fleet config's own WG endpoint (:18008) predates this test
+# and its client private key is not recorded anywhere. Parameters mirror
+# the zhiheng kit's WireGuard node in shape (server 10.66.0.1, client
+# 10.66.0.2/32, no PSK); traffic from the peer is routed to the direct
+# outbound, so the fleet echo server (127.0.0.1:18080) is the echo target.
+start_wg() {
+    local sb
+    sb="$(find_sing_box)"
+    log "sing-box (wireguard) check"
+    "$sb" check -c "$DIR/wg-sing-box-config.json"
+    log "starting sing-box (wireguard) $("$sb" version | head -n1)"
+    nohup "$sb" run -c "$DIR/wg-sing-box-config.json" >"$RUN/wg-sing-box.log" 2>&1 &
+    echo $! > "$RUN/wg.pid"
+    sleep 0.5
+    kill -0 "$(cat "$RUN/wg.pid")"
+}
+
+stop_wg() {
+    if alive "$RUN/wg.pid"; then
+        kill "$(cat "$RUN/wg.pid")" 2>/dev/null || true
+    fi
+    rm -f "$RUN/wg.pid"
+    if [ -s "$RUN/wg-sing-box.log" ]; then
+        echo "--- wg-sing-box.log (last 80) ---" >&2
+        tail -n 80 "$RUN/wg-sing-box.log" >&2
+    fi
+}
+
 # fix/nc-sudoku-interop: the official Sudoku server (SUDOKU-ASCII/sudoku, pinned v0.5.2.0) as the black-box
 # peer — sing-box has no sudoku inbound. One process per config in tools/loopback/sudoku/ (:18090–:18094).
 # CI (proto-loopback.yml) builds the binary from the pinned tag's source and passes SUDOKU_BIN; locally the
@@ -423,6 +453,7 @@ do_start() {
 
     start_snell
     start_reality
+    start_wg
 
     log "starting trusttunnel_endpoint $("$tt" --version 2>&1 | head -n1)"
     nohup "$tt" "$RUN/tt-settings.toml" "$RUN/tt-hosts.toml" >"$RUN/trusttunnel.log" 2>&1 &
@@ -511,6 +542,7 @@ do_stop() {
     stop_sudoku
     stop_snell
     stop_reality
+    stop_wg
     stop_wire_capture
     quic_debug_summary
     for f in "$RUN/sing-box.pid" "$RUN/echo.pid" "$RUN/lua.pid" "$RUN/trusttunnel.pid" "$RUN/masque.pid"; do
