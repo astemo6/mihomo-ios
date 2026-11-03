@@ -674,10 +674,18 @@ enum NCMASQUE {
             path += "\(hostStr)/\(target.port)/"
         }
         if path.hasPrefix("https://") || path.hasPrefix("http://") {
-            if let url = URL(string: path) {
-                var p = url.path
-                if let q = url.query { p += "?\(q)" }
-                path = p
+            // Extract the path by string surgery, NOT URL.path: on Apple
+            // platforms URL.path normalises away a trailing slash, and the
+            // RFC 9298 template's trailing slash is load-bearing — without
+            // it Go's ServeMux (masque-go) answers the CONNECT with a 307
+            // redirect to the slashed path (loopback failure, run 40403263872).
+            if let schemeEnd = path.range(of: "://") {
+                let rest = path[schemeEnd.upperBound...]
+                if let slash = rest.firstIndex(of: "/") {
+                    path = String(rest[slash...])
+                } else {
+                    path = "/"
+                }
             }
         }
         if !path.hasPrefix("/") {
