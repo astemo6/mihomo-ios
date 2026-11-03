@@ -308,6 +308,14 @@ final class NCJuicityConnection {
                 break
             }
         }
+        // Juicity servers never open streams toward the client (every flow is
+        // client-initiated; UDP responses return on the same bidirectional
+        // stream — cf. NCBrook). The handler must still be installed: an
+        // NWConnectionGroup started without a newConnectionHandler never
+        // activates at all — no packets leave, no state transitions fire, and
+        // start() only ends when the watchdog below times out (kit-juicity:
+        // loopback packet capture showed zero datagrams emitted).
+        group.newConnectionHandler = { incoming in incoming.cancel() }
         group.start(queue: queue)
 
         queue.asyncAfter(deadline: .now() + 10) { [weak self] in
