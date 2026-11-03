@@ -608,4 +608,77 @@ final class NativeCoreTrustTunnelTests: XCTestCase {
         let status200 = decoded200?.first { $0.name == ":status" }?.value
         XCTAssertEqual(status200, "200")
     }
+
+    // MARK: - H2 mux core: the loopback endpoint's response stream, fed whole and fragmented
+
+    /// The exact frame sequence the TrustTunnel endpoint sends for a
+    /// successful CONNECT echo (measured locally against
+    /// trusttunnel_endpoint v1.1.0): SETTINGS, connection WINDOW_UPDATE,
+    /// HEADERS :status 200 (HPACK indexed field 0x88), one 8192-byte DATA.
+    private func serverResponseBytes(payload: Data) -> Data {
+        var settings = Data()
+        func setting(_ id: Int, _ value: Int) {
+            settings.append(UInt8((id >> 8) & 0xff)); settings.append(UInt8(id & 0xff))
+            settings.append(UInt8((value >> 24) & 0xff)); settings.append(UInt8((value >> 16) & 0xff))
+            settings.append(UInt8((value >> 8) & 0xff)); settings.append(UInt8(value & 0xff))
+        }
+        setting(0x3, 1000)     // MAX_CONCURRENT_STREAMS
+        setting(0x4, 131072)   // INITIAL_WINDOW_SIZE
+        setting(0x5, 16384)    // MAX_FRAME_SIZE
+        setting(0x6, 65536)    // MAX_HEADER_LIST_SIZE
+        var bytes = NCH2ClientCore.frame(type: 0x4, flags: 0, streamID: 0, payload: settings)
+        bytes.append(NCH2ClientCore.frame(type: 0x8, flags: 0, streamID: 0,
+                                          payload: Data([0, 0, 0x80, 0x00]))) // conn window +32768
+        bytes.append(NCH2ClientCore.frame(type: 0x1, flags: 0x4, streamID: 1, payload: Data([0x88])))
+        bytes.append(NCH2ClientCore.frame(type: 0x0, flags: 0, streamID: 1, payload: payload))
+        return bytes
+    }
+
+    func testMuxCoreResponseWholeAndFragmented() {
+        let payload = Data((0..<8192).map { UInt8(($0 * 7 + 3) & 0xff) })
+        let bytes = serverResponseBytes(payload: payload)
+
+        func run(chunks: [Data]) -> (payloads: Int, headers: Int, outbound: Data) {
+            let core = NCH2MuxCore()
+            _ = core.start()
+            _ = core.openStream(headers: [(":method", "CONNECT"), (":authority", "127.0.0.1:18080")])
+            var total = 0, headers = 0
+            var outbound = Data()
+            for chunk in chunks {
+                let r = core.feed(chunk)
+                outbound.append(r.outbound)
+                for e in r.events {
+                    switch e {
+                    case .payload(_, let d): total += d.count
+                    case .responseHeaders: headers += 1
+                    default: break
+                    }
+                }
+            }
+            return (total, headers, outbound)
+        }
+
+        let whole = run(chunks: [bytes])
+        XCTAssertEqual(whole.payloads, 8192, "whole feed must deliver the full DATA frame")
+        XCTAssertEqual(whole.headers, 1)
+        XCTAssertTrue(whole.outbound.count >= 9, "SETTINGS ACK + WINDOW_UPDATEs expected")
+
+        var chunks: [Data] = []
+        var off = 0
+        while off < bytes.count {
+            let n = min(1000, bytes.count - off)
+            chunks.append(Data(bytes[(bytes.startIndex + off)..<(bytes.startIndex + off + n)]))
+            off += n
+        }
+        let frag = run(chunks: chunks)
+        XCTAssertEqual(frag.payloads, 8192, "1000-byte fragmented feed must deliver the full DATA frame")
+        XCTAssertEqual(frag.headers, 1)
+
+        var bytewise: [Data] = []
+        for i in 0..<64 { bytewise.append(Data([bytes[bytes.startIndex + i]])) }
+        bytewise.append(Data(bytes[(bytes.startIndex + 64)...]))
+        let bw = run(chunks: bytewise)
+        XCTAssertEqual(bw.payloads, 8192, "byte-by-byte prefix feed must deliver the full DATA frame")
+        XCTAssertEqual(bw.headers, 1)
+    }
 }
