@@ -243,37 +243,40 @@ final class NCTrustTunnelH2Session {
 
     private func startPump() {
         guard let base, state == .ready else { return }
-        base.conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
+        // Same receive pattern as the proven NCMuxSession pump: NCStream's
+        // one-shot receive, re-armed after every batch while the session is
+        // not closed. (The previous direct NWConnection receive loop could
+        // stop delivering mid-stream — loopback H2 echo stalled after the
+        // first payload chunk, run 40397791692.)
+        base.receive { [weak self] data, _ in
             guard let self else { return }
             ncOnSessionQueue(self.queue) {
-                if let content, !content.isEmpty {
-                    let result = self.core.feed(content)
-                    if !result.outbound.isEmpty {
-                        self.base?.send(result.outbound)
-                    }
-                    for event in result.events {
-                        switch event {
-                        case .responseHeaders(let streamID, let headers):
-                            self.streams[streamID]?.handleHeaders(headers)
-                        case .payload(let streamID, let data):
-                            self.streams[streamID]?.handlePayload(data)
-                        case .reset(let streamID):
-                            self.streams[streamID]?.handleReset()
-                        case .ended(let streamID):
-                            self.streams[streamID]?.handleEnded()
-                        case .windowIncreased:
-                            for s in self.streams.values { s.flushSend() }
-                        case .goaway:
-                            self.close()
-                            return
-                        }
-                    }
-                }
-                if isComplete || error != nil {
+                guard let data else {
                     self.close()
                     return
                 }
-                if self.isAlive {
+                let result = self.core.feed(data)
+                if !result.outbound.isEmpty {
+                    self.base?.send(result.outbound)
+                }
+                for event in result.events {
+                    switch event {
+                    case .responseHeaders(let streamID, let headers):
+                        self.streams[streamID]?.handleHeaders(headers)
+                    case .payload(let streamID, let data):
+                        self.streams[streamID]?.handlePayload(data)
+                    case .reset(let streamID):
+                        self.streams[streamID]?.handleReset()
+                    case .ended(let streamID):
+                        self.streams[streamID]?.handleEnded()
+                    case .windowIncreased:
+                        for s in self.streams.values { s.flushSend() }
+                    case .goaway:
+                        self.close()
+                        return
+                    }
+                }
+                if self.state != .closed {
                     self.startPump()
                 }
             }
@@ -593,6 +596,9 @@ final class NCTrustTunnelH3Session {
 
     private var group: NWConnectionGroup?
     private var readyWaiters: [(queue: DispatchQueue, completion: (Error?) -> Void)] = []
+    private var startCompletion: ((Error?) -> Void)?
+    private var controlConn: NWConnection?
+    private var serverUniStreams: [NWConnection] = []
 
     init(
         key: String,
@@ -642,6 +648,7 @@ final class NCTrustTunnelH3Session {
 
     func start(completion: @escaping (Error?) -> Void) {
         ncOnSessionQueue(queue) {
+            self.startCompletion = completion
             let parameters = NWParameters(quic: self.makeQUICOptions())
             parameters.allowLocalEndpointReuse = true
             NCOutboundBinding.apply(parameters, host: self.server)
@@ -653,25 +660,27 @@ final class NCTrustTunnelH3Session {
             let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: parameters)
             self.group = group
 
+            // The server opens its own unidirectional streams (control +
+            // QPACK, RFC 9114 §6.1): accept and drain them, or the group
+            // stalls the connection's stream bookkeeping.
+            group.newConnectionHandler = { [weak self] incoming in
+                guard let self else { incoming.cancel(); return }
+                ncOnSessionQueue(self.queue) { self.serverUniStreams.append(incoming) }
+                incoming.start(queue: self.queue)
+                self.drainServerUniStream(incoming)
+            }
+
             group.stateUpdateHandler = { [weak self] groupState in
                 guard let self else { return }
                 ncOnSessionQueue(self.queue) {
                     switch groupState {
                     case .ready:
                         if self.state == .connecting {
-                            self.snapshot.withLock { $0.state = .ready }
-                            let waiters = self.readyWaiters
-                            self.readyWaiters = []
-                            completion(nil)
-                            for w in waiters { w.queue.async { w.completion(nil) } }
+                            self.openControlStream()
                         }
                     case .failed(let error):
                         if self.state == .connecting {
-                            self.snapshot.withLock { $0.state = .failed; $0.tornDown = true }
-                            let waiters = self.readyWaiters
-                            self.readyWaiters = []
-                            completion(error)
-                            for w in waiters { w.queue.async { w.completion(error) } }
+                            self.finishStart(error)
                         } else {
                             self.close()
                         }
@@ -681,6 +690,94 @@ final class NCTrustTunnelH3Session {
                 }
             }
             group.start(queue: self.queue)
+
+            // A stuck QUIC handshake must surface as an error, not as a
+            // connect that never completes (the original H3 loopback hang).
+            self.queue.asyncAfter(deadline: .now() + 15) { [weak self] in
+                guard let self, self.state == .connecting else { return }
+                self.finishStart(NCConnector.Failure.handshake("trusttunnel h3 connect timeout"))
+            }
+        }
+    }
+
+    /// Fires the start completion and any ready waiters exactly once.
+    private func finishStart(_ error: Error?) {
+        if let error {
+            snapshot.withLock { $0.state = .failed; $0.tornDown = true }
+        } else {
+            snapshot.withLock { $0.state = .ready }
+        }
+        let comp = startCompletion
+        startCompletion = nil
+        let waiters = readyWaiters
+        readyWaiters = []
+        comp?(error)
+        for w in waiters { w.queue.async { w.completion(error) } }
+    }
+
+    /// RFC 9114 §6.2: the client's control stream (type 0x00) carrying its
+    /// SETTINGS must be opened before requests are processed; h3 servers
+    /// (the TrustTunnel endpoint included) wait for it. The session only
+    /// reports ready once the SETTINGS flight has been sent.
+    private func openControlStream() {
+        guard let group else {
+            finishStart(NCConnector.Failure.handshake("trusttunnel h3: no connection group"))
+            return
+        }
+        let options = NCQUICStreamOptions.unidirectional(from: group, fallback: { self.makeQUICOptions() })
+        guard let conn = group.extract(connectionTo: nil, using: options) else {
+            finishStart(NCConnector.Failure.handshake("trusttunnel h3: cannot open control stream"))
+            return
+        }
+        controlConn = conn
+        conn.stateUpdateHandler = { [weak self] streamState in
+            guard let self else { return }
+            ncOnSessionQueue(self.queue) {
+                switch streamState {
+                case .ready:
+                    var flight = NCHy2.varintEncode(0x00) // control stream type
+                    flight.append(Self.http3SettingsFrame())
+                    conn.send(content: flight, completion: .contentProcessed { [weak self] err in
+                        guard let self else { return }
+                        ncOnSessionQueue(self.queue) {
+                            guard self.state == .connecting else { return }
+                            if let err { self.finishStart(err) } else { self.finishStart(nil) }
+                        }
+                    })
+                case .failed(let err):
+                    if self.state == .connecting { self.finishStart(err) }
+                default:
+                    break
+                }
+            }
+        }
+        conn.start(queue: queue)
+    }
+
+    /// H3 SETTINGS frame: QPACK dynamic table off (our QPACK is literal-only),
+    /// extended CONNECT allowed (RFC 9220).
+    private static func http3SettingsFrame() -> Data {
+        var payload = Data()
+        payload.append(NCHy2.varintEncode(0x01)); payload.append(NCHy2.varintEncode(0)) // QPACK_MAX_TABLE_CAPACITY = 0
+        payload.append(NCHy2.varintEncode(0x07)); payload.append(NCHy2.varintEncode(0)) // QPACK_BLOCKED_STREAMS = 0
+        payload.append(NCHy2.varintEncode(0x08)); payload.append(NCHy2.varintEncode(1)) // SETTINGS_ENABLE_CONNECT_PROTOCOL = 1
+        var frame = NCHy2.varintEncode(0x04)
+        frame.append(NCHy2.varintEncode(UInt64(payload.count)))
+        frame.append(payload)
+        return frame
+    }
+
+    private func drainServerUniStream(_ conn: NWConnection) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] _, _, isComplete, error in
+            guard let self else { return }
+            if isComplete || error != nil {
+                ncOnSessionQueue(self.queue) {
+                    self.serverUniStreams.removeAll { $0 === conn }
+                }
+                conn.cancel()
+                return
+            }
+            self.drainServerUniStream(conn)
         }
     }
 
@@ -714,6 +811,10 @@ final class NCTrustTunnelH3Session {
     func close() {
         snapshot.withLock { $0.state = .closed; $0.tornDown = true }
         ncOnSessionQueue(queue) {
+            self.controlConn?.cancel()
+            self.controlConn = nil
+            for conn in self.serverUniStreams { conn.cancel() }
+            self.serverUniStreams = []
             self.group?.cancel()
             self.group = nil
         }
@@ -733,6 +834,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
     private var phase: Phase = .handshaking
 
     private var responseBuffer = Data()
+    private var frameBuffer = Data()
     private var outbox = Data()
     private var outboxWaiters: [NCCallOnce] = []
     private var inbox: [Data] = []
@@ -811,14 +913,15 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
                             if !self.outbox.isEmpty {
                                 let w = self.outboxWaiters
                                 self.outboxWaiters = []
-                                let data = self.outbox
+                                let framed = Self.http3DataFrame(self.outbox)
                                 self.outbox = Data()
-                                self.conn.send(content: data, completion: .contentProcessed { _ in
+                                self.conn.send(content: framed, completion: .contentProcessed { _ in
                                     w.forEach { $0.call() }
                                 })
                             }
                             if !parsed.trailing.isEmpty {
-                                self.deliver(parsed.trailing)
+                                self.frameBuffer.append(parsed.trailing)
+                                self.drainFrames()
                             }
                             self.receiveLoop()
                             return
@@ -869,7 +972,8 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
             guard let self else { return }
             ncOnSessionQueue(self.queue) {
                 if let content, !content.isEmpty {
-                    self.deliver(content)
+                    self.frameBuffer.append(content)
+                    self.drainFrames()
                 }
                 if isComplete || err != nil {
                     self.phase = .closed
@@ -883,6 +987,34 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
                 if self.phase == .open {
                     self.receiveLoop()
                 }
+            }
+        }
+    }
+
+    /// One H3 DATA frame (type 0x00) wrapping `data` (RFC 9114 §7.1).
+    private static func http3DataFrame(_ data: Data) -> Data {
+        var out = NCHy2.varintEncode(0x00)
+        out.append(NCHy2.varintEncode(UInt64(data.count)))
+        out.append(data)
+        return out
+    }
+
+    /// Consumes complete H3 frames from frameBuffer: DATA payloads are
+    /// delivered, everything else (trailer HEADERS, extension frames) is
+    /// skipped. Partial frames wait for more bytes.
+    private func drainFrames() {
+        while true {
+            var off = 0
+            guard let (frameType, tLen) = NCHy2.varintDecode(frameBuffer, at: off) else { return }
+            off += tLen
+            guard let (frameLen, lLen) = NCHy2.varintDecode(frameBuffer, at: off) else { return }
+            off += lLen
+            let len = Int(frameLen)
+            guard frameBuffer.count >= off + len else { return }
+            let payload = Data(frameBuffer[(frameBuffer.startIndex + off)..<(frameBuffer.startIndex + off + len)])
+            frameBuffer = Data(frameBuffer.dropFirst(off + len))
+            if frameType == 0x00, !payload.isEmpty {
+                deliver(payload)
             }
         }
     }
@@ -936,7 +1068,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
                 self.outbox.append(data)
                 self.outboxWaiters.append(once)
             case .open:
-                self.conn.send(content: data, completion: .contentProcessed { _ in once.call() })
+                self.conn.send(content: Self.http3DataFrame(data), completion: .contentProcessed { _ in once.call() })
             case .failed, .closed:
                 once.call()
             }
