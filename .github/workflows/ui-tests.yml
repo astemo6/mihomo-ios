@@ -437,6 +437,24 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           cat shots/*/report-*.md 2>/dev/null | grep -E "^\[|^# " | head -n 400
           echo "FAILED=$FAILED" >> "$GITHUB_ENV"
+      - name: Tunnel files (ss-obfs diagnosis)
+        if: always()
+        run: |
+          mkdir -p corelog
+          if [ -n "${DEV:-}" ]; then
+            find "$HOME/Library/Developer/CoreSimulator/Devices/$DEV/data/Containers" \( -name "core-log.txt" -o -name "startup-log.txt" -o -name "nativecore-runtime.json" -o -name "runtime.yaml" \) 2>/dev/null | while read -r f; do
+              cp "$f" "corelog/$(echo "$f" | md5 -q | head -c 6)-$(basename "$f")" 2>/dev/null || true
+            done
+          fi
+          ls -la corelog || true
+          grep -a "SS-Obfs" corelog/*runtime* 2>/dev/null | head -5 || true
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ui-corelog-${{ env.SHORT }}
+          path: corelog/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Crash logs
         if: always()
         run: |
