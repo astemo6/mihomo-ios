@@ -7,42 +7,6 @@ import UIKit
 /// (a numeric label = the node's handshake + proxied fetch worked; anything else is evidence).
 extension TernUITests {
 
-    /// test98 — fast seed-outcome check (probe/kit-e2e): launch with -UITestKitProbe, attach
-    /// the seed's pasteboard report (kit-seed-report: per-attempt addLocal error verbatim,
-    /// imported file counts, setActive result) and record which of the six proto5 members the
-    /// 策略 page actually shows. No probing — this isolates WHERE the six vanish.
-    func test98_KitSeedReport() {
-        allowHan = true
-        launch(["-UITestKitProbe"])
-        var report = ""
-        if let seedReport = UIPasteboard.general.string, seedReport.hasPrefix("KITSEED") {
-            report += seedReport
-        } else {
-            report += "KITSEED: <absent — pasteboard held: \(String((UIPasteboard.general.string ?? "nil").prefix(80)))>\n"
-        }
-        tab(1)
-        let group = app.element(id: "policy.card.Tern-Test")
-        report += "card-exists: \(group.waitForExistence(timeout: 30))\n"
-        if group.exists { group.tap() }
-        for name in ["Tern-OpenConnect", "Tern-TrustTunnel-H2", "Tern-TrustTunnel-H3",
-                     "Tern-Sudoku", "Tern-MASQUE-IP", "Tern-MASQUE-UDP", "Tern-SOCKS5"] {
-            let el = app.element(id: "policy.member.Tern-Test.\(name).delay")
-            var present = el.exists
-            if !present {
-                for _ in 0..<6 where !present {
-                    app.swipeUp()
-                    present = el.exists
-                }
-            }
-            report += "member \(name): \(present ? "present" : "MISSING")\n"
-        }
-        print(report)
-        let att = XCTAttachment(string: report)
-        att.name = "kit-seed-report"
-        att.lifetime = .keepAlways
-        add(att)
-    }
-
     func test99_KitProbe() {
         let names = ["Tern-SOCKS5", "Tern-HTTP", "Tern-HTTPS", "Tern-SS-AEAD", "Tern-SS2022",
                      "Tern-SS-ShadowTLS", "Tern-VMess", "Tern-VMess-WS", "Tern-VLESS",
@@ -56,15 +20,6 @@ extension TernUITests {
                      "Tern-Sudoku", "Tern-MASQUE-IP", "Tern-MASQUE-UDP"]
         allowHan = true
         launch(["-UITestKitProbe"])
-        // probe/kit-e2e: the seed records its kit import attempts (errors verbatim) on the
-        // pasteboard — surface them before anything else can overwrite it.
-        if let seedReport = UIPasteboard.general.string, seedReport.hasPrefix("KITSEED") {
-            print(seedReport)
-            let satt = XCTAttachment(string: seedReport)
-            satt.name = "kit-seed-report"
-            satt.lifetime = .keepAlways
-            add(satt)
-        }
         tab(1)
         let group = app.element(id: "policy.card.Tern-Test")
         if !group.waitForExistence(timeout: 30) {

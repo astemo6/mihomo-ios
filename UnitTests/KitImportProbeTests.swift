@@ -524,3 +524,52 @@ final class KitImportProbeTests: XCTestCase {
         }
     }
 }
+
+extension KitImportProbeTests {
+    /// probe/kit-e2e: replay the app seed's exact pre-kit steps in the unit host, then run
+    /// the kit FULL text through the same store's addLocal with the error printed verbatim.
+    /// The pristine-home audit (testKitAddLocalProductAudit) keeps 40/40, yet the app seed
+    /// lands on the reduced 34 — the delta must be the seeded home state (provider stub,
+    /// demo profile, manual nodes) or something process-level. Deviations from the app:
+    /// no setActive (VPN reload not exercised), suffixed profile names.
+    func testKitSeedEnvironmentReplay() async throws {
+        func b64(_ s: String) -> String {
+            String(data: Data(base64Encoded: s)!, encoding: .utf8)!
+        }
+        let full = b64(UITestSeed.kitProbeB64)
+        let store = ProfileStore()
+        var out = "===== SEED REPLAY =====\n"
+        let home = AppShared.homeURL
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("proxies"), withIntermediateDirectories: true)
+        try UITestSeed.providerYAML.write(to: home.appendingPathComponent("proxies/uitest-provider.yaml"), atomically: true, encoding: .utf8)
+        out += "provider stub written\n"
+        do {
+            _ = try await store.addLocal(name: "UITest Demo (repro)", text: UITestSeed.profileYAML)
+            out += "demo addLocal: OK\n"
+        } catch { out += "demo addLocal: THREW \(error.localizedDescription)\n" }
+        do {
+            let n = try await store.addManualNodes(text: UITestSeed.manualLinks)
+            out += "manual nodes: OK (\(n))\n"
+        } catch { out += "manual nodes: THREW \(error.localizedDescription)\n" }
+        do {
+            let p = try await store.addLocal(name: "Kit Repro FULL", text: full)
+            var counts = "?"
+            if let fileText = try? String(contentsOf: p.fileURL, encoding: .utf8),
+               case .object(let m)? = NCYAML.parse(fileText) {
+                let px = (m["proxies"]?.array ?? []).compactMap { $0.object?["name"]?.string }
+                let gm = (m["proxy-groups"]?.array ?? []).first { $0.object?["name"]?.string == "Tern-Test" }
+                let members = (gm?.object?["proxies"]?.array ?? []).compactMap { $0.string }
+                counts = "file-proxies=\(px.count) members=\(members.count)"
+                out += "SIX in file: \(["Tern-OpenConnect", "Tern-TrustTunnel-H2", "Tern-TrustTunnel-H3", "Tern-Sudoku", "Tern-MASQUE-IP", "Tern-MASQUE-UDP"].map { px.contains($0) ? $0 : "\($0)(ABSENT)" }.joined(separator: " | "))\n"
+            }
+            out += "kit FULL addLocal: OK \(counts)\n"
+        } catch {
+            out += "kit FULL addLocal: THREW \(error.localizedDescription)\n"
+        }
+        print(out)
+        let att = XCTAttachment(string: out)
+        att.name = "kit-seed-replay"
+        att.lifetime = .keepAlways
+        add(att)
+    }
+}

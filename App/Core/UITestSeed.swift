@@ -109,42 +109,13 @@ enum UITestSeed {
                 // The kit generator emits mihomo flow-style YAML; if the full profile will not
                 // import, fall back to the reduced set (proto5 types dropped) so the probe still
                 // measures everything else instead of silently staying on the demo profile.
-                // probe/kit-e2e instrumentation: the `try?` above used to swallow WHY the full
-                // text failed in the app (unit-host audit: the whole import chain keeps 40/40,
-                // yet test99 saw the reduced 34). Record each attempt's error verbatim, the
-                // imported file's proxy/member counts and the setActive result on the
-                // pasteboard; test99 attaches it as kit-seed-report.
-                var seedReport = "KITSEED\n"
                 var imported: Profile?
-                for (label, b64) in [("FULL", kitProbeB64), ("REDUCED", kitProbeReducedB64)] {
-                    guard let data = Data(base64Encoded: b64), let text = String(data: data, encoding: .utf8) else {
-                        seedReport += "\(label): <b64 decode failed>\n"
-                        continue
-                    }
-                    do {
-                        let p = try await store.addLocal(name: "UITest Kit", text: text)
-                        var counts = "?"
-                        if let fileText = try? String(contentsOf: p.fileURL, encoding: .utf8),
-                           case .object(let m)? = NCYAML.parse(fileText) {
-                            let px = (m["proxies"]?.array ?? []).compactMap { $0.object?["name"]?.string }
-                            let gm = (m["proxy-groups"]?.array ?? []).first { $0.object?["name"]?.string == "Tern-Test" }
-                            let members = (gm?.object?["proxies"]?.array ?? []).compactMap { $0.string }
-                            counts = "file-proxies=\(px.count) members=\(members.count)"
-                        }
-                        seedReport += "\(label): OK \(counts)\n"
-                        imported = p
-                        break
-                    } catch {
-                        seedReport += "\(label): THREW \(error.localizedDescription)\n"
+                for b64 in [kitProbeB64, kitProbeReducedB64] {
+                    if let data = Data(base64Encoded: b64), let text = String(data: data, encoding: .utf8) {
+                        if let p = try? await store.addLocal(name: "UITest Kit", text: text) { imported = p; break }
                     }
                 }
-                if let imported {
-                    let actErr = await store.setActive(imported)
-                    seedReport += "setActive: \(actErr ?? "OK")\n"
-                } else {
-                    seedReport += "setActive: <nothing imported>\n"
-                }
-                UIPasteboard.general.string = seedReport
+                if let imported { _ = await store.setActive(imported) }
             }
             // feat/policy-chain: nested groups with CJK names (节点选择 → 日本节点 → 东京 …) for the chain subtitles on 策略.
             if args.contains("-UITestPolicyChain"), !store.profiles.contains(where: { $0.name == "UITest Chain" }) {
