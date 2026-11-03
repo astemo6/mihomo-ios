@@ -275,7 +275,23 @@ final class NCSSObfsZhihengInteropTests: XCTestCase {
         let dir = NSTemporaryDirectory() + "ssobfs-app-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let profile = dir + "/kit.yaml"
-        let twoNodes = seedYAML + """
+        // One literal for the whole file (concatenating two multiline literals
+        // broke the second entry's indentation in the first version of this test:
+        // the file parsed as ONE merged entry — resolver returned the v2ray fields
+        // for the obfs name and no v2ray entry at all).
+        let twoNodes = """
+        proxies:
+        - name: Tern-SS-Obfs
+          type: ss
+          server: \(server)
+          port: 24021
+          cipher: aes-256-gcm
+          password: \(password)
+          udp: false
+          plugin: obfs
+          plugin-opts:
+            mode: http
+            host: www.bing.com
         - name: Tern-SS-V2ray
           type: ss
           server: \(server)
@@ -290,11 +306,14 @@ final class NCSSObfsZhihengInteropTests: XCTestCase {
             path: /y566yq2t
         """
         try twoNodes.write(toFile: profile, atomically: true, encoding: .utf8)
-        if let p = NCNodeResolver.shared.resolveByName(homeDir: dir, profilePath: profile, name: "Tern-SS-Obfs") {
-            NSLog("[ssobfs-app] resolved: plugin=%@ plugin-opts=%@",
-                  p.fields["plugin"]?.string ?? "<nil>", String(describing: p.fields["plugin-opts"]))
-        } else {
-            NSLog("[ssobfs-app] resolver returned nil for Tern-SS-Obfs")
+        for nm in ["Tern-SS-Obfs", "Tern-SS-V2ray"] {
+            if let p = NCNodeResolver.shared.resolveByName(homeDir: dir, profilePath: profile, name: nm) {
+                NSLog("[ssobfs-app] resolved %@: name=%@ port=%@ plugin=%@ plugin-opts=%@", nm, p.name,
+                      p.fields["port"]?.number.map { String(Int($0)) } ?? "<nil>",
+                      p.fields["plugin"]?.string ?? "<nil>", String(describing: p.fields["plugin-opts"]))
+            } else {
+                NSLog("[ssobfs-app] resolver returned nil for %@", nm)
+            }
         }
         let ms = NCDelayTester.testDelayByName(homeDir: dir, profilePath: profile,
                                                name: "Tern-SS-Obfs",
