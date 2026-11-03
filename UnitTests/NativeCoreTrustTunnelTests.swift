@@ -663,6 +663,21 @@ final class NativeCoreTrustTunnelTests: XCTestCase {
         XCTAssertEqual(whole.headers, 1)
         XCTAssertTrue(whole.outbound.count >= 9, "SETTINGS ACK + WINDOW_UPDATEs expected")
 
+        // Send side: the endpoint's SETTINGS carry MAX_CONCURRENT_STREAMS=1000
+        // (0x3) BEFORE INITIAL_WINDOW_SIZE=131072 (0x4). The stream's send
+        // window must follow 0x4 — when 0x3 was (mis)treated as the window,
+        // streams were capped at exactly 1000 bytes (loopback H2 stall).
+        let sendCore = NCH2MuxCore()
+        _ = sendCore.start()
+        let (sid, _) = sendCore.openStream(headers: [(":method", "CONNECT"), (":authority", "127.0.0.1:18080")])
+        var settingsOnly = Data()
+        settingsOnly.append(bytes[bytes.startIndex..<(bytes.startIndex + 9 + 24)]) // SETTINGS frame only
+        _ = sendCore.feed(settingsOnly)
+        XCTAssertEqual(sendCore.streamWindow(sid), 131072,
+                       "stream send window must track INITIAL_WINDOW_SIZE (0x4), not MAX_CONCURRENT_STREAMS (0x3)")
+        let (_, consumed) = sendCore.makeData(streamID: sid, data: payload)
+        XCTAssertEqual(consumed, 8192, "an 8192-byte send must fit the peer window in full")
+
         var chunks: [Data] = []
         var off = 0
         while off < bytes.count {

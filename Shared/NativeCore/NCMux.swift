@@ -246,7 +246,7 @@ final class NCH2MuxCore {
                 while i + 6 <= payload.count {
                     let id = Int(payload[i]) << 8 | Int(payload[i + 1])
                     let value = Int(payload[i + 2]) << 24 | Int(payload[i + 3]) << 16 | Int(payload[i + 4]) << 8 | Int(payload[i + 5])
-                    if id == 0x3 {
+                    if id == 0x4 { // INITIAL_WINDOW_SIZE (0x3 is MAX_CONCURRENT_STREAMS — treating it as the window capped every stream at the peer's stream-count limit, e.g. 1000 bytes vs the TrustTunnel endpoint)
                         let delta = value - peerInitialWindow
                         peerInitialWindow = value
                         for k in streamWindows.keys { streamWindows[k, default: 0] += delta }
