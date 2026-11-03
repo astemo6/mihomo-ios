@@ -73,6 +73,7 @@ public enum NCTrustTunnelSessionManager {
                 }
                 return
             }
+            print("NCDBG tt manager: creating H3 session key=\(sessionKey)")
             let session = NCTrustTunnelH3Session(
                 key: sessionKey,
                 server: server,
@@ -652,6 +653,7 @@ final class NCTrustTunnelH3Session {
 
     func start(completion: @escaping (Error?) -> Void) {
         ncOnSessionQueue(queue) {
+            print("NCDBG tt h3 session.start block running")
             self.startCompletion = completion
             self.startStage = "group-created"
             let parameters = NWParameters(quic: self.makeQUICOptions())
@@ -679,6 +681,7 @@ final class NCTrustTunnelH3Session {
                 guard let self else { return }
                 ncOnSessionQueue(self.queue) {
                     self.lastGroupState = "\(groupState)"
+                    print("NCDBG tt h3 group state: \(groupState)")
                     switch groupState {
                     case .ready:
                         if self.state == .connecting {
@@ -702,6 +705,7 @@ final class NCTrustTunnelH3Session {
             // connect that never completes (the original H3 loopback hang).
             self.queue.asyncAfter(deadline: .now() + 15) { [weak self] in
                 guard let self, self.state == .connecting else { return }
+                print("NCDBG tt h3 session deadline firing, stage=\(self.startStage)")
                 self.finishStart(NCConnector.Failure.handshake("trusttunnel h3 connect timeout (stage: \(self.startStage), group: \(self.lastGroupState))"))
             }
         }
@@ -709,6 +713,7 @@ final class NCTrustTunnelH3Session {
 
     /// Fires the start completion and any ready waiters exactly once.
     private func finishStart(_ error: Error?) {
+        print("NCDBG tt h3 finishStart error=\(String(describing: error)) stage=\(startStage)")
         if let error {
             snapshot.withLock { $0.state = .failed; $0.tornDown = true }
         } else {
@@ -727,6 +732,7 @@ final class NCTrustTunnelH3Session {
     /// (the TrustTunnel endpoint included) wait for it. The session only
     /// reports ready once the SETTINGS flight has been sent.
     private func openControlStream() {
+        print("NCDBG tt h3 openControlStream")
         guard let group else {
             finishStart(NCConnector.Failure.handshake("trusttunnel h3: no connection group"))
             return
@@ -797,6 +803,7 @@ final class NCTrustTunnelH3Session {
         completion: @escaping (NCRelayStream?, Error?) -> Void
     ) {
         ncOnSessionQueue(queue) {
+            print("NCDBG tt h3 openStream state=\(self.state) isAlive=\(self.isAlive)")
             guard self.isAlive, let group = self.group else {
                 callerQueue.async { completion(nil, NCConnector.Failure.handshake("trusttunnel h3 session closed")) }
                 return
@@ -873,9 +880,11 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
     }
 
     func begin() {
+        print("NCDBG tt h3 stream begin")
         conn.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             ncOnSessionQueue(self.queue) {
+                print("NCDBG tt h3 stream conn state: \(state)")
                 switch state {
                 case .ready:
                     let authority: String
@@ -893,6 +902,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
                     self.conn.send(content: frame, completion: .contentProcessed { [weak self] err in
                         guard let self else { return }
                         ncOnSessionQueue(self.queue) {
+                            print("NCDBG tt h3 stream HEADERS sent err=\(String(describing: err))")
                             if let err { self.fail(err); return }
                             self.receiveHandshake()
                         }
@@ -909,6 +919,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
         // not as a connect that hangs until the caller's own timeout.
         queue.asyncAfter(deadline: .now() + 20) { [weak self] in
             guard let self, self.phase == .handshaking else { return }
+            print("NCDBG tt h3 stream deadline firing, responseBuffer=\(self.responseBuffer.count)")
             self.fail(NCConnector.Failure.handshake("trusttunnel h3 handshake timeout (response bytes received: \(self.responseBuffer.count))"))
         }
     }
@@ -918,6 +929,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
             guard let self else { return }
             ncOnSessionQueue(self.queue) {
                 if let content, !content.isEmpty {
+                    print("NCDBG tt h3 handshake received \(content.count) bytes")
                     self.responseBuffer.append(content)
                     if let parsed = self.tryParseH3Response() {
                         if parsed.status == "200" {
