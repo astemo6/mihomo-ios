@@ -347,13 +347,16 @@ final class NativeCoreMASQUETests: XCTestCase {
     }
 
     func testCapsuleCodecBoundaries() {
-        var parser = NCMASQUE.CapsuleParser()
-
-        // 1. Truncated header (only 1 byte with 2-byte varint length prefix)
-        let truncated = parser.feed(Data([0x40]))
+        // 1. Truncated header (only 1 byte with 2-byte varint length prefix):
+        // a streaming parser must retain the partial byte and emit nothing.
+        // (The truncated parser is then discarded — a byte stream cannot
+        // resynchronise after truncation, so later steps use fresh parsers.)
+        var truncatedParser = NCMASQUE.CapsuleParser()
+        let truncated = truncatedParser.feed(Data([0x40]))
         XCTAssertEqual(truncated.count, 0)
 
         // 2. Unknown capsule type (RFC 9297 §3.2 requires endpoints to ignore unknown capsules)
+        var parser = NCMASQUE.CapsuleParser()
         let unknownType: UInt64 = 0x12345
         let unknownPayload = Data([0xde, 0xad, 0xbe, 0xef])
         let unknownWire = NCMASQUE.encodeCapsule(type: unknownType, value: unknownPayload)
@@ -374,7 +377,7 @@ final class NativeCoreMASQUETests: XCTestCase {
     func testNegotiationFailurePaths() {
         // 1. QPACK response with non-2xx status (e.g. 403 Forbidden: static index 68)
         var qpack403 = Data([0x00, 0x00]) // QPACK section prefix
-        qpack403.append(0xC0 | 68)         // Indexed static table index 68 (:status 403)
+        qpack403.append(contentsOf: [0xFF, 0x05]) // Indexed field line, 6-bit prefix: 63 + continuation 5 = index 68 (:status 403)
         let fields = NCMASQUE.qpackDecodeFieldSection(qpack403)
         XCTAssertNotNil(fields)
         let status = fields?.first(where: { $0.name == ":status" })?.value
