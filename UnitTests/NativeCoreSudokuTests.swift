@@ -412,8 +412,8 @@ final class NativeCoreSudokuTests: XCTestCase {
     /// carries and the official server logs / whitelists on
     /// (upstream internal/tunnel/kip.go kipUserHashFromPrivateKey).
     func testUserHashDerivationVectors() {
-        // 128-hex split ("available") key → SHA256(decoded 64 bytes)[:8]
-        XCTAssertEqual(self.hex(NCSudoku.deriveUserHash(from: Self.vectorKey128)), "5254fd3ed5acedc6")
+        // 128-hex split ("available") key → SHA256(private HALF, 32 bytes)[:8]
+        XCTAssertEqual(self.hex(NCSudoku.deriveUserHash(from: Self.vectorKey128)), "e1288fbea695b3ed")
         // 64-hex master scalar → SHA256(decoded 32 bytes)[:8]
         XCTAssertEqual(self.hex(NCSudoku.deriveUserHash(from: Self.vectorKey64)), "630dcd2966c43366")
         // non-hex string → SHA256(utf8 bytes)[:8]
@@ -594,12 +594,17 @@ final class NativeCoreSudokuTests: XCTestCase {
     // MARK: - AEAD record layer (S2)
 
     func testAEADRoundTripBothCiphers() throws {
+        // The official key schedule is directional (c2s vs s2c bases), so a
+        // round trip needs a client-role and a server-role endpoint.
         let plain = Data((0..<100).map { UInt8($0) })
         for method in [NCSudoku.AEADMethod.chacha20Poly1305, .aes128GCM] {
-            let aead = NCSudokuAEAD(method: method, key: Self.vectorKey64)
-            var buf = try aead.seal(plaintext: plain)
-            XCTAssertEqual(try aead.unseal(from: &buf), plain, "\(method.rawValue) round trip")
+            let client = NCSudokuAEAD(method: method, key: Self.vectorKey64, isClient: true)
+            let server = NCSudokuAEAD(method: method, key: Self.vectorKey64, isClient: false)
+            var buf = try client.seal(plaintext: plain)
+            XCTAssertEqual(try server.unseal(from: &buf), plain, "\(method.rawValue) c2s round trip")
             XCTAssertEqual(buf.count, 0, "\(method.rawValue): record must be consumed")
+            var back = try server.seal(plaintext: plain)
+            XCTAssertEqual(try client.unseal(from: &back), plain, "\(method.rawValue) s2c round trip")
         }
     }
 
@@ -622,7 +627,7 @@ final class NativeCoreSudokuTests: XCTestCase {
         let plain = Data("wrong key must not open".utf8)
         for method in [NCSudoku.AEADMethod.chacha20Poly1305, .aes128GCM] {
             let aead = NCSudokuAEAD(method: method, key: Self.vectorKey64)
-            let attacker = NCSudokuAEAD(method: method, key: Self.vectorKey64Other)
+            let attacker = NCSudokuAEAD(method: method, key: Self.vectorKey64Other, isClient: false)
             var buf = try aead.seal(plaintext: plain)
             XCTAssertThrowsError(try attacker.unseal(from: &buf),
                                  "\(method.rawValue): different key must fail AEAD verification")
@@ -630,10 +635,11 @@ final class NativeCoreSudokuTests: XCTestCase {
     }
 
     func testAEADCorruptedCiphertextRejected() throws {
-        let aead = NCSudokuAEAD(method: .chacha20Poly1305, key: Self.vectorKey64)
-        var buf = try aead.seal(plaintext: Data(repeating: 0x33, count: 64))
+        let client = NCSudokuAEAD(method: .chacha20Poly1305, key: Self.vectorKey64)
+        let server = NCSudokuAEAD(method: .chacha20Poly1305, key: Self.vectorKey64, isClient: false)
+        var buf = try client.seal(plaintext: Data(repeating: 0x33, count: 64))
         buf[buf.count - 5] ^= 0xff // inside the tag
-        XCTAssertThrowsError(try aead.unseal(from: &buf), "flipped tag byte must fail verification")
+        XCTAssertThrowsError(try server.unseal(from: &buf), "flipped tag byte must fail verification")
     }
 
     func testAEADTruncatedRecordNeedsMoreBytes() throws {
@@ -664,5 +670,37 @@ final class NativeCoreSudokuTests: XCTestCase {
         XCTAssertEqual(frame.subdata(in: frame.startIndex + 2 ..< frame.startIndex + 2 + plain.count), plain)
         var buf = frame
         XCTAssertEqual(try aead.unseal(from: &buf), plain)
+    }
+
+    // MARK: - Official key schedule & table permutation (interop fix)
+
+    /// Key normalisation: a 64-hex master key is rewritten to the hex of
+    /// its Ed25519 master public key (independently derived via OpenSSL).
+    func testKeyMaterialNormalisation() {
+        let m = NCSudoku.keyMaterial(from: Self.vectorKey64)
+        XCTAssertEqual(m.keyString, "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8")
+        XCTAssertEqual(m.privateBytes, NCSudoku.hexDecode(Self.vectorKey64))
+        let loop = NCSudoku.keyMaterial(from: "3388f6b59b225f4e41cd14f445b73b6568711ce536832217b15649253612451d")
+        XCTAssertEqual(loop.keyString, "451cc34dee31be42e061197a2626ba96343b5934874a37868c5715e4dd477254")
+    }
+
+    /// PSK bases + epoch-0 record key, pinned against an independent
+    /// HKDF/HMAC reference computation.
+    func testKeyScheduleVectors() {
+        let aead = NCSudokuAEAD(method: .chacha20Poly1305, key: Self.vectorKey64)
+        XCTAssertEqual(self.hex(aead.debugSendBase), "13f70d43648b16dfb2ebd976ca869bfd97f83903d0c0e633bea82bb2fc72cc1f")
+        XCTAssertEqual(self.hex(aead.debugRecvBase), "43d155d1a3895719d02e933b03c25b3e9a13500aea750a285bd207425316bed1")
+        XCTAssertEqual(self.hex(aead.debugEpochKey(send: true, epoch: 0)),
+                       "a33a5f7883471c3d5bbb9507f6508712bb4adf94c97f8f37fc085700bebed0fa")
+    }
+
+    /// Go math/rand v1 shuffle of the 288 grid indices, pinned against an
+    /// independent port of the Go stdlib generator.
+    func testGoRandPermutationVectors() {
+        let hash = NCSudoku.keyMaterial(from: Self.vectorKey64).keyHash
+        let perm = NCGoRand.permutation(count: 288, seedHash: hash)
+        XCTAssertEqual(Array(perm.prefix(16)), [79, 128, 181, 165, 86, 224, 81, 198, 162, 275, 9, 104, 93, 74, 62, 119])
+        XCTAssertEqual(perm.enumerated().reduce(0) { $0 + $1.offset * $1.element }, 6200948)
+        XCTAssertEqual(Set(perm).count, 288)
     }
 }

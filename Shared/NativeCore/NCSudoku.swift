@@ -408,20 +408,49 @@ enum NCSudoku {
         return data
     }
 
-    /// Derives the 8-byte user hash for ClientHello:
-    /// First 8 bytes of SHA256(privateKeyBytes) when key is 128 hex chars,
-    /// or first 8 bytes of SHA256(rawBytes) when key is 64 hex chars,
-    /// or fallback to first 8 bytes of SHA256(key.utf8).
-    static func deriveUserHash(from key: String) -> Data {
-        let rawKey: Data
+    static func hexEncode(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Normalised key material (docs/nc-proto-sudoku.md §2.6 row 2): the
+    /// official client rewrites a hex master key to the hex of the master
+    /// PUBLIC key — that string ("key string") is what feeds SHA256 for the
+    /// PSK bases and the grid-table seed. The raw private bytes are kept
+    /// separately for `user_hash` (SHA256(private-key-bytes)[:8]).
+    struct KeyMaterial {
+        /// The normalised key string (master public key hex, or the raw
+        /// passphrase for non-hex keys).
+        let keyString: String
+        /// Raw private-key bytes for hex keys; nil for passphrases.
+        let privateBytes: Data?
+        /// SHA256(key string) — the PRK for the PSK bases / HKDF-Extract
+        /// salt for the session rekey, and the table-seed source.
+        var keyHash: Data { Data(SHA256.hash(data: Data(keyString.utf8))) }
+    }
+
+    static func keyMaterial(from key: String) -> KeyMaterial {
         if key.count == 128, let d = hexDecode(key) {
-            rawKey = d
-        } else if key.count == 64, let d = hexDecode(key) {
-            rawKey = d
-        } else {
-            rawKey = Data(key.utf8)
+            // private half ‖ public half — the public half IS the key string.
+            return KeyMaterial(keyString: String(key.suffix(64)).lowercased(),
+                               privateBytes: Data(d.prefix(32)))
         }
-        let hash = SHA256.hash(data: rawKey)
+        if key.count == 64, let d = hexDecode(key) {
+            // Master private seed → derive the Ed25519 master public key.
+            if let priv = try? Curve25519.Signing.PrivateKey(rawRepresentation: d) {
+                return KeyMaterial(keyString: hexEncode(priv.publicKey.rawRepresentation),
+                                   privateBytes: d)
+            }
+            return KeyMaterial(keyString: key.lowercased(), privateBytes: d)
+        }
+        return KeyMaterial(keyString: key, privateBytes: nil)
+    }
+
+    /// Derives the 8-byte user hash for ClientHello:
+    /// SHA256(private-key bytes)[:8] for hex keys (the private HALF for the
+    /// 128-hex split form), SHA256(passphrase)[:8] otherwise.
+    static func deriveUserHash(from key: String) -> Data {
+        let material = keyMaterial(from: key)
+        let hash = SHA256.hash(data: material.privateBytes ?? Data(material.keyString.utf8))
         return Data(hash.prefix(8))
     }
 }
