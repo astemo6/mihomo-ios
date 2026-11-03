@@ -31,9 +31,6 @@ final class NCSSObfsZhihengInteropTests: XCTestCase {
         guard env["NC_SSOBFS_ZH"] == "1" else {
             throw XCTSkip("SS-Obfs zhiheng interop: set TEST_RUNNER_NC_SSOBFS_ZH=1 with the kit node env (proto-loopback.yml ss-obfs-zh)")
         }
-        // TEMP (stage-8 isolation run): only the tapped test executes; the rest of the
-        // class kept eating the 50-min job cap behind a hung sweep. Reverted next commit.
-        if !name.contains("TappedUnifiedHTTPS") { throw XCTSkip("stage-8 isolation run") }
         XCTAssertFalse(password.isEmpty, "NC_SSOBFS_PASSWORD missing")
     }
 
