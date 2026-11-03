@@ -543,6 +543,7 @@ final class NCMASQUEConnection {
                     guard let self else { return }
                     self.readExtendedConnectResponse(channel: ch, quarterStreamID: quarterStreamID,
                                                      target: target, callerQueue: callerQueue,
+                                                     sentPath: resolvedPath, sentAuthority: authority,
                                                      completion: completion)
                 }
             }
@@ -553,6 +554,8 @@ final class NCMASQUEConnection {
                                              quarterStreamID: UInt64,
                                              target: NCTarget,
                                              callerQueue: DispatchQueue,
+                                             sentPath: String,
+                                             sentAuthority: String,
                                              completion: @escaping (NCRelayStream?, Error?) -> Void) {
         channel.receive { [weak self] data, err in
             guard let self else { return }
@@ -599,8 +602,13 @@ final class NCMASQUEConnection {
             }
 
             guard let status = statusStr, status.hasPrefix("2") else {
+                // Surface everything the peer sent back (a redirect's
+                // Location names the path the server actually routed on)
+                // plus exactly what we sent — a bare status code made the
+                // loopback 307 undebuggable from the client side.
+                let fieldDump = fields.map { "\($0.name): \($0.value)" }.joined(separator: "; ")
                 callerQueue.async {
-                    completion(nil, NCConnector.Failure.handshake("MASQUE Extended CONNECT 被拒绝 (HTTP \(statusStr ?? "unknown"))"))
+                    completion(nil, NCConnector.Failure.handshake("MASQUE Extended CONNECT 被拒绝 (HTTP \(statusStr ?? "unknown")); sent :authority=\(sentAuthority) :path=\(sentPath); response fields: \(fieldDump)"))
                 }
                 channel.cancel()
                 return
