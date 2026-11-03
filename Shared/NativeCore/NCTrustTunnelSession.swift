@@ -599,6 +599,10 @@ final class NCTrustTunnelH3Session {
     private var startCompletion: ((Error?) -> Void)?
     private var controlConn: NWConnection?
     private var serverUniStreams: [NWConnection] = []
+    /// Last start milestone reached, named in the connect-timeout error so a
+    /// stall reports WHERE it stalled instead of hanging silently.
+    private var startStage = "init"
+    private var lastGroupState = "none"
 
     init(
         key: String,
@@ -649,6 +653,7 @@ final class NCTrustTunnelH3Session {
     func start(completion: @escaping (Error?) -> Void) {
         ncOnSessionQueue(queue) {
             self.startCompletion = completion
+            self.startStage = "group-created"
             let parameters = NWParameters(quic: self.makeQUICOptions())
             parameters.allowLocalEndpointReuse = true
             NCOutboundBinding.apply(parameters, host: self.server)
@@ -673,9 +678,11 @@ final class NCTrustTunnelH3Session {
             group.stateUpdateHandler = { [weak self] groupState in
                 guard let self else { return }
                 ncOnSessionQueue(self.queue) {
+                    self.lastGroupState = "\(groupState)"
                     switch groupState {
                     case .ready:
                         if self.state == .connecting {
+                            self.startStage = "group-ready"
                             self.openControlStream()
                         }
                     case .failed(let error):
@@ -695,7 +702,7 @@ final class NCTrustTunnelH3Session {
             // connect that never completes (the original H3 loopback hang).
             self.queue.asyncAfter(deadline: .now() + 15) { [weak self] in
                 guard let self, self.state == .connecting else { return }
-                self.finishStart(NCConnector.Failure.handshake("trusttunnel h3 connect timeout"))
+                self.finishStart(NCConnector.Failure.handshake("trusttunnel h3 connect timeout (stage: \(self.startStage), group: \(self.lastGroupState))"))
             }
         }
     }
@@ -730,17 +737,20 @@ final class NCTrustTunnelH3Session {
             return
         }
         controlConn = conn
+        startStage = "control-extracted"
         conn.stateUpdateHandler = { [weak self] streamState in
             guard let self else { return }
             ncOnSessionQueue(self.queue) {
                 switch streamState {
                 case .ready:
+                    self.startStage = "control-ready"
                     var flight = NCHy2.varintEncode(0x00) // control stream type
                     flight.append(Self.http3SettingsFrame())
                     conn.send(content: flight, completion: .contentProcessed { [weak self] err in
                         guard let self else { return }
                         ncOnSessionQueue(self.queue) {
                             guard self.state == .connecting else { return }
+                            self.startStage = "settings-sent"
                             if let err { self.finishStart(err) } else { self.finishStart(nil) }
                         }
                     })
@@ -895,6 +905,12 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
             }
         }
         conn.start(queue: queue)
+        // A peer that never answers the CONNECT must surface as an error,
+        // not as a connect that hangs until the caller's own timeout.
+        queue.asyncAfter(deadline: .now() + 20) { [weak self] in
+            guard let self, self.phase == .handshaking else { return }
+            self.fail(NCConnector.Failure.handshake("trusttunnel h3 handshake timeout (response bytes received: \(self.responseBuffer.count))"))
+        }
     }
 
     private func receiveHandshake() {
