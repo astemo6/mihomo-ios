@@ -7,6 +7,44 @@ import UIKit
 /// (a numeric label = the node's handshake + proxied fetch worked; anything else is evidence).
 extension TernUITests {
 
+    /// test97 — readback only (probe/kit-e2e): which members the 策略 page ACTUALLY renders
+    /// for Tern-Test in a real -UITestKitProbe launch, and whether the page is live
+    /// (测速经由内核) or offline (离线测速). Every app-process audit says 40/40, yet
+    /// test99's per-name lookup misses exactly the YAML tail six — this separates
+    /// "the page has 34" from "the page has 40 but the lookup/scroll misses them".
+    func test97_KitMembersReadback() {
+        allowHan = true
+        launch(["-UITestKitProbe"])
+        tab(1)
+        var out = "===== MEMBERS READBACK =====\n"
+        let group = app.element(id: "policy.card.Tern-Test")
+        out += "card-exists: \(group.waitForExistence(timeout: 30))\n"
+        // live vs offline caption (TestTargetCaption on the policy page)
+        let liveCap = app.staticTexts.containing(NSPredicate(format: "label CONTAINS '测速经由内核'")).firstMatch
+        let offCap = app.staticTexts.containing(NSPredicate(format: "label CONTAINS '离线测速'")).firstMatch
+        out += "caption: live=\(liveCap.exists) offline=\(offCap.exists)\n"
+        if group.exists { group.tap() }
+        let pred = NSPredicate(format: "identifier BEGINSWITH 'policy.member.Tern-Test.' AND identifier ENDSWITH '.delay'")
+        var found = Set<String>()
+        for _ in 0..<30 {
+            let els = app.staticTexts.matching(pred)
+            for i in 0..<els.count {
+                let idf = els.element(boundBy: i).identifier
+                let name = idf.dropFirst("policy.member.Tern-Test.".count).dropLast(".delay".count)
+                found.insert(String(name))
+            }
+            if found.count >= 40 { break }
+            app.swipeUp()
+        }
+        out += "rendered(\(found.count)): \(found.sorted().joined(separator: ", "))\n"
+        out += "SIX rendered: \(["Tern-OpenConnect", "Tern-TrustTunnel-H2", "Tern-TrustTunnel-H3", "Tern-Sudoku", "Tern-MASQUE-IP", "Tern-MASQUE-UDP"].map { found.contains($0) ? $0 : "\($0)(ABSENT)" }.joined(separator: " | "))\n"
+        print(out)
+        let att = XCTAttachment(string: out)
+        att.name = "kit-members-readback"
+        att.lifetime = .keepAlways
+        add(att)
+    }
+
     func test99_KitProbe() {
         let names = ["Tern-SOCKS5", "Tern-HTTP", "Tern-HTTPS", "Tern-SS-AEAD", "Tern-SS2022",
                      "Tern-SS-ShadowTLS", "Tern-VMess", "Tern-VMess-WS", "Tern-VLESS",
