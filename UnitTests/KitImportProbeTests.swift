@@ -623,3 +623,37 @@ extension KitImportProbeTests {
         add(att)
     }
 }
+
+extension KitImportProbeTests {
+    /// probe/kit-e2e: the offline 策略 page is fed by NCProfileInspectorPort.inspectProfile
+    /// (ProfileInspector.members(of:) returns its previewGroup members verbatim). Every
+    /// audit so far bypassed this port and called the builder directly — run the port
+    /// itself over the imported kit profile and print what it sees.
+    func testKitInspectProfileAudit() async throws {
+        func b64(_ s: String) -> String {
+            String(data: Data(base64Encoded: s)!, encoding: .utf8)!
+        }
+        let full = b64(UITestSeed.kitProbeB64)
+        let store = await ProfileStore()
+        let p = try await store.addLocal(name: "Kit Inspect Audit", text: full)
+        let home = AppShared.homeURL
+        let res = await Task.detached(priority: .userInitiated) {
+            NCProfileInspectorPort.inspectProfile(home: home.path, path: p.fileURL.path)
+        }.value
+        var out = "===== INSPECT AUDIT =====\n"
+        out += "error: \(res.error ?? "nil")\n"
+        out += "proxies(\(res.proxies.count)): \(res.proxies.map(\.name).joined(separator: ", "))\n"
+        if let g = res.groups.first(where: { $0.name == "Tern-Test" }) {
+            out += "group proxies(\(g.proxies.count)) members(\(g.members?.count ?? -1)): \((g.members ?? []).joined(separator: ", "))\n"
+            out += "membersError: \(g.membersError ?? "nil")\n"
+            out += "SIX in members: \(["Tern-OpenConnect", "Tern-TrustTunnel-H2", "Tern-TrustTunnel-H3", "Tern-Sudoku", "Tern-MASQUE-IP", "Tern-MASQUE-UDP"].map { (g.members ?? []).contains($0) ? $0 : "\($0)(ABSENT)" }.joined(separator: " | "))\n"
+        } else {
+            out += "group Tern-Test: <absent> (groups: \(res.groups.map(\.name).joined(separator: ", ")))\n"
+        }
+        print(out)
+        let att = XCTAttachment(string: out)
+        att.name = "kit-inspect-audit"
+        att.lifetime = .keepAlways
+        add(att)
+    }
+}
