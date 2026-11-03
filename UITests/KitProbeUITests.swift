@@ -80,20 +80,40 @@ extension TernUITests {
         test.tap()
         // Members probe in parallel with a 5 s per-node timeout; slow starters and the
         // tunnel-type nodes can take longer to settle — poll the labels for up to 3 minutes.
-        let deadline = Date().addingTimeInterval(180)
-        while Date() < deadline {
-            let pending = names.filter { n in
+        // probe/kit-e2e fix: the member rows live in a LazyVStack — a row that has never
+        // been scrolled into the build window does not exist as an accessibility element.
+        // The old version never scrolled, so the last three rows (the YAML tail:
+        // OpenConnect, TrustTunnel-H2/H3, Sudoku, MASQUE-IP/UDP) were reported
+        // "<missing>" although the app renders all 40 (test97 readback: rendered 40/40).
+        // Collect labels DURING scroll passes into a local map — a row scrolled past is
+        // destroyed again, so re-querying at the end would lose it the same way.
+        var labels: [String: String] = [:]
+        func collect() {
+            for n in names {
                 let el = app.element(id: "policy.member.Tern-Test.\(n).delay")
-                return !el.exists || el.label.isEmpty || el.label == "—"
+                if el.exists, !el.label.isEmpty { labels[n] = el.label }
             }
-            if pending.isEmpty { break }
-            usleep(2_000_000)
         }
+        let deadline = Date().addingTimeInterval(180)
+        var round = 0
+        while Date() < deadline {
+            collect()
+            let pending = names.filter { labels[$0] == nil || labels[$0] == "—" }
+            if pending.isEmpty { break }
+            // Sweep down through the list, then back up: every row gets built (and its
+            // settled label collected) on at least one pass per round.
+            if round % 2 == 0 { app.swipeUp() } else { app.swipeDown() }
+            round += 1
+            usleep(500_000)
+        }
+        // Final full pass in both directions so a label that settled late is picked up.
+        for _ in 0..<8 { collect(); app.swipeUp() }
+        for _ in 0..<8 { collect(); app.swipeDown() }
+        collect()
         snap("kit-probe-result")
         var report = ""
         for n in names {
-            let el = app.element(id: "policy.member.Tern-Test.\(n).delay")
-            report += "KIT-RESULT \(n) = \(el.exists ? el.label : "<missing>")\n"
+            report += "KIT-RESULT \(n) = \(labels[n] ?? "<missing>")\n"
         }
         print(report)
         // The workflow's log step greps the runner output and drops print() lines on a
