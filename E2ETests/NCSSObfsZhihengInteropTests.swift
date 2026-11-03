@@ -299,44 +299,59 @@ final class NCSSObfsZhihengInteropTests: XCTestCase {
         wait(for: [exp], timeout: 600)
     }
 
-    // MARK: stage 6/7 — flake hunt: unified + HTTPS through both testers, repeated
+    // MARK: stage 8 — the hang, instrumented: manual stack + wire tap + TLS + unified exchange
     //
-    // Evidence so far: the App-side probe (unified ON, https://www.gstatic.com) hangs
-    // intermittently — full 5 s cold budget, -1 — in isolation AND in the sweep, while
-    // the tunnel tester (unified OFF, http target) and raw connector fetches pass
-    // every time in the same process and minute. Repeat both configurations to catch
-    // the hang with the tunnel tester's stage trace attached.
+    // Stages 6/7 (plain repeats through the two testers) timed the job out without
+    // leaving a log. This single bounded test rebuilds the App probe's EXACT stack
+    // by hand — NCStream → tap → NCSSPluginStream(obfs http) → NCSSRelayStream →
+    // NCTLSClientStream → NCTunnelDelayTester.HTTPExchange(unified) — and runs it
+    // three times. The tap sees every raw chunk: during a hang it shows whether the
+    // response bytes reached the socket at all (server/network) or arrived and were
+    // swallowed above the tap (client layer). Per-attempt bound 15 s.
 
-    func testUnifiedHTTPSRepeated() throws {
-        let root = try XCTUnwrap(NCYAML.parse(seedYAML)?.object, "seed YAML must parse")
-        let engine = NCGroupEngine(config: NCConfig.decode(root: root))
-        for i in 1...5 {
-            let exp = expectation(description: "unified \(i)")
-            var outcome: NCTunnelDelayTester.Outcome?
-            NCTunnelDelayTester.measure(groupEngine: engine, name: "Tern-SS-Obfs",
-                                        url: "https://www.gstatic.com/generate_204", timeoutMs: 5000,
-                                        unified: true, logSuccess: true) { o in
-                outcome = o
-                exp.fulfill()
+    func testTappedUnifiedHTTPS() throws {
+        let opts = try XCTUnwrap(NCSSPluginOptions(pluginName: "obfs", opts: [
+            "mode": .string("http"), "host": .string("www.bing.com"),
+        ]), "seed plugin-opts must parse")
+        for attempt in 1...3 {
+            let raw = NCStream(to: server, port: 24021, queue: q)
+            let exp = expectation(description: "tapped \(attempt)")
+            var result = "no completion"
+            var done = false
+            raw.start { [self] e in
+                guard e == nil else { result = "tcp failed: \(String(describing: e))"; exp.fulfill(); return }
+                let tap = TapStream(raw)
+                let plugin = NCSSPluginStream(raw: tap, options: opts, serverPort: "24021")
+                plugin.start { err in
+                    guard err == nil else { result = "plugin start failed"; exp.fulfill(); return }
+                    guard let enc = NCSSEncoder(cipher: "aes-256-gcm", password: password),
+                          let dec = NCSSDecoder(cipher: "aes-256-gcm", password: password) else {
+                        result = "codec init failed"; exp.fulfill(); return
+                    }
+                    let relay = NCSSRelayStream(raw: plugin, encoder: enc, decoder: dec,
+                                                target: NCTarget(host: "www.gstatic.com", port: 443))
+                    let tls = NCTLSClientStream(raw: relay, config: .init(serverName: "www.gstatic.com", alpn: ["http/1.1"]), queue: q)
+                    tls.startHandshake { herr in
+                        guard herr == nil else { result = "inner-tls failed: \(String(describing: herr))"; exp.fulfill(); return }
+                        let ex = NCTunnelDelayTester.HTTPExchange(
+                            relay: tls,
+                            target: (host: "www.gstatic.com", port: 443, tls: true, path: "/generate_204"),
+                            unified: true, trace: nil, start: DispatchTime.now()) { ms, ferr in
+                            if !done { done = true; result = "ms=\(ms.map(String.init) ?? "nil") err=\(ferr ?? "-") tapOut=\(tap.outChunks) tapIn=\(tap.inChunks)" }
+                            exp.fulfill()
+                        }
+                        ex.warmTimeoutMs = 5000
+                        ex.timerQueue = q
+                        ex.run()
+                        q.asyncAfter(deadline: .now() + 15) {
+                            if !done { done = true; result = "STILL RUNNING at 15 s - tapOut=\(tap.outChunks) tapIn=\(tap.inChunks)" }
+                            exp.fulfill()
+                        }
+                    }
+                }
             }
-            wait(for: [exp], timeout: 30)
-            NSLog("[ssobfs-uni] attempt %d: ms=%@ failure=%@ stage=%@ error=%@ | %@",
-                  i, outcome?.ms.map(String.init) ?? "nil", outcome?.failure ?? "-",
-                  outcome?.stage ?? "-", outcome?.error ?? "-", outcome?.stages ?? "")
-        }
-    }
-
-    func testAppSideRepeated() throws {
-        let dir = NSTemporaryDirectory() + "ssobfs-rep-\(UUID().uuidString)"
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let profile = dir + "/kit.yaml"
-        try seedYAML.write(toFile: profile, atomically: true, encoding: .utf8)
-        for i in 1...5 {
-            let ms = NCDelayTester.testDelayByName(homeDir: dir, profilePath: profile,
-                                                   name: "Tern-SS-Obfs",
-                                                   url: "https://www.gstatic.com/generate_204",
-                                                   timeoutMs: 5000)
-            NSLog("[ssobfs-rep] attempt %d: app-side delay = %d", i, ms)
+            wait(for: [exp], timeout: 20)
+            NSLog("[ssobfs-tap] attempt %d: %@", attempt, result)
         }
     }
 
