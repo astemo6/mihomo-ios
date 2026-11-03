@@ -852,6 +852,13 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
 
     private var responseBuffer = Data()
     private var frameBuffer = Data()
+    /// Strong self-reference held from begin() until the connect outcome is
+    /// delivered. Every async callback of this stream captures self weakly
+    /// and the session keeps no registry of H3 streams, so without this the
+    /// stream deallocates the moment openStream returns — its QUIC
+    /// connection is torn down mid-handshake and the group fails (EINVAL),
+    /// leaving the connect completion forever unfired.
+    private var selfRetain: NCTrustTunnelH3Stream?
     private var outbox = Data()
     private var outboxWaiters: [NCCallOnce] = []
     private var inbox: [Data] = []
@@ -881,6 +888,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
 
     func begin() {
         print("NCDBG tt h3 stream begin")
+        selfRetain = self
         conn.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             ncOnSessionQueue(self.queue) {
@@ -936,6 +944,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
                             self.phase = .open
                             if let cb = self.onConnect {
                                 self.onConnect = nil
+                                self.selfRetain = nil
                                 self.callerQueue.async { cb(self, nil) }
                             }
                             if !self.outbox.isEmpty {
@@ -1077,6 +1086,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
             callerQueue.async { handler(nil, error) }
         }
         conn.cancel()
+        selfRetain = nil
     }
 
     // MARK: - NCRelayStream
@@ -1134,6 +1144,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
                     self.callerQueue.async { handler(nil, nil) }
                 }
                 self.conn.cancel()
+                self.selfRetain = nil
             }
         }
     }
