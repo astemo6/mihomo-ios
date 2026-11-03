@@ -295,6 +295,7 @@ final class NCJuicityConnection {
         self.group = group
         group.stateUpdateHandler = { [weak self] (st: NWConnectionGroup.State) in
             guard let self else { return }
+            NSLog("[juicity-diag] group state -> %@", "\(st)")
             switch st {
             case .ready:
                 self.openAuthStream()
@@ -316,6 +317,7 @@ final class NCJuicityConnection {
     }
 
     private func openAuthStream() {
+        NSLog("[juicity-diag] openAuthStream (authOpened=%@ state=%@ group=%@)", "\(authOpened)", "\(state)", group != nil ? "set" : "nil")
         guard !authOpened, state == .connecting, let group else { return }
         authOpened = true
         let uniOptions = NCQUICStreamOptions.unidirectional(from: group, fallback: quicStreamOptions)
@@ -324,8 +326,10 @@ final class NCJuicityConnection {
             return
         }
         authStream = auth
+        NSLog("[juicity-diag] auth stream extracted, starting")
         var fired = false
         auth.stateUpdateHandler = { [weak self] st in
+            NSLog("[juicity-diag] auth stream state -> %@", "\(st)")
             guard let self, !fired else { return }
             switch st {
             case .ready:
@@ -346,11 +350,14 @@ final class NCJuicityConnection {
 
     private func sendAuth(on conn: NWConnection) {
         guard let tk = exportToken(conn) else {
+            NSLog("[juicity-diag] exportToken FAILED (no QUIC metadata / secret)")
             finish(NCConnector.Failure.handshake("juicity: TLS exporter unavailable"))
             return
         }
+        NSLog("[juicity-diag] exportToken ok (32 B), sending auth")
         let cmd = NCJuicityWire.authMessage(uuid: uuid, token: tk)
         conn.send(content: cmd, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] err in
+            NSLog("[juicity-diag] auth send completed, err=%@", String(describing: err))
             guard let self else { return }
             if let err { self.finish(err); return }
             self.setState(.ready)
