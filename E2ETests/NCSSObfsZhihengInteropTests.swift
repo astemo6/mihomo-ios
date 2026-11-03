@@ -261,6 +261,54 @@ final class NCSSObfsZhihengInteropTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: anyValue(.object(root)))
         delayViaEngine(try NCConfig.decode(jsonData: data), "stage3-json")
     }
+
+    // MARK: stage 4 — the EXACT App-side path test99 drives
+    //
+    // test99 never starts the tunnel (the probe screenshot shows 未连接): the 策略
+    // group test runs in the App process via ProfileInspector →
+    // NCDelayTester.testDelayByName → NCNodeResolver over the profile FILE →
+    // measureHttpDelay (unified-delay ON, 测速设置 defaults: https://www.gstatic.com/
+    // generate_204, 5000 ms). Stage 3 above used the tunnel-side tester instead —
+    // this stage replicates the App call verbatim against a temp profile file.
+
+    func testAppSideDelayTester() throws {
+        let dir = NSTemporaryDirectory() + "ssobfs-app-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let profile = dir + "/kit.yaml"
+        let twoNodes = seedYAML + """
+        - name: Tern-SS-V2ray
+          type: ss
+          server: \(server)
+          port: 24022
+          cipher: aes-256-gcm
+          password: \(password)
+          udp: false
+          plugin: v2ray-plugin
+          plugin-opts:
+            mode: websocket
+            host: tern.test
+            path: /y566yq2t
+        """
+        try twoNodes.write(toFile: profile, atomically: true, encoding: .utf8)
+        if let p = NCNodeResolver.shared.resolveByName(homeDir: dir, profilePath: profile, name: "Tern-SS-Obfs") {
+            NSLog("[ssobfs-app] resolved: plugin=%@ plugin-opts=%@",
+                  p.fields["plugin"]?.string ?? "<nil>", String(describing: p.fields["plugin-opts"]))
+        } else {
+            NSLog("[ssobfs-app] resolver returned nil for Tern-SS-Obfs")
+        }
+        let ms = NCDelayTester.testDelayByName(homeDir: dir, profilePath: profile,
+                                               name: "Tern-SS-Obfs",
+                                               url: "https://www.gstatic.com/generate_204",
+                                               timeoutMs: 5000)
+        NSLog("[ssobfs-app] app-side delay Tern-SS-Obfs = %d", ms)
+        XCTAssertGreaterThan(ms, 0, "app-side delay tester must measure SS-Obfs")
+        let ms2 = NCDelayTester.testDelayByName(homeDir: dir, profilePath: profile,
+                                                name: "Tern-SS-V2ray",
+                                                url: "https://www.gstatic.com/generate_204",
+                                                timeoutMs: 5000)
+        NSLog("[ssobfs-app] app-side delay Tern-SS-V2ray = %d", ms2)
+        XCTAssertGreaterThan(ms2, 0, "app-side delay tester must measure SS-V2ray")
+    }
 }
 
 /// Wire tap: logs every chunk crossing the plugin seam (sizes + printable
