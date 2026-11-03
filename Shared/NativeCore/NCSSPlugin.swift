@@ -128,17 +128,28 @@ enum NCSSPlugin {
     struct HTTPResponseStripper {
         private var buffer = Data()
         private(set) var failed = false
+        /// True once the response head's terminator has been consumed: from
+        /// then on the stream is raw SS ciphertext and every chunk must pass
+        /// through verbatim. (fix/kit-ss-obfs: without this flag, feed()
+        /// re-searched EVERY later chunk for "\r\n\r\n" and buffered —
+        /// swallowed — any chunk that lacked it. Coalesced responses arrived
+        /// in one chunk and worked; a response arriving in its own segment,
+        /// e.g. the first app-data flight after a TLS handshake through the
+        /// plugin, never reached the SS decoder and the probe hung.)
+        private var stripped = false
         private let cap = 16 * 1024
 
         /// Feed wire bytes; returns nil on overflow (check `failed`),
-        /// empty Data while still incomplete, else the plaintext remainder.
+        /// empty Data while the head is still incomplete, else the plaintext.
         mutating func feed(_ data: Data) -> Data? {
             if failed { return nil }
+            if stripped { return data }
             buffer.append(data)
             guard let range = buffer.range(of: NCSSPlugin.httpHeaderTerminator) else {
                 if buffer.count > cap { failed = true; return nil }
                 return Data()
             }
+            stripped = true
             let rest = Data(buffer[range.upperBound...])
             buffer = Data()
             return rest
