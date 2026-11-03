@@ -550,6 +550,7 @@ jobs:
           TEST_RUNNER_NC_JUICITY_ZH=1 \
           TEST_RUNNER_NC_JUICITY_SERVER=45.92.159.155 \
           TEST_RUNNER_NC_JUICITY_PORT=24033 \
+          TEST_RUNNER_NC_JUICITY_EXPECT_EGRESS='45.92.159.155,2a12:a304:4:ac4::a' \
           TEST_RUNNER_NC_JUICITY_UUID='6ceb5215-15b9-4ef3-8a48-61ee6ff3ae71' \
           TEST_RUNNER_NC_JUICITY_PASSWORD='yeCsUwsFbAhUYMUgdeiC' \
           xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/juicity-zh.xcresult \

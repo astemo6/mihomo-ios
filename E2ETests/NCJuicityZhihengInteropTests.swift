@@ -97,7 +97,16 @@ final class NCJuicityZhihengInteropTests: XCTestCase {
         XCTAssertTrue(status.contains(" 200"), "\(label): \(status)")
         let text = String(decoding: body, as: UTF8.self)
         NSLog("[juicity-zh] %@ trace: %@", label, text.split(separator: "\n").filter { $0.hasPrefix("ip=") || $0.hasPrefix("colo=") }.joined(separator: " "))
-        XCTAssertTrue(text.contains("ip=45.92.159.155"), "\(label): egress is not the zhiheng server: \(text)")
+        // Egress identity: NC_JUICITY_EXPECT_EGRESS lists the server's own addresses
+        // (zhiheng egresses as 45.92.159.155 on IPv4 and 2a12:a304:4:ac4::a on IPv6 —
+        // the trace picks one per connection). Unset (loopback-official-server job):
+        // the server egresses as the runner itself, so any ip= line proves the relay.
+        let expected = (env["NC_JUICITY_EXPECT_EGRESS"] ?? "").split(separator: ",").map { "ip=\($0)" }
+        if expected.isEmpty {
+            XCTAssertTrue(text.contains("ip="), "\(label): no egress ip in trace: \(text)")
+        } else {
+            XCTAssertTrue(expected.contains { text.contains($0) }, "\(label): egress is not the reference server: \(text)")
+        }
     }
 
     // MARK: tests
