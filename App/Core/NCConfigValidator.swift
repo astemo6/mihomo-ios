@@ -115,6 +115,7 @@ enum NCConfigValidator {
         "ss", "ssr", "socks5", "http", "vmess", "vless", "snell", "trojan", "hysteria", "hysteria2", "wireguard",
         "tuic", "juicity", "shadowquic", "gost-relay", "direct", "dns", "reject", "rematch", "ssh", "mieru", "anytls", "sudoku",
         "masque", "trusttunnel", "openvpn", "tailscale", "zerotier", "easytier",
+        "openconnect", "anyconnect", // NCConfImport parses both (anyconnect aliases openconnect); the validator list missed them, rejecting whole profiles
         "brook", // feat/nc-brook: native-core only (not a Clash.Meta type)
         // feat/nc-naive-h2h3: NaïveProxy and Shadowrocket HTTP/2 / HTTP/3 proxies (native core only).
         "naive", "http2", "h2", "http3", "h3",
