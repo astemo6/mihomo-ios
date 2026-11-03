@@ -79,6 +79,10 @@ final class NCSSObfsZhihengInteropTests: XCTestCase {
             s.receive { d, _ in
                 guard let d, !d.isEmpty else { finish(); return }
                 raw.append(d)
+                // Mux-backed streams (v2ray-plugin) never deliver EOF at response
+                // end — the trace body is complete once its ip=/colo= lines are in.
+                let text = String(decoding: raw, as: UTF8.self)
+                if text.contains("ip=") && text.contains("colo=") { finish(); return }
                 read()
             }
         }
@@ -186,6 +190,76 @@ final class NCSSObfsZhihengInteropTests: XCTestCase {
 
     func testPlainSSControlViaConnector() throws {
         viaConnector(plainNode(), "control-plain")
+    }
+
+    // MARK: stage 3 — the probe's own path: seed YAML → NCConfig → NCGroupEngine → delay tester
+    //
+    // Stages 1–2 hand-build the NCProxy. test99 instead imports the seed YAML in the
+    // App, the tunnel loads the resulting config, and NCController's delay tester
+    // measures through NCGroupEngine. These two variants replicate that chain
+    // in-process (YAML decode, and the App's JSON re-encode the tunnel prefers)
+    // and print the delay tester's full Outcome — stage + error text the UI hides.
+
+    private var seedYAML: String {
+        """
+        proxies:
+        - name: Tern-SS-Obfs
+          type: ss
+          server: \(server)
+          port: 24021
+          cipher: aes-256-gcm
+          password: \(password)
+          udp: false
+          plugin: obfs
+          plugin-opts:
+            mode: http
+            host: www.bing.com
+        """
+    }
+
+    private func anyValue(_ v: NCJSONValue) -> Any {
+        switch v {
+        case .null: return NSNull()
+        case .bool(let b): return b
+        case .number(let n): return n
+        case .string(let s): return s
+        case .array(let a): return a.map(anyValue)
+        case .object(let o): return o.mapValues(anyValue)
+        }
+    }
+
+    private func delayViaEngine(_ cfg: NCConfig, _ label: String) {
+        if let p = cfg.proxyMap["Tern-SS-Obfs"] {
+            NSLog("[ssobfs-zh] %@ imported fields: plugin=%@ plugin-opts=%@", label,
+                  p.fields["plugin"]?.string ?? "<nil>", String(describing: p.fields["plugin-opts"]))
+        } else {
+            NSLog("[ssobfs-zh] %@ imported fields: node MISSING from proxyMap (proxies=%d)", label, cfg.proxies.count)
+        }
+        let engine = NCGroupEngine(config: cfg)
+        let exp = expectation(description: "delay \(label)")
+        var outcome: NCTunnelDelayTester.Outcome?
+        NCTunnelDelayTester.measure(groupEngine: engine, name: "Tern-SS-Obfs",
+                                    url: "http://www.gstatic.com/generate_204", timeoutMs: 8000,
+                                    unified: false, logSuccess: true) { o in
+            outcome = o
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 40)
+        NSLog("[ssobfs-zh] %@ delay outcome: ms=%@ failure=%@ stage=%@ error=%@ | %@",
+              label, outcome?.ms.map(String.init) ?? "nil", outcome?.failure ?? "-",
+              outcome?.stage ?? "-", outcome?.error ?? "-", outcome?.stages ?? "")
+        XCTAssertNotNil(outcome?.ms, "\(label): delay probe failed (see outcome line)")
+    }
+
+    func testImportedViaYAMLDelay() throws {
+        let root = try XCTUnwrap(NCYAML.parse(seedYAML)?.object, "seed YAML must parse")
+        delayViaEngine(NCConfig.decode(root: root), "stage3-yaml")
+    }
+
+    func testImportedViaJSONDelay() throws {
+        let root = try XCTUnwrap(NCYAML.parse(seedYAML)?.object, "seed YAML must parse")
+        let data = try JSONSerialization.data(withJSONObject: anyValue(.object(root)))
+        delayViaEngine(try NCConfig.decode(jsonData: data), "stage3-json")
     }
 }
 
