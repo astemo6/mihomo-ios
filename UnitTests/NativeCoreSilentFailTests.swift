@@ -489,4 +489,29 @@ final class NativeCoreSilentFailTests: XCTestCase {
         XCTAssertEqual(NCConnector.certPin(node("vless", ["fingerprint": .string(String(repeating: "zz", count: 32))])), .invalid)
         XCTAssertEqual(NCConnector.certPin(node("vless", [:])), .absent)
     }
+
+    // MARK: - fix/kit-ss-obfs: the obfs-http response stripper must pass chunks through after the head
+    //
+    // The stripper used to re-search EVERY chunk for the head terminator and
+    // buffer (swallow) any chunk without one: a response that arrived in its
+    // own segment after the 101 — e.g. the first app-data flight answering a
+    // request over a TLS session through the plugin — never reached the SS
+    // decoder and the connection hung. Reproduced live against the kit
+    // server (E2ETests/NCSSObfsZhihengInteropTests): dial/tcp/inner-tls all
+    // completed, stage=request never did, 5/5 attempts.
+    func testObfsHTTPStripperPassesChunksThroughAfterHead() {
+        var s = NCSSPlugin.HTTPResponseStripper()
+        let head = Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n".utf8)
+        let first = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        XCTAssertEqual(s.feed(head + first), first, "bytes after the head terminator are delivered")
+        let second = Data([0x01, 0x02, 0x03, 0x04, 0x05])
+        XCTAssertEqual(s.feed(second), second, "a later chunk without a terminator must pass through, not be buffered")
+        let third = Data("ab\r\n\r\ncd".utf8)
+        XCTAssertEqual(s.feed(third), third, "terminator bytes inside ciphertext must pass through unaltered")
+        // A head split across chunks still strips correctly.
+        var s2 = NCSSPlugin.HTTPResponseStripper()
+        XCTAssertEqual(s2.feed(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: web".utf8)), Data())
+        XCTAssertEqual(s2.feed(Data("socket\r\n\r\n".utf8) + first), first)
+        XCTAssertEqual(s2.feed(second), second)
+    }
 }
