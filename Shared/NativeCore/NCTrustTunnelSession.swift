@@ -939,6 +939,7 @@ final class NCTrustTunnelH3Stream: NCRelayStream {
                 if let content, !content.isEmpty {
                     print("NCDBG tt h3 handshake received \(content.count) bytes")
                     self.responseBuffer.append(content)
+                    print("NCDBG tt h3 responseBuffer hex: \(self.responseBuffer.map { String(format: "%02x", $0) }.joined())")
                     if let parsed = self.tryParseH3Response() {
                         if parsed.status == "200" {
                             self.phase = .open
