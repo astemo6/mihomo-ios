@@ -537,7 +537,7 @@ extension KitImportProbeTests {
             String(data: Data(base64Encoded: s)!, encoding: .utf8)!
         }
         let full = b64(UITestSeed.kitProbeB64)
-        let store = ProfileStore()
+        let store = await ProfileStore()
         var out = "===== SEED REPLAY =====\n"
         let home = AppShared.homeURL
         try FileManager.default.createDirectory(at: home.appendingPathComponent("proxies"), withIntermediateDirectories: true)
