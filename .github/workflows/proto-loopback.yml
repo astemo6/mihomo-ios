@@ -629,6 +629,8 @@ jobs:
         run: |
           set +e
           xcrun simctl bootstatus "$DEV" -b
+          sudo tcpdump -i lo0 -nn -w results/lb.pcap udp port 24333 >/dev/null 2>&1 &
+          TCPDUMP_PID=$!
           TEST_RUNNER_JSC_useJIT=false \
           TEST_RUNNER_NC_JUICITY_ZH=1 \
           TEST_RUNNER_NC_JUICITY_SERVER=127.0.0.1 \
@@ -639,6 +641,8 @@ jobs:
             -only-testing:TernE2ETunnelTests/NCJuicityZhihengInteropTests test-without-building 2>&1 | tee results/juicity-lb.log \
             | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|juicity-zh|juicity-diag"
           RC=${PIPESTATUS[0]}
+          sudo kill $TCPDUMP_PID 2>/dev/null; sleep 1
+          tcpdump -r results/lb.pcap -nn 2>/dev/null | head -80 > results/lb-packets.txt; cat results/lb-packets.txt
           [ "$RC" = 0 ] || tail -n 150 results/juicity-lb.log
           {
             echo "### Juicity interop (loopback official juicity-server, debug log below in artifacts)"
@@ -656,6 +660,8 @@ jobs:
             results/juicity-lb.log
             results/juicity-lb-server.log
             results/juicity-lb-client.log
+            results/lb-packets.txt
+            results/lb.pcap
           if-no-files-found: warn
           retention-days: 14
 

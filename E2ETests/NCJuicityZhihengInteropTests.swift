@@ -128,6 +128,37 @@ final class NCJuicityZhihengInteropTests: XCTestCase {
         assertTraceEgress(s, "stage2")
     }
 
+    /// CONTROL, same harness/process: NCTUICConnection (identical NWConnectionGroup
+    /// mechanics, identical exporter-auth code) against the kit TUIC node on the same
+    /// server (sing-box, UDP 24015, same uuid/password/cert/SNI). If TUIC's start()
+    /// completes here while Juicity's times out, the harness and the shared QUIC
+    /// machinery are exonerated and the fault is Juicity-specific interop.
+    func testTUICControlSameHarness() throws {
+        let p = NCProxy(name: "Tern-TUIC", type: "tuic", fields: [
+            "server": .string(env["NC_TUIC_SERVER"] ?? "45.92.159.155"),
+            "port": .number(Double(env["NC_TUIC_PORT"] ?? "") ?? 24015),
+            "uuid": .string(env["NC_JUICITY_UUID"] ?? ""),
+            "password": .string(env["NC_JUICITY_PASSWORD"] ?? ""),
+            "sni": .string("tern.test"),
+            "congestion-controller": .string("bbr"),
+            "skip-cert-verify": .bool(true),
+            "udp": .bool(true),
+        ])
+        let conn = try XCTUnwrap(NCTUICConnection(proxy: p, queue: q), "NCTUICConnection init failed")
+        defer { conn.close() }
+        let started = expectation(description: "tuic start")
+        var startErr: Error?
+        let t0 = Date()
+        conn.start { e in
+            startErr = e
+            started.fulfill()
+        }
+        wait(for: [started], timeout: 30)
+        NSLog("[juicity-zh] tuic-control start -> %@ in %.2f s",
+              startErr == nil ? "ready" : "error \(String(describing: startErr))", Date().timeIntervalSince(t0))
+        XCTAssertNil(startErr, "TUIC control failed too — harness/shared-machinery suspect: \(String(describing: startErr))")
+    }
+
     /// The production path: NCConnector.connect via the shared-connection registry,
     /// exactly what the delay tester / data plane drive.
     func testProductionPathViaConnector() throws {
