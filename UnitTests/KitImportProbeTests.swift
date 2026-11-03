@@ -573,3 +573,53 @@ extension KitImportProbeTests {
         add(att)
     }
 }
+
+extension KitImportProbeTests {
+    /// probe/kit-e2e: run the REAL connect-path prep (prepareSyncForReplay) over the
+    /// imported kit profile in the real home, then audit every artifact the tunnel will
+    /// load: nativecore-runtime.json (raw + NCConfig.decode(jsonData:)), runtime.yaml,
+    /// and the prep report. The app UI serves the tunnel's /proxies, which is a pure
+    /// pass-through of the engine's cfg — if prep's JSON is 40/40 the loss is inside
+    /// the extension process; if it is 34, it is here.
+    func testKitPrepRuntimeAudit() async throws {
+        func b64(_ s: String) -> String {
+            String(data: Data(base64Encoded: s)!, encoding: .utf8)!
+        }
+        let full = b64(UITestSeed.kitProbeB64)
+        let store = await ProfileStore()
+        let p = try await store.addLocal(name: "Kit Prep Audit", text: full)
+        let home = AppShared.homeURL
+        var out = "===== PREP AUDIT =====\n"
+        let err = await Task.detached(priority: .userInitiated) {
+            NativeRuntimePrep.prepareSyncForReplay(home: home.path, profile: p.fileURL)
+        }.value
+        out += "prep error: \(err ?? "nil")\n"
+        // raw JSON truth (Foundation parse, independent of NCConfig)
+        let jsonURL = home.appendingPathComponent("nativecore-runtime.json")
+        if let data = try? Data(contentsOf: jsonURL),
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            let px = (root["proxies"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
+            let groups = (root["proxy-groups"] as? [[String: Any]]) ?? []
+            let members = (groups.first { ($0["name"] as? String) == "Tern-Test" }?["proxies"] as? [String]) ?? []
+            out += "runtime-json proxies(\(px.count)) members(\(members.count))\n"
+            out += "SIX in json: \(["Tern-OpenConnect", "Tern-TrustTunnel-H2", "Tern-TrustTunnel-H3", "Tern-Sudoku", "Tern-MASQUE-IP", "Tern-MASQUE-UDP"].map { px.contains($0) ? $0 : "\($0)(ABSENT)" }.joined(separator: " | "))\n"
+            if let cfg = try? NCConfig.decode(jsonData: data) {
+                let gm = cfg.groups.first { $0.name == "Tern-Test" }?.proxies ?? []
+                out += "decode(jsonData:) proxies(\(cfg.proxies.count)) members(\(gm.count))\n"
+            } else { out += "decode(jsonData:): THREW\n" }
+        } else { out += "runtime-json: <unreadable>\n" }
+        if let text = try? String(contentsOf: home.appendingPathComponent("runtime.yaml"), encoding: .utf8),
+           case .object(let m)? = NCYAML.parse(text) {
+            let px = (m["proxies"]?.array ?? []).compactMap { $0.object?["name"]?.string }
+            out += "runtime-yaml proxies(\(px.count))\n"
+        } else { out += "runtime-yaml: <unreadable>\n" }
+        if let repText = try? String(contentsOf: home.appendingPathComponent("nativecore-prep.json"), encoding: .utf8) {
+            out += "prep-report: \(repText.prefix(600))\n"
+        }
+        print(out)
+        let att = XCTAttachment(string: out)
+        att.name = "kit-prep-audit"
+        att.lifetime = .keepAlways
+        add(att)
+    }
+}
