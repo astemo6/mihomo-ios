@@ -663,8 +663,9 @@ enum NCMASQUE {
         // Extra headers (authorization, etc.)
         for (name, value) in extraHeaders {
             if name.lowercased() == "authorization" {
-                // Static table index 83 has name "authorization"
-                out.append(qpackEncodeInteger(83, prefixBits: 4, flags: 0x50))
+                // Static table index 84 has name "authorization" (RFC 9204 App. A;
+                // 83 is alt-svc — an off-by-one that renamed the header)
+                out.append(qpackEncodeInteger(84, prefixBits: 4, flags: 0x50))
                 out.append(qpackEncodeString(value))
             } else {
                 out.append(qpackEncodeString(name.lowercased(), prefixBits: 3, flags: 0x20))
