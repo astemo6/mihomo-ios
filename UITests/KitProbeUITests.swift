@@ -64,6 +64,46 @@ extension TernUITests {
         att.name = "kit-results"
         att.lifetime = .keepAlways
         add(att)
+        // WG phase-3 diagnostics (fix/kit-wireguard-prod): pull the extension's own words out
+        // through the pasteboard (shared on the simulator): 更多 → 复制启动日志, and
+        // 工具 → 运行日志 → copy-all toolbar button.
+        var dump = ""
+        tab(4)
+        let copyStart = app.buttons["复制启动日志"]
+        for _ in 0..<10 where !copyStart.exists { app.swipeUp() }
+        if copyStart.exists {
+            copyStart.tap()
+            usleep(800_000)
+            if let s = UIPasteboard.general.string, !s.isEmpty {
+                dump += "STARTUP-PASTE:\n\(s)\n"
+            }
+        }
+        tab(3)
+        let logsCard = app.staticTexts["运行日志"]
+        if logsCard.waitForExistence(timeout: 8) {
+            logsCard.tap()
+            usleep(3_000_000)
+            UIPasteboard.general.string = "WG-PASTE-MARKER"
+            let candidates = app.buttons.allElementsBoundByIndex.filter {
+                $0.label.contains("doc.on.doc") || $0.identifier.contains("doc.on.doc")
+            }
+            if let b = candidates.first {
+                b.tap()
+                usleep(800_000)
+                if let s = UIPasteboard.general.string, s != "WG-PASTE-MARKER" {
+                    let wg = s.split(separator: "\n").filter { $0.contains("WireGuard") || $0.contains("AmneziaWG") }
+                    dump += "CORELOG-PASTE (\(wg.count) wg lines of \(s.split(separator: "\n").count)):\n" + wg.joined(separator: "\n") + "\n"
+                } else {
+                    dump += "CORELOG-PASTE: <pasteboard unchanged>\n"
+                }
+            } else {
+                dump += "CORELOG-PASTE: <copy button not found; buttons: \(app.buttons.allElementsBoundByIndex.map(\.label))>\n"
+            }
+        }
+        let att2 = XCTAttachment(string: dump.isEmpty ? "<no wg log lines found>" : dump)
+        att2.name = "wg-logs"
+        att2.lifetime = .keepAlways
+        add(att2)
         assertAlive("kit probe")
     }
 }
