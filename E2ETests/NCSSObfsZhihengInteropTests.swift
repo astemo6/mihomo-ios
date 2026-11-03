@@ -299,6 +299,47 @@ final class NCSSObfsZhihengInteropTests: XCTestCase {
         wait(for: [exp], timeout: 600)
     }
 
+    // MARK: stage 6/7 — flake hunt: unified + HTTPS through both testers, repeated
+    //
+    // Evidence so far: the App-side probe (unified ON, https://www.gstatic.com) hangs
+    // intermittently — full 5 s cold budget, -1 — in isolation AND in the sweep, while
+    // the tunnel tester (unified OFF, http target) and raw connector fetches pass
+    // every time in the same process and minute. Repeat both configurations to catch
+    // the hang with the tunnel tester's stage trace attached.
+
+    func testUnifiedHTTPSRepeated() throws {
+        let root = try XCTUnwrap(NCYAML.parse(seedYAML)?.object, "seed YAML must parse")
+        let engine = NCGroupEngine(config: NCConfig.decode(root: root))
+        for i in 1...5 {
+            let exp = expectation(description: "unified \(i)")
+            var outcome: NCTunnelDelayTester.Outcome?
+            NCTunnelDelayTester.measure(groupEngine: engine, name: "Tern-SS-Obfs",
+                                        url: "https://www.gstatic.com/generate_204", timeoutMs: 5000,
+                                        unified: true, logSuccess: true) { o in
+                outcome = o
+                exp.fulfill()
+            }
+            wait(for: [exp], timeout: 30)
+            NSLog("[ssobfs-uni] attempt %d: ms=%@ failure=%@ stage=%@ error=%@ | %@",
+                  i, outcome?.ms.map(String.init) ?? "nil", outcome?.failure ?? "-",
+                  outcome?.stage ?? "-", outcome?.error ?? "-", outcome?.stages ?? "")
+        }
+    }
+
+    func testAppSideRepeated() throws {
+        let dir = NSTemporaryDirectory() + "ssobfs-rep-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let profile = dir + "/kit.yaml"
+        try seedYAML.write(toFile: profile, atomically: true, encoding: .utf8)
+        for i in 1...5 {
+            let ms = NCDelayTester.testDelayByName(homeDir: dir, profilePath: profile,
+                                                   name: "Tern-SS-Obfs",
+                                                   url: "https://www.gstatic.com/generate_204",
+                                                   timeoutMs: 5000)
+            NSLog("[ssobfs-rep] attempt %d: app-side delay = %d", i, ms)
+        }
+    }
+
     /// The kit seed profile verbatim (same base64 as App/Core/UITestSeed.kitProbeB64 —
     /// the profile test99 imports; kept in sync by construction, it IS the probe input).
     static let kitSeedB64 =
