@@ -101,7 +101,7 @@ jobs:
       scheme: TernUITests
 
   build-e2e:
-    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || (!inputs.jobs || contains(inputs.jobs, 'wireguard')) || contains(inputs.jobs, 'masque-warp') || contains(inputs.jobs, 'wireguard-zh'))
+    if: github.repository == 'astemo6/mihomo-ios' && !inputs.prebuilt && ((!inputs.jobs || contains(inputs.jobs, 'openconnect')) || (!inputs.jobs || contains(inputs.jobs, 'masque-ip')) || (!inputs.jobs || contains(inputs.jobs, 'wireguard')) || contains(inputs.jobs, 'masque-warp') || contains(inputs.jobs, 'wireguard-zh') || contains(inputs.jobs, 'juicity-zh') || contains(inputs.jobs, 'juicity-lb'))
     uses: ./.github/workflows/build-for-testing.yml
     with:
       ref: ${{ inputs.ref }}
@@ -523,6 +523,146 @@ jobs:
           name: wireguard-zh-interop-results
           path: |
             results/wireguard-zh.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  juicity-zh:
+    needs: build-e2e
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && contains(inputs.jobs, 'juicity-zh') && (needs.build-e2e.result == 'success' || (inputs.prebuilt && needs.build-e2e.result == 'skipped')) }}
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode_e2e || needs.build-e2e.outputs.xcode }}
+      - name: Disable Thread Performance Checker
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
+      - name: Run Juicity interop tests (real zhiheng kit server, UDP 24033)
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          TEST_RUNNER_JSC_useJIT=false \
+          TEST_RUNNER_NC_JUICITY_ZH=1 \
+          TEST_RUNNER_NC_JUICITY_SERVER=45.92.159.155 \
+          TEST_RUNNER_NC_JUICITY_PORT=24033 \
+          TEST_RUNNER_NC_JUICITY_EXPECT_EGRESS='45.92.159.155,2a12:a304:4:ac4::a' \
+          TEST_RUNNER_NC_JUICITY_UUID='6ceb5215-15b9-4ef3-8a48-61ee6ff3ae71' \
+          TEST_RUNNER_NC_JUICITY_PASSWORD='yeCsUwsFbAhUYMUgdeiC' \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/juicity-zh.xcresult \
+            -only-testing:TernE2ETunnelTests/NCJuicityZhihengInteropTests test-without-building 2>&1 | tee results/juicity-zh.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|juicity-zh"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/juicity-zh.log
+          if grep -q "skipped" results/juicity-zh.log && ! grep -q "passed" results/juicity-zh.log; then RC=1; echo "::error::all Juicity zhiheng tests skipped"; fi
+          {
+            echo "### Juicity interop (real zhiheng kit server)"
+            grep -E "Executed [0-9]+ tests?" results/juicity-zh.log | tail -n 1 | sed 's/^/- /'
+            grep -E "Test Case .*(passed|failed)" results/juicity-zh.log | sed -E 's/.*-\[[^ ]+ ([^]]+)\]. (passed|failed).*/- \1: \2/'
+            grep -E "juicity-zh" results/juicity-zh.log | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: juicity-zh-interop-results
+          path: |
+            results/juicity-zh.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  juicity-lb:
+    needs: build-e2e
+    if: ${{ !cancelled() && github.repository == 'astemo6/mihomo-ios' && contains(inputs.jobs, 'juicity-lb') && (needs.build-e2e.result == 'success' || (inputs.prebuilt && needs.build-e2e.result == 'skipped')) }}
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/tern-prebuilt
+        with:
+          scheme: TernE2E
+          xcode: ${{ inputs.xcode_e2e || needs.build-e2e.outputs.xcode }}
+      - name: Disable Thread Performance Checker
+        run: python3 scripts/ci/strip-tpc.py "$XCTESTRUN"
+      - name: Start official juicity-server v0.5.0 on loopback (debug log)
+        run: |
+          set -e
+          mkdir -p results juic
+          cd juic
+          curl -sL --max-time 180 -o j.zip https://github.com/juicity/juicity/releases/download/v0.5.0/juicity-macos-arm64.zip
+          unzip -o -q j.zip
+          openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 3650 -nodes -subj "/CN=tern.test" -addext "subjectAltName=DNS:tern.test,IP:127.0.0.1" 2>/dev/null
+          cat > server.json <<'JSON'
+          {
+            "listen": "127.0.0.1:24333",
+            "users": {"6ceb5215-15b9-4ef3-8a48-61ee6ff3ae71": "yeCsUwsFbAhUYMUgdeiC"},
+            "certificate": "cert.pem",
+            "private_key": "key.pem",
+            "congestion_control": "bbr",
+            "log_level": "debug"
+          }
+          JSON
+          (./juicity-server run -c server.json > ../results/juicity-lb-server.log 2>&1 &)
+          sleep 2
+          cat > client.json <<'JSON'
+          {
+            "listen": "127.0.0.1:11081",
+            "server": "127.0.0.1:24333",
+            "uuid": "6ceb5215-15b9-4ef3-8a48-61ee6ff3ae71",
+            "password": "yeCsUwsFbAhUYMUgdeiC",
+            "sni": "tern.test",
+            "allow_insecure": true,
+            "congestion_control": "bbr",
+            "log_level": "info"
+          }
+          JSON
+          (./juicity-client run -c client.json > ../results/juicity-lb-client.log 2>&1 &)
+          sleep 3
+          echo "official client egress via loopback server: $(curl -s --max-time 20 -x socks5h://127.0.0.1:11081 https://api.ipify.org || echo FAILED)"
+      - name: Run Juicity interop tests (loopback official server, 127.0.0.1:24333)
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          sudo tcpdump -i lo0 -nn -w results/lb.pcap udp port 24333 >/dev/null 2>&1 &
+          TCPDUMP_PID=$!
+          TEST_RUNNER_JSC_useJIT=false \
+          TEST_RUNNER_NC_JUICITY_ZH=1 \
+          TEST_RUNNER_NC_JUICITY_SERVER=127.0.0.1 \
+          TEST_RUNNER_NC_JUICITY_PORT=24333 \
+          TEST_RUNNER_NC_JUICITY_UUID='6ceb5215-15b9-4ef3-8a48-61ee6ff3ae71' \
+          TEST_RUNNER_NC_JUICITY_PASSWORD='yeCsUwsFbAhUYMUgdeiC' \
+          xcodebuild -xctestrun "$XCTESTRUN" -destination "id=$DEV" -resultBundlePath results/juicity-lb.xcresult \
+            -only-testing:TernE2ETunnelTests/NCJuicityZhihengInteropTests test-without-building 2>&1 | tee results/juicity-lb.log \
+            | grep -E "Test Case .*(failed|passed|skipped)|error:|XCTAssert|Executed|juicity-zh|juicity-diag"
+          RC=${PIPESTATUS[0]}
+          sudo kill $TCPDUMP_PID 2>/dev/null; sleep 1
+          tcpdump -r results/lb.pcap -nn 2>/dev/null | head -80 > results/lb-packets.txt; cat results/lb-packets.txt
+          [ "$RC" = 0 ] || tail -n 150 results/juicity-lb.log
+          {
+            echo "### Juicity interop (loopback official juicity-server, debug log below in artifacts)"
+            grep -E "Executed [0-9]+ tests?" results/juicity-lb.log | tail -n 1 | sed 's/^/- /'
+            grep -E "Test Case .*(passed|failed)" results/juicity-lb.log | sed -E 's/.*-\[[^ ]+ ([^]]+)\]. (passed|failed).*/- \1: \2/'
+            grep -E "juicity-zh|juicity-diag" results/juicity-lb.log | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: juicity-lb-interop-results
+          path: |
+            results/juicity-lb.log
+            results/juicity-lb-server.log
+            results/juicity-lb-client.log
+            results/lb-packets.txt
+            results/lb.pcap
           if-no-files-found: warn
           retention-days: 14
 
