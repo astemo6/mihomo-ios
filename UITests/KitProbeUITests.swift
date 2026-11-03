@@ -20,6 +20,15 @@ extension TernUITests {
                      "Tern-Sudoku", "Tern-MASQUE-IP", "Tern-MASQUE-UDP"]
         allowHan = true
         launch(["-UITestKitProbe"])
+        // probe/kit-e2e: the seed records its kit import attempts (errors verbatim) on the
+        // pasteboard — surface them before anything else can overwrite it.
+        if let seedReport = UIPasteboard.general.string, seedReport.hasPrefix("KITSEED") {
+            print(seedReport)
+            let satt = XCTAttachment(string: seedReport)
+            satt.name = "kit-seed-report"
+            satt.lifetime = .keepAlways
+            add(satt)
+        }
         tab(1)
         let group = app.element(id: "policy.card.Tern-Test")
         if !group.waitForExistence(timeout: 30) {
